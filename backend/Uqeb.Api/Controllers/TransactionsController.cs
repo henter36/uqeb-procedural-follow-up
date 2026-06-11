@@ -1,0 +1,262 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Uqeb.Api.DTOs.Transactions;
+using Uqeb.Api.Helpers;
+using Uqeb.Api.Models.Enums;
+using Uqeb.Api.Services;
+
+namespace Uqeb.Api.Controllers;
+
+[ApiController]
+[Route("api/transactions")]
+[Authorize]
+public class TransactionsController : ControllerBase
+{
+    private readonly ITransactionService _transactions;
+    private readonly IAttachmentService _attachments;
+    private readonly ICurrentUserService _currentUser;
+
+    public TransactionsController(ITransactionService transactions, IAttachmentService attachments, ICurrentUserService currentUser)
+    {
+        _transactions = transactions;
+        _attachments = attachments;
+        _currentUser = currentUser;
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> Search([FromQuery] TransactionSearchRequest request) =>
+        Ok(await _transactions.SearchAsync(request, _currentUser));
+
+    [HttpGet("{id}")]
+    public async Task<IActionResult> GetById(int id)
+    {
+        var result = await _transactions.GetByIdAsync(id, _currentUser);
+        return result == null ? NotFound() : Ok(result);
+    }
+
+    [HttpPost]
+    [Authorize(Policy = "CanEditTransactions")]
+    public async Task<IActionResult> Create([FromBody] CreateTransactionRequest request)
+    {
+        try
+        {
+            var result = await _transactions.CreateAsync(request, _currentUser.UserId);
+            return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
+        }
+        catch (FieldValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message, errors = ex.FieldErrors });
+        }
+        catch (DuplicateIncomingNumberException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (DuplicateTrackingNumberException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPut("{id}")]
+    [Authorize(Policy = "CanEditTransactions")]
+    public async Task<IActionResult> Update(int id, [FromBody] UpdateTransactionRequest request)
+    {
+        try
+        {
+            var result = await _transactions.UpdateAsync(id, request, _currentUser.UserId, _currentUser.Role);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Forbid(ex.Message);
+        }
+    }
+
+    [HttpPost("{id}/cancel")]
+    [Authorize(Policy = "SupervisorOrAdmin")]
+    public async Task<IActionResult> Cancel(int id)
+    {
+        try
+        {
+            return await _transactions.CancelAsync(id, _currentUser.UserId, _currentUser.Role) ? Ok() : NotFound();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Forbid(ex.Message);
+        }
+    }
+
+    [HttpPost("{id}/archive")]
+    [Authorize(Policy = "SupervisorOrAdmin")]
+    public async Task<IActionResult> Archive(int id)
+    {
+        try
+        {
+            return await _transactions.ArchiveAsync(id, _currentUser.UserId, _currentUser.Role) ? Ok() : NotFound();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Forbid(ex.Message);
+        }
+    }
+
+    [HttpPost("{id:int}/complete-response")]
+    [Authorize(Policy = "SupervisorOrAdmin")]
+    public async Task<IActionResult> CompleteResponse(int id, [FromBody] CompleteResponseRequest request)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
+
+        try
+        {
+            var result = await _transactions.CompleteResponseAsync(id, request, _currentUser);
+            return result == null
+                ? NotFound(new { message = "المعاملة غير موجودة" })
+                : Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Forbid(ex.Message);
+        }
+    }
+
+    [HttpPost("{id}/close")]
+    [Authorize(Policy = "CanCloseTransactions")]
+    public async Task<IActionResult> Close(int id)
+    {
+        try
+        {
+            return await _transactions.CloseAsync(id, _currentUser.UserId, _currentUser.Role) ? Ok() : NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Forbid(ex.Message);
+        }
+    }
+
+    [HttpGet("{id}/followups")]
+    public async Task<IActionResult> GetFollowUps(int id)
+    {
+        var t = await _transactions.GetByIdAsync(id, _currentUser);
+        return t == null ? NotFound() : Ok(t.FollowUps);
+    }
+
+    [HttpGet("{id}/followup-departments")]
+    public async Task<IActionResult> GetFollowUpDepartments(int id)
+    {
+        var result = await _transactions.GetFollowUpDepartmentsAsync(id, _currentUser);
+        return result == null ? NotFound() : Ok(result);
+    }
+
+    [HttpPost("{id}/followups")]
+    [Authorize(Policy = "CanEditTransactions")]
+    public async Task<IActionResult> AddFollowUp(int id, [FromBody] CreateFollowUpRequest request)
+    {
+        try
+        {
+            var result = await _transactions.AddFollowUpAsync(id, request, _currentUser.UserId);
+            return Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("{id}/followups/{followUpId}/reply")]
+    public async Task<IActionResult> ReplyFollowUp(int id, int followUpId, [FromBody] ReplyFollowUpRequest request)
+    {
+        var result = await _transactions.ReplyFollowUpAsync(id, followUpId, request, _currentUser.UserId);
+        return result == null ? NotFound() : Ok(result);
+    }
+
+    [HttpGet("{id}/assignments")]
+    public async Task<IActionResult> GetAssignments(int id)
+    {
+        var t = await _transactions.GetByIdAsync(id, _currentUser);
+        return t == null ? NotFound() : Ok(t.Assignments);
+    }
+
+    [HttpPost("{id}/assignments")]
+    [Authorize(Policy = "CanEditTransactions")]
+    public async Task<IActionResult> AddAssignment(int id, [FromBody] CreateAssignmentRequest request)
+    {
+        try
+        {
+            var result = await _transactions.AddAssignmentAsync(id, request, _currentUser.UserId);
+            return Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("{id}/assignments/{assignmentId}/reply")]
+    public async Task<IActionResult> ReplyAssignment(int id, int assignmentId, [FromBody] ReplyAssignmentRequest request)
+    {
+        try
+        {
+            var result = await _transactions.ReplyAssignmentAsync(id, assignmentId, request, _currentUser);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Forbid(ex.Message);
+        }
+    }
+
+    [HttpGet("{id}/attachments")]
+    public async Task<IActionResult> GetAttachments(int id)
+    {
+        return Ok(await _attachments.GetByTransactionAsync(id));
+    }
+
+    [HttpPost("{id}/attachments")]
+    [Authorize(Policy = "CanEditTransactions")]
+    [RequestSizeLimit(50_000_000)]
+    public async Task<IActionResult> UploadAttachment(int id, IFormFile file, [FromForm] string? attachmentType)
+    {
+        if (file == null || file.Length == 0)
+            return BadRequest(new { message = "يجب اختيار ملف" });
+        try
+        {
+            var result = await _attachments.UploadAsync(id, file, attachmentType, _currentUser.UserId);
+            return Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpGet("{id}/attachments/{attachmentId}/download")]
+    public async Task<IActionResult> DownloadAttachment(int id, int attachmentId)
+    {
+        var result = await _attachments.DownloadAsync(id, attachmentId);
+        if (result == null) return NotFound();
+        return File(result.Value.Content, result.Value.ContentType, result.Value.FileName);
+    }
+
+    [HttpGet("{id}/audit-log")]
+    public async Task<IActionResult> GetAuditLog(int id)
+    {
+        return Ok(await _transactions.GetAuditLogAsync(id, _currentUser));
+    }
+}

@@ -1,0 +1,39 @@
+# Backend / .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.vscode/
+
+# Frontend / Node
+node_modules/
+dist/
+build/
+.env
+.env.local
+.env.development
+.env.production
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Database / local files
+*.db
+*.sqlite
+*.bak
+*.mdf
+*.ldf
+
+# Secrets / local config
+appsettings.Development.json
+appsettings.Local.json
+
+# Test results
+TestResults/
+coverage/
