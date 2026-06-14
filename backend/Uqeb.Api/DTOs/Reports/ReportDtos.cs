@@ -12,11 +12,6 @@ public class DashboardSummaryDto
     public int ReadyForResponse { get; set; }
     public int ClosedThisMonth { get; set; }
     public double AverageCompletionDays { get; set; }
-    public List<DepartmentOverdueDto> TopOverdueDepartments { get; set; } = new();
-    public List<ExternalPartyReportDto> TopIncomingParties { get; set; } = new();
-    public List<CategoryDistributionDto> ByCategory { get; set; } = new();
-    public List<StatusDistributionDto> ByStatus { get; set; } = new();
-    public List<TransactionListDto> ActionRequired { get; set; } = new();
 }
 
 public class DashboardDto : DashboardSummaryDto
@@ -26,6 +21,11 @@ public class DashboardDto : DashboardSummaryDto
     public int RequiresResponse { get; set; }
     public int ResponseCompleted { get; set; }
     public int ClosedCount { get; set; }
+    public List<DepartmentOverdueDto> TopOverdueDepartments { get; set; } = new();
+    public List<ExternalPartyReportDto> TopIncomingParties { get; set; } = new();
+    public List<CategoryDistributionDto> ByCategory { get; set; } = new();
+    public List<StatusDistributionDto> ByStatus { get; set; } = new();
+    public List<TransactionListDto> ActionRequired { get; set; } = new();
 }
 
 public class DepartmentOverdueDto

@@ -26,7 +26,7 @@ public interface ITransactionService
     Task<FollowUpDto?> ReplyFollowUpAsync(int transactionId, int followUpId, ReplyFollowUpRequest request, int userId);
     Task<AssignmentDto> AddAssignmentAsync(int transactionId, CreateAssignmentRequest request, int userId);
     Task<AssignmentDto?> ReplyAssignmentAsync(int transactionId, int assignmentId, ReplyAssignmentRequest request, ICurrentUserService currentUser);
-    Task<List<AuditLogDto>> GetAuditLogAsync(int transactionId, ICurrentUserService currentUser);
+    Task<PagedResult<AuditLogDto>> GetAuditLogAsync(int transactionId, int page, int pageSize, ICurrentUserService currentUser);
 }
 
 public class TransactionService : ITransactionService
@@ -793,13 +793,22 @@ public class TransactionService : ITransactionService
         return MapAssignment(assignment, assignment.Department.Name, assignment.CreatedBy.FullName);
     }
 
-    public async Task<List<AuditLogDto>> GetAuditLogAsync(int transactionId, ICurrentUserService currentUser)
+    public async Task<PagedResult<AuditLogDto>> GetAuditLogAsync(
+        int transactionId, int page, int pageSize, ICurrentUserService currentUser)
     {
-        if (!await CanAccessTransactionAsync(transactionId, currentUser)) return new();
+        if (!await CanAccessTransactionAsync(transactionId, currentUser))
+            return PagedResult<AuditLogDto>.Create(new(), 0, page, pageSize);
 
-        return await _db.AuditLogs.AsNoTracking()
-            .Where(a => a.TransactionId == transactionId)
+        page = Math.Max(1, page);
+        pageSize = pageSize <= 0 ? 50 : Math.Min(pageSize, 100);
+
+        var query = _db.AuditLogs.AsNoTracking().Where(a => a.TransactionId == transactionId);
+        var total = await query.CountAsync();
+
+        var items = await query
             .OrderByDescending(a => a.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .Select(a => new AuditLogDto
             {
                 Id = a.Id,
@@ -812,6 +821,8 @@ public class TransactionService : ITransactionService
                 CreatedAt = a.CreatedAt
             })
             .ToListAsync();
+
+        return PagedResult<AuditLogDto>.Create(items, total, page, pageSize);
     }
 
     private static List<Assignment> GetPendingReplyAssignments(Transaction t) =>

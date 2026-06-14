@@ -18,7 +18,8 @@ export const transactionsApi = {
   getAssignments: (id: number) => api.get<Assignment[]>(`/transactions/${id}/assignments`),
   getFollowUps: (id: number) => api.get<FollowUp[]>(`/transactions/${id}/followups`),
   getAttachments: (id: number) => api.get<import('./types').Attachment[]>(`/transactions/${id}/attachments`),
-  getAuditLog: (id: number) => api.get<import('./types').AuditLog[]>(`/transactions/${id}/audit-log`),
+  getAuditLog: (id: number, page = 1, pageSize = 50) =>
+    api.get<PagedResult<import('./types').AuditLog>>(`/transactions/${id}/audit-log`, { params: { page, pageSize } }),
   create: (data: Record<string, unknown>) => api.post<TransactionDetail>('/transactions', data),
   update: (id: number, data: Record<string, unknown>) => api.put<TransactionDetail>(`/transactions/${id}`, data),
   close: (id: number) => api.post(`/transactions/${id}/close`),
@@ -59,6 +60,15 @@ export const dashboardApi = {
     });
     return request;
   },
+  actionRequired: () => api.get<import('./types').TransactionListItem[]>('/dashboard/action-required'),
+  topOverdueDepartments: () =>
+    api.get<{ departmentId: number; departmentName: string; overdueCount: number }[]>('/dashboard/top-overdue-departments'),
+  topIncomingParties: () =>
+    api.get<{ partyName: string; transactionCount: number }[]>('/dashboard/top-incoming-parties'),
+  categoryDistribution: () =>
+    api.get<{ categoryId?: number; categoryName: string; count: number }[]>('/dashboard/category-distribution'),
+  statusDistribution: () =>
+    api.get<{ status: string; count: number }[]>('/dashboard/status-distribution'),
 };
 
 export const reportsApi = {

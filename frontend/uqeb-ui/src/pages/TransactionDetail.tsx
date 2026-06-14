@@ -29,6 +29,9 @@ export default function TransactionDetailPage() {
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditHasMore, setAuditHasMore] = useState(false);
+  const [auditLoadingMore, setAuditLoadingMore] = useState(false);
   const [activeTab, setActiveTab] = useState<DetailTab | null>(null);
   const [loadedTabs, setLoadedTabs] = useState<Record<DetailTab, boolean>>({
     assignments: false,
@@ -50,6 +53,20 @@ export default function TransactionDetailPage() {
     transactionsApi.getBasic(+id).then((r) => setTx(r.data)).catch(() => navigate('/transactions'));
   };
 
+  const loadAuditLog = async (page: number, append: boolean) => {
+    if (!id) return;
+    if (append) setAuditLoadingMore(true);
+    try {
+      const res = await transactionsApi.getAuditLog(+id, page);
+      setAuditLogs((prev) => append ? [...prev, ...res.data.items] : res.data.items);
+      setAuditPage(page);
+      setAuditHasMore(res.data.hasNextPage);
+      setLoadedTabs((prev) => ({ ...prev, audit: true }));
+    } finally {
+      if (append) setAuditLoadingMore(false);
+    }
+  };
+
   const loadTab = async (tab: DetailTab, force = false) => {
     if (!id || (!force && loadedTabs[tab])) return;
     setTabLoading(true);
@@ -64,10 +81,11 @@ export default function TransactionDetailPage() {
         const res = await transactionsApi.getAttachments(+id);
         setAttachments(res.data);
       } else {
-        const res = await transactionsApi.getAuditLog(+id);
-        setAuditLogs(res.data);
+        await loadAuditLog(1, false);
       }
-      setLoadedTabs((prev) => ({ ...prev, [tab]: true }));
+      if (tab !== 'audit') {
+        setLoadedTabs((prev) => ({ ...prev, [tab]: true }));
+      }
     } finally {
       setTabLoading(false);
     }
@@ -90,6 +108,8 @@ export default function TransactionDetailPage() {
     setFollowUps([]);
     setAttachments([]);
     setAuditLogs([]);
+    setAuditPage(1);
+    setAuditHasMore(false);
     setLoadedTabs({ assignments: false, followups: false, attachments: false, audit: false });
     setActiveTab(null);
     departmentsApi.getAll().then((r) => setDepartments(r.data));
@@ -318,6 +338,18 @@ export default function TransactionDetailPage() {
               {auditLogs.length === 0 && <tr><td colSpan={4} className="text-center">لا توجد سجلات</td></tr>}
             </tbody>
           </table>
+          {auditHasMore && (
+            <div className="mt-2">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={auditLoadingMore}
+                onClick={() => loadAuditLog(auditPage + 1, true)}
+              >
+                {auditLoadingMore ? 'جاري التحميل...' : 'تحميل المزيد'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 

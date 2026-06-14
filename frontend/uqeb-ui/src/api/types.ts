@@ -218,6 +218,9 @@ export interface DashboardSummary {
   readyForResponse: number;
   closedThisMonth: number;
   averageCompletionDays: number;
+}
+
+export interface DashboardDetails {
   topOverdueDepartments: { departmentId: number; departmentName: string; overdueCount: number }[];
   topIncomingParties: { partyName: string; transactionCount: number }[];
   byCategory: { categoryId?: number; categoryName: string; count: number }[];
