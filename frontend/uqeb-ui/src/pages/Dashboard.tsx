@@ -14,16 +14,40 @@ const emptyDetails: DashboardDetails = {
   actionRequired: [],
 };
 
+const SUMMARY_CACHE_KEY = 'dashboard-summary-cache';
+const SUMMARY_CACHE_TTL_MS = 60_000;
+
+function readSummaryCache(): DashboardSummary | null {
+  try {
+    const raw = sessionStorage.getItem(SUMMARY_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { savedAt: number; data: DashboardSummary };
+    if (Date.now() - parsed.savedAt > SUMMARY_CACHE_TTL_MS) return null;
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
+function writeSummaryCache(data: DashboardSummary) {
+  try {
+    sessionStorage.setItem(SUMMARY_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), data }));
+  } catch {
+    // ignore storage errors
+  }
+}
+
 export default function DashboardPage() {
-  const [cards, setCards] = useState<DashboardSummary | null>(null);
+  const cachedSummary = readSummaryCache();
+  const [cards, setCards] = useState<DashboardSummary | null>(cachedSummary);
   const [details, setDetails] = useState<DashboardDetails | null>(null);
-  const [cardsLoading, setCardsLoading] = useState(true);
+  const [cardsLoading, setCardsLoading] = useState(!cachedSummary);
   const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsLoaded, setDetailsLoaded] = useState(false);
   const [cardsError, setCardsError] = useState<string | null>(null);
   const [detailsError, setDetailsError] = useState<string | null>(null);
 
   const fetchedRef = useRef(false);
-  const detailsRequestedRef = useRef(false);
 
   const loadDetails = useCallback(async () => {
     setDetailsLoading(true);
@@ -56,6 +80,7 @@ export default function DashboardPage() {
     else errors.push('توزيع الحالات');
 
     setDetails(next);
+    setDetailsLoaded(true);
     if (errors.length > 0) {
       setDetailsError(`تعذر تحميل: ${errors.join('، ')}`);
     }
@@ -71,18 +96,15 @@ export default function DashboardPage() {
       .then((res) => {
         if (!active) return;
         setCards(res.data);
-        if (!detailsRequestedRef.current) {
-          detailsRequestedRef.current = true;
-          loadDetails();
-        }
+        writeSummaryCache(res.data);
       })
       .catch(() => { if (active) setCardsError('فشل تحميل البيانات'); })
       .finally(() => { if (active) setCardsLoading(false); });
 
     return () => { active = false; };
-  }, [loadDetails]);
+  }, []);
 
-  if (cardsLoading) return <div className="loading">جاري التحميل...</div>;
+  if (cardsLoading && !cards) return <div className="loading">جاري التحميل...</div>;
   if (cardsError || !cards) return <div className="alert alert-error">{cardsError || 'فشل تحميل البيانات'}</div>;
 
   const cardItems = [
@@ -102,6 +124,8 @@ export default function DashboardPage() {
     <div>
       <h2 className="page-title">لوحة المتابعة</h2>
 
+      {cardsLoading && <div className="alert alert-info">جاري تحديث الأرقام...</div>}
+
       <div className="stats-grid">
         {cardItems.map((c) => (
           <Link key={c.label} to={c.link} className={`stat-card stat-${c.color}`}>
@@ -116,19 +140,14 @@ export default function DashboardPage() {
           type="button"
           className="btn btn-secondary"
           disabled={detailsLoading}
-          onClick={() => {
-            detailsRequestedRef.current = true;
-            loadDetails();
-          }}
+          onClick={loadDetails}
         >
-          {detailsLoading ? 'جاري تحميل التفاصيل...' : 'تحميل تفاصيل اللوحة'}
+          {detailsLoading ? 'جاري تحميل التفاصيل...' : detailsLoaded ? 'إعادة تحميل التفاصيل' : 'تحميل تفاصيل اللوحة'}
         </button>
         {detailsError && <span className="alert alert-warning" style={{ margin: 0 }}>{detailsError}</span>}
       </div>
 
-      {detailsLoading && !details && <div className="loading mt-4">جاري تحميل تفاصيل اللوحة...</div>}
-
-      {(details || detailsLoading) && (
+      {detailsLoaded && (
         <>
           <div className="dashboard-grid mt-4">
             <div className="card">

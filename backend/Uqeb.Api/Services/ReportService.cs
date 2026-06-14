@@ -65,92 +65,41 @@ public class ReportService : IReportService
         var now = DateTime.UtcNow;
         var monthStart = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
 
-        async Task<int> CountOpenAsync()
-        {
-            await using var db = await _dbFactory.CreateDbContextAsync();
-            return await db.Transactions.AsNoTracking()
-                .Where(t => t.Status != TransactionStatus.Closed
+        await using var db = await _dbFactory.CreateDbContextAsync();
+        var stats = await db.Transactions.AsNoTracking()
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                TotalOpen = g.Count(t => t.Status != TransactionStatus.Closed
                     && t.Status != TransactionStatus.Cancelled
-                    && t.Status != TransactionStatus.Archived)
-                .CountAsync();
-        }
+                    && t.Status != TransactionStatus.Archived),
+                RequiresResponsePending = g.Count(t => t.RequiresResponse && !t.ResponseCompleted),
+                ResponseOverdueCount = g.Count(t => t.RequiresResponse && !t.ResponseCompleted
+                    && t.ResponseDueDate.HasValue && t.ResponseDueDate.Value < now),
+                WaitingForReply = g.Count(t => t.Status == TransactionStatus.WaitingForReply),
+                PartiallyReplied = g.Count(t => t.Status == TransactionStatus.PartiallyReplied),
+                ReadyForResponse = g.Count(t => t.Status == TransactionStatus.ReadyForResponse),
+                ClosedThisMonth = g.Count(t => t.Status == TransactionStatus.Closed
+                    && t.ClosedAt.HasValue && t.ClosedAt.Value >= monthStart),
+                ClosedCount = g.Count(t => t.Status == TransactionStatus.Closed && t.ClosedAt.HasValue),
+                AvgDays = g.Where(t => t.Status == TransactionStatus.Closed && t.ClosedAt.HasValue)
+                    .Average(t => (double?)EF.Functions.DateDiffDay(t.CreatedAt, t.ClosedAt!.Value)) ?? 0
+            })
+            .FirstOrDefaultAsync();
 
-        async Task<int> CountRequiresResponsePendingAsync()
-        {
-            await using var db = await _dbFactory.CreateDbContextAsync();
-            return await db.Transactions.AsNoTracking()
-                .Where(t => t.RequiresResponse && !t.ResponseCompleted)
-                .CountAsync();
-        }
-
-        async Task<int> CountResponseOverdueAsync()
-        {
-            await using var db = await _dbFactory.CreateDbContextAsync();
-            return await db.Transactions.AsNoTracking()
-                .Where(t => t.RequiresResponse && !t.ResponseCompleted
-                    && t.ResponseDueDate.HasValue && t.ResponseDueDate.Value < now)
-                .CountAsync();
-        }
-
-        async Task<int> CountByStatusAsync(TransactionStatus status)
-        {
-            await using var db = await _dbFactory.CreateDbContextAsync();
-            return await db.Transactions.AsNoTracking()
-                .CountAsync(t => t.Status == status);
-        }
-
-        async Task<int> CountClosedThisMonthAsync()
-        {
-            await using var db = await _dbFactory.CreateDbContextAsync();
-            return await db.Transactions.AsNoTracking()
-                .Where(t => t.Status == TransactionStatus.Closed
-                    && t.ClosedAt.HasValue && t.ClosedAt.Value >= monthStart)
-                .CountAsync();
-        }
-
-        async Task<(int Count, double AvgDays)> GetClosedAverageAsync()
-        {
-            await using var db = await _dbFactory.CreateDbContextAsync();
-            var closed = db.Transactions.AsNoTracking()
-                .Where(t => t.Status == TransactionStatus.Closed && t.ClosedAt.HasValue);
-            var count = await closed.CountAsync();
-            if (count == 0) return (0, 0);
-            var avg = await closed.AverageAsync(t =>
-                (double)EF.Functions.DateDiffDay(t.CreatedAt, t.ClosedAt!.Value));
-            return (count, avg);
-        }
-
-        var totalOpenTask = CountOpenAsync();
-        var requiresResponsePendingTask = CountRequiresResponsePendingAsync();
-        var responseOverdueCountTask = CountResponseOverdueAsync();
-        var waitingForReplyTask = CountByStatusAsync(TransactionStatus.WaitingForReply);
-        var partiallyRepliedTask = CountByStatusAsync(TransactionStatus.PartiallyReplied);
-        var readyForResponseTask = CountByStatusAsync(TransactionStatus.ReadyForResponse);
-        var closedThisMonthTask = CountClosedThisMonthAsync();
-        var closedAverageTask = GetClosedAverageAsync();
-
-        await Task.WhenAll(
-            totalOpenTask,
-            requiresResponsePendingTask,
-            responseOverdueCountTask,
-            waitingForReplyTask,
-            partiallyRepliedTask,
-            readyForResponseTask,
-            closedThisMonthTask,
-            closedAverageTask);
-
-        var closedAverage = await closedAverageTask;
+        if (stats == null)
+            return new DashboardSummaryDto();
 
         return new DashboardSummaryDto
         {
-            TotalOpen = await totalOpenTask,
-            RequiresResponsePending = await requiresResponsePendingTask,
-            ResponseOverdueCount = await responseOverdueCountTask,
-            WaitingForReply = await waitingForReplyTask,
-            PartiallyReplied = await partiallyRepliedTask,
-            ReadyForResponse = await readyForResponseTask,
-            ClosedThisMonth = await closedThisMonthTask,
-            AverageCompletionDays = closedAverage.Count == 0 ? 0 : Math.Round(closedAverage.AvgDays, 1)
+            TotalOpen = stats.TotalOpen,
+            RequiresResponsePending = stats.RequiresResponsePending,
+            ResponseOverdueCount = stats.ResponseOverdueCount,
+            WaitingForReply = stats.WaitingForReply,
+            PartiallyReplied = stats.PartiallyReplied,
+            ReadyForResponse = stats.ReadyForResponse,
+            ClosedThisMonth = stats.ClosedThisMonth,
+            AverageCompletionDays = stats.ClosedCount == 0 ? 0 : Math.Round(stats.AvgDays, 1)
         };
     }
 
@@ -856,37 +805,69 @@ public class ReportService : IReportService
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
         var tx = db.Transactions.AsNoTracking();
+        var open = tx.Where(t => t.Status != TransactionStatus.Closed
+            && t.Status != TransactionStatus.Cancelled
+            && t.Status != TransactionStatus.Archived);
 
-        var primaryIds = await tx
-            .Where(t =>
-                t.Status != TransactionStatus.Closed
-                && t.Status != TransactionStatus.Cancelled
-                && t.Status != TransactionStatus.Archived
-                && (
-                    (t.RequiresResponse && !t.ResponseCompleted)
-                    || t.Status == TransactionStatus.WaitingForReply
-                    || t.Status == TransactionStatus.PartiallyReplied
-                    || t.Status == TransactionStatus.ReadyForResponse))
-            .OrderBy(t => t.ResponseDueDate ?? t.IncomingDate)
-            .ThenByDescending(t => t.Priority)
-            .Take(10)
-            .Select(t => t.Id)
-            .ToListAsync();
+        var actionRequiredIds = new List<int>();
 
-        var overdueAssignmentIds = await db.Assignments.AsNoTracking()
-            .Where(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
-                && a.Status == AssignmentStatus.Active
-                && a.DueDate.HasValue && a.DueDate.Value < now)
-            .Select(a => a.TransactionId)
-            .Distinct()
-            .Take(50)
-            .ToListAsync();
+        async Task AppendIdsAsync(IQueryable<Models.Entities.Transaction> source, int limit)
+        {
+            if (limit <= 0 || actionRequiredIds.Count >= 10) return;
+            var ids = await source
+                .Where(t => !actionRequiredIds.Contains(t.Id))
+                .Select(t => t.Id)
+                .Take(limit)
+                .ToListAsync();
+            actionRequiredIds.AddRange(ids);
+        }
 
-        var actionRequiredIds = primaryIds
-            .Concat(overdueAssignmentIds.Where(id => !primaryIds.Contains(id)))
-            .Take(10)
-            .ToList();
+        await AppendIdsAsync(
+            open.Where(t => t.RequiresResponse && !t.ResponseCompleted
+                    && t.ResponseDueDate.HasValue && t.ResponseDueDate.Value < now)
+                .OrderBy(t => t.ResponseDueDate),
+            10);
 
+        await AppendIdsAsync(
+            open.Where(t => t.RequiresResponse && !t.ResponseCompleted)
+                .OrderBy(t => t.ResponseDueDate ?? DateTime.MaxValue)
+                .ThenByDescending(t => t.Priority),
+            10 - actionRequiredIds.Count);
+
+        await AppendIdsAsync(
+            open.Where(t => t.Status == TransactionStatus.ReadyForResponse)
+                .OrderByDescending(t => t.Priority)
+                .ThenBy(t => t.IncomingDate),
+            10 - actionRequiredIds.Count);
+
+        await AppendIdsAsync(
+            open.Where(t => t.Status == TransactionStatus.WaitingForReply
+                || t.Status == TransactionStatus.PartiallyReplied)
+                .OrderByDescending(t => t.Priority)
+                .ThenBy(t => t.IncomingDate),
+            10 - actionRequiredIds.Count);
+
+        if (actionRequiredIds.Count < 10)
+        {
+            var overdueAssignmentIds = await db.Assignments.AsNoTracking()
+                .Where(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
+                    && a.Status == AssignmentStatus.Active
+                    && a.DueDate.HasValue && a.DueDate.Value < now)
+                .OrderBy(a => a.DueDate)
+                .Select(a => a.TransactionId)
+                .Distinct()
+                .Take(20)
+                .ToListAsync();
+
+            foreach (var id in overdueAssignmentIds)
+            {
+                if (actionRequiredIds.Count >= 10) break;
+                if (!actionRequiredIds.Contains(id))
+                    actionRequiredIds.Add(id);
+            }
+        }
+
+        actionRequiredIds = actionRequiredIds.Take(10).ToList();
         if (actionRequiredIds.Count == 0)
             return new List<TransactionListDto>();
 
