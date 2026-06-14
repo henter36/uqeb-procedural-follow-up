@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { isAxiosError } from 'axios';
 import { reportsApi, categoriesApi, departmentsApi } from '../api/services';
 import type {
@@ -76,6 +76,11 @@ function buildFetchKey(tabKey: ReportTab, page: number, pageSize: number, filter
   return `${tabKey}|${page}|${pageSize}|${JSON.stringify(filters)}`;
 }
 
+function parseReportTab(value: string | null): ReportTab | null {
+  if (!value) return null;
+  return tabConfig.some((t) => t.key === value) ? (value as ReportTab) : null;
+}
+
 function TableSkeleton({ rows = 5 }: { rows?: number }) {
   return (
     <>
@@ -96,7 +101,8 @@ function TableSkeleton({ rows = 5 }: { rows?: number }) {
 }
 
 export default function ReportsPage() {
-  const [tab, setTab] = useState<ReportTab | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [tab, setTab] = useState<ReportTab | null>(() => parseReportTab(searchParams.get('tab')));
   const [tabStates, setTabStates] = useState<Record<ReportTab, TabState>>(() =>
     Object.fromEntries(tabConfig.map((t) => [t.key, defaultTabState()])) as Record<ReportTab, TabState>
   );
@@ -128,6 +134,7 @@ export default function ReportsPage() {
   const monthlyRef = useRef<HTMLDivElement>(null);
   const tabStatesRef = useRef(tabStates);
   tabStatesRef.current = tabStates;
+  const initialUrlTabRef = useRef(parseReportTab(searchParams.get('tab')));
 
   const filterParams = useCallback((): Record<string, unknown> => {
     const f = appliedFilters;
@@ -202,6 +209,21 @@ export default function ReportsPage() {
       }));
     }
   }, [filterParams]);
+
+  useEffect(() => {
+    if (!initialUrlTabRef.current) return;
+    const urlTab = initialUrlTabRef.current;
+    initialUrlTabRef.current = null;
+    loadTabDetails(urlTab, 1, DEFAULT_PAGE_SIZE);
+  }, [loadTabDetails]);
+
+  useEffect(() => {
+    const urlTab = parseReportTab(searchParams.get('tab'));
+    if (!urlTab || urlTab === tab) return;
+    setTab(urlTab);
+    const state = tabStatesRef.current[urlTab];
+    loadTabDetails(urlTab, state.page, state.pageSize);
+  }, [searchParams, tab, loadTabDetails]);
 
   useEffect(() => {
     categoriesApi.getAll().then((r) => setCategories(r.data));
@@ -337,6 +359,11 @@ export default function ReportsPage() {
 
   const selectTab = (tabKey: ReportTab) => {
     setTab(tabKey);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('tab', tabKey);
+      return next;
+    });
     const state = tabStates[tabKey];
     if (state.stale || !state.loaded) {
       loadTabDetails(tabKey, state.page, state.pageSize);

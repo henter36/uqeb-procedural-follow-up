@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Memory;
+using Uqeb.Api.DTOs.Reports;
 using Uqeb.Api.Services;
 
 namespace Uqeb.Api.Controllers;
@@ -9,12 +11,28 @@ namespace Uqeb.Api.Controllers;
 [Authorize]
 public class DashboardController : ControllerBase
 {
-    private readonly IReportService _reports;
+    private const string SummaryCacheKey = "dashboard:summary";
+    private static readonly TimeSpan SummaryCacheDuration = TimeSpan.FromSeconds(30);
 
-    public DashboardController(IReportService reports) => _reports = reports;
+    private readonly IReportService _reports;
+    private readonly IMemoryCache _cache;
+
+    public DashboardController(IReportService reports, IMemoryCache cache)
+    {
+        _reports = reports;
+        _cache = cache;
+    }
 
     [HttpGet("summary")]
-    public async Task<IActionResult> Summary() => Ok(await _reports.GetDashboardSummaryAsync());
+    public async Task<IActionResult> Summary()
+    {
+        if (_cache.TryGetValue(SummaryCacheKey, out DashboardSummaryDto? cached) && cached != null)
+            return Ok(cached);
+
+        var result = await _reports.GetDashboardSummaryAsync();
+        _cache.Set(SummaryCacheKey, result, SummaryCacheDuration);
+        return Ok(result);
+    }
 
     [HttpGet("action-required")]
     public async Task<IActionResult> ActionRequired() => Ok(await _reports.GetDashboardActionRequiredAsync());

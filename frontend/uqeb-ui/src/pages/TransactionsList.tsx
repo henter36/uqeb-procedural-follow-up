@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { transactionsApi, departmentsApi, categoriesApi, externalPartiesApi } from '../api/services';
 import type { TransactionListItem, Department, Category, ExternalParty } from '../api/types';
 import { useAuth } from '../context/AuthContext';
@@ -9,6 +9,7 @@ import DepartmentBadges from '../components/DepartmentBadges';
 
 export default function TransactionsList() {
   const { canEdit } = useAuth();
+  const [searchParams] = useSearchParams();
   const [items, setItems] = useState<TransactionListItem[]>([]);
   const [total, setTotal] = useState(0);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -16,7 +17,7 @@ export default function TransactionsList() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({
-    incomingNumber: '', outgoingNumber: '', subject: '', status: '',
+    incomingNumber: '', outgoingNumber: '', subject: '', status: searchParams.get('status') ?? '',
     incomingSourceType: '', incomingFromPartyId: '', incomingFromDepartmentId: '',
     departmentId: '', categoryId: '', dateFrom: '', dateTo: '',
     responseDueDateFrom: '', responseDueDateTo: '',

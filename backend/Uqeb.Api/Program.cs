@@ -62,6 +62,7 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy(Policies.CanManageUsers, p => p.RequireRole(UserRole.Admin.ToString()));
 });
 
+builder.Services.AddMemoryCache();
 builder.Services.AddControllers();
 builder.Services.AddCors(options =>
 {

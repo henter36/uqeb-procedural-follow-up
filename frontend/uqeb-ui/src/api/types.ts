@@ -209,6 +209,28 @@ export interface ReportTransactionRow {
   isOverdue: boolean;
 }
 
+export interface DepartmentOverdue {
+  departmentId: number;
+  departmentName: string;
+  overdueCount: number;
+}
+
+export interface ExternalPartyReport {
+  partyName: string;
+  transactionCount: number;
+}
+
+export interface CategoryDistribution {
+  categoryId?: number;
+  categoryName: string;
+  count: number;
+}
+
+export interface StatusDistribution {
+  status: string;
+  count: number;
+}
+
 export interface DashboardSummary {
   totalOpen: number;
   requiresResponsePending: number;
@@ -218,14 +240,11 @@ export interface DashboardSummary {
   readyForResponse: number;
   closedThisMonth: number;
   averageCompletionDays: number;
-}
-
-export interface DashboardDetails {
-  topOverdueDepartments: { departmentId: number; departmentName: string; overdueCount: number }[];
-  topIncomingParties: { partyName: string; transactionCount: number }[];
-  byCategory: { categoryId?: number; categoryName: string; count: number }[];
-  byStatus: { status: string; count: number }[];
-  actionRequired: TransactionListItem[];
+  topOverdueDepartments?: DepartmentOverdue[];
+  topIncomingParties?: ExternalPartyReport[];
+  byCategory?: CategoryDistribution[];
+  byStatus?: StatusDistribution[];
+  actionRequired?: TransactionListItem[];
 }
 
 export interface Department {

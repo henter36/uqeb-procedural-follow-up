@@ -49,26 +49,13 @@ export const transactionsApi = {
     api.get(`/transactions/${id}/attachments/${attachmentId}/download`, { responseType: 'blob' }),
 };
 
-let dashboardSummaryInflight: ReturnType<typeof api.get<DashboardSummary>> | null = null;
-
 export const dashboardApi = {
-  summary: () => {
-    dashboardSummaryInflight ??= api.get<DashboardSummary>('/dashboard/summary');
-    const request = dashboardSummaryInflight;
-    request.finally(() => {
-      if (dashboardSummaryInflight === request) dashboardSummaryInflight = null;
-    });
-    return request;
-  },
+  summary: () => api.get<DashboardSummary>('/dashboard/summary'),
   actionRequired: () => api.get<import('./types').TransactionListItem[]>('/dashboard/action-required'),
-  topOverdueDepartments: () =>
-    api.get<{ departmentId: number; departmentName: string; overdueCount: number }[]>('/dashboard/top-overdue-departments'),
-  topIncomingParties: () =>
-    api.get<{ partyName: string; transactionCount: number }[]>('/dashboard/top-incoming-parties'),
-  categoryDistribution: () =>
-    api.get<{ categoryId?: number; categoryName: string; count: number }[]>('/dashboard/category-distribution'),
-  statusDistribution: () =>
-    api.get<{ status: string; count: number }[]>('/dashboard/status-distribution'),
+  topOverdueDepartments: () => api.get<import('./types').DepartmentOverdue[]>('/dashboard/top-overdue-departments'),
+  topIncomingParties: () => api.get<import('./types').ExternalPartyReport[]>('/dashboard/top-incoming-parties'),
+  categoryDistribution: () => api.get<import('./types').CategoryDistribution[]>('/dashboard/category-distribution'),
+  statusDistribution: () => api.get<import('./types').StatusDistribution[]>('/dashboard/status-distribution'),
 };
 
 export const reportsApi = {
