@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { dashboardApi } from '../api/services';
 import type { DashboardSummary } from '../api/types';
@@ -6,7 +6,7 @@ import { statusLabels, statusBadgeClass } from '../utils/labels';
 import DateDisplay from '../components/DateDisplay';
 import DepartmentBadges from '../components/DepartmentBadges';
 
-const SECTION_NOT_LOADED = 'لم يتم تحميل هذا القسم بعد';
+const SECTION_UNAVAILABLE = 'لا توجد بيانات متاحة';
 
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardSummary | null>(null);
@@ -15,27 +15,35 @@ export default function DashboardPage() {
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [detailsLoaded, setDetailsLoaded] = useState(false);
+  const detailsStartedRef = useRef(false);
 
   useEffect(() => {
+    const controller = new AbortController();
     let active = true;
     setLoading(true);
     setError(null);
 
     dashboardApi.summary()
       .then((res) => {
-        if (active) setData(res.data);
+        if (!active || controller.signal.aborted) return;
+        setData(res.data);
       })
       .catch(() => {
-        if (active) setError('تعذر تحميل بيانات اللوحة');
+        if (!active || controller.signal.aborted) return;
+        setError('تعذر تحميل بيانات اللوحة');
       })
       .finally(() => {
-        if (active) setLoading(false);
+        if (!active || controller.signal.aborted) return;
+        setLoading(false);
       });
 
-    return () => { active = false; };
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, []);
 
-  const loadDetails = useCallback(async () => {
+  const loadDetails = useCallback(async (signal?: AbortSignal) => {
     setDetailsLoading(true);
     setDetailsError(null);
 
@@ -46,6 +54,8 @@ export default function DashboardPage() {
       dashboardApi.categoryDistribution(),
       dashboardApi.statusDistribution(),
     ]);
+
+    if (signal?.aborted) return;
 
     const errors: string[] = [];
     const next: Partial<DashboardSummary> = {};
@@ -65,6 +75,8 @@ export default function DashboardPage() {
     if (byStatus.status === 'fulfilled') next.byStatus = byStatus.value.data ?? [];
     else errors.push('توزيع الحالات');
 
+    if (signal?.aborted) return;
+
     setData((prev) => ({ ...(prev ?? {}), ...next } as DashboardSummary));
     setDetailsLoaded(true);
     if (errors.length > 0) {
@@ -72,6 +84,18 @@ export default function DashboardPage() {
     }
     setDetailsLoading(false);
   }, []);
+
+  useEffect(() => {
+    if (loading || error || !data || detailsStartedRef.current) return;
+
+    detailsStartedRef.current = true;
+    const controller = new AbortController();
+    loadDetails(controller.signal);
+
+    return () => {
+      controller.abort();
+    };
+  }, [loading, error, data, loadDetails]);
 
   const cardItems = [
     { label: 'معاملات مفتوحة', value: data?.totalOpen ?? 0, color: 'blue', link: '/reports?tab=open' },
@@ -101,7 +125,7 @@ export default function DashboardPage() {
       return <tr><td colSpan={colSpan} className="text-center">جاري التحميل...</td></tr>;
     }
     if (!loaded) {
-      return <tr><td colSpan={colSpan} className="text-center">{SECTION_NOT_LOADED}</td></tr>;
+      return <tr><td colSpan={colSpan} className="text-center">{SECTION_UNAVAILABLE}</td></tr>;
     }
     if (items.length === 0) {
       return <tr><td colSpan={colSpan} className="text-center">{emptyLabel}</td></tr>;
@@ -127,17 +151,21 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      <div className="mt-4" style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-        <button
-          type="button"
-          className="btn btn-secondary"
-          disabled={detailsLoading || loading}
-          onClick={loadDetails}
-        >
-          {detailsLoading ? 'جاري تحميل التفاصيل...' : detailsLoaded ? 'إعادة تحميل التفاصيل' : 'تحميل تفاصيل اللوحة'}
-        </button>
-        {detailsError && <span className="alert alert-warning" style={{ margin: 0 }}>{detailsError}</span>}
-      </div>
+      {(detailsLoading || detailsError) && (
+        <div className="mt-4" style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          {detailsLoading && <span className="alert alert-info" style={{ margin: 0 }}>جاري تحميل تفاصيل اللوحة...</span>}
+          {detailsError && <span className="alert alert-warning" style={{ margin: 0 }}>{detailsError}</span>}
+          {detailsLoaded && !detailsLoading && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => loadDetails()}
+            >
+              إعادة تحميل التفاصيل
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="dashboard-grid mt-4">
         <div className="card">

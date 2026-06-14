@@ -906,11 +906,13 @@ public class TransactionService : ITransactionService
     {
         var existing = await _db.TransactionOutgoingDepartments.Where(x => x.TransactionId == transactionId).ToListAsync();
         var newIds = departmentIds.Distinct().ToHashSet();
+        var removedIds = existing.Where(e => !newIds.Contains(e.DepartmentId)).Select(e => e.DepartmentId).ToList();
 
         _db.TransactionOutgoingDepartments.RemoveRange(existing.Where(e => !newIds.Contains(e.DepartmentId)));
 
         var existingIds = existing.Select(e => e.DepartmentId).ToHashSet();
-        foreach (var departmentId in newIds.Where(id => !existingIds.Contains(id)))
+        var addedIds = newIds.Where(id => !existingIds.Contains(id)).ToList();
+        foreach (var departmentId in addedIds)
         {
             _db.TransactionOutgoingDepartments.Add(new TransactionOutgoingDepartment
             {
@@ -922,9 +924,136 @@ public class TransactionService : ITransactionService
         }
 
         await _db.SaveChangesAsync();
+        await SyncAssignmentsFromOutgoingDepartmentsAsync(transactionId, addedIds, removedIds, userId);
         await _audit.LogAsync(userId, AuditAction.Update, "TransactionOutgoingDepartments", transactionId, transactionId,
             JsonSerializer.Serialize(existing.Select(e => e.DepartmentId)),
             JsonSerializer.Serialize(newIds));
+    }
+
+    private async Task SyncAssignmentsFromOutgoingDepartmentsAsync(
+        int transactionId,
+        IReadOnlyList<int> addedDepartmentIds,
+        IReadOnlyList<int> removedDepartmentIds,
+        int userId)
+    {
+        if (addedDepartmentIds.Count == 0 && removedDepartmentIds.Count == 0)
+            return;
+
+        var transaction = await _db.Transactions.AsNoTracking()
+            .Where(t => t.Id == transactionId)
+            .Select(t => new { t.IncomingDate, t.ResponseDueDate, t.ResponseDueDays })
+            .FirstOrDefaultAsync();
+        if (transaction == null) return;
+
+        var existingAssignments = await _db.Assignments
+            .Where(a => a.TransactionId == transactionId)
+            .ToListAsync();
+
+        var assignedDate = transaction.IncomingDate;
+        var dueDate = transaction.ResponseDueDate;
+        var assignmentsChanged = false;
+
+        foreach (var departmentId in addedDepartmentIds.Distinct())
+        {
+            var existing = existingAssignments.FirstOrDefault(a => a.DepartmentId == departmentId);
+            if (existing != null)
+            {
+                if (existing.Status == AssignmentStatus.Active
+                    || existing.ReplyStatus == ReplyStatus.Replied
+                    || existing.Status == AssignmentStatus.Completed)
+                    continue;
+
+                if (existing.Status == AssignmentStatus.Cancelled)
+                {
+                    existing.Status = AssignmentStatus.Active;
+                    existing.ReplyStatus = ReplyStatus.Pending;
+                    existing.ReplyDate = null;
+                    existing.ReplySummary = null;
+                    existing.DueDate = dueDate;
+                    existing.ReplyDueDays = transaction.ResponseDueDays;
+                    assignmentsChanged = true;
+
+                    var reactivatedDeptName = await _db.Departments
+                        .Where(d => d.Id == departmentId)
+                        .Select(d => d.Name)
+                        .FirstOrDefaultAsync() ?? departmentId.ToString();
+
+                    await _audit.LogAsync(userId, AuditAction.StatusChange, "Assignment", existing.Id, transactionId,
+                        AssignmentStatus.Cancelled.ToString(),
+                        JsonSerializer.Serialize(new { existing.Status, deptName = reactivatedDeptName, source = "OutgoingDepartment", reactivated = true }));
+                }
+                continue;
+            }
+
+            var deptNameNew = await _db.Departments
+                .Where(d => d.Id == departmentId)
+                .Select(d => d.Name)
+                .FirstOrDefaultAsync() ?? departmentId.ToString();
+
+            var assignment = new Assignment
+            {
+                TransactionId = transactionId,
+                DepartmentId = departmentId,
+                AssignedDate = assignedDate,
+                RequiredAction = "متابعة - صادر لها",
+                RequiresReply = true,
+                ReplyDueDays = transaction.ResponseDueDays,
+                DueDate = dueDate,
+                ReplyStatus = ReplyStatus.Pending,
+                Status = AssignmentStatus.Active,
+                CreatedById = userId,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _db.Assignments.Add(assignment);
+            await _db.SaveChangesAsync();
+            existingAssignments.Add(assignment);
+            assignmentsChanged = true;
+
+            await _audit.LogAsync(userId, AuditAction.AddAssignment, "Assignment", assignment.Id, transactionId, null,
+                JsonSerializer.Serialize(new
+                {
+                    deptName = deptNameNew,
+                    departmentId,
+                    dueDate,
+                    source = "OutgoingDepartment",
+                    autoCreated = true
+                }));
+        }
+
+        if (removedDepartmentIds.Count > 0)
+        {
+            var toCancel = await _db.Assignments
+                .Include(a => a.Department)
+                .Where(a => a.TransactionId == transactionId
+                    && removedDepartmentIds.Contains(a.DepartmentId)
+                    && a.Status == AssignmentStatus.Active
+                    && a.ReplyStatus != ReplyStatus.Replied
+                    && a.ReplySummary == null)
+                .ToListAsync();
+
+            foreach (var assignment in toCancel)
+            {
+                assignment.Status = AssignmentStatus.Cancelled;
+                await _audit.LogAsync(userId, AuditAction.StatusChange, "Assignment", assignment.Id, transactionId,
+                    AssignmentStatus.Active.ToString(),
+                    JsonSerializer.Serialize(new
+                    {
+                        assignment.Status,
+                        departmentName = assignment.Department.Name,
+                        reason = "RemovedFromOutgoingDepartments"
+                    }));
+            }
+
+            if (toCancel.Count > 0)
+            {
+                assignmentsChanged = true;
+                await _db.SaveChangesAsync();
+            }
+        }
+
+        if (assignmentsChanged || addedDepartmentIds.Count > 0 || removedDepartmentIds.Count > 0)
+            await UpdateTransactionReplyStatusAsync(transactionId);
     }
 
     private void DetachTransaction(Transaction transaction)

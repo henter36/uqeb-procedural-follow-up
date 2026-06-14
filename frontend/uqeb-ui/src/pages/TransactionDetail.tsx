@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { transactionsApi, departmentsApi } from '../api/services';
@@ -7,7 +7,10 @@ import type {
   Assignment, FollowUp, Attachment, AuditLog,
 } from '../api/types';
 import { useAuth } from '../context/AuthContext';
-import { statusLabels, priorityLabels, statusBadgeClass, responseTypeLabels, auditActionLabels } from '../utils/labels';
+import {
+  statusLabels, priorityLabels, statusBadgeClass, responseTypeLabels,
+  auditActionLabels, replyStatusLabels,
+} from '../utils/labels';
 import {
   buildCompleteResponsePayload,
   buildCreateAssignmentPayload,
@@ -18,7 +21,7 @@ import {
 import DateDisplay from '../components/DateDisplay';
 import MultiSelect from '../components/MultiSelect';
 
-type DetailTab = 'assignments' | 'followups' | 'attachments' | 'audit';
+type DetailTab = 'attachments' | 'audit';
 
 export default function TransactionDetailPage() {
   const { id } = useParams();
@@ -34,24 +37,55 @@ export default function TransactionDetailPage() {
   const [auditLoadingMore, setAuditLoadingMore] = useState(false);
   const [activeTab, setActiveTab] = useState<DetailTab | null>(null);
   const [loadedTabs, setLoadedTabs] = useState<Record<DetailTab, boolean>>({
-    assignments: false,
-    followups: false,
     attachments: false,
     audit: false,
   });
   const [tabLoading, setTabLoading] = useState(false);
+  const [assignmentsLoading, setAssignmentsLoading] = useState(false);
+  const [followUpsLoading, setFollowUpsLoading] = useState(false);
+  const [assignmentsError, setAssignmentsError] = useState('');
+  const [followUpsError, setFollowUpsError] = useState('');
   const [departments, setDepartments] = useState<Department[]>([]);
   const [showFollowUp, setShowFollowUp] = useState(false);
   const [showAssignment, setShowAssignment] = useState(false);
   const [replyAssignmentId, setReplyAssignmentId] = useState<number | null>(null);
+  const [replyFollowUpId, setReplyFollowUpId] = useState<number | null>(null);
   const [showCompleteResponse, setShowCompleteResponse] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  const loadBasic = () => {
+  const loadBasic = useCallback(() => {
     if (!id) return;
     transactionsApi.getBasic(+id).then((r) => setTx(r.data)).catch(() => navigate('/transactions'));
-  };
+  }, [id, navigate]);
+
+  const loadAssignments = useCallback(async () => {
+    if (!id) return;
+    setAssignmentsLoading(true);
+    setAssignmentsError('');
+    try {
+      const res = await transactionsApi.getAssignments(+id);
+      setAssignments(res.data ?? []);
+    } catch {
+      setAssignmentsError('تعذر تحميل التحويلات');
+    } finally {
+      setAssignmentsLoading(false);
+    }
+  }, [id]);
+
+  const loadFollowUps = useCallback(async () => {
+    if (!id) return;
+    setFollowUpsLoading(true);
+    setFollowUpsError('');
+    try {
+      const res = await transactionsApi.getFollowUps(+id);
+      setFollowUps(res.data ?? []);
+    } catch {
+      setFollowUpsError('تعذر تحميل التعقيبات');
+    } finally {
+      setFollowUpsLoading(false);
+    }
+  }, [id]);
 
   const loadAuditLog = async (page: number, append: boolean) => {
     if (!id) return;
@@ -71,30 +105,16 @@ export default function TransactionDetailPage() {
     if (!id || (!force && loadedTabs[tab])) return;
     setTabLoading(true);
     try {
-      if (tab === 'assignments') {
-        const res = await transactionsApi.getAssignments(+id);
-        setAssignments(res.data);
-      } else if (tab === 'followups') {
-        const res = await transactionsApi.getFollowUps(+id);
-        setFollowUps(res.data);
-      } else if (tab === 'attachments') {
+      if (tab === 'attachments') {
         const res = await transactionsApi.getAttachments(+id);
         setAttachments(res.data);
+        setLoadedTabs((prev) => ({ ...prev, attachments: true }));
       } else {
         await loadAuditLog(1, false);
-      }
-      if (tab !== 'audit') {
-        setLoadedTabs((prev) => ({ ...prev, [tab]: true }));
       }
     } finally {
       setTabLoading(false);
     }
-  };
-
-  const reloadAll = () => {
-    loadBasic();
-    setLoadedTabs({ assignments: false, followups: false, attachments: false, audit: false });
-    if (activeTab) loadTab(activeTab, true);
   };
 
   const selectTab = (tab: DetailTab) => {
@@ -103,17 +123,30 @@ export default function TransactionDetailPage() {
   };
 
   useEffect(() => {
-    loadBasic();
+    if (!id) return;
+    let active = true;
+
+    setTx(null);
     setAssignments([]);
     setFollowUps([]);
     setAttachments([]);
     setAuditLogs([]);
     setAuditPage(1);
     setAuditHasMore(false);
-    setLoadedTabs({ assignments: false, followups: false, attachments: false, audit: false });
+    setLoadedTabs({ attachments: false, audit: false });
     setActiveTab(null);
-    departmentsApi.getAll().then((r) => setDepartments(r.data));
-  }, [id]);
+    setAssignmentsError('');
+    setFollowUpsError('');
+
+    loadBasic();
+    if (active) {
+      loadAssignments();
+      loadFollowUps();
+    }
+    departmentsApi.getAll().then((r) => { if (active) setDepartments(r.data); });
+
+    return () => { active = false; };
+  }, [id, loadBasic, loadAssignments, loadFollowUps]);
 
   const handleClose = async () => {
     if (!tx) return;
@@ -126,7 +159,8 @@ export default function TransactionDetailPage() {
     setError('');
     try {
       await transactionsApi.close(+id!);
-      reloadAll();
+      loadBasic();
+      loadAssignments();
       setMessage('تم إغلاق المعاملة');
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
@@ -231,27 +265,14 @@ export default function TransactionDetailPage() {
         </div>
       </div>
 
-      <div className="tabs mt-4">
-        <button type="button" className={activeTab === 'assignments' ? 'active' : ''} onClick={() => selectTab('assignments')}>التحويلات</button>
-        <button type="button" className={activeTab === 'followups' ? 'active' : ''} onClick={() => selectTab('followups')}>التعقيبات</button>
-        <button type="button" className={activeTab === 'attachments' ? 'active' : ''} onClick={() => selectTab('attachments')}>المرفقات</button>
-        <button type="button" className={activeTab === 'audit' ? 'active' : ''} onClick={() => selectTab('audit')}>سجل التدقيق</button>
-      </div>
-
-      {!activeTab && (
-        <div className="card mt-2 text-center text-muted" style={{ padding: '1.5rem' }}>
-          اختر تبويبًا لعرض التحويلات أو التعقيبات أو المرفقات أو سجل التدقيق.
+      <div className="card mt-4">
+        <div className="card-header">
+          <h3>التحويلات</h3>
+          {canEdit && !isDepartmentUser && <button className="btn btn-sm btn-primary" onClick={() => setShowAssignment(true)}>إضافة تحويل</button>}
         </div>
-      )}
-
-      {tabLoading && <div className="loading mt-2">جاري التحميل...</div>}
-
-      {activeTab === 'assignments' && !tabLoading && (
-        <div className="card mt-2">
-          <div className="card-header">
-            <h3>التحويلات</h3>
-            {canEdit && !isDepartmentUser && <button className="btn btn-sm btn-primary" onClick={() => setShowAssignment(true)}>إضافة تحويل</button>}
-          </div>
+        {assignmentsLoading && <div className="loading">جاري تحميل التحويلات...</div>}
+        {assignmentsError && <div className="alert alert-error">{assignmentsError}</div>}
+        {!assignmentsLoading && !assignmentsError && (
           <table className="data-table">
             <thead><tr><th>الإدارة</th><th>الإجراء</th><th>تاريخ الاستحقاق</th><th>حالة الرد</th><th>إجراء</th></tr></thead>
             <tbody>
@@ -260,28 +281,35 @@ export default function TransactionDetailPage() {
                   <td>{a.departmentName}</td>
                   <td>{a.requiredAction || '-'}</td>
                   <td>{a.dueDate ? <DateDisplay date={a.dueDate} /> : '-'}</td>
-                  <td><span className={`badge ${a.replyStatus === 'Replied' ? 'badge-green' : a.isOverdue ? 'badge-red' : 'badge-orange'}`}>{a.replyStatus}</span></td>
                   <td>
-                    {a.requiresReply && a.replyStatus !== 'Replied' && (isDepartmentUser || canEdit) && (
+                    <span className={`badge ${a.replyStatus === 'Replied' ? 'badge-green' : a.isOverdue ? 'badge-red' : 'badge-orange'}`}>
+                      {replyStatusLabels[a.replyStatus] || a.replyStatus}
+                    </span>
+                  </td>
+                  <td>
+                    {a.requiresReply && a.replyStatus !== 'Replied' && a.status !== 'Cancelled' && (isDepartmentUser || canEdit) && (
                       <button className="btn btn-sm" onClick={() => setReplyAssignmentId(a.id)}>تسجيل رد</button>
                     )}
+                    {a.replySummary && <div className="text-muted" style={{ fontSize: '0.85rem', marginTop: '0.25rem' }}>{a.replySummary}</div>}
                   </td>
                 </tr>
               ))}
               {assignments.length === 0 && <tr><td colSpan={5} className="text-center">لا توجد تحويلات</td></tr>}
             </tbody>
           </table>
-        </div>
-      )}
+        )}
+      </div>
 
-      {activeTab === 'followups' && !tabLoading && (
-        <div className="card mt-2">
-          <div className="card-header">
-            <h3>التعقيبات</h3>
-            {canEdit && !isDepartmentUser && <button className="btn btn-sm btn-primary" onClick={() => setShowFollowUp(true)}>إضافة تعقيب</button>}
-          </div>
+      <div className="card mt-4">
+        <div className="card-header">
+          <h3>التعقيبات</h3>
+          {canEdit && !isDepartmentUser && <button className="btn btn-sm btn-primary" onClick={() => setShowFollowUp(true)}>إضافة تعقيب</button>}
+        </div>
+        {followUpsLoading && <div className="loading">جاري تحميل التعقيبات...</div>}
+        {followUpsError && <div className="alert alert-error">{followUpsError}</div>}
+        {!followUpsLoading && !followUpsError && (
           <table className="data-table">
-            <thead><tr><th>الرقم</th><th>التاريخ</th><th>مرسل إلى</th><th>ملاحظات</th></tr></thead>
+            <thead><tr><th>الرقم</th><th>التاريخ</th><th>مرسل إلى</th><th>ملاحظات</th><th>حالة الرد</th><th>إجراء</th></tr></thead>
             <tbody>
               {followUps.map((f) => (
                 <tr key={f.id}>
@@ -289,13 +317,37 @@ export default function TransactionDetailPage() {
                   <td><DateDisplay date={f.followUpDate} /></td>
                   <td>{f.departments?.length > 0 ? f.departments.map((d) => d.departmentName).join('، ') : f.sentTo || '-'}</td>
                   <td>{f.notes || '-'}</td>
+                  <td>
+                    <span className={`badge ${f.replyStatus === 'Replied' ? 'badge-green' : 'badge-orange'}`}>
+                      {replyStatusLabels[f.replyStatus] || f.replyStatus}
+                    </span>
+                  </td>
+                  <td>
+                    {f.requiresReply && f.replyStatus !== 'Replied' && (isDepartmentUser || canEdit) && (
+                      <button className="btn btn-sm" onClick={() => setReplyFollowUpId(f.id)}>تسجيل رد</button>
+                    )}
+                    {f.replySummary && <div className="text-muted" style={{ fontSize: '0.85rem', marginTop: '0.25rem' }}>{f.replySummary}</div>}
+                  </td>
                 </tr>
               ))}
-              {followUps.length === 0 && <tr><td colSpan={4} className="text-center">لا توجد تعقيبات</td></tr>}
+              {followUps.length === 0 && <tr><td colSpan={6} className="text-center">لا توجد تعقيبات</td></tr>}
             </tbody>
           </table>
+        )}
+      </div>
+
+      <div className="tabs mt-4">
+        <button type="button" className={activeTab === 'attachments' ? 'active' : ''} onClick={() => selectTab('attachments')}>المرفقات</button>
+        <button type="button" className={activeTab === 'audit' ? 'active' : ''} onClick={() => selectTab('audit')}>سجل التدقيق</button>
+      </div>
+
+      {!activeTab && (
+        <div className="card mt-2 text-center text-muted" style={{ padding: '1.5rem' }}>
+          اختر تبويبًا لعرض المرفقات أو سجل التدقيق.
         </div>
       )}
+
+      {tabLoading && <div className="loading mt-2">جاري التحميل...</div>}
 
       {activeTab === 'attachments' && !tabLoading && (
         <div className="card mt-2">
@@ -356,16 +408,53 @@ export default function TransactionDetailPage() {
       {showFollowUp && (
         <FollowUpModal
           transactionId={+id!}
-          onClose={() => { setShowFollowUp(false); reloadAll(); }}
+          onClose={() => {
+            setShowFollowUp(false);
+            loadFollowUps();
+          }}
         />
       )}
-      {showAssignment && <AssignmentModal transactionId={+id!} departments={departments} onClose={() => { setShowAssignment(false); reloadAll(); }} />}
-      {replyAssignmentId && <ReplyModal transactionId={+id!} assignmentId={replyAssignmentId} onClose={() => { setReplyAssignmentId(null); reloadAll(); }} />}
+      {showAssignment && (
+        <AssignmentModal
+          transactionId={+id!}
+          departments={departments}
+          onClose={() => {
+            setShowAssignment(false);
+            loadAssignments();
+            loadBasic();
+          }}
+        />
+      )}
+      {replyAssignmentId && (
+        <ReplyModal
+          title="تسجيل رد على التحويل"
+          onClose={() => {
+            setReplyAssignmentId(null);
+            loadAssignments();
+            loadBasic();
+          }}
+          onSubmit={(payload) => transactionsApi.replyAssignment(+id!, replyAssignmentId, payload)}
+        />
+      )}
+      {replyFollowUpId && (
+        <ReplyModal
+          title="تسجيل رد على التعقيب"
+          onClose={() => {
+            setReplyFollowUpId(null);
+            loadFollowUps();
+          }}
+          onSubmit={(payload) => transactionsApi.replyFollowUp(+id!, replyFollowUpId, payload)}
+        />
+      )}
       {showCompleteResponse && (
         <CompleteResponseModal
           transactionId={+id!}
           responseType={tx.responseType}
-          onClose={() => { setShowCompleteResponse(false); reloadAll(); }}
+          onClose={() => {
+            setShowCompleteResponse(false);
+            loadBasic();
+            loadAssignments();
+          }}
           onSuccess={() => setMessage('تم تسجيل الإفادة بنجاح.')}
         />
       )}
@@ -590,7 +679,15 @@ function AssignmentModal({ transactionId, departments, onClose }: { transactionI
   );
 }
 
-function ReplyModal({ transactionId, assignmentId, onClose }: { transactionId: number; assignmentId: number; onClose: () => void }) {
+function ReplyModal({
+  title,
+  onClose,
+  onSubmit,
+}: {
+  title: string;
+  onClose: () => void;
+  onSubmit: (payload: ReturnType<typeof buildReplyPayload>) => Promise<unknown>;
+}) {
   const [form, setForm] = useState({ replyDate: new Date().toISOString().split('T')[0], replySummary: '' });
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -601,7 +698,7 @@ function ReplyModal({ transactionId, assignmentId, onClose }: { transactionId: n
     setError('');
     setIsSubmitting(true);
     try {
-      await transactionsApi.replyAssignment(transactionId, assignmentId, buildReplyPayload(form));
+      await onSubmit(buildReplyPayload(form));
       onClose();
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
@@ -612,7 +709,7 @@ function ReplyModal({ transactionId, assignmentId, onClose }: { transactionId: n
 
   return (
     <div className="modal-overlay"><div className="modal">
-      <h3>تسجيل رد على التحويل</h3>
+      <h3>{title}</h3>
       {error && <div className="alert alert-error">{error}</div>}
       <form onSubmit={submit}>
         <div className="form-group"><label>تاريخ الرد</label><input type="date" required value={form.replyDate} onChange={(e) => setForm({ ...form, replyDate: e.target.value })} /></div>

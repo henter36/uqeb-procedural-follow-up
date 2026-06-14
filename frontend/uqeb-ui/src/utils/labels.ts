@@ -25,6 +25,12 @@ export const priorityLabels: Record<string, string> = {
   VeryUrgent: 'عاجل جداً',
 };
 
+export const replyStatusLabels: Record<string, string> = {
+  Pending: 'بانتظار الرد',
+  Replied: 'تم الرد',
+  Overdue: 'متأخر',
+};
+
 export const auditActionLabels: Record<string, string> = {
   Create: 'إنشاء',
   Update: 'تحديث',
