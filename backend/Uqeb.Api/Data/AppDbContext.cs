@@ -47,6 +47,10 @@ public class AppDbContext : DbContext
             e.HasIndex(t => t.InternalTrackingNumber).IsUnique();
             e.HasIndex(t => t.Status);
             e.HasIndex(t => t.IncomingDate);
+            e.HasIndex(t => new { t.Status, t.IncomingDate, t.ClosedAt });
+            e.HasIndex(t => new { t.RequiresResponse, t.ResponseCompleted, t.ResponseDueDate });
+            e.HasIndex(t => new { t.CategoryId, t.IncomingDate });
+            e.HasIndex(t => new { t.IncomingSourceType, t.IncomingDate });
             e.HasIndex(t => t.OutgoingDate);
             e.HasIndex(t => t.IsArchived);
             e.HasIndex(t => t.ResponseDueDate);
@@ -74,6 +78,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<TransactionOutgoingDepartment>(e =>
         {
             e.HasIndex(x => new { x.TransactionId, x.DepartmentId }).IsUnique();
+            e.HasIndex(x => new { x.DepartmentId, x.TransactionId });
             e.HasOne(x => x.Transaction).WithMany(t => t.OutgoingDepartments).HasForeignKey(x => x.TransactionId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Department).WithMany(d => d.OutgoingTransactions).HasForeignKey(x => x.DepartmentId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne(x => x.CreatedBy).WithMany().HasForeignKey(x => x.CreatedById).OnDelete(DeleteBehavior.NoAction);
@@ -81,6 +86,7 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<FollowUp>(e =>
         {
+            e.HasIndex(f => new { f.TransactionId, f.CreatedAt });
             e.HasOne(f => f.Transaction).WithMany(t => t.FollowUps).HasForeignKey(f => f.TransactionId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(f => f.CreatedBy).WithMany().HasForeignKey(f => f.CreatedById).OnDelete(DeleteBehavior.NoAction);
         });
@@ -102,7 +108,11 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<Assignment>(e =>
         {
+            e.HasIndex(a => a.TransactionId);
             e.HasIndex(a => new { a.TransactionId, a.RequiresReply, a.ReplyStatus, a.Status });
+            e.HasIndex(a => new { a.DepartmentId, a.Status, a.ReplyStatus });
+            e.HasIndex(a => new { a.DepartmentId, a.Status, a.RequiresReply, a.ReplyStatus, a.DueDate });
+            e.HasIndex(a => new { a.Status, a.RequiresReply, a.ReplyStatus, a.DueDate, a.DepartmentId });
             e.HasIndex(a => a.DueDate);
             e.HasOne(a => a.Transaction).WithMany(t => t.Assignments).HasForeignKey(a => a.TransactionId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(a => a.Department).WithMany(d => d.Assignments).HasForeignKey(a => a.DepartmentId).OnDelete(DeleteBehavior.NoAction);
@@ -111,6 +121,7 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<Attachment>(e =>
         {
+            e.HasIndex(a => a.TransactionId);
             e.HasOne(a => a.Transaction).WithMany(t => t.Attachments).HasForeignKey(a => a.TransactionId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(a => a.UploadedBy).WithMany().HasForeignKey(a => a.UploadedById).OnDelete(DeleteBehavior.NoAction);
         });
@@ -120,6 +131,7 @@ public class AppDbContext : DbContext
             e.HasOne(a => a.Transaction).WithMany(t => t.AuditLogs).HasForeignKey(a => a.TransactionId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne(a => a.User).WithMany().HasForeignKey(a => a.UserId).OnDelete(DeleteBehavior.NoAction);
             e.HasIndex(a => a.CreatedAt);
+            e.HasIndex(a => new { a.TransactionId, a.CreatedAt });
         });
     }
 }

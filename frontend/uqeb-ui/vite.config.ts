@@ -1,51 +1,15 @@
-# .NET
-bin/
-obj/
-.vs/
-*.user
-*.suo
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 
-# Backend build/publish folders
-backend/build-*/
-backend/**/bin/
-backend/**/obj/
-
-# Frontend
-node_modules/
-dist/
-build/
-frontend/**/node_modules/
-frontend/**/dist/
-
-# Logs
-*.log
-logs/
-
-# Temporary reports/files
-tmp_report.*
-*.tmp
-
-# Local database / backups
-*.db
-*.sqlite
-*.bak
-*.mdf
-*.ldf
-
-# Secrets / local configuration
-.env
-.env.*
-appsettings.Development.json
-appsettings.Local.json
-backend/Uqeb.Api/appsettings.json
-
-# Keep examples
-!backend/Uqeb.Api/appsettings.example.json
-
-# Test outputs
-TestResults/
-coverage/
-
-# OS
-.DS_Store
-Thumbs.db
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    port: 5173,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+      },
+    },
+  },
+});

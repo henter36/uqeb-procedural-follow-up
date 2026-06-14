@@ -27,6 +27,13 @@ public class TransactionsController : ControllerBase
     public async Task<IActionResult> Search([FromQuery] TransactionSearchRequest request) =>
         Ok(await _transactions.SearchAsync(request, _currentUser));
 
+    [HttpGet("{id}/basic")]
+    public async Task<IActionResult> GetBasic(int id)
+    {
+        var result = await _transactions.GetBasicByIdAsync(id, _currentUser);
+        return result == null ? NotFound() : Ok(result);
+    }
+
     [HttpGet("{id}")]
     public async Task<IActionResult> GetById(int id)
     {
@@ -153,8 +160,8 @@ public class TransactionsController : ControllerBase
     [HttpGet("{id}/followups")]
     public async Task<IActionResult> GetFollowUps(int id)
     {
-        var t = await _transactions.GetByIdAsync(id, _currentUser);
-        return t == null ? NotFound() : Ok(t.FollowUps);
+        var result = await _transactions.GetFollowUpsAsync(id, _currentUser);
+        return result == null ? NotFound() : Ok(result);
     }
 
     [HttpGet("{id}/followup-departments")]
@@ -189,8 +196,8 @@ public class TransactionsController : ControllerBase
     [HttpGet("{id}/assignments")]
     public async Task<IActionResult> GetAssignments(int id)
     {
-        var t = await _transactions.GetByIdAsync(id, _currentUser);
-        return t == null ? NotFound() : Ok(t.Assignments);
+        var result = await _transactions.GetAssignmentsAsync(id, _currentUser);
+        return result == null ? NotFound() : Ok(result);
     }
 
     [HttpPost("{id}/assignments")]

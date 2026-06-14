@@ -12,6 +12,9 @@ public interface ITransactionService
 {
     Task<PagedResult<TransactionListDto>> SearchAsync(TransactionSearchRequest request, ICurrentUserService currentUser);
     Task<TransactionDetailDto?> GetByIdAsync(int id, ICurrentUserService currentUser);
+    Task<TransactionDetailDto?> GetBasicByIdAsync(int id, ICurrentUserService currentUser);
+    Task<List<AssignmentDto>?> GetAssignmentsAsync(int transactionId, ICurrentUserService currentUser);
+    Task<List<FollowUpDto>?> GetFollowUpsAsync(int transactionId, ICurrentUserService currentUser);
     Task<TransactionDetailDto> CreateAsync(CreateTransactionRequest request, int userId);
     Task<TransactionDetailDto?> UpdateAsync(int id, UpdateTransactionRequest request, int userId, UserRole role);
     Task<bool> CancelAsync(int id, int userId, UserRole role);
@@ -52,7 +55,7 @@ public class TransactionService : ITransactionService
     public async Task<PagedResult<TransactionListDto>> SearchAsync(TransactionSearchRequest request, ICurrentUserService currentUser)
     {
         var now = DateTime.UtcNow;
-        var query = BaseQuery().AsQueryable();
+        var query = _db.Transactions.AsNoTracking();
 
         if (currentUser.Role == UserRole.DepartmentUser && currentUser.DepartmentId.HasValue)
         {
@@ -110,7 +113,7 @@ public class TransactionService : ITransactionService
 
         var total = await query.CountAsync();
 
-        query = request.SortBy?.ToLower() switch
+        var ordered = request.SortBy?.ToLower() switch
         {
             "incomingnumber" => request.SortDesc ? query.OrderByDescending(t => t.IncomingNumber) : query.OrderBy(t => t.IncomingNumber),
             "subject" => request.SortDesc ? query.OrderByDescending(t => t.Subject) : query.OrderBy(t => t.Subject),
@@ -119,37 +122,199 @@ public class TransactionService : ITransactionService
             _ => request.SortDesc ? query.OrderByDescending(t => t.IncomingDate) : query.OrderBy(t => t.IncomingDate)
         };
 
-        var items = await query.Skip((request.Page - 1) * request.PageSize).Take(request.PageSize).ToListAsync();
+        var rows = await ordered
+            .Skip((request.Page - 1) * request.PageSize)
+            .Take(request.PageSize)
+            .Select(t => new
+            {
+                t.Id,
+                t.InternalTrackingNumber,
+                t.IncomingNumber,
+                t.IncomingDate,
+                t.Subject,
+                t.IncomingFrom,
+                t.IncomingSourceType,
+                IncomingFromPartyName = t.IncomingFromParty != null ? t.IncomingFromParty.Name : null,
+                IncomingFromDepartmentName = t.IncomingFromDepartment != null ? t.IncomingFromDepartment.Name : null,
+                t.OutgoingNumber,
+                t.OutgoingDate,
+                t.Status,
+                t.Priority,
+                CategoryName = t.CategoryEntity != null ? t.CategoryEntity.Name : t.Category,
+                t.RequiresResponse,
+                t.ResponseCompleted,
+                t.ResponseDueDate,
+                t.IsArchived,
+                CreatedByName = t.CreatedBy != null ? t.CreatedBy.FullName : "",
+                t.CreatedAt,
+                HasPendingAssignments = t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
+                    && a.Status == AssignmentStatus.Active),
+                IsResponseOverdue = t.RequiresResponse && !t.ResponseCompleted
+                    && t.ResponseDueDate.HasValue && t.ResponseDueDate.Value < now,
+                IsOverdue = (t.RequiresResponse && !t.ResponseCompleted
+                        && t.ResponseDueDate.HasValue && t.ResponseDueDate.Value < now)
+                    || t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
+                        && a.Status == AssignmentStatus.Active && a.DueDate.HasValue && a.DueDate.Value < now)
+            })
+            .ToListAsync();
 
-        return PagedResult<TransactionListDto>.Create(
-            items.Select(t => MapToListDto(t, now)).ToList(),
-            total,
-            request.Page,
-            request.PageSize);
+        var pageIds = rows.Select(r => r.Id).ToList();
+        var deptNames = pageIds.Count == 0
+            ? new List<(int TransactionId, string Name)>()
+            : (await _db.TransactionOutgoingDepartments.AsNoTracking()
+                .Where(l => pageIds.Contains(l.TransactionId))
+                .Select(l => new { l.TransactionId, Name = l.Department.Name })
+                .ToListAsync())
+                .Select(x => (x.TransactionId, x.Name))
+                .ToList();
+
+        var deptLookup = deptNames
+            .GroupBy(x => x.TransactionId)
+            .ToDictionary(g => g.Key, g => g.Select(x => x.Name).ToList());
+
+        var items = rows.Select(r =>
+        {
+            var names = deptLookup.GetValueOrDefault(r.Id) ?? new List<string>();
+            var dto = new TransactionListDto
+            {
+                Id = r.Id,
+                InternalTrackingNumber = r.InternalTrackingNumber,
+                IncomingNumber = r.IncomingNumber,
+                IncomingDate = r.IncomingDate,
+                Subject = r.Subject,
+                IncomingFrom = r.IncomingSourceType switch
+                {
+                    IncomingSourceType.Internal => r.IncomingFromDepartmentName ?? r.IncomingFrom,
+                    IncomingSourceType.External => r.IncomingFromPartyName ?? r.IncomingFrom,
+                    _ => r.IncomingFrom
+                },
+                IncomingSourceType = r.IncomingSourceType.ToString(),
+                OutgoingNumber = r.OutgoingNumber,
+                OutgoingDate = r.OutgoingDate,
+                OutgoingDepartmentNames = names,
+                OutgoingPartyNames = names,
+                Status = r.Status.ToString(),
+                Priority = r.Priority.ToString(),
+                CategoryName = r.CategoryName,
+                RequiresResponse = r.RequiresResponse,
+                ResponseCompleted = r.ResponseCompleted,
+                ResponseDueDate = r.ResponseDueDate,
+                IsResponseOverdue = r.IsResponseOverdue,
+                HasPendingAssignments = r.HasPendingAssignments,
+                IsOverdue = r.IsOverdue,
+                IsArchived = r.IsArchived,
+                CreatedByName = r.CreatedByName,
+                CreatedAt = r.CreatedAt
+            };
+            if (r.ResponseDueDate.HasValue && !r.ResponseCompleted)
+                dto.DaysRemainingForResponse = (int)(r.ResponseDueDate.Value.Date - now.Date).TotalDays;
+            return dto;
+        }).ToList();
+
+        return PagedResult<TransactionListDto>.Create(items, total, request.Page, request.PageSize);
     }
 
-    public async Task<TransactionDetailDto?> GetByIdAsync(int id, ICurrentUserService currentUser)
+    public Task<TransactionDetailDto?> GetByIdAsync(int id, ICurrentUserService currentUser) =>
+        GetBasicByIdAsync(id, currentUser);
+
+    public async Task<TransactionDetailDto?> GetBasicByIdAsync(int id, ICurrentUserService currentUser)
     {
         var t = await _db.Transactions
-            .AsSplitQuery()
+            .AsNoTracking()
             .Include(x => x.CreatedBy)
             .Include(x => x.CategoryEntity)
             .Include(x => x.IncomingFromParty)
             .Include(x => x.IncomingFromDepartment)
             .Include(x => x.OutgoingDepartments).ThenInclude(o => o.Department)
-            .Include(x => x.FollowUps).ThenInclude(f => f.CreatedBy)
-            .Include(x => x.FollowUps).ThenInclude(f => f.Departments).ThenInclude(d => d.Department)
-            .Include(x => x.Assignments).ThenInclude(a => a.Department)
-            .Include(x => x.Assignments).ThenInclude(a => a.CreatedBy)
-            .Include(x => x.Attachments).ThenInclude(a => a.UploadedBy)
-            .Include(x => x.AuditLogs).ThenInclude(a => a.User)
             .FirstOrDefaultAsync(x => x.Id == id);
 
         if (t == null) return null;
-        if (!CanAccess(t, currentUser)) return null;
+        if (!await CanAccessTransactionAsync(id, currentUser)) return null;
 
-        await UpdateOverdueStatusesAsync(t);
-        return MapToDetailDto(t);
+        await UpdateOverdueStatusesForTransactionAsync(id);
+
+        var assignmentRows = await _db.Assignments.AsNoTracking()
+            .Where(a => a.TransactionId == id)
+            .Select(a => new AssignmentSummaryRow(
+                a.Department.Name,
+                a.ReplyStatus,
+                a.RequiresReply,
+                a.Status,
+                a.DueDate))
+            .ToListAsync();
+
+        var dto = MapToBasicDetailDto(t, assignmentRows, DateTime.UtcNow);
+        dto.Assignments = new();
+        dto.FollowUps = new();
+        dto.Attachments = new();
+        dto.AuditLogs = new();
+        return dto;
+    }
+
+    public async Task<List<AssignmentDto>?> GetAssignmentsAsync(int transactionId, ICurrentUserService currentUser)
+    {
+        if (!await CanAccessTransactionAsync(transactionId, currentUser)) return null;
+
+        var now = DateTime.UtcNow;
+        return await _db.Assignments.AsNoTracking()
+            .Where(a => a.TransactionId == transactionId)
+            .OrderByDescending(a => a.AssignedDate)
+            .Select(a => new AssignmentDto
+            {
+                Id = a.Id,
+                DepartmentId = a.DepartmentId,
+                DepartmentName = a.Department.Name,
+                AssignedDate = a.AssignedDate,
+                RequiredAction = a.RequiredAction,
+                RequiresReply = a.RequiresReply,
+                ReplyDueDays = a.ReplyDueDays,
+                DueDate = a.DueDate,
+                ReplyStatus = a.ReplyStatus.ToString(),
+                ReplyDate = a.ReplyDate,
+                ReplySummary = a.ReplySummary,
+                Status = a.Status.ToString(),
+                IsOverdue = a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
+                    && a.Status == AssignmentStatus.Active && a.DueDate.HasValue && a.DueDate.Value < now,
+                CreatedByName = a.CreatedBy != null ? a.CreatedBy.FullName : "",
+                CreatedAt = a.CreatedAt
+            })
+            .ToListAsync();
+    }
+
+    public async Task<List<FollowUpDto>?> GetFollowUpsAsync(int transactionId, ICurrentUserService currentUser)
+    {
+        if (!await CanAccessTransactionAsync(transactionId, currentUser)) return null;
+
+        return await _db.FollowUps.AsNoTracking()
+            .Where(f => f.TransactionId == transactionId)
+            .OrderByDescending(f => f.CreatedAt)
+            .Select(f => new FollowUpDto
+            {
+                Id = f.Id,
+                FollowUpNumber = f.FollowUpNumber,
+                FollowUpDate = f.FollowUpDate,
+                SentTo = f.SentTo,
+                Recipients = f.Recipients.Select(r => new FollowUpRecipientDto
+                {
+                    Id = r.Id,
+                    ExternalPartyId = r.ExternalPartyId,
+                    PartyName = r.ExternalParty != null ? r.ExternalParty.Name : ""
+                }).ToList(),
+                Departments = f.Departments.Select(d => new FollowUpDepartmentDto
+                {
+                    Id = d.Id,
+                    DepartmentId = d.DepartmentId,
+                    DepartmentName = d.Department != null ? d.Department.Name : ""
+                }).ToList(),
+                Notes = f.Notes,
+                RequiresReply = f.RequiresReply,
+                ReplyStatus = f.ReplyStatus.ToString(),
+                ReplyDate = f.ReplyDate,
+                ReplySummary = f.ReplySummary,
+                CreatedByName = f.CreatedBy != null ? f.CreatedBy.FullName : "",
+                CreatedAt = f.CreatedAt
+            })
+            .ToListAsync();
     }
 
     public async Task<TransactionDetailDto> CreateAsync(CreateTransactionRequest request, int userId)
@@ -630,11 +795,9 @@ public class TransactionService : ITransactionService
 
     public async Task<List<AuditLogDto>> GetAuditLogAsync(int transactionId, ICurrentUserService currentUser)
     {
-        var t = await _db.Transactions.FindAsync(transactionId);
-        if (t == null || !CanAccess(t, currentUser)) return new();
+        if (!await CanAccessTransactionAsync(transactionId, currentUser)) return new();
 
-        return await _db.AuditLogs
-            .Include(a => a.User)
+        return await _db.AuditLogs.AsNoTracking()
             .Where(a => a.TransactionId == transactionId)
             .OrderByDescending(a => a.CreatedAt)
             .Select(a => new AuditLogDto
@@ -680,6 +843,28 @@ public class TransactionService : ITransactionService
 
     private async Task UpdateTransactionReplyStatusAsync(int transactionId)
     {
+        var t = await _db.Transactions.Include(x => x.Assignments).FirstOrDefaultAsync(x => x.Id == transactionId);
+        if (t == null) return;
+
+        WorkflowHelper.UpdateTransactionStatusFromAssignments(t);
+        await _db.SaveChangesAsync();
+    }
+
+    private async Task UpdateOverdueStatusesForTransactionAsync(int transactionId)
+    {
+        var now = DateTime.UtcNow;
+        var overdueAssignments = await _db.Assignments
+            .Where(a => a.TransactionId == transactionId
+                && a.RequiresReply
+                && a.ReplyStatus == ReplyStatus.Pending
+                && a.DueDate < now)
+            .ToListAsync();
+
+        if (overdueAssignments.Count == 0) return;
+
+        foreach (var a in overdueAssignments)
+            a.ReplyStatus = ReplyStatus.Overdue;
+
         var t = await _db.Transactions.Include(x => x.Assignments).FirstOrDefaultAsync(x => x.Id == transactionId);
         if (t == null) return;
 
@@ -784,6 +969,15 @@ public class TransactionService : ITransactionService
             _ => t.IncomingFrom
         };
 
+    private async Task<bool> CanAccessTransactionAsync(int transactionId, ICurrentUserService user)
+    {
+        if (user.Role != UserRole.DepartmentUser || !user.DepartmentId.HasValue)
+            return await _db.Transactions.AsNoTracking().AnyAsync(t => t.Id == transactionId);
+
+        return await _db.Assignments.AsNoTracking()
+            .AnyAsync(a => a.TransactionId == transactionId && a.DepartmentId == user.DepartmentId.Value);
+    }
+
     private static bool CanAccess(Transaction t, ICurrentUserService user)
     {
         if (user.Role == UserRole.DepartmentUser && user.DepartmentId.HasValue)
@@ -818,6 +1012,80 @@ public class TransactionService : ITransactionService
             IsArchived = t.IsArchived,
             CreatedByName = t.CreatedBy?.FullName ?? "",
             CreatedAt = t.CreatedAt
+        };
+        if (t.ResponseDueDate.HasValue && !t.ResponseCompleted)
+            dto.DaysRemainingForResponse = (int)(t.ResponseDueDate.Value.Date - now.Date).TotalDays;
+        return dto;
+    }
+
+    private sealed record AssignmentSummaryRow(
+        string DepartmentName,
+        ReplyStatus ReplyStatus,
+        bool RequiresReply,
+        AssignmentStatus Status,
+        DateTime? DueDate);
+
+    private static TransactionDetailDto MapToBasicDetailDto(
+        Transaction t,
+        IReadOnlyList<AssignmentSummaryRow> assignmentRows,
+        DateTime now)
+    {
+        var replied = assignmentRows.Where(a => a.ReplyStatus == ReplyStatus.Replied).Select(a => a.DepartmentName).ToList();
+        var pending = assignmentRows.Where(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied && a.Status == AssignmentStatus.Active)
+            .Select(a => a.DepartmentName).ToList();
+        var hasPending = pending.Count > 0;
+        var hasOverdueAssignment = assignmentRows.Any(a =>
+            a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied && a.Status == AssignmentStatus.Active
+            && a.DueDate.HasValue && a.DueDate.Value < now);
+
+        var dto = new TransactionDetailDto
+        {
+            Id = t.Id,
+            InternalTrackingNumber = t.InternalTrackingNumber,
+            IncomingNumber = t.IncomingNumber,
+            IncomingDate = t.IncomingDate,
+            Subject = t.Subject,
+            IncomingFrom = ResolveIncomingFromName(t),
+            IncomingSourceType = t.IncomingSourceType.ToString(),
+            IncomingFromPartyId = t.IncomingFromPartyId,
+            IncomingFromDepartmentId = t.IncomingFromDepartmentId,
+            OutgoingNumber = t.OutgoingNumber,
+            OutgoingDate = t.OutgoingDate,
+            OutgoingTo = t.OutgoingTo,
+            Status = t.Status.ToString(),
+            Priority = t.Priority.ToString(),
+            CategoryId = t.CategoryId,
+            CategoryName = t.CategoryEntity?.Name ?? t.Category,
+            Category = t.Category,
+            RequiresResponse = t.RequiresResponse,
+            ResponseCompleted = t.ResponseCompleted,
+            ResponseType = t.ResponseType.ToString(),
+            ResponseDueDays = t.ResponseDueDays,
+            ResponseDueDate = t.ResponseDueDate,
+            ResponseCompletedDate = t.ResponseCompletedDate,
+            ResponseSummary = t.ResponseSummary,
+            Notes = t.Notes,
+            IsResponseOverdue = WorkflowHelper.IsResponseOverdue(t, now),
+            HasPendingAssignments = hasPending,
+            IsOverdue = WorkflowHelper.IsResponseOverdue(t, now) || hasOverdueAssignment,
+            IsArchived = t.IsArchived,
+            CreatedByName = t.CreatedBy?.FullName ?? "",
+            CreatedAt = t.CreatedAt,
+            UpdatedAt = t.UpdatedAt,
+            OutgoingDepartments = t.OutgoingDepartments.Select(o => new OutgoingDepartmentDto
+            {
+                Id = o.Id,
+                DepartmentId = o.DepartmentId,
+                DepartmentName = o.Department.Name
+            }).ToList(),
+            OutgoingDepartmentNames = t.OutgoingDepartments.Select(o => o.Department.Name).ToList(),
+            OutgoingPartyNames = t.OutgoingDepartments.Select(o => o.Department.Name).ToList(),
+            RepliedDepartmentNames = replied,
+            PendingDepartmentNames = pending,
+            FollowUps = new(),
+            Assignments = new(),
+            Attachments = new(),
+            AuditLogs = new()
         };
         if (t.ResponseDueDate.HasValue && !t.ResponseCompleted)
             dto.DaysRemainingForResponse = (int)(t.ResponseDueDate.Value.Date - now.Date).TotalDays;

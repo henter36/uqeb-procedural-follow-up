@@ -14,6 +14,11 @@ export const transactionsApi = {
   search: (params: Record<string, unknown>) =>
     api.get<PagedResult<TransactionListItem>>('/transactions', { params }),
   getById: (id: number) => api.get<TransactionDetail>(`/transactions/${id}`),
+  getBasic: (id: number) => api.get<TransactionDetail>(`/transactions/${id}/basic`),
+  getAssignments: (id: number) => api.get<Assignment[]>(`/transactions/${id}/assignments`),
+  getFollowUps: (id: number) => api.get<FollowUp[]>(`/transactions/${id}/followups`),
+  getAttachments: (id: number) => api.get<import('./types').Attachment[]>(`/transactions/${id}/attachments`),
+  getAuditLog: (id: number) => api.get<import('./types').AuditLog[]>(`/transactions/${id}/audit-log`),
   create: (data: Record<string, unknown>) => api.post<TransactionDetail>('/transactions', data),
   update: (id: number, data: Record<string, unknown>) => api.put<TransactionDetail>(`/transactions/${id}`, data),
   close: (id: number) => api.post(`/transactions/${id}/close`),
@@ -43,8 +48,17 @@ export const transactionsApi = {
     api.get(`/transactions/${id}/attachments/${attachmentId}/download`, { responseType: 'blob' }),
 };
 
+let dashboardSummaryInflight: ReturnType<typeof api.get<DashboardSummary>> | null = null;
+
 export const dashboardApi = {
-  summary: () => api.get<DashboardSummary>('/dashboard/summary'),
+  summary: () => {
+    dashboardSummaryInflight ??= api.get<DashboardSummary>('/dashboard/summary');
+    const request = dashboardSummaryInflight;
+    request.finally(() => {
+      if (dashboardSummaryInflight === request) dashboardSummaryInflight = null;
+    });
+    return request;
+  },
 };
 
 export const reportsApi = {

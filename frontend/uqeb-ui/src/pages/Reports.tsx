@@ -110,6 +110,7 @@ export default function ReportsPage() {
   const [incomingReport, setIncomingReport] = useState<{ partyName: string; transactionCount: number }[]>([]);
   const [outgoingDeptReport, setOutgoingDeptReport] = useState<OutgoingDepartmentReport[]>([]);
   const [deptSummary, setDeptSummary] = useState<DepartmentSummaryReport[]>([]);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsLoaded, setAnalyticsLoaded] = useState(false);
   const [monthly, setMonthly] = useState<{ month: number; incomingCount: number; outgoingCount: number }[]>([]);
@@ -125,7 +126,6 @@ export default function ReportsPage() {
   const abortRef = useRef<AbortController | null>(null);
   const summaryAbortRef = useRef<AbortController | null>(null);
   const monthlyRef = useRef<HTMLDivElement>(null);
-  const analyticsRef = useRef<HTMLDivElement>(null);
   const tabStatesRef = useRef(tabStates);
   tabStatesRef.current = tabStates;
 
@@ -258,6 +258,7 @@ export default function ReportsPage() {
     if (!force && analyticsLoadedRef.current) return;
     analyticsLoadingRef.current = true;
     setAnalyticsLoading(true);
+    setAnalyticsError(null);
     const p = filterParams();
     Promise.all([
       reportsApi.byCategory(p),
@@ -272,23 +273,16 @@ export default function ReportsPage() {
         setDeptSummary(dept.data);
         analyticsLoadedRef.current = true;
         setAnalyticsLoaded(true);
+        setAnalyticsError(null);
       })
-      .catch(() => {})
+      .catch(() => {
+        setAnalyticsError('تعذر تحميل التحليلات. حاول مرة أخرى.');
+      })
       .finally(() => {
         analyticsLoadingRef.current = false;
         setAnalyticsLoading(false);
       });
   }, [filterParams]);
-
-  useEffect(() => {
-    const el = analyticsRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) loadAnalytics();
-    }, { rootMargin: '100px' });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [loadAnalytics]);
 
   useEffect(() => {
     const el = monthlyRef.current;
@@ -315,6 +309,7 @@ export default function ReportsPage() {
     setIncomingReport([]);
     setOutgoingDeptReport([]);
     setDeptSummary([]);
+    setAnalyticsError(null);
   }, []);
 
   const applyFilters = () => {
@@ -512,10 +507,18 @@ export default function ReportsPage() {
         </>
       )}
 
-      <div className="card mt-4" ref={analyticsRef}>
+      <div className="card mt-4">
         <div className="page-header" style={{ marginBottom: '0.5rem' }}>
-          <h3>تقرير الوارد والمغلق لكل إدارة</h3>
+          <h3>التحليلات والتقارير التفصيلية</h3>
           <div className="btn-group">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => loadAnalytics(true)}
+              disabled={analyticsLoading}
+            >
+              {analyticsLoading ? 'جاري التحميل...' : analyticsLoaded ? 'إعادة تحميل التحليلات' : 'تحميل التحليلات'}
+            </button>
             <button className="btn btn-outline" onClick={async () => {
               const res = await reportsApi.exportDepartmentIncomingClosedExcel(filterParams());
               const url = window.URL.createObjectURL(res.data);
@@ -528,8 +531,13 @@ export default function ReportsPage() {
             }}>تصدير PDF</button>
           </div>
         </div>
-        <p className="text-muted mb-2">يُحسب الوارد حسب تاريخ الوارد (الإدارات الصادر لها)، والمغلق حسب تاريخ الإغلاق ضمن الفترة المحددة.</p>
-        {!analyticsLoaded ? <div className="loading">سيُحمّل عند التمرير...</div> : analyticsLoading ? <div className="loading">جاري التحميل...</div> : (
+        <p className="text-muted mb-2">اضغط «تحميل التحليلات» لعرض الجداول أدناه. يُحسب الوارد حسب تاريخ الوارد (الإدارات الصادر لها)، والمغلق حسب تاريخ الإغلاق ضمن الفترة المحددة.</p>
+        {analyticsError && <div className="alert alert-error mb-2">{analyticsError}</div>}
+        {!analyticsLoaded ? (
+          <div className="text-center text-muted" style={{ padding: '1.5rem' }}>لم يتم تحميل التحليلات بعد.</div>
+        ) : analyticsLoading ? <div className="loading">جاري التحميل...</div> : (
+          <>
+          <h4 className="mb-2">تقرير الوارد والمغلق لكل إدارة</h4>
           <table className="data-table">
             <thead>
               <tr>
@@ -552,49 +560,44 @@ export default function ReportsPage() {
               {deptSummary.length === 0 && <tr><td colSpan={7} className="text-center">لا توجد بيانات</td></tr>}
             </tbody>
           </table>
-        )}
-      </div>
 
       <div className="dashboard-grid mt-4">
         <div className="card">
           <h3>حسب التصنيف</h3>
-          {!analyticsLoaded ? <div className="loading">سيُحمّل عند التمرير...</div> : (
-            <table className="data-table">
-              <thead><tr><th>التصنيف</th><th>العدد</th></tr></thead>
-              <tbody>{categoryReport.map((c, i) => <tr key={i}><td>{c.categoryName}</td><td>{c.count}</td></tr>)}</tbody>
-            </table>
-          )}
+          <table className="data-table">
+            <thead><tr><th>التصنيف</th><th>العدد</th></tr></thead>
+            <tbody>{categoryReport.map((c, i) => <tr key={i}><td>{c.categoryName}</td><td>{c.count}</td></tr>)}</tbody>
+          </table>
         </div>
         <div className="card">
           <h3>حسب الجهات الوارد منها</h3>
-          {!analyticsLoaded ? <div className="loading">سيُحمّل عند التمرير...</div> : (
-            <table className="data-table">
-              <thead><tr><th>الجهة</th><th>العدد</th></tr></thead>
-              <tbody>{incomingReport.map((p, i) => <tr key={i}><td>{p.partyName}</td><td>{p.transactionCount}</td></tr>)}</tbody>
-            </table>
-          )}
+          <table className="data-table">
+            <thead><tr><th>الجهة</th><th>العدد</th></tr></thead>
+            <tbody>{incomingReport.map((p, i) => <tr key={i}><td>{p.partyName}</td><td>{p.transactionCount}</td></tr>)}</tbody>
+          </table>
         </div>
         <div className="card">
           <h3>حسب الإدارات الصادر لها</h3>
-          {!analyticsLoaded ? <div className="loading">سيُحمّل عند التمرير...</div> : (
-            <table className="data-table">
-              <thead>
-                <tr><th>الإدارة</th><th>العدد</th><th>مفتوح</th><th>مغلق</th><th>متأخر</th></tr>
-              </thead>
-              <tbody>
-                {outgoingDeptReport.map((d) => (
-                  <tr key={d.departmentId}>
-                    <td>{d.departmentName}</td>
-                    <td>{d.transactionCount}</td>
-                    <td>{d.openCount}</td>
-                    <td>{d.closedCount}</td>
-                    <td>{d.overdueCount}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          <table className="data-table">
+            <thead>
+              <tr><th>الإدارة</th><th>العدد</th><th>مفتوح</th><th>مغلق</th><th>متأخر</th></tr>
+            </thead>
+            <tbody>
+              {outgoingDeptReport.map((d) => (
+                <tr key={d.departmentId}>
+                  <td>{d.departmentName}</td>
+                  <td>{d.transactionCount}</td>
+                  <td>{d.openCount}</td>
+                  <td>{d.closedCount}</td>
+                  <td>{d.overdueCount}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
+      </div>
+          </>
+        )}
       </div>
 
       <div className="card mt-4" ref={monthlyRef}>

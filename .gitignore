@@ -1,4 +1,7 @@
 # Backend / .NET
+backend/build-*/
+backend/**/bin/
+backend/**/obj/
 bin/
 obj/
 *.user
@@ -31,8 +34,17 @@ Thumbs.db
 *.ldf
 
 # Secrets / local config
+backend/Uqeb.Api/appsettings.json
 appsettings.Development.json
 appsettings.Local.json
+
+# Generated reports / exports
+tmp_report.*
+*.pdf
+*.xlsx
+
+# Keep example config
+!backend/Uqeb.Api/appsettings.example.json
 
 # Test results
 TestResults/

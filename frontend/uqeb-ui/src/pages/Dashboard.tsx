@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { dashboardApi } from '../api/services';
 import type { DashboardSummary } from '../api/types';
@@ -10,12 +10,24 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const [error, setError] = useState<string | null>(null);
+  const fetchedRef = useRef(false);
+
   useEffect(() => {
-    dashboardApi.summary().then((res) => setData(res.data)).finally(() => setLoading(false));
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+
+    let active = true;
+    dashboardApi.summary()
+      .then((res) => { if (active) setData(res.data); })
+      .catch(() => { if (active) setError('فشل تحميل البيانات'); })
+      .finally(() => { if (active) setLoading(false); });
+
+    return () => { active = false; };
   }, []);
 
   if (loading) return <div className="loading">جاري التحميل...</div>;
-  if (!data) return <div className="alert alert-error">فشل تحميل البيانات</div>;
+  if (error || !data) return <div className="alert alert-error">{error || 'فشل تحميل البيانات'}</div>;
 
   const cards = [
     { label: 'معاملات مفتوحة', value: data.totalOpen, color: 'blue', link: '/transactions' },
