@@ -122,8 +122,23 @@ public class TransactionService : ITransactionService
         var ordered = request.SortBy?.ToLower() switch
         {
             "incomingnumber" => request.SortDesc ? query.OrderByDescending(t => t.IncomingNumber) : query.OrderBy(t => t.IncomingNumber),
+            "incomingdate" => request.SortDesc ? query.OrderByDescending(t => t.IncomingDate) : query.OrderBy(t => t.IncomingDate),
             "subject" => request.SortDesc ? query.OrderByDescending(t => t.Subject) : query.OrderBy(t => t.Subject),
+            "incomingfrom" => request.SortDesc
+                ? query.OrderByDescending(t => t.IncomingFromParty != null ? t.IncomingFromParty.Name
+                    : t.IncomingFromDepartment != null ? t.IncomingFromDepartment.Name
+                    : t.IncomingFrom ?? "")
+                : query.OrderBy(t => t.IncomingFromParty != null ? t.IncomingFromParty.Name
+                    : t.IncomingFromDepartment != null ? t.IncomingFromDepartment.Name
+                    : t.IncomingFrom ?? ""),
+            "category" => request.SortDesc
+                ? query.OrderByDescending(t => t.CategoryEntity != null ? t.CategoryEntity.Name : t.Category ?? "")
+                : query.OrderBy(t => t.CategoryEntity != null ? t.CategoryEntity.Name : t.Category ?? ""),
+            "priority" => request.SortDesc ? query.OrderByDescending(t => t.Priority) : query.OrderBy(t => t.Priority),
             "status" => request.SortDesc ? query.OrderByDescending(t => t.Status) : query.OrderBy(t => t.Status),
+            "responseduedate" => request.SortDesc
+                ? query.OrderByDescending(t => t.ResponseDueDate)
+                : query.OrderBy(t => t.ResponseDueDate),
             "createdat" => request.SortDesc ? query.OrderByDescending(t => t.CreatedAt) : query.OrderBy(t => t.CreatedAt),
             _ => request.SortDesc ? query.OrderByDescending(t => t.IncomingDate) : query.OrderBy(t => t.IncomingDate)
         };

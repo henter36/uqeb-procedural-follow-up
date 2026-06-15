@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { transactionsApi, departmentsApi, categoriesApi, externalPartiesApi } from '../api/services';
 import type { TransactionListItem, Department, Category, ExternalParty } from '../api/types';
@@ -7,6 +8,98 @@ import { statusLabels, statusBadgeClass } from '../utils/labels';
 import DateDisplay from '../components/DateDisplay';
 import DepartmentBadges from '../components/DepartmentBadges';
 import { responseTimingBadgeClass } from '../utils/responseTiming';
+
+type SortKey =
+  | 'incomingNumber'
+  | 'incomingDate'
+  | 'subject'
+  | 'incomingFrom'
+  | 'category'
+  | 'priority'
+  | 'status'
+  | 'responseDueDate'
+  | 'createdAt';
+
+const DATE_SORT_KEYS = new Set<SortKey>(['incomingDate', 'responseDueDate', 'createdAt']);
+
+type FiltersState = {
+  incomingNumber: string;
+  outgoingNumber: string;
+  subject: string;
+  status: string;
+  incomingSourceType: string;
+  incomingFromPartyId: string;
+  incomingFromDepartmentId: string;
+  departmentId: string;
+  categoryId: string;
+  dateFrom: string;
+  dateTo: string;
+  responseDueDateFrom: string;
+  responseDueDateTo: string;
+  overdueOnly: boolean;
+  requiresResponse: string;
+  responseCompleted: string;
+  responseOverdue: boolean;
+  hasPendingAssignments: boolean;
+  hasPartialReplies: boolean;
+  page: number;
+  sortBy: SortKey;
+  sortDesc: boolean;
+};
+
+function buildSearchParams(f: FiltersState): Record<string, unknown> {
+  const params: Record<string, unknown> = {
+    pageSize: 20,
+    page: f.page,
+    sortBy: f.sortBy,
+    sortDesc: f.sortDesc,
+  };
+  if (f.incomingNumber) params.incomingNumber = f.incomingNumber;
+  if (f.outgoingNumber) params.outgoingNumber = f.outgoingNumber;
+  if (f.subject) params.subject = f.subject;
+  if (f.incomingSourceType) params.incomingSourceType = f.incomingSourceType;
+  if (f.incomingFromPartyId) params.incomingFromPartyId = +f.incomingFromPartyId;
+  if (f.incomingFromDepartmentId) params.incomingFromDepartmentId = +f.incomingFromDepartmentId;
+  if (f.status) params.status = f.status;
+  if (f.departmentId) params.departmentId = +f.departmentId;
+  if (f.categoryId) params.categoryId = +f.categoryId;
+  if (f.dateFrom) params.dateFrom = f.dateFrom;
+  if (f.dateTo) params.dateTo = f.dateTo;
+  if (f.responseDueDateFrom) params.responseDueDateFrom = f.responseDueDateFrom;
+  if (f.responseDueDateTo) params.responseDueDateTo = f.responseDueDateTo;
+  if (f.overdueOnly) params.overdueOnly = true;
+  if (f.requiresResponse === 'true') params.requiresResponse = true;
+  if (f.responseCompleted === 'true') params.responseCompleted = true;
+  if (f.responseCompleted === 'false') params.responseCompleted = false;
+  if (f.responseOverdue) params.responseOverdue = true;
+  if (f.hasPendingAssignments) params.hasPendingAssignments = true;
+  if (f.hasPartialReplies) params.hasPartialReplies = true;
+  return params;
+}
+
+function SortableTh({
+  columnKey,
+  label,
+  sortBy,
+  sortDesc,
+  onSort,
+}: {
+  columnKey: SortKey;
+  label: string;
+  sortBy: SortKey;
+  sortDesc: boolean;
+  onSort: (key: SortKey) => void;
+}) {
+  const active = sortBy === columnKey;
+  return (
+    <th>
+      <button type="button" className="sortable-th" onClick={() => onSort(columnKey)}>
+        <span>{label}</span>
+        {active && <span className="sort-indicator" aria-hidden="true">{sortDesc ? '↓' : '↑'}</span>}
+      </button>
+    </th>
+  );
+}
 
 export default function TransactionsList() {
   const { canEdit } = useAuth();
@@ -17,7 +110,7 @@ export default function TransactionsList() {
   const [parties, setParties] = useState<ExternalParty[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({
+  const [filters, setFilters] = useState<FiltersState>({
     incomingNumber: '', outgoingNumber: '', subject: '', status: searchParams.get('status') ?? '',
     incomingSourceType: '', incomingFromPartyId: '', incomingFromDepartmentId: '',
     departmentId: '', categoryId: '', dateFrom: '', dateTo: '',
@@ -25,33 +118,14 @@ export default function TransactionsList() {
     overdueOnly: false, requiresResponse: '', responseCompleted: '',
     responseOverdue: false, hasPendingAssignments: false, hasPartialReplies: false,
     page: 1,
+    sortBy: 'incomingDate',
+    sortDesc: true,
   });
 
-  const load = () => {
+  const load = (override?: Partial<FiltersState>) => {
+    const active = { ...filters, ...override };
     setLoading(true);
-    const params: Record<string, unknown> = { pageSize: 20, page: filters.page };
-    if (filters.incomingNumber) params.incomingNumber = filters.incomingNumber;
-    if (filters.outgoingNumber) params.outgoingNumber = filters.outgoingNumber;
-    if (filters.subject) params.subject = filters.subject;
-    if (filters.incomingSourceType) params.incomingSourceType = filters.incomingSourceType;
-    if (filters.incomingFromPartyId) params.incomingFromPartyId = +filters.incomingFromPartyId;
-    if (filters.incomingFromDepartmentId) params.incomingFromDepartmentId = +filters.incomingFromDepartmentId;
-    if (filters.status) params.status = filters.status;
-    if (filters.departmentId) params.departmentId = +filters.departmentId;
-    if (filters.categoryId) params.categoryId = +filters.categoryId;
-    if (filters.dateFrom) params.dateFrom = filters.dateFrom;
-    if (filters.dateTo) params.dateTo = filters.dateTo;
-    if (filters.responseDueDateFrom) params.responseDueDateFrom = filters.responseDueDateFrom;
-    if (filters.responseDueDateTo) params.responseDueDateTo = filters.responseDueDateTo;
-    if (filters.overdueOnly) params.overdueOnly = true;
-    if (filters.requiresResponse === 'true') params.requiresResponse = true;
-    if (filters.responseCompleted === 'true') params.responseCompleted = true;
-    if (filters.responseCompleted === 'false') params.responseCompleted = false;
-    if (filters.responseOverdue) params.responseOverdue = true;
-    if (filters.hasPendingAssignments) params.hasPendingAssignments = true;
-    if (filters.hasPartialReplies) params.hasPartialReplies = true;
-
-    transactionsApi.search(params)
+    transactionsApi.search(buildSearchParams(active))
       .then((res) => { setItems(res.data.items); setTotal(res.data.totalCount); })
       .finally(() => setLoading(false));
   };
@@ -62,12 +136,26 @@ export default function TransactionsList() {
     categoriesApi.getAll().then((r) => setCategories(r.data));
   }, []);
 
-  useEffect(() => { load(); }, [filters.page]);
+  useEffect(() => {
+    load();
+  }, [filters.page, filters.sortBy, filters.sortDesc]);
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleSearch = (e: FormEvent) => {
     e.preventDefault();
     setFilters((f) => ({ ...f, page: 1 }));
-    load();
+    load({ page: 1 });
+  };
+
+  const handleSort = (columnKey: SortKey) => {
+    setFilters((f) => {
+      const isSame = f.sortBy === columnKey;
+      return {
+        ...f,
+        sortBy: columnKey,
+        sortDesc: isSame ? !f.sortDesc : DATE_SORT_KEYS.has(columnKey),
+        page: 1,
+      };
+    });
   };
 
   return (
@@ -136,14 +224,14 @@ export default function TransactionsList() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>رقم الوارد</th>
-                <th>التاريخ</th>
-                <th>الموضوع</th>
-                <th>الجهة الوارد منها</th>
-                <th>التصنيف</th>
+                <SortableTh columnKey="incomingNumber" label="رقم الوارد" sortBy={filters.sortBy} sortDesc={filters.sortDesc} onSort={handleSort} />
+                <SortableTh columnKey="incomingDate" label="التاريخ" sortBy={filters.sortBy} sortDesc={filters.sortDesc} onSort={handleSort} />
+                <SortableTh columnKey="subject" label="الموضوع" sortBy={filters.sortBy} sortDesc={filters.sortDesc} onSort={handleSort} />
+                <SortableTh columnKey="incomingFrom" label="الجهة الوارد منها" sortBy={filters.sortBy} sortDesc={filters.sortDesc} onSort={handleSort} />
+                <SortableTh columnKey="category" label="التصنيف" sortBy={filters.sortBy} sortDesc={filters.sortDesc} onSort={handleSort} />
                 <th>الإدارة</th>
-                <th>الحالة</th>
-                <th>تاريخ الرد المطلوب</th>
+                <SortableTh columnKey="status" label="الحالة" sortBy={filters.sortBy} sortDesc={filters.sortDesc} onSort={handleSort} />
+                <SortableTh columnKey="responseDueDate" label="تاريخ الرد المطلوب" sortBy={filters.sortBy} sortDesc={filters.sortDesc} onSort={handleSort} />
                 <th>حالة الرد</th>
                 <th>آخر تعقيب</th>
                 <th>إجراءات</th>
