@@ -1,5 +1,7 @@
+using System.IO.Compression;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Uqeb.Api.Authorization;
@@ -63,6 +65,17 @@ builder.Services.AddAuthorization(options =>
 });
 
 builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<ICacheInvalidationService, CacheInvalidationService>();
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
+    options.Level = CompressionLevel.Fastest);
+builder.Services.Configure<GzipCompressionProviderOptions>(options =>
+    options.Level = CompressionLevel.Fastest);
 builder.Services.AddControllers();
 builder.Services.AddCors(options =>
 {
@@ -85,6 +98,7 @@ catch (Exception ex)
 }
 
 app.UseCors();
+app.UseResponseCompression();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

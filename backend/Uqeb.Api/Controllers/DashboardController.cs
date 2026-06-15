@@ -11,26 +11,29 @@ namespace Uqeb.Api.Controllers;
 [Authorize]
 public class DashboardController : ControllerBase
 {
-    private const string SummaryCacheKey = "dashboard:summary";
-    private static readonly TimeSpan SummaryCacheDuration = TimeSpan.FromSeconds(30);
-
     private readonly IReportService _reports;
     private readonly IMemoryCache _cache;
+    private readonly ICacheInvalidationService _cacheInvalidation;
 
-    public DashboardController(IReportService reports, IMemoryCache cache)
+    public DashboardController(
+        IReportService reports,
+        IMemoryCache cache,
+        ICacheInvalidationService cacheInvalidation)
     {
         _reports = reports;
         _cache = cache;
+        _cacheInvalidation = cacheInvalidation;
     }
 
     [HttpGet("summary")]
     public async Task<IActionResult> Summary()
     {
-        if (_cache.TryGetValue(SummaryCacheKey, out DashboardSummaryDto? cached) && cached != null)
+        var cacheKey = _cacheInvalidation.DashboardSummaryKey;
+        if (_cache.TryGetValue(cacheKey, out DashboardSummaryDto? cached) && cached != null)
             return Ok(cached);
 
         var result = await _reports.GetDashboardSummaryAsync();
-        _cache.Set(SummaryCacheKey, result, SummaryCacheDuration);
+        _cache.Set(cacheKey, result, _cacheInvalidation.DashboardCacheDuration);
         return Ok(result);
     }
 

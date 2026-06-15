@@ -34,12 +34,18 @@ public class TransactionService : ITransactionService
     private readonly AppDbContext _db;
     private readonly IAuditService _audit;
     private readonly ITrackingNumberService _trackingNumbers;
+    private readonly ICacheInvalidationService _cacheInvalidation;
 
-    public TransactionService(AppDbContext db, IAuditService audit, ITrackingNumberService trackingNumbers)
+    public TransactionService(
+        AppDbContext db,
+        IAuditService audit,
+        ITrackingNumberService trackingNumbers,
+        ICacheInvalidationService cacheInvalidation)
     {
         _db = db;
         _audit = audit;
         _trackingNumbers = trackingNumbers;
+        _cacheInvalidation = cacheInvalidation;
     }
 
     private IQueryable<Transaction> BaseQuery() =>
@@ -383,6 +389,7 @@ public class TransactionService : ITransactionService
         await _audit.LogAsync(userId, AuditAction.Create, "Transaction", transaction.Id, transaction.Id, null,
             JsonSerializer.Serialize(new { transaction.IncomingNumber, transaction.Subject }));
 
+        _cacheInvalidation.InvalidateOnTransactionChange();
         return (await GetByIdAsync(transaction.Id, new SystemUser(userId)))!;
     }
 
@@ -470,6 +477,7 @@ public class TransactionService : ITransactionService
         await _audit.LogAsync(userId, AuditAction.Update, "Transaction", id, id, oldValues,
             JsonSerializer.Serialize(new { t.IncomingNumber, t.Subject, t.Status, t.CategoryId, t.ResponseDueDays }));
 
+        _cacheInvalidation.InvalidateOnTransactionChange();
         return await GetByIdAsync(id, new SystemUser(userId));
     }
 
@@ -486,6 +494,7 @@ public class TransactionService : ITransactionService
         t.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         await _audit.LogAsync(userId, AuditAction.Cancel, "Transaction", id, id, null, "Cancelled");
+        _cacheInvalidation.InvalidateOnTransactionChange();
         return true;
     }
 
@@ -504,6 +513,7 @@ public class TransactionService : ITransactionService
         t.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         await _audit.LogAsync(userId, AuditAction.Archive, "Transaction", id, id, null, "Archived");
+        _cacheInvalidation.InvalidateOnTransactionChange();
         return true;
     }
 
@@ -532,6 +542,7 @@ public class TransactionService : ITransactionService
         await _db.SaveChangesAsync();
         await _audit.LogAsync(userId, AuditAction.Close, "Transaction", id, id, null,
             JsonSerializer.Serialize(new { ClosedAt = t.ClosedAt }));
+        _cacheInvalidation.InvalidateOnTransactionChange();
         return true;
     }
 
@@ -598,6 +609,7 @@ public class TransactionService : ITransactionService
                 outgoingDate = t.OutgoingDate
             }));
 
+        _cacheInvalidation.InvalidateOnTransactionChange();
         return await GetByIdAsync(id, currentUser);
     }
 

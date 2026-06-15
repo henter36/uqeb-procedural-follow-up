@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Memory;
 using Uqeb.Api.DTOs.Reports;
 using Uqeb.Api.DTOs.Transactions;
 using Uqeb.Api.Helpers;
@@ -13,15 +14,33 @@ namespace Uqeb.Api.Controllers;
 public class ReportsController : ControllerBase
 {
     private readonly IReportService _reports;
+    private readonly IMemoryCache _cache;
+    private readonly ICacheInvalidationService _cacheInvalidation;
 
-    public ReportsController(IReportService reports) => _reports = reports;
+    public ReportsController(
+        IReportService reports,
+        IMemoryCache cache,
+        ICacheInvalidationService cacheInvalidation)
+    {
+        _reports = reports;
+        _cache = cache;
+        _cacheInvalidation = cacheInvalidation;
+    }
 
     [HttpGet("dashboard")]
     public async Task<IActionResult> Dashboard() => Ok(await _reports.GetDashboardAsync());
 
     [HttpGet("page-summary")]
-    public async Task<IActionResult> PageSummary([FromQuery] ReportFilterRequest filter) =>
-        Ok(await _reports.GetPageSummaryAsync(filter));
+    public async Task<IActionResult> PageSummary([FromQuery] ReportFilterRequest filter)
+    {
+        var cacheKey = _cacheInvalidation.BuildReportsPageSummaryKey(filter);
+        if (_cache.TryGetValue(cacheKey, out ReportSectionCountsDto? cached) && cached != null)
+            return Ok(cached);
+
+        var result = await _reports.GetPageSummaryAsync(filter);
+        _cache.Set(cacheKey, result, _cacheInvalidation.ReportsPageSummaryCacheDuration);
+        return Ok(result);
+    }
 
     [HttpGet("overdue")]
     public async Task<IActionResult> Overdue([FromQuery] ReportFilterRequest filter) =>
