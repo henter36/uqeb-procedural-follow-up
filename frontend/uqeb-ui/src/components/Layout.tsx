@@ -12,7 +12,7 @@ const statusLabels: Record<string, string> = {
 export { statusLabels };
 
 export default function Layout() {
-  const { user, logout, isAdmin } = useAuth();
+  const { user, logout, isAdmin, canClose } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -25,6 +25,7 @@ export default function Layout() {
     { path: '/', label: 'لوحة المتابعة' },
     { path: '/transactions', label: 'المعاملات' },
     { path: '/reports', label: 'التقارير' },
+    ...(canClose ? [{ path: '/letter-template', label: 'قالب خطاب التعقيب' }] : []),
     ...(isAdmin ? [
       { path: '/users', label: 'المستخدمون' },
       { path: '/departments', label: 'الإدارات' },

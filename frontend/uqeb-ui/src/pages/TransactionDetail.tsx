@@ -18,8 +18,12 @@ import {
   buildReplyPayload,
   getApiErrorMessage,
 } from '../utils/apiHelpers';
+import {
+  resolveFollowUpLetterRecipient,
+} from '../utils/followUpLetter';
 import DateDisplay from '../components/DateDisplay';
 import MultiSelect from '../components/MultiSelect';
+import { responseTimingBadgeClass, formatDaysSince } from '../utils/responseTiming';
 
 type DetailTab = 'attachments' | 'audit';
 
@@ -51,6 +55,7 @@ export default function TransactionDetailPage() {
   const [replyAssignmentId, setReplyAssignmentId] = useState<number | null>(null);
   const [replyFollowUpId, setReplyFollowUpId] = useState<number | null>(null);
   const [showCompleteResponse, setShowCompleteResponse] = useState(false);
+  const [showFollowUpLetter, setShowFollowUpLetter] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -195,6 +200,15 @@ export default function TransactionDetailPage() {
       <div className="page-header">
         <h2 className="page-title">تفاصيل المعاملة: {tx.incomingNumber}</h2>
         <div className="btn-group">
+          {canEdit && !isDepartmentUser && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setShowFollowUpLetter(true)}
+            >
+              إنشاء خطاب تعقيب PDF
+            </button>
+          )}
           {canEdit && !isDepartmentUser && <Link to={`/transactions/${id}/edit`} className="btn btn-primary">تعديل</Link>}
           {canRegisterResponse && (
             <button
@@ -218,9 +232,34 @@ export default function TransactionDetailPage() {
         <strong>الحالة:</strong> {statusLabels[tx.status] || tx.status}
         {tx.isOverdue && <span className="status-extra"> — متأخرة</span>}
         {tx.hasPendingAssignments && <span className="status-extra"> — باقي إجراء</span>}
-        {tx.daysRemainingForResponse != null && !tx.responseCompleted && (
-          <span className="status-extra"> — متبقي {tx.daysRemainingForResponse} يوم للإفادة</span>
+        {tx.responseTimingLabel && tx.requiresResponse && (
+          <span className={`status-extra badge ${responseTimingBadgeClass(tx.responseTimingStatus)}`} style={{ marginRight: 8 }}>
+            {tx.responseTimingLabel}
+          </span>
         )}
+      </div>
+
+      <div className="timeline-stats mt-4">
+        <div className="timeline-stat">
+          <span className="timeline-stat-label">منذ ورود المعاملة</span>
+          <span className="timeline-stat-value">{formatDaysSince(tx.daysSinceIncoming, '0')}</span>
+        </div>
+        <div className="timeline-stat">
+          <span className="timeline-stat-label">منذ آخر تعقيب</span>
+          <span className="timeline-stat-value">{formatDaysSince(tx.daysSinceLastFollowUp)}</span>
+        </div>
+        <div className="timeline-stat">
+          <span className="timeline-stat-label">تاريخ الرد المطلوب</span>
+          <span className="timeline-stat-value">
+            {tx.responseDueDate ? <DateDisplay date={tx.responseDueDate} /> : '—'}
+          </span>
+        </div>
+        <div className="timeline-stat">
+          <span className="timeline-stat-label">موعد الرد</span>
+          <span className={`timeline-stat-value badge ${responseTimingBadgeClass(tx.responseTimingStatus)}`}>
+            {tx.requiresResponse ? (tx.responseTimingLabel || '—') : 'غير مطلوب'}
+          </span>
+        </div>
       </div>
 
       <div className="card mt-4">
@@ -456,6 +495,15 @@ export default function TransactionDetailPage() {
             loadAssignments();
           }}
           onSuccess={() => setMessage('تم تسجيل الإفادة بنجاح.')}
+        />
+      )}
+      {showFollowUpLetter && (
+        <FollowUpLetterModal
+          transactionId={+id!}
+          tx={tx}
+          assignments={assignments}
+          onClose={() => setShowFollowUpLetter(false)}
+          onDownloaded={() => setMessage('تم تحميل خطاب التعقيب بنجاح.')}
         />
       )}
     </div>
@@ -720,5 +768,130 @@ function ReplyModal({
         </div>
       </form>
     </div></div>
+  );
+}
+
+function FollowUpLetterModal({
+  transactionId,
+  tx,
+  assignments,
+  onClose,
+  onDownloaded,
+}: {
+  transactionId: number;
+  tx: TransactionDetail;
+  assignments: Assignment[];
+  onClose: () => void;
+  onDownloaded: () => void;
+}) {
+  const defaultRecipient = resolveFollowUpLetterRecipient(
+    tx.outgoingDepartments,
+    assignments,
+    tx.incomingFrom,
+  );
+  const [recipient, setRecipient] = useState(defaultRecipient);
+  const [letterBody, setLetterBody] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [previewing, setPreviewing] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState('');
+
+  const loadPreview = useCallback(async (targetEntity?: string, keepEditedContent = false) => {
+    setError('');
+    setPreviewing(true);
+    try {
+      const res = await transactionsApi.previewFollowUpLetter(transactionId, {
+        targetEntity: targetEntity ?? recipient,
+        ...(keepEditedContent && letterBody.trim() ? { content: letterBody } : {}),
+      });
+      setLetterBody(res.data.content);
+      if (res.data.targetEntity) setRecipient(res.data.targetEntity);
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err));
+    } finally {
+      setPreviewing(false);
+      setLoading(false);
+    }
+  }, [transactionId, recipient, letterBody]);
+
+  useEffect(() => {
+    loadPreview(defaultRecipient);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transactionId]);
+
+  const handlePreview = () => loadPreview(recipient, false);
+
+  const handleDownload = async () => {
+    setError('');
+    setDownloading(true);
+    try {
+      const res = await transactionsApi.downloadFollowUpLetterPdf(transactionId, {
+        targetEntity: recipient,
+        content: letterBody,
+      });
+      const url = window.URL.createObjectURL(res.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `follow-up-letter-${transactionId}.pdf`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+      onDownloaded();
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err));
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal follow-up-letter-modal" dir="rtl">
+        <h3>خطاب تعقيب</h3>
+        {loading ? (
+          <div className="loading">جاري التحميل...</div>
+        ) : (
+          <>
+            <div className="form-group">
+              <label>الجهة</label>
+              <input
+                type="text"
+                value={recipient}
+                onChange={(e) => setRecipient(e.target.value)}
+                placeholder="اسم الإدارة أو الجهة"
+              />
+            </div>
+            <div className="form-group">
+              <label>نص الخطاب</label>
+              <textarea
+                className="follow-up-letter-body"
+                rows={14}
+                value={letterBody}
+                onChange={(e) => setLetterBody(e.target.value)}
+              />
+            </div>
+            {error && <div className="alert alert-error">{error}</div>}
+            <div className="form-actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={previewing}
+                onClick={handlePreview}
+              >
+                {previewing ? 'جاري المعاينة...' : 'معاينة'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={downloading || !letterBody.trim()}
+                onClick={handleDownload}
+              >
+                {downloading ? 'جاري التحميل...' : 'تحميل PDF'}
+              </button>
+              <button type="button" className="btn btn-outline" onClick={onClose}>إغلاق</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   );
 }

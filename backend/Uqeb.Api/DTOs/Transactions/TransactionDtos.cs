@@ -34,8 +34,14 @@ public class TransactionListDto
     public string? CategoryName { get; set; }
     public bool RequiresResponse { get; set; }
     public bool ResponseCompleted { get; set; }
+    public int? ResponseDays { get; set; }
     public DateTime? ResponseDueDate { get; set; }
     public int? DaysRemainingForResponse { get; set; }
+    public int DaysSinceIncoming { get; set; }
+    public int? DaysSinceLastFollowUp { get; set; }
+    public DateTime? LastFollowUpDate { get; set; }
+    public string? ResponseTimingStatus { get; set; }
+    public string? ResponseTimingLabel { get; set; }
     public bool IsOverdue { get; set; }
     public bool IsResponseOverdue { get; set; }
     public bool HasPendingAssignments { get; set; }

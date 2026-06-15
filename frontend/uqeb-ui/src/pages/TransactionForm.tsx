@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { transactionsApi, externalPartiesApi, categoriesApi, departmentsApi } from '../api/services';
@@ -9,7 +9,7 @@ import {
   getApiErrorMessage,
   getFieldErrors,
 } from '../utils/apiHelpers';
-import { formatHijri } from '../utils/dateUtils';
+import { formatDualDate, formatHijri } from '../utils/dateUtils';
 import MultiSelect from '../components/MultiSelect';
 
 interface Props { mode: 'create' | 'edit' }
@@ -41,6 +41,15 @@ export default function TransactionForm({ mode }: Props) {
     responseType: 'External', responseDueDays: '' as string | number,
     priority: 'Normal', categoryId: '' as string | number, notes: '',
   });
+
+  const computedResponseDueDate = useMemo(() => {
+    if (!form.incomingDate || !form.responseDueDays) return null;
+    const days = Number(form.responseDueDays);
+    if (!Number.isFinite(days) || days <= 0) return null;
+    const d = new Date(`${form.incomingDate}T00:00:00`);
+    d.setDate(d.getDate() + days);
+    return d;
+  }, [form.incomingDate, form.responseDueDays]);
 
   useEffect(() => {
     externalPartiesApi.getAll().then((r) => setParties(r.data));
@@ -262,10 +271,15 @@ export default function TransactionForm({ mode }: Props) {
               {fieldError('responseType') && <span className="field-error">{fieldError('responseType')}</span>}
             </div>
             <div className="form-group">
-              <label>عدد أيام الرد المطلوبة *</label>
+              <label>عدد الأيام للرد *</label>
               <input type="number" min="1" value={form.responseDueDays}
                 onChange={(e) => setForm({ ...form, responseDueDays: e.target.value })} />
               {fieldError('responseDueDays') && <span className="field-error">{fieldError('responseDueDays')}</span>}
+              {computedResponseDueDate && (
+                <small className="text-muted">
+                  تاريخ الرد المطلوب: {formatDualDate(computedResponseDueDate)}
+                </small>
+              )}
             </div>
             {mode === 'edit' && (
               <p className="text-muted">لتسجيل الإفادة استخدم إجراء «تسجيل الإفادة» من صفحة تفاصيل المعاملة.</p>

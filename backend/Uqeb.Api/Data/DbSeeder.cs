@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
+using Uqeb.Api.Services;
 
 namespace Uqeb.Api.Data;
 
@@ -9,6 +10,19 @@ public static class DbSeeder
     public static async Task SeedAsync(AppDbContext db)
     {
         await db.Database.MigrateAsync();
+
+        if (!await db.LetterTemplates.AnyAsync(t => t.Code == LetterTemplateService.FollowUpTemplateCode))
+        {
+            db.LetterTemplates.Add(new LetterTemplate
+            {
+                Code = LetterTemplateService.FollowUpTemplateCode,
+                Name = "قالب خطاب التعقيب",
+                Content = LetterTemplateService.DefaultFollowUpContent,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
 
         if (!await db.Categories.AnyAsync())
         {

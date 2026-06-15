@@ -149,6 +149,7 @@ public class TransactionService : ITransactionService
                 CategoryName = t.CategoryEntity != null ? t.CategoryEntity.Name : t.Category,
                 t.RequiresResponse,
                 t.ResponseCompleted,
+                t.ResponseDueDays,
                 t.ResponseDueDate,
                 t.IsArchived,
                 CreatedByName = t.CreatedBy != null ? t.CreatedBy.FullName : "",
@@ -177,6 +178,19 @@ public class TransactionService : ITransactionService
         var deptLookup = deptNames
             .GroupBy(x => x.TransactionId)
             .ToDictionary(g => g.Key, g => g.Select(x => x.Name).ToList());
+
+        var lastFollowUpLookup = pageIds.Count == 0
+            ? new Dictionary<int, DateTime?>()
+            : (await _db.FollowUps.AsNoTracking()
+                .Where(f => pageIds.Contains(f.TransactionId))
+                .GroupBy(f => f.TransactionId)
+                .Select(g => new
+                {
+                    TransactionId = g.Key,
+                    LastDate = g.Max(f => f.CreatedAt > f.FollowUpDate ? f.CreatedAt : f.FollowUpDate)
+                })
+                .ToListAsync())
+                .ToDictionary(x => x.TransactionId, x => (DateTime?)x.LastDate);
 
         var items = rows.Select(r =>
         {
@@ -212,8 +226,15 @@ public class TransactionService : ITransactionService
                 CreatedByName = r.CreatedByName,
                 CreatedAt = r.CreatedAt
             };
-            if (r.ResponseDueDate.HasValue && !r.ResponseCompleted)
-                dto.DaysRemainingForResponse = (int)(r.ResponseDueDate.Value.Date - now.Date).TotalDays;
+            var lastFollowUp = lastFollowUpLookup.GetValueOrDefault(r.Id);
+            TransactionTimelineHelper.ApplyTo(dto, TransactionTimelineHelper.Compute(
+                r.IncomingDate,
+                r.ResponseDueDate,
+                r.ResponseDueDays,
+                r.RequiresResponse,
+                r.ResponseCompleted,
+                lastFollowUp?.Date,
+                now.Date));
             return dto;
         }).ToList();
 
@@ -250,6 +271,12 @@ public class TransactionService : ITransactionService
             .ToListAsync();
 
         var dto = MapToBasicDetailDto(t, assignmentRows, DateTime.UtcNow);
+        var lastFollowUp = await _db.FollowUps.AsNoTracking()
+            .Where(f => f.TransactionId == id)
+            .Select(f => f.CreatedAt > f.FollowUpDate ? f.CreatedAt : f.FollowUpDate)
+            .OrderByDescending(d => d)
+            .FirstOrDefaultAsync();
+        TransactionTimelineHelper.ApplyForTransaction(dto, t, DateTime.UtcNow, lastFollowUp == default ? null : lastFollowUp);
         dto.Assignments = new();
         dto.FollowUps = new();
         dto.Attachments = new();
@@ -1165,8 +1192,7 @@ public class TransactionService : ITransactionService
             CreatedByName = t.CreatedBy?.FullName ?? "",
             CreatedAt = t.CreatedAt
         };
-        if (t.ResponseDueDate.HasValue && !t.ResponseCompleted)
-            dto.DaysRemainingForResponse = (int)(t.ResponseDueDate.Value.Date - now.Date).TotalDays;
+        TransactionTimelineHelper.ApplyForTransaction(dto, t, now);
         return dto;
     }
 
@@ -1239,8 +1265,7 @@ public class TransactionService : ITransactionService
             Attachments = new(),
             AuditLogs = new()
         };
-        if (t.ResponseDueDate.HasValue && !t.ResponseCompleted)
-            dto.DaysRemainingForResponse = (int)(t.ResponseDueDate.Value.Date - now.Date).TotalDays;
+        TransactionTimelineHelper.ApplyForTransaction(dto, t, now);
         return dto;
     }
 
@@ -1315,8 +1340,7 @@ public class TransactionService : ITransactionService
                 CreatedAt = a.CreatedAt
             }).ToList()
         };
-        if (t.ResponseDueDate.HasValue && !t.ResponseCompleted)
-            dto.DaysRemainingForResponse = (int)(t.ResponseDueDate.Value.Date - now.Date).TotalDays;
+        TransactionTimelineHelper.ApplyForTransaction(dto, t, now);
         return dto;
     }
 

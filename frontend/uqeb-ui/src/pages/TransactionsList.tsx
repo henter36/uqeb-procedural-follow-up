@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { statusLabels, statusBadgeClass } from '../utils/labels';
 import DateDisplay from '../components/DateDisplay';
 import DepartmentBadges from '../components/DepartmentBadges';
+import { responseTimingBadgeClass } from '../utils/responseTiming';
 
 export default function TransactionsList() {
   const { canEdit } = useAuth();
@@ -142,7 +143,9 @@ export default function TransactionsList() {
                 <th>التصنيف</th>
                 <th>الإدارة</th>
                 <th>الحالة</th>
-                <th>الإفادة</th>
+                <th>تاريخ الرد المطلوب</th>
+                <th>حالة الرد</th>
+                <th>آخر تعقيب</th>
                 <th>إجراءات</th>
               </tr>
             </thead>
@@ -165,13 +168,19 @@ export default function TransactionsList() {
                       {statusLabels[t.status] || t.status}
                     </span>
                   </td>
+                  <td>{t.responseDueDate ? <DateDisplay date={t.responseDueDate} /> : '—'}</td>
                   <td>
-                    {t.requiresResponse ? (t.responseCompleted ? 'تمت' : t.isResponseOverdue ? 'متأخر' : 'مطلوبة') : '-'}
+                    {t.requiresResponse ? (
+                      <span className={`badge ${responseTimingBadgeClass(t.responseTimingStatus)}`}>
+                        {t.responseTimingLabel || (t.responseCompleted ? 'مكتمل' : '—')}
+                      </span>
+                    ) : '—'}
                   </td>
+                  <td>{t.lastFollowUpDate ? <DateDisplay date={t.lastFollowUpDate} /> : '—'}</td>
                   <td><Link to={`/transactions/${t.id}`} className="btn btn-sm">عرض</Link></td>
                 </tr>
               ))}
-              {items.length === 0 && <tr><td colSpan={9} className="text-center">لا توجد معاملات</td></tr>}
+              {items.length === 0 && <tr><td colSpan={11} className="text-center">لا توجد معاملات</td></tr>}
             </tbody>
           </table>
           <div className="pagination">

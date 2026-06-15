@@ -32,6 +32,7 @@ builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IDepartmentService, DepartmentService>();
 builder.Services.AddScoped<IExternalPartyService, ExternalPartyService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
+builder.Services.AddScoped<ILetterTemplateService, LetterTemplateService>();
 
 var jwtSettings = builder.Configuration.GetSection("Jwt").Get<JwtSettings>() ?? new JwtSettings();
 if (string.IsNullOrEmpty(jwtSettings.Key))

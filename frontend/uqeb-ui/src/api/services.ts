@@ -2,7 +2,7 @@ import api from './client';
 import type {
   LoginResponse, TransactionListItem, TransactionDetail, PagedResult,
   DashboardSummary, Department, ExternalParty, User, FollowUp, Assignment, Category,
-  ReportTransactionRow, ReportSectionCounts
+  ReportTransactionRow, ReportSectionCounts, LetterTemplate, FollowUpLetterPreview
 } from './types';
 
 export const authApi = {
@@ -47,6 +47,10 @@ export const transactionsApi = {
   },
   downloadAttachment: (id: number, attachmentId: number) =>
     api.get(`/transactions/${id}/attachments/${attachmentId}/download`, { responseType: 'blob' }),
+  previewFollowUpLetter: (id: number, data?: { targetEntity?: string; content?: string }) =>
+    api.post<FollowUpLetterPreview>(`/transactions/${id}/follow-up-letter/preview`, data ?? {}),
+  downloadFollowUpLetterPdf: (id: number, data: { targetEntity?: string; content: string }) =>
+    api.post(`/transactions/${id}/follow-up-letter/pdf`, data, { responseType: 'blob' }),
 };
 
 export const dashboardApi = {
@@ -123,4 +127,9 @@ export const usersApi = {
   getAll: () => api.get<User[]>('/users'),
   create: (data: Record<string, unknown>) => api.post<User>('/users', data),
   update: (id: number, data: Record<string, unknown>) => api.put<User>(`/users/${id}`, data),
+};
+
+export const letterTemplatesApi = {
+  getFollowUp: () => api.get<LetterTemplate>('/letter-templates/follow-up'),
+  updateFollowUp: (content: string) => api.put<LetterTemplate>('/letter-templates/follow-up', { content }),
 };

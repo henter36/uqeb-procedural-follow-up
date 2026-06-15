@@ -51,6 +51,8 @@ public interface IReportService
 
 public class ReportService : IReportService
 {
+    private const int ExportBatchSize = 1000;
+
     private readonly AppDbContext _db;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
 
@@ -257,42 +259,41 @@ public class ReportService : IReportService
 
     public async Task<byte[]> ExportReportDetailsExcelAsync(string reportType, ReportPagedFilterRequest filter, bool currentPageOnly)
     {
-        List<ReportTransactionRowDto> data;
+        using var workbook = new XLWorkbook();
+        var ws = workbook.Worksheets.Add("التقرير");
+        WriteReportExcelHeaders(ws);
+        var row = 2;
+
         if (currentPageOnly)
         {
             var paged = await GetDetailsByReportTypeAsync(reportType, filter);
-            data = paged.Items;
+            WriteReportExcelRows(ws, row, paged.Items);
         }
         else
         {
-            var allFilter = new ReportPagedFilterRequest
+            DateTime? lastCreatedAt = null;
+            int? lastId = null;
+            while (true)
             {
-                DateFrom = filter.DateFrom,
-                DateTo = filter.DateTo,
-                Status = filter.Status,
-                CategoryId = filter.CategoryId,
-                DepartmentId = filter.DepartmentId,
-                IncomingPartyId = filter.IncomingPartyId,
-                OutgoingPartyId = filter.OutgoingPartyId,
-                OutgoingDepartmentId = filter.OutgoingDepartmentId,
-                IncomingSourceType = filter.IncomingSourceType,
-                Search = filter.Search,
-                Page = 1,
-                PageSize = ReportPageSize.Max
-            };
-            var batch = new List<ReportTransactionRowDto>();
-            PagedResult<ReportTransactionRowDto> page;
-            do
-            {
-                page = await GetDetailsByReportTypeAsync(reportType, allFilter);
-                batch.AddRange(page.Items);
-                allFilter.Page++;
-            } while (page.HasNextPage);
-            data = batch;
+                var batch = await GetReportDetailsExportBatchAsync(reportType, filter, lastCreatedAt, lastId, ExportBatchSize);
+                if (batch.Count == 0)
+                    break;
+
+                row = WriteReportExcelRows(ws, row, batch);
+                var last = batch[^1];
+                lastCreatedAt = last.CreatedAt;
+                lastId = last.Id;
+            }
         }
 
-        using var workbook = new XLWorkbook();
-        var ws = workbook.Worksheets.Add("التقرير");
+        ws.RightToLeft = true;
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static void WriteReportExcelHeaders(IXLWorksheet ws)
+    {
         ws.Cell(1, 1).Value = "رقم التتبع";
         ws.Cell(1, 2).Value = "رقم الوارد";
         ws.Cell(1, 3).Value = "تاريخ الوارد";
@@ -303,11 +304,13 @@ public class ReportService : IReportService
         ws.Cell(1, 8).Value = "التصنيف";
         ws.Cell(1, 9).Value = "الأولوية";
         ws.Cell(1, 10).Value = "أيام التأخر";
+    }
 
-        for (var i = 0; i < data.Count; i++)
+    private static int WriteReportExcelRows(IXLWorksheet ws, int startRow, IReadOnlyList<ReportTransactionRowDto> data)
+    {
+        var row = startRow;
+        foreach (var t in data)
         {
-            var row = i + 2;
-            var t = data[i];
             ws.Cell(row, 1).Value = t.InternalTrackingNumber;
             ws.Cell(row, 2).Value = t.IncomingNumber;
             ws.Cell(row, 3).Value = t.IncomingDate.ToString("yyyy-MM-dd");
@@ -319,13 +322,92 @@ public class ReportService : IReportService
             ws.Cell(row, 8).Value = t.CategoryName ?? "";
             ws.Cell(row, 9).Value = t.Priority;
             ws.Cell(row, 10).Value = t.DaysOverdue.HasValue ? t.DaysOverdue.Value : "";
+            row++;
+        }
+        return row;
+    }
+
+    private async Task<List<ReportTransactionRowDto>> GetReportDetailsExportBatchAsync(
+        string reportType,
+        ReportPagedFilterRequest filter,
+        DateTime? lastCreatedAt,
+        int? lastId,
+        int batchSize)
+    {
+        var now = DateTime.UtcNow;
+        var query = ApplyReportFilter(_db.Transactions.AsNoTracking(), filter);
+        query = ApplyExportReportPredicate(reportType, query, now);
+
+        if (lastCreatedAt.HasValue && lastId.HasValue)
+        {
+            query = query.Where(t =>
+                t.CreatedAt < lastCreatedAt.Value
+                || (t.CreatedAt == lastCreatedAt.Value && t.Id < lastId.Value));
         }
 
-        ws.RightToLeft = true;
-        using var stream = new MemoryStream();
-        workbook.SaveAs(stream);
-        return stream.ToArray();
+        var rows = await query
+            .OrderByDescending(t => t.CreatedAt)
+            .ThenByDescending(t => t.Id)
+            .Take(batchSize)
+            .Select(t => new ReportDetailRowProjection
+            {
+                Id = t.Id,
+                InternalTrackingNumber = t.InternalTrackingNumber,
+                IncomingNumber = t.IncomingNumber,
+                IncomingDate = t.IncomingDate,
+                Subject = t.Subject,
+                IncomingFrom = t.IncomingFrom,
+                IncomingSourceType = t.IncomingSourceType,
+                IncomingFromPartyName = t.IncomingFromParty != null ? t.IncomingFromParty.Name : null,
+                IncomingFromDepartmentName = t.IncomingFromDepartment != null ? t.IncomingFromDepartment.Name : null,
+                CategoryName = t.CategoryEntity != null ? t.CategoryEntity.Name : t.Category,
+                Priority = t.Priority,
+                Status = t.Status,
+                ResponseType = t.ResponseType,
+                ResponseDueDate = t.ResponseDueDate,
+                RequiresResponse = t.RequiresResponse,
+                ResponseCompleted = t.ResponseCompleted,
+                ResponseDueDays = t.ResponseDueDays,
+                CreatedAt = t.CreatedAt,
+                OutgoingDepartmentsDisplayNames = t.OutgoingDepartments.Select(o => o.Department.Name).ToList(),
+                AssignmentDueDate = t.Assignments
+                    .Where(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
+                        && a.Status == AssignmentStatus.Active && a.DueDate.HasValue)
+                    .Min(a => (DateTime?)a.DueDate),
+                LastFollowUpDate = t.FollowUps.Any()
+                    ? t.FollowUps.Max(f => f.CreatedAt > f.FollowUpDate ? f.CreatedAt : f.FollowUpDate)
+                    : (DateTime?)null
+            })
+            .ToListAsync();
+
+        return MapReportDetailRows(rows, now);
     }
+
+    private static IQueryable<Models.Entities.Transaction> ApplyExportReportPredicate(
+        string reportType,
+        IQueryable<Models.Entities.Transaction> query,
+        DateTime now) =>
+        reportType.ToLower() switch
+        {
+            "response-required" or "pending-response" => query.Where(t => t.RequiresResponse && !t.ResponseCompleted),
+            "overdue-responses" => query.Where(t =>
+                t.RequiresResponse && !t.ResponseCompleted
+                && t.ResponseDueDate.HasValue && t.ResponseDueDate < now),
+            "open-assignments" or "pending-assignments" => query.Where(t =>
+                t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
+                    && a.Status == AssignmentStatus.Active)),
+            "partial-replies" => ApplyPartialRepliesFilter(query),
+            "overdue" => query.Where(t =>
+                (t.RequiresResponse && !t.ResponseCompleted && t.ResponseDueDate.HasValue && t.ResponseDueDate < now)
+                || t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
+                    && a.Status == AssignmentStatus.Active && a.DueDate.HasValue && a.DueDate < now)),
+            "waiting-reply" or "waiting" or "waiting-replies" => query.Where(t =>
+                t.Status == TransactionStatus.WaitingForReply || t.Status == TransactionStatus.PartiallyReplied),
+            "open" => query.Where(t =>
+                t.Status != TransactionStatus.Closed && t.Status != TransactionStatus.Cancelled && t.Status != TransactionStatus.Archived),
+            _ => query.Where(t =>
+                t.Status != TransactionStatus.Closed && t.Status != TransactionStatus.Cancelled && t.Status != TransactionStatus.Archived)
+        };
 
     private Task<PagedResult<ReportTransactionRowDto>> GetDetailsByReportTypeAsync(string reportType, ReportPagedFilterRequest filter) =>
         reportType.ToLower() switch
@@ -343,7 +425,7 @@ public class ReportService : IReportService
     public async Task<List<DepartmentReportDto>> GetByDepartmentAsync(ReportFilterRequest? filter = null)
     {
         var now = DateTime.UtcNow;
-        var query = _db.Assignments.Include(a => a.Department).AsQueryable();
+        var query = _db.Assignments.AsNoTracking().AsQueryable();
         if (filter?.DepartmentId.HasValue == true)
             query = query.Where(a => a.DepartmentId == filter.DepartmentId);
 
@@ -479,46 +561,27 @@ public class ReportService : IReportService
     public async Task<List<OutgoingDepartmentReportDto>> GetByOutgoingDepartmentAsync(ReportFilterRequest? filter = null)
     {
         var now = DateTime.UtcNow;
-        var links = ApplyOutgoingDepartmentLinkFilter(_db.TransactionOutgoingDepartments.AsNoTracking(), filter);
+        var rows = await LoadOutgoingDepartmentLinkRowsAsync(filter);
+        var assignmentOverdueTx = await LoadAssignmentOverdueTransactionIdsAsync(now);
 
-        var candidateIds = await links.Select(l => l.TransactionId).Distinct().ToListAsync();
-        var overdueTxIds = candidateIds.Count == 0
-            ? new HashSet<int>()
-            : await GetOverdueTransactionIdsAmongAsync(now, candidateIds);
-
-        var summary = await links
-            .GroupBy(l => new { l.DepartmentId, l.Department.Name })
-            .Select(g => new OutgoingDepartmentReportDto
+        return rows
+            .GroupBy(r => new { r.DepartmentId, r.DepartmentName })
+            .Select(g =>
             {
-                DepartmentId = g.Key.DepartmentId,
-                DepartmentName = g.Key.Name,
-                TransactionCount = g.Select(l => l.TransactionId).Distinct().Count(),
-                OpenCount = g.Where(l =>
-                        l.Transaction.Status != TransactionStatus.Closed
-                        && l.Transaction.Status != TransactionStatus.Cancelled
-                        && l.Transaction.Status != TransactionStatus.Archived)
-                    .Select(l => l.TransactionId).Distinct().Count(),
-                ClosedCount = g.Where(l => l.Transaction.Status == TransactionStatus.Closed)
-                    .Select(l => l.TransactionId).Distinct().Count(),
-                OverdueCount = 0
+                var byTransaction = g.GroupBy(x => x.TransactionId).Select(x => x.First()).ToList();
+                return new OutgoingDepartmentReportDto
+                {
+                    DepartmentId = g.Key.DepartmentId,
+                    DepartmentName = g.Key.DepartmentName,
+                    TransactionCount = byTransaction.Count,
+                    OpenCount = byTransaction.Count(r => IsOpenTransactionStatus(r.Status)),
+                    ClosedCount = byTransaction.Count(r => r.Status == TransactionStatus.Closed),
+                    OverdueCount = byTransaction.Count(r =>
+                        IsResponseOverdueRow(r, now) || assignmentOverdueTx.Contains(r.TransactionId))
+                };
             })
             .OrderByDescending(x => x.TransactionCount)
-            .ToListAsync();
-
-        if (summary.Count == 0 || overdueTxIds.Count == 0)
-            return summary;
-
-        var overdueByDept = await links
-            .Where(l => overdueTxIds.Contains(l.TransactionId))
-            .GroupBy(l => l.DepartmentId)
-            .Select(g => new { DepartmentId = g.Key, OverdueCount = g.Select(l => l.TransactionId).Distinct().Count() })
-            .ToListAsync();
-
-        var overdueMap = overdueByDept.ToDictionary(x => x.DepartmentId, x => x.OverdueCount);
-        foreach (var row in summary)
-            row.OverdueCount = overdueMap.GetValueOrDefault(row.DepartmentId, 0);
-
-        return summary;
+            .ToList();
     }
 
     public async Task<List<DepartmentSummaryDto>> GetDepartmentSummaryAsync(ReportFilterRequest? filter = null)
@@ -527,49 +590,29 @@ public class ReportService : IReportService
         var dateFrom = filter?.DateFrom;
         var dateTo = filter?.DateTo;
 
-        IQueryable<Models.Entities.TransactionOutgoingDepartment> filteredLinks =
-            _db.TransactionOutgoingDepartments.AsNoTracking();
+        var rows = await LoadDepartmentSummaryLinkRowsAsync(dateFrom, dateTo);
+        var assignmentOverdueTx = await LoadAssignmentOverdueTransactionIdsAsync(now);
 
-        if (dateFrom.HasValue)
-            filteredLinks = filteredLinks.Where(l => l.Transaction.IncomingDate >= dateFrom);
-        if (dateTo.HasValue)
-            filteredLinks = filteredLinks.Where(l => l.Transaction.IncomingDate <= dateTo);
-
-        var results = await filteredLinks
-            .GroupBy(l => new { l.DepartmentId, DepartmentName = l.Department.Name })
-            .Select(g => new DepartmentSummaryDto
+        var results = rows
+            .GroupBy(r => new { r.DepartmentId, r.DepartmentName })
+            .Select(g =>
             {
-                DepartmentId = g.Key.DepartmentId,
-                DepartmentName = g.Key.DepartmentName,
-                TotalIncoming = g.Select(l => l.TransactionId).Distinct().Count(),
-                OpenCount = g.Where(l =>
-                        l.Transaction.Status != TransactionStatus.Closed
-                        && l.Transaction.Status != TransactionStatus.Cancelled
-                        && l.Transaction.Status != TransactionStatus.Archived)
-                    .Select(l => l.TransactionId).Distinct().Count(),
-                WaitingForReplyCount = g.Where(l =>
-                        l.Transaction.Status == TransactionStatus.WaitingForReply
-                        || l.Transaction.Status == TransactionStatus.PartiallyReplied
-                        || l.Transaction.Status == TransactionStatus.Assigned)
-                    .Select(l => l.TransactionId).Distinct().Count(),
-                OverdueCount = 0,
-                ClosedCount = 0
+                var byTransaction = g.GroupBy(x => x.TransactionId).Select(x => x.First()).ToList();
+                return new DepartmentSummaryDto
+                {
+                    DepartmentId = g.Key.DepartmentId,
+                    DepartmentName = g.Key.DepartmentName,
+                    TotalIncoming = byTransaction.Count,
+                    OpenCount = byTransaction.Count(r => IsOpenTransactionStatus(r.Status)),
+                    WaitingForReplyCount = byTransaction.Count(r => IsWaitingForReplyStatus(r.Status)),
+                    OverdueCount = byTransaction.Count(r =>
+                        IsResponseOverdueRow(r, now) || assignmentOverdueTx.Contains(r.TransactionId)),
+                    ClosedCount = 0
+                };
             })
-            .ToListAsync();
+            .ToList();
 
-        var closedByDept = await _db.TransactionOutgoingDepartments.AsNoTracking()
-            .Where(l => l.Transaction.Status == TransactionStatus.Closed
-                && l.Transaction.ClosedAt.HasValue
-                && (!dateFrom.HasValue || l.Transaction.ClosedAt >= dateFrom)
-                && (!dateTo.HasValue || l.Transaction.ClosedAt <= dateTo))
-            .GroupBy(l => new { l.DepartmentId, DepartmentName = l.Department.Name })
-            .Select(g => new
-            {
-                g.Key.DepartmentId,
-                g.Key.DepartmentName,
-                ClosedCount = g.Select(l => l.TransactionId).Distinct().Count()
-            })
-            .ToListAsync();
+        var closedByDept = await LoadClosedCountByDepartmentAsync(dateFrom, dateTo);
 
         var resultMap = results.ToDictionary(r => r.DepartmentId);
         foreach (var closed in closedByDept)
@@ -591,26 +634,6 @@ public class ReportService : IReportService
             .Where(x => x.TotalIncoming > 0 || x.ClosedCount > 0)
             .OrderByDescending(x => x.TotalIncoming)
             .ToList();
-
-        if (results.Count > 0)
-        {
-            var candidateIds = await filteredLinks
-                .Select(l => l.TransactionId)
-                .Distinct()
-                .ToListAsync();
-            var overdueTxIds = await GetOverdueTransactionIdsAmongAsync(now, candidateIds);
-            if (overdueTxIds.Count > 0)
-            {
-                var overdueByDept = await filteredLinks
-                    .Where(l => overdueTxIds.Contains(l.TransactionId))
-                    .GroupBy(l => l.DepartmentId)
-                    .Select(g => new { DepartmentId = g.Key, OverdueCount = g.Select(l => l.TransactionId).Distinct().Count() })
-                    .ToListAsync();
-                var overdueMap = overdueByDept.ToDictionary(x => x.DepartmentId, x => x.OverdueCount);
-                foreach (var row in results)
-                    row.OverdueCount = overdueMap.GetValueOrDefault(row.DepartmentId, 0);
-            }
-        }
 
         foreach (var row in results)
             row.CloseRate = row.TotalIncoming > 0 ? Math.Round((double)row.ClosedCount / row.TotalIncoming * 100, 1) : 0;
@@ -695,6 +718,12 @@ public class ReportService : IReportService
             Priority = r.Priority,
             CategoryName = r.CategoryName,
             ResponseDueDate = r.ResponseDueDate,
+            DaysRemainingForResponse = r.DaysRemainingForResponse,
+            DaysSinceIncoming = r.DaysSinceIncoming,
+            DaysSinceLastFollowUp = r.DaysSinceLastFollowUp,
+            LastFollowUpDate = r.LastFollowUpDate,
+            ResponseTimingStatus = r.ResponseTimingStatus,
+            ResponseTimingLabel = r.ResponseTimingLabel,
             IsOverdue = r.IsOverdue,
             IsResponseOverdue = r.IsOverdue && r.ResponseDueDate.HasValue,
             CreatedAt = r.CreatedAt
@@ -730,34 +759,45 @@ public class ReportService : IReportService
         var rows = await query
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(t => new
+            .Select(t => new ReportDetailRowProjection
             {
-                t.Id,
-                t.InternalTrackingNumber,
-                t.IncomingNumber,
-                t.IncomingDate,
-                t.Subject,
-                t.IncomingFrom,
-                t.IncomingSourceType,
+                Id = t.Id,
+                InternalTrackingNumber = t.InternalTrackingNumber,
+                IncomingNumber = t.IncomingNumber,
+                IncomingDate = t.IncomingDate,
+                Subject = t.Subject,
+                IncomingFrom = t.IncomingFrom,
+                IncomingSourceType = t.IncomingSourceType,
                 IncomingFromPartyName = t.IncomingFromParty != null ? t.IncomingFromParty.Name : null,
                 IncomingFromDepartmentName = t.IncomingFromDepartment != null ? t.IncomingFromDepartment.Name : null,
                 CategoryName = t.CategoryEntity != null ? t.CategoryEntity.Name : t.Category,
-                t.Priority,
-                t.Status,
-                t.ResponseType,
-                t.ResponseDueDate,
-                t.RequiresResponse,
-                t.ResponseCompleted,
-                t.CreatedAt,
+                Priority = t.Priority,
+                Status = t.Status,
+                ResponseType = t.ResponseType,
+                ResponseDueDate = t.ResponseDueDate,
+                RequiresResponse = t.RequiresResponse,
+                ResponseCompleted = t.ResponseCompleted,
+                ResponseDueDays = t.ResponseDueDays,
+                CreatedAt = t.CreatedAt,
                 OutgoingDepartmentsDisplayNames = t.OutgoingDepartments.Select(o => o.Department.Name).ToList(),
                 AssignmentDueDate = t.Assignments
                     .Where(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
                         && a.Status == AssignmentStatus.Active && a.DueDate.HasValue)
-                    .Min(a => (DateTime?)a.DueDate)
+                    .Min(a => (DateTime?)a.DueDate),
+                LastFollowUpDate = t.FollowUps.Any()
+                    ? t.FollowUps.Max(f => f.CreatedAt > f.FollowUpDate ? f.CreatedAt : f.FollowUpDate)
+                    : (DateTime?)null
             })
             .ToListAsync();
 
-        var items = rows.Select(t =>
+        var items = MapReportDetailRows(rows, now);
+
+        return PagedResult<ReportTransactionRowDto>.Create(items, totalCount, page, pageSize);
+    }
+
+    private static List<ReportTransactionRowDto> MapReportDetailRows(
+        List<ReportDetailRowProjection> rows, DateTime now) =>
+        rows.Select(t =>
         {
             var incomingFrom = t.IncomingSourceType switch
             {
@@ -776,6 +816,15 @@ public class ReportService : IReportService
             else if (isAssignmentOverdue)
                 daysOverdue = (int)(now.Date - assignmentDue!.Value.Date).TotalDays;
 
+            var timeline = TransactionTimelineHelper.Compute(
+                t.IncomingDate,
+                t.ResponseDueDate,
+                t.ResponseDueDays,
+                t.RequiresResponse,
+                t.ResponseCompleted,
+                t.LastFollowUpDate?.Date,
+                now.Date);
+
             return new ReportTransactionRowDto
             {
                 Id = t.Id,
@@ -792,13 +841,41 @@ public class ReportService : IReportService
                 ResponseType = t.ResponseType.ToString(),
                 ResponseDueDate = t.ResponseDueDate,
                 AssignmentDueDate = assignmentDue,
+                DaysRemainingForResponse = timeline.DaysRemainingForResponse,
+                DaysSinceIncoming = timeline.DaysSinceIncoming,
+                DaysSinceLastFollowUp = timeline.DaysSinceLastFollowUp,
+                LastFollowUpDate = timeline.LastFollowUpDate,
+                ResponseTimingStatus = timeline.ResponseTimingStatus,
+                ResponseTimingLabel = timeline.ResponseTimingLabel,
                 DaysOverdue = daysOverdue,
                 CreatedAt = t.CreatedAt,
                 IsOverdue = isOverdue
             };
         }).ToList();
 
-        return PagedResult<ReportTransactionRowDto>.Create(items, totalCount, page, pageSize);
+    private sealed class ReportDetailRowProjection
+    {
+        public int Id { get; set; }
+        public string InternalTrackingNumber { get; set; } = string.Empty;
+        public string IncomingNumber { get; set; } = string.Empty;
+        public DateTime IncomingDate { get; set; }
+        public string Subject { get; set; } = string.Empty;
+        public string? IncomingFrom { get; set; }
+        public IncomingSourceType IncomingSourceType { get; set; }
+        public string? IncomingFromPartyName { get; set; }
+        public string? IncomingFromDepartmentName { get; set; }
+        public string? CategoryName { get; set; }
+        public Priority Priority { get; set; }
+        public TransactionStatus Status { get; set; }
+        public ResponseType ResponseType { get; set; }
+        public DateTime? ResponseDueDate { get; set; }
+        public int? ResponseDueDays { get; set; }
+        public bool RequiresResponse { get; set; }
+        public bool ResponseCompleted { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public List<string> OutgoingDepartmentsDisplayNames { get; set; } = new();
+        public DateTime? AssignmentDueDate { get; set; }
+        public DateTime? LastFollowUpDate { get; set; }
     }
 
     private async Task<List<TransactionListDto>> LoadActionRequiredAsync(DateTime now)
@@ -892,6 +969,7 @@ public class ReportService : IReportService
                 RequiresResponse = t.RequiresResponse,
                 ResponseCompleted = t.ResponseCompleted,
                 ResponseDueDate = t.ResponseDueDate,
+                ResponseDays = t.ResponseDueDays,
                 IsArchived = t.IsArchived,
                 CreatedByName = t.CreatedBy != null ? t.CreatedBy.FullName : "",
                 CreatedAt = t.CreatedAt
@@ -929,6 +1007,16 @@ public class ReportService : IReportService
             .GroupBy(x => x.TransactionId)
             .ToDictionary(g => g.Key, g => g.Select(x => x.Name).ToList());
 
+        var lastFollowUpLookup = await db.FollowUps.AsNoTracking()
+            .Where(f => actionRequiredIds.Contains(f.TransactionId))
+            .GroupBy(f => f.TransactionId)
+            .Select(g => new
+            {
+                TransactionId = g.Key,
+                LastDate = g.Max(f => f.CreatedAt > f.FollowUpDate ? f.CreatedAt : f.FollowUpDate)
+            })
+            .ToDictionaryAsync(x => x.TransactionId, x => (DateTime?)x.LastDate);
+
         var orderMap = actionRequiredIds.Select((id, index) => (id, index)).ToDictionary(x => x.id, x => x.index);
 
         var result = rows
@@ -950,8 +1038,15 @@ public class ReportService : IReportService
                 item.OutgoingPartyNames = names;
             }
 
-            if (item.ResponseDueDate.HasValue && !item.ResponseCompleted)
-                item.DaysRemainingForResponse = (int)(item.ResponseDueDate.Value.Date - now.Date).TotalDays;
+            var lastFollowUp = lastFollowUpLookup.GetValueOrDefault(item.Id);
+            TransactionTimelineHelper.ApplyTo(item, TransactionTimelineHelper.Compute(
+                item.IncomingDate,
+                item.ResponseDueDate,
+                item.ResponseDays,
+                item.RequiresResponse,
+                item.ResponseCompleted,
+                lastFollowUp?.Date,
+                now.Date));
         }
 
         return result;
@@ -960,83 +1055,19 @@ public class ReportService : IReportService
     private async Task<List<DepartmentOverdueDto>> LoadTopOverdueDepartmentsAsync(DateTime now)
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
-        var overdueDeptsRaw = await db.Assignments.AsNoTracking()
+        return await db.Assignments.AsNoTracking()
             .Where(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
                 && a.DueDate.HasValue && a.DueDate.Value < now && a.Status == AssignmentStatus.Active)
-            .GroupBy(a => a.DepartmentId)
-            .Select(g => new { DepartmentId = g.Key, OverdueCount = g.Count() })
+            .GroupBy(a => new { a.DepartmentId, a.Department.Name })
+            .Select(g => new DepartmentOverdueDto
+            {
+                DepartmentId = g.Key.DepartmentId,
+                DepartmentName = g.Key.Name,
+                OverdueCount = g.Count()
+            })
             .OrderByDescending(d => d.OverdueCount)
             .Take(5)
             .ToListAsync();
-
-        if (overdueDeptsRaw.Count == 0)
-            return new List<DepartmentOverdueDto>();
-
-        var overdueDeptIds = overdueDeptsRaw.Select(d => d.DepartmentId).ToList();
-        var overdueDeptNames = await db.Departments.AsNoTracking()
-            .Where(d => overdueDeptIds.Contains(d.Id))
-            .ToDictionaryAsync(d => d.Id, d => d.Name);
-
-        return overdueDeptsRaw.Select(d => new DepartmentOverdueDto
-        {
-            DepartmentId = d.DepartmentId,
-            DepartmentName = overdueDeptNames.GetValueOrDefault(d.DepartmentId, ""),
-            OverdueCount = d.OverdueCount
-        }).ToList();
-    }
-
-    private async Task<HashSet<int>> GetOverdueTransactionIdsAmongAsync(DateTime now, ICollection<int> candidateIds)
-    {
-        if (candidateIds.Count == 0)
-            return new HashSet<int>();
-
-        async Task<List<int>> LoadResponseOverdueAsync()
-        {
-            await using var db = await _dbFactory.CreateDbContextAsync();
-            return await db.Transactions.AsNoTracking()
-                .Where(t => candidateIds.Contains(t.Id)
-                    && t.RequiresResponse && !t.ResponseCompleted
-                    && t.ResponseDueDate.HasValue && t.ResponseDueDate.Value < now)
-                .Select(t => t.Id)
-                .ToListAsync();
-        }
-
-        async Task<List<int>> LoadAssignmentOverdueAsync()
-        {
-            await using var db = await _dbFactory.CreateDbContextAsync();
-            return await db.Assignments.AsNoTracking()
-                .Where(a => candidateIds.Contains(a.TransactionId)
-                    && a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
-                    && a.Status == AssignmentStatus.Active
-                    && a.DueDate.HasValue && a.DueDate.Value < now)
-                .Select(a => a.TransactionId)
-                .Distinct()
-                .ToListAsync();
-        }
-
-        var responseTask = LoadResponseOverdueAsync();
-        var assignmentTask = LoadAssignmentOverdueAsync();
-        await Task.WhenAll(responseTask, assignmentTask);
-        return (await responseTask).Concat(await assignmentTask).ToHashSet();
-    }
-
-    private async Task<HashSet<int>> GetOverdueTransactionIdsAsync(DateTime now)
-    {
-        var responseOverdueIds = await _db.Transactions.AsNoTracking()
-            .Where(t => t.RequiresResponse && !t.ResponseCompleted
-                && t.ResponseDueDate.HasValue && t.ResponseDueDate.Value < now)
-            .Select(t => t.Id)
-            .ToListAsync();
-
-        var assignmentOverdueIds = await _db.Assignments.AsNoTracking()
-            .Where(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
-                && a.Status == AssignmentStatus.Active
-                && a.DueDate.HasValue && a.DueDate.Value < now)
-            .Select(a => a.TransactionId)
-            .Distinct()
-            .ToListAsync();
-
-        return responseOverdueIds.Concat(assignmentOverdueIds).ToHashSet();
     }
 
     private static IQueryable<Models.Entities.Transaction> WhereActionRequired(
@@ -1066,6 +1097,116 @@ public class ReportService : IReportService
             query = query.Where(l => l.DepartmentId == filter.OutgoingDepartmentId);
         return query;
     }
+
+    private sealed class OutgoingDeptLinkRow
+    {
+        public int DepartmentId { get; init; }
+        public string DepartmentName { get; init; } = string.Empty;
+        public int TransactionId { get; init; }
+        public TransactionStatus Status { get; init; }
+        public bool RequiresResponse { get; init; }
+        public bool ResponseCompleted { get; init; }
+        public DateTime? ResponseDueDate { get; init; }
+    }
+
+    private sealed class DepartmentClosedRow
+    {
+        public int DepartmentId { get; init; }
+        public string DepartmentName { get; init; } = string.Empty;
+        public int ClosedCount { get; init; }
+    }
+
+    private async Task<List<OutgoingDeptLinkRow>> LoadOutgoingDepartmentLinkRowsAsync(ReportFilterRequest? filter)
+    {
+        var query = ApplyOutgoingDepartmentLinkFilter(_db.TransactionOutgoingDepartments.AsNoTracking(), filter);
+        return await query
+            .Select(l => new OutgoingDeptLinkRow
+            {
+                DepartmentId = l.DepartmentId,
+                DepartmentName = l.Department.Name,
+                TransactionId = l.TransactionId,
+                Status = l.Transaction.Status,
+                RequiresResponse = l.Transaction.RequiresResponse,
+                ResponseCompleted = l.Transaction.ResponseCompleted,
+                ResponseDueDate = l.Transaction.ResponseDueDate
+            })
+            .ToListAsync();
+    }
+
+    private async Task<List<OutgoingDeptLinkRow>> LoadDepartmentSummaryLinkRowsAsync(DateTime? dateFrom, DateTime? dateTo)
+    {
+        var query = _db.TransactionOutgoingDepartments.AsNoTracking();
+        if (dateFrom.HasValue)
+            query = query.Where(l => l.Transaction.IncomingDate >= dateFrom);
+        if (dateTo.HasValue)
+            query = query.Where(l => l.Transaction.IncomingDate <= dateTo);
+
+        return await query
+            .Select(l => new OutgoingDeptLinkRow
+            {
+                DepartmentId = l.DepartmentId,
+                DepartmentName = l.Department.Name,
+                TransactionId = l.TransactionId,
+                Status = l.Transaction.Status,
+                RequiresResponse = l.Transaction.RequiresResponse,
+                ResponseCompleted = l.Transaction.ResponseCompleted,
+                ResponseDueDate = l.Transaction.ResponseDueDate
+            })
+            .ToListAsync();
+    }
+
+    private async Task<HashSet<int>> LoadAssignmentOverdueTransactionIdsAsync(DateTime now) =>
+        (await _db.Assignments.AsNoTracking()
+            .Where(a => a.RequiresReply
+                && a.ReplyStatus != ReplyStatus.Replied
+                && a.Status == AssignmentStatus.Active
+                && a.DueDate.HasValue
+                && a.DueDate.Value < now)
+            .Select(a => a.TransactionId)
+            .Distinct()
+            .ToListAsync())
+        .ToHashSet();
+
+    private async Task<List<DepartmentClosedRow>> LoadClosedCountByDepartmentAsync(DateTime? dateFrom, DateTime? dateTo)
+    {
+        var query = _db.TransactionOutgoingDepartments.AsNoTracking()
+            .Where(l => l.Transaction.Status == TransactionStatus.Closed && l.Transaction.ClosedAt.HasValue);
+
+        if (dateFrom.HasValue)
+            query = query.Where(l => l.Transaction.ClosedAt >= dateFrom);
+        if (dateTo.HasValue)
+            query = query.Where(l => l.Transaction.ClosedAt <= dateTo);
+
+        var rows = await query
+            .Select(l => new { l.DepartmentId, DepartmentName = l.Department.Name, l.TransactionId })
+            .ToListAsync();
+
+        return rows
+            .GroupBy(x => new { x.DepartmentId, x.DepartmentName })
+            .Select(g => new DepartmentClosedRow
+            {
+                DepartmentId = g.Key.DepartmentId,
+                DepartmentName = g.Key.DepartmentName,
+                ClosedCount = g.Select(x => x.TransactionId).Distinct().Count()
+            })
+            .ToList();
+    }
+
+    private static bool IsOpenTransactionStatus(TransactionStatus status) =>
+        status != TransactionStatus.Closed
+        && status != TransactionStatus.Cancelled
+        && status != TransactionStatus.Archived;
+
+    private static bool IsWaitingForReplyStatus(TransactionStatus status) =>
+        status == TransactionStatus.WaitingForReply
+        || status == TransactionStatus.PartiallyReplied
+        || status == TransactionStatus.Assigned;
+
+    private static bool IsResponseOverdueRow(OutgoingDeptLinkRow row, DateTime now) =>
+        row.RequiresResponse
+        && !row.ResponseCompleted
+        && row.ResponseDueDate.HasValue
+        && row.ResponseDueDate.Value < now;
 
     private static IQueryable<Models.Entities.Transaction> ApplyReportFilter(
         IQueryable<Models.Entities.Transaction> query, ReportFilterRequest? filter)

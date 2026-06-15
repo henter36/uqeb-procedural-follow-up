@@ -9,6 +9,9 @@ import type {
 import { statusLabels, statusBadgeClass } from '../utils/labels';
 import DateDisplay from '../components/DateDisplay';
 import DepartmentBadges from '../components/DepartmentBadges';
+import { responseTimingBadgeClass } from '../utils/responseTiming';
+
+const TIMING_REPORT_TABS: ReportTab[] = ['response-required', 'overdue-responses', 'waiting', 'open'];
 
 type ReportTab = 'response-required' | 'overdue-responses' | 'pending-assignments' | 'partial-replies' | 'overdue' | 'open' | 'waiting';
 
@@ -402,6 +405,8 @@ export default function ReportsPage() {
   };
 
   const currentState = tab ? tabStates[tab] : null;
+  const showTimingColumns = tab ? TIMING_REPORT_TABS.includes(tab) : false;
+  const tableColSpan = showTimingColumns ? 11 : 8;
   const monthNames = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
 
   return (
@@ -488,6 +493,13 @@ export default function ReportsPage() {
                 <th>التصنيف</th>
                 <th>الإدارة</th>
                 <th>الحالة</th>
+                {showTimingColumns && (
+                  <>
+                    <th>تاريخ الرد المطلوب</th>
+                    <th>حالة الرد</th>
+                    <th>آخر تعقيب</th>
+                  </>
+                )}
                 <th>التاريخ</th>
                 <th>عرض</th>
               </tr>
@@ -506,12 +518,23 @@ export default function ReportsPage() {
                       {statusLabels[t.status] || t.status}
                     </span>
                   </td>
+                  {showTimingColumns && (
+                    <>
+                      <td>{t.responseDueDate ? <DateDisplay date={t.responseDueDate} /> : '—'}</td>
+                      <td>
+                        <span className={`badge ${responseTimingBadgeClass(t.responseTimingStatus)}`}>
+                          {t.responseTimingLabel || '—'}
+                        </span>
+                      </td>
+                      <td>{t.lastFollowUpDate ? <DateDisplay date={t.lastFollowUpDate} /> : '—'}</td>
+                    </>
+                  )}
                   <td><DateDisplay date={t.incomingDate} /></td>
                   <td><Link to={`/transactions/${t.id}`} className="btn btn-sm">عرض</Link></td>
                 </tr>
               ))}
               {!currentState.loading && currentState.loaded && currentState.items.length === 0 && !currentState.error && (
-                <tr><td colSpan={8} className="text-center">لا توجد معاملات مطابقة للفلاتر المحددة.</td></tr>
+                <tr><td colSpan={tableColSpan} className="text-center">لا توجد معاملات مطابقة للفلاتر المحددة.</td></tr>
               )}
             </tbody>
           </table>

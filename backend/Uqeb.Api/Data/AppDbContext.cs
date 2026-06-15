@@ -20,6 +20,7 @@ public class AppDbContext : DbContext
     public DbSet<Assignment> Assignments => Set<Assignment>();
     public DbSet<Attachment> Attachments => Set<Attachment>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<LetterTemplate> LetterTemplates => Set<LetterTemplate>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -132,6 +133,11 @@ public class AppDbContext : DbContext
             e.HasOne(a => a.User).WithMany().HasForeignKey(a => a.UserId).OnDelete(DeleteBehavior.NoAction);
             e.HasIndex(a => a.CreatedAt);
             e.HasIndex(a => new { a.TransactionId, a.CreatedAt });
+        });
+
+        modelBuilder.Entity<LetterTemplate>(e =>
+        {
+            e.HasIndex(t => t.Code).IsUnique();
         });
     }
 }

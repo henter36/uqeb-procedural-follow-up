@@ -82,8 +82,14 @@ export interface TransactionListItem {
   categoryName?: string;
   requiresResponse: boolean;
   responseCompleted: boolean;
+  responseDays?: number;
   responseDueDate?: string;
   daysRemainingForResponse?: number;
+  daysSinceIncoming?: number;
+  daysSinceLastFollowUp?: number | null;
+  lastFollowUpDate?: string;
+  responseTimingStatus?: string;
+  responseTimingLabel?: string;
   isOverdue: boolean;
   isResponseOverdue: boolean;
   hasPendingAssignments: boolean;
@@ -204,6 +210,12 @@ export interface ReportTransactionRow {
   responseType: string;
   responseDueDate?: string;
   assignmentDueDate?: string;
+  daysRemainingForResponse?: number;
+  daysSinceIncoming?: number;
+  daysSinceLastFollowUp?: number | null;
+  lastFollowUpDate?: string;
+  responseTimingStatus?: string;
+  responseTimingLabel?: string;
   daysOverdue?: number;
   createdAt: string;
   isOverdue: boolean;
@@ -271,4 +283,17 @@ export interface User {
   departmentId?: number;
   departmentName?: string;
   isActive: boolean;
+}
+
+export interface LetterTemplate {
+  id: number;
+  code: string;
+  name: string;
+  content: string;
+  isActive: boolean;
+}
+
+export interface FollowUpLetterPreview {
+  content: string;
+  targetEntity: string;
 }

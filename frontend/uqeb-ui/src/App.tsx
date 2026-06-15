@@ -9,6 +9,7 @@ import TransactionForm from './pages/TransactionForm';
 import TransactionDetail from './pages/TransactionDetail';
 import Reports from './pages/Reports';
 import { UsersPage, DepartmentsPage, ExternalPartiesPage } from './pages/AdminPages';
+import LetterTemplatePage from './pages/LetterTemplatePage';
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
             <Route path="transactions/:id" element={<TransactionDetail />} />
             <Route path="transactions/:id/edit" element={<TransactionForm mode="edit" />} />
             <Route path="reports" element={<Reports />} />
+            <Route path="letter-template" element={<LetterTemplatePage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="departments" element={<DepartmentsPage />} />
             <Route path="external-parties" element={<ExternalPartiesPage />} />

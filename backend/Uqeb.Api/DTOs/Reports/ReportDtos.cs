@@ -148,6 +148,12 @@ public class ReportTransactionRowDto
     public string ResponseType { get; set; } = string.Empty;
     public DateTime? ResponseDueDate { get; set; }
     public DateTime? AssignmentDueDate { get; set; }
+    public int? DaysRemainingForResponse { get; set; }
+    public int DaysSinceIncoming { get; set; }
+    public int? DaysSinceLastFollowUp { get; set; }
+    public DateTime? LastFollowUpDate { get; set; }
+    public string? ResponseTimingStatus { get; set; }
+    public string? ResponseTimingLabel { get; set; }
     public int? DaysOverdue { get; set; }
     public DateTime CreatedAt { get; set; }
     public bool IsOverdue { get; set; }

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Uqeb.Api.DTOs.LetterTemplates;
 using Uqeb.Api.DTOs.Transactions;
 using Uqeb.Api.Helpers;
 using Uqeb.Api.Models.Enums;
@@ -14,12 +15,18 @@ public class TransactionsController : ControllerBase
 {
     private readonly ITransactionService _transactions;
     private readonly IAttachmentService _attachments;
+    private readonly ILetterTemplateService _letterTemplates;
     private readonly ICurrentUserService _currentUser;
 
-    public TransactionsController(ITransactionService transactions, IAttachmentService attachments, ICurrentUserService currentUser)
+    public TransactionsController(
+        ITransactionService transactions,
+        IAttachmentService attachments,
+        ILetterTemplateService letterTemplates,
+        ICurrentUserService currentUser)
     {
         _transactions = transactions;
         _attachments = attachments;
+        _letterTemplates = letterTemplates;
         _currentUser = currentUser;
     }
 
@@ -265,5 +272,30 @@ public class TransactionsController : ControllerBase
     public async Task<IActionResult> GetAuditLog(int id, [FromQuery] int page = 1, [FromQuery] int pageSize = 50)
     {
         return Ok(await _transactions.GetAuditLogAsync(id, page, pageSize, _currentUser));
+    }
+
+    [HttpPost("{id}/follow-up-letter/preview")]
+    [Authorize(Policy = "CanEditTransactions")]
+    public async Task<IActionResult> PreviewFollowUpLetter(int id, [FromBody] FollowUpLetterRequest? request)
+    {
+        var result = await _letterTemplates.RenderFollowUpLetterAsync(
+            id,
+            request?.TargetEntity,
+            request?.Content,
+            _currentUser);
+        return result == null ? NotFound() : Ok(result);
+    }
+
+    [HttpPost("{id}/follow-up-letter/pdf")]
+    [Authorize(Policy = "CanEditTransactions")]
+    public async Task<IActionResult> DownloadFollowUpLetterPdf(int id, [FromBody] FollowUpLetterRequest? request)
+    {
+        var bytes = await _letterTemplates.GenerateFollowUpLetterPdfAsync(
+            id,
+            request?.TargetEntity,
+            request?.Content,
+            _currentUser);
+        if (bytes == null) return NotFound();
+        return File(bytes, "application/pdf", $"follow-up-letter-{id}.pdf");
     }
 }
