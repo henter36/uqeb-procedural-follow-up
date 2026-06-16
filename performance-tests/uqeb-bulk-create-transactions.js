@@ -3,12 +3,16 @@ import { check, sleep } from 'k6';
 import { Counter, Trend, Rate } from 'k6/metrics';
 import { textSummary } from 'https://jslib.k6.io/k6-summary/0.0.1/index.js';
 
-const BASE_URL = __ENV.BASE_URL || 'http://localhost:5000';
-const USERNAME = __ENV.USERNAME || 'admin';
-const PASSWORD = __ENV.PASSWORD || 'Admin@123';
+const API_URL = __ENV.API_URL || __ENV.BASE_URL || 'http://localhost:5000';
+const TEST_USER = __ENV.TEST_USER || __ENV.USERNAME;
+const TEST_PASS = __ENV.TEST_PASS || __ENV.PASSWORD;
 const TEST_COUNT = parseInt(__ENV.TEST_COUNT || '100', 10);
 const BATCH_SIZE = parseInt(__ENV.BATCH_SIZE || '10', 10);
 const BATCH_SLEEP = parseFloat(__ENV.BATCH_SLEEP || '0.2');
+
+if (!TEST_USER || !TEST_PASS) {
+  throw new Error('TEST_USER and TEST_PASS environment variables are required');
+}
 
 const created = new Counter('transactions_created');
 const failed = new Counter('transactions_failed');
@@ -82,8 +86,8 @@ function track(res, allow4xx = false) {
 
 export function setup() {
   const loginRes = http.post(
-    `${BASE_URL}/api/auth/login`,
-    JSON.stringify({ username: USERNAME, password: PASSWORD }),
+    `${API_URL}/api/auth/login`,
+    JSON.stringify({ username: TEST_USER, password: TEST_PASS }),
     { headers: { 'Content-Type': 'application/json' } }
   );
   if (loginRes.status !== 200) {
@@ -92,9 +96,9 @@ export function setup() {
   const token = loginRes.json('token');
   const headers = { Authorization: `Bearer ${token}` };
 
-  const categories = http.get(`${BASE_URL}/api/categories`, { headers }).json();
-  const parties = http.get(`${BASE_URL}/api/external-parties`, { headers }).json();
-  const departments = http.get(`${BASE_URL}/api/departments`, { headers }).json();
+  const categories = http.get(`${API_URL}/api/categories`, { headers }).json();
+  const parties = http.get(`${API_URL}/api/external-parties`, { headers }).json();
+  const departments = http.get(`${API_URL}/api/departments`, { headers }).json();
 
   return {
     token,
@@ -123,7 +127,7 @@ export default function (data) {
     notes: 'LOAD-TEST bulk create',
   });
 
-  const res = http.post(`${BASE_URL}/api/transactions`, payload, headers);
+  const res = http.post(`${API_URL}/api/transactions`, payload, headers);
   createDuration.add(res.timings.duration);
   track(res);
 

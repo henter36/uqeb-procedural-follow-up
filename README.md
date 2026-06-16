@@ -35,7 +35,7 @@ uqeb/
 
 ## المتطلبات
 
-- .NET 6 SDK
+- .NET 10 SDK
 - SQL Server 2019+ أو SQL Server Express مع LocalDB
 - Node.js 18+
 - IIS (للنشر على الشبكة المحلية)
@@ -70,7 +70,7 @@ CREATE DATABASE UqebDb;
 
 ```bash
 cd backend/Uqeb.Api
-dotnet tool install --global dotnet-ef --version 6.0.25
+dotnet tool install --global dotnet-ef --version 10.0.9
 dotnet ef database update
 ```
 

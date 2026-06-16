@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Uqeb.Api.Models.Entities;
 
 namespace Uqeb.Api.Data;
@@ -6,6 +7,12 @@ namespace Uqeb.Api.Data;
 public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+    {
+        optionsBuilder.ConfigureWarnings(w =>
+            w.Ignore(RelationalEventId.PendingModelChangesWarning));
+    }
 
     public DbSet<User> Users => Set<User>();
     public DbSet<Department> Departments => Set<Department>();
@@ -21,6 +28,8 @@ public class AppDbContext : DbContext
     public DbSet<Attachment> Attachments => Set<Attachment>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<LetterTemplate> LetterTemplates => Set<LetterTemplate>();
+    public DbSet<LoginAttemptLog> LoginAttemptLogs => Set<LoginAttemptLog>();
+    public DbSet<SecurityAlert> SecurityAlerts => Set<SecurityAlert>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -138,6 +147,22 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<LetterTemplate>(e =>
         {
             e.HasIndex(t => t.Code).IsUnique();
+        });
+
+        modelBuilder.Entity<LoginAttemptLog>(e =>
+        {
+            e.HasIndex(l => l.OccurredAt);
+            e.HasIndex(l => new { l.Username, l.OccurredAt });
+            e.HasIndex(l => new { l.IpAddress, l.OccurredAt });
+            e.HasIndex(l => new { l.Succeeded, l.OccurredAt });
+        });
+
+        modelBuilder.Entity<SecurityAlert>(e =>
+        {
+            e.HasIndex(a => a.CreatedAt);
+            e.HasIndex(a => new { a.IsRead, a.CreatedAt });
+            e.HasIndex(a => new { a.Type, a.CreatedAt });
+            e.HasIndex(a => new { a.Severity, a.CreatedAt });
         });
     }
 }

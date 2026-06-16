@@ -9,15 +9,32 @@ namespace Uqeb.Api.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _auth;
+    private readonly ISecurityAuditService _securityAudit;
 
-    public AuthController(IAuthService auth) => _auth = auth;
+    public AuthController(IAuthService auth, ISecurityAuditService securityAudit)
+    {
+        _auth = auth;
+        _securityAudit = securityAudit;
+    }
 
     [HttpPost("login")]
-    public async Task<IActionResult> Login([FromBody] LoginRequest request)
+    public async Task<IActionResult> Login([FromBody] LoginRequest? request)
     {
+        var username = request?.Username?.Trim();
+        if (request == null || string.IsNullOrWhiteSpace(username))
+        {
+            await _securityAudit.RecordLoginAttemptAsync(username, null, false, "invalid_credentials", HttpContext);
+            return Unauthorized(new { message = "بيانات الدخول غير صحيحة" });
+        }
+
         var result = await _auth.LoginAsync(request);
         if (result == null)
-            return Unauthorized(new { message = "اسم المستخدم أو كلمة المرور غير صحيحة" });
+        {
+            await _securityAudit.RecordLoginAttemptAsync(username, null, false, "invalid_credentials", HttpContext);
+            return Unauthorized(new { message = "بيانات الدخول غير صحيحة" });
+        }
+
+        await _securityAudit.RecordLoginAttemptAsync(result.Username, null, true, null, HttpContext);
         return Ok(result);
     }
 }

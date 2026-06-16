@@ -17,8 +17,8 @@ builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"))
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
     options.UseSqlServer(connectionString));
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlServer(connectionString));
+builder.Services.AddScoped(sp =>
+    sp.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
@@ -33,10 +33,17 @@ builder.Services.AddScoped<IDepartmentService, DepartmentService>();
 builder.Services.AddScoped<IExternalPartyService, ExternalPartyService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddScoped<ILetterTemplateService, LetterTemplateService>();
+builder.Services.AddScoped<ISecurityAuditService, SecurityAuditService>();
 
 var jwtSettings = builder.Configuration.GetSection("Jwt").Get<JwtSettings>() ?? new JwtSettings();
-if (string.IsNullOrEmpty(jwtSettings.Key))
-    jwtSettings.Key = "UqebDevSecretKey_ChangeInProduction_32chars!";
+if (string.IsNullOrWhiteSpace(jwtSettings.Key))
+{
+    if (builder.Environment.IsProduction())
+        throw new InvalidOperationException("JWT Key must be configured in Production (Jwt:Key).");
+
+    throw new InvalidOperationException(
+        "JWT Key is not configured. Set Jwt:Key in user-secrets or appsettings.Development.json for Development.");
+}
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -81,7 +88,24 @@ builder.Services.AddControllers();
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
-        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
+    {
+        if (builder.Environment.IsDevelopment())
+        {
+            policy.WithOrigins("http://localhost:5173", "http://localhost:8080")
+                .AllowAnyMethod()
+                .AllowAnyHeader();
+        }
+        else
+        {
+            var origins = builder.Configuration.GetSection("AllowedOrigins").Get<string[]>();
+            if (origins == null || origins.Length == 0)
+                throw new InvalidOperationException("AllowedOrigins must be configured in Production.");
+
+            policy.WithOrigins(origins)
+                .AllowAnyMethod()
+                .AllowAnyHeader();
+        }
+    });
 });
 
 var app = builder.Build();
@@ -100,8 +124,10 @@ catch (Exception ex)
 
 app.UseCors();
 app.UseResponseCompression();
+app.UseMiddleware<Uqeb.Api.Middleware.LoginRateLimitMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseMiddleware<Uqeb.Api.Middleware.UnauthorizedAccessLoggingMiddleware>();
 app.MapControllers();
 
 app.Run();
