@@ -8,9 +8,9 @@
 
 | الطبقة | التقنية |
 |--------|---------|
-| Backend | ASP.NET Core 6 Web API |
+| Backend | ASP.NET Core 10 Web API |
 | Database | SQL Server |
-| ORM | Entity Framework Core 6 |
+| ORM | Entity Framework Core 10 |
 | Frontend | React 19 + Vite + TypeScript |
 | Auth | JWT Bearer |
 | Reports Export | ClosedXML (Excel) |
@@ -70,7 +70,7 @@ CREATE DATABASE UqebDb;
 
 ```bash
 cd backend/Uqeb.Api
-dotnet tool install --global dotnet-ef --version 10.0.9
+dotnet tool update --global dotnet-ef --version 10.0.9
 dotnet ef database update
 ```
 
@@ -172,7 +172,7 @@ npm run build         # ✅ نجح
 
 3. أنشئ **Website** أو **Application** يشير إلى مجلد `publish`
 
-4. ثبّت [ASP.NET Core Hosting Bundle 6.0](https://dotnet.microsoft.com/download/dotnet/6.0)
+4. ثبّت [ASP.NET Core Hosting Bundle 10.0](https://dotnet.microsoft.com/download/dotnet/10.0)
 
 5. عدّل `appsettings.json` بـ connection string الإنتاج و JWT Key قوي
 

@@ -43,9 +43,11 @@ export default function SecurityPage() {
   const [alertSeverity, setAlertSeverity] = useState('');
   const [alertType, setAlertType] = useState('');
   const [attemptSucceeded, setAttemptSucceeded] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const [alertsRes, attemptsRes] = await Promise.all([
         securityApi.getAlerts({
@@ -61,6 +63,8 @@ export default function SecurityPage() {
       setUnreadCount(alertsRes.data.unreadCount);
       setAlerts(alertsRes.data.items);
       setAttempts(attemptsRes.data.items);
+    } catch {
+      setError('تعذر تحميل بيانات الأمن والتنبيهات');
     } finally {
       setLoading(false);
     }
@@ -69,13 +73,21 @@ export default function SecurityPage() {
   useEffect(() => { load(); }, [load]);
 
   const markRead = async (id: number) => {
-    await securityApi.markAlertRead(id);
-    load();
+    try {
+      await securityApi.markAlertRead(id);
+      await load();
+    } catch {
+      setError('تعذر تحميل بيانات الأمن والتنبيهات');
+    }
   };
 
   const markAllRead = async () => {
-    await securityApi.markAllAlertsRead();
-    load();
+    try {
+      await securityApi.markAllAlertsRead();
+      await load();
+    } catch {
+      setError('تعذر تحميل بيانات الأمن والتنبيهات');
+    }
   };
 
   return (
@@ -93,6 +105,7 @@ export default function SecurityPage() {
         </div>
       </div>
 
+      {error && <div className="alert alert-error">{error}</div>}
       {loading && <p>جاري التحميل...</p>}
 
       <section style={{ marginBottom: '2rem' }}>

@@ -47,6 +47,9 @@ if (string.IsNullOrWhiteSpace(jwtSettings.Key))
         "JWT Key is not configured. Set Jwt:Key in user-secrets or appsettings.Development.json for Development.");
 }
 
+if (jwtSettings.Key.Length < 32)
+    throw new InvalidOperationException("JWT Key must be at least 32 characters.");
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {

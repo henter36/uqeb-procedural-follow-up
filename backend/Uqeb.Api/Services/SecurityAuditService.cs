@@ -126,7 +126,7 @@ public class SecurityAuditService : ISecurityAuditService
             .Distinct()
             .CountAsync();
 
-        if (distinctUsernames > SprayUsernameThreshold
+        if (distinctUsernames >= SprayUsernameThreshold
             && !await HasRecentAlertAsync("ip_password_spray", null, ipAddress, since))
         {
             await CreateSecurityAlertAsync(
@@ -338,6 +338,7 @@ public class SecurityAuditService : ISecurityAuditService
                 .SetProperty(a => a.ReadAt, now));
     }
 
+    // TODO: enforce alert deduplication at the database boundary with a unique dedupe key/window bucket.
     private async Task<bool> HasRecentAlertAsync(string type, string? username, string? ipAddress, DateTime since) =>
         await _db.SecurityAlerts.AsNoTracking().AnyAsync(a =>
             a.Type == type
