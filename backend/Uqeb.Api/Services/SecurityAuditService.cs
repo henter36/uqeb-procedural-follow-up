@@ -45,7 +45,7 @@ public class SecurityAuditService : ISecurityAuditService
                 .FirstOrDefaultAsync();
         }
 
-        var ip = HttpContextSecurityHelper.GetClientIpAddress(httpContext);
+        var ip = HttpContextSecurityHelper.GetClientIp(httpContext);
         var userAgent = HttpContextSecurityHelper.GetUserAgent(httpContext);
         var riskLevel = succeeded ? "low" : "medium";
 
@@ -170,7 +170,7 @@ public class SecurityAuditService : ISecurityAuditService
         if (path.StartsWith("/api/auth/login", StringComparison.OrdinalIgnoreCase))
             return;
 
-        var ip = HttpContextSecurityHelper.GetClientIpAddress(httpContext);
+        var ip = HttpContextSecurityHelper.GetClientIp(httpContext);
         var userAgent = HttpContextSecurityHelper.GetUserAgent(httpContext);
         var userId = HttpContextSecurityHelper.GetUserId(httpContext);
         var username = httpContext.User.Identity?.Name;
@@ -330,14 +330,12 @@ public class SecurityAuditService : ISecurityAuditService
     public async Task<int> MarkAllAlertsAsReadAsync()
     {
         var now = DateTime.UtcNow;
-        var unread = await _db.SecurityAlerts.Where(a => !a.IsRead).ToListAsync();
-        foreach (var alert in unread)
-        {
-            alert.IsRead = true;
-            alert.ReadAt = now;
-        }
-        await _db.SaveChangesAsync();
-        return unread.Count;
+
+        return await _db.SecurityAlerts
+            .Where(a => !a.IsRead)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(a => a.IsRead, true)
+                .SetProperty(a => a.ReadAt, now));
     }
 
     private async Task<bool> HasRecentAlertAsync(string type, string? username, string? ipAddress, DateTime since) =>
