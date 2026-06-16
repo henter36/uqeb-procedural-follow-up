@@ -133,3 +133,12 @@ export const letterTemplatesApi = {
   getFollowUp: () => api.get<LetterTemplate>('/letter-templates/follow-up'),
   updateFollowUp: (content: string) => api.put<LetterTemplate>('/letter-templates/follow-up', { content }),
 };
+
+export const securityApi = {
+  getLoginAttempts: (params?: Record<string, unknown>) =>
+    api.get<import('./types').LoginAttemptsPage>('/security/login-attempts', { params }),
+  getAlerts: (params?: Record<string, unknown>) =>
+    api.get<import('./types').SecurityAlertsSummary>('/security/alerts', { params }),
+  markAlertRead: (id: number) => api.post(`/security/alerts/${id}/read`),
+  markAllAlertsRead: () => api.post<{ marked: number }>('/security/alerts/mark-all-read'),
+};

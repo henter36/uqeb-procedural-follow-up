@@ -2,10 +2,14 @@ import http from 'k6/http';
 import { check, sleep, group } from 'k6';
 import { Counter, Rate } from 'k6/metrics';
 
-const BASE_URL = __ENV.BASE_URL || 'http://localhost:5000';
-const USERNAME = __ENV.USERNAME || 'admin';
-const PASSWORD = __ENV.PASSWORD || 'Admin@123';
+const API_URL = __ENV.API_URL || __ENV.BASE_URL || 'http://localhost:5000';
+const TEST_USER = __ENV.TEST_USER || __ENV.USERNAME;
+const TEST_PASS = __ENV.TEST_PASS || __ENV.PASSWORD;
 const SCENARIO = (__ENV.K6_SCENARIO || 'smoke').toLowerCase();
+
+if (!TEST_USER || !TEST_PASS) {
+  throw new Error('TEST_USER and TEST_PASS environment variables are required');
+}
 
 const serverErrors = new Counter('server_errors_5xx');
 const expectedClientErrors = new Counter('expected_client_errors_4xx');
@@ -74,8 +78,8 @@ function authHeaders(token) {
 
 function login() {
   const res = http.post(
-    `${BASE_URL}/api/auth/login`,
-    JSON.stringify({ username: USERNAME, password: PASSWORD }),
+    `${API_URL}/api/auth/login`,
+    JSON.stringify({ username: TEST_USER, password: TEST_PASS }),
     { headers: { 'Content-Type': 'application/json' }, tags: { type: 'read' } }
   );
   trackResponse(res, true);
@@ -116,23 +120,23 @@ export default function () {
   const headers = authHeaders(token);
 
   group('read APIs', () => {
-    const dashboard = http.get(`${BASE_URL}/api/dashboard/summary`, headers);
+    const dashboard = http.get(`${API_URL}/api/dashboard/summary`, headers);
     trackResponse(dashboard);
     check(dashboard, { 'dashboard 200': (r) => r.status === 200 });
 
-    const list = http.get(`${BASE_URL}/api/transactions?pageSize=20`, headers);
+    const list = http.get(`${API_URL}/api/transactions?pageSize=20`, headers);
     trackResponse(list);
     check(list, { 'transactions 200': (r) => r.status === 200 });
 
-    const report = http.get(`${BASE_URL}/api/reports/department-incoming-closed`, headers);
+    const report = http.get(`${API_URL}/api/reports/department-incoming-closed`, headers);
     trackResponse(report);
     check(report, { 'department report 200': (r) => r.status === 200 });
   });
 
   group('workflow', () => {
-    const categories = http.get(`${BASE_URL}/api/categories`, headers);
-    const parties = http.get(`${BASE_URL}/api/external-parties`, headers);
-    const departments = http.get(`${BASE_URL}/api/departments`, headers);
+    const categories = http.get(`${API_URL}/api/categories`, headers);
+    const parties = http.get(`${API_URL}/api/external-parties`, headers);
+    const departments = http.get(`${API_URL}/api/departments`, headers);
     trackResponse(categories);
     trackResponse(parties);
     trackResponse(departments);
@@ -157,7 +161,7 @@ export default function () {
     });
 
     const createRes = http.post(
-      `${BASE_URL}/api/transactions`,
+      `${API_URL}/api/transactions`,
       createPayload,
       { ...headers, tags: { type: 'write' } }
     );
@@ -174,7 +178,7 @@ export default function () {
       replyDueDays: 3,
     });
     const assignRes = http.post(
-      `${BASE_URL}/api/transactions/${txId}/assignments`,
+      `${API_URL}/api/transactions/${txId}/assignments`,
       assignPayload,
       { ...headers, tags: { type: 'write' } }
     );
@@ -189,7 +193,7 @@ export default function () {
       notes: 'تعقيب اختبار تحمل',
     });
     const followupRes = http.post(
-      `${BASE_URL}/api/transactions/${txId}/followups`,
+      `${API_URL}/api/transactions/${txId}/followups`,
       followupPayload,
       { ...headers, tags: { type: 'write' } }
     );
@@ -197,7 +201,7 @@ export default function () {
     check(followupRes, { 'add followup 200': (r) => r.status === 200 });
 
     const closePending = http.post(
-      `${BASE_URL}/api/transactions/${txId}/close`,
+      `${API_URL}/api/transactions/${txId}/close`,
       null,
       { ...headers, tags: { type: 'write' } }
     );
@@ -210,7 +214,7 @@ export default function () {
         replySummary: 'رد اختبار التحمل',
       });
       const replyRes = http.post(
-        `${BASE_URL}/api/transactions/${txId}/assignments/${assignmentId}/reply`,
+        `${API_URL}/api/transactions/${txId}/assignments/${assignmentId}/reply`,
         replyPayload,
         { ...headers, tags: { type: 'write' } }
       );
@@ -219,7 +223,7 @@ export default function () {
     }
 
     const closeRes = http.post(
-      `${BASE_URL}/api/transactions/${txId}/close`,
+      `${API_URL}/api/transactions/${txId}/close`,
       null,
       { ...headers, tags: { type: 'write' } }
     );

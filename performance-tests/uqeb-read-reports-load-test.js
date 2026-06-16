@@ -3,11 +3,15 @@ import { check, sleep } from 'k6';
 import { Counter, Rate } from 'k6/metrics';
 import { textSummary } from 'https://jslib.k6.io/k6-summary/0.0.1/index.js';
 
-const BASE_URL = __ENV.BASE_URL || 'http://localhost:5000';
-const USERNAME = __ENV.USERNAME || 'admin';
-const PASSWORD = __ENV.PASSWORD || 'Admin@123';
+const API_URL = __ENV.API_URL || __ENV.BASE_URL || 'http://localhost:5000';
+const TEST_USER = __ENV.TEST_USER || __ENV.USERNAME;
+const TEST_PASS = __ENV.TEST_PASS || __ENV.PASSWORD;
 const VUS = parseInt(__ENV.VUS || '10', 10);
 const DURATION = __ENV.DURATION || '2m';
+
+if (!TEST_USER || !TEST_PASS) {
+  throw new Error('TEST_USER and TEST_PASS environment variables are required');
+}
 
 const errors500 = new Counter('errors_500');
 const unexpectedFailures = new Rate('unexpected_failures');
@@ -43,8 +47,8 @@ function track(res) {
 
 export function setup() {
   const loginRes = http.post(
-    `${BASE_URL}/api/auth/login`,
-    JSON.stringify({ username: USERNAME, password: PASSWORD }),
+    `${API_URL}/api/auth/login`,
+    JSON.stringify({ username: TEST_USER, password: TEST_PASS }),
     { headers: { 'Content-Type': 'application/json' } }
   );
   if (loginRes.status !== 200) throw new Error('Login failed');
@@ -55,11 +59,11 @@ export default function (data) {
   const headers = { Authorization: `Bearer ${data.token}`, tags: { type: 'read' } };
 
   const endpoints = [
-    `${BASE_URL}/api/dashboard/summary`,
-    `${BASE_URL}/api/transactions?pageSize=50`,
-    `${BASE_URL}/api/reports/open`,
-    `${BASE_URL}/api/reports/department-incoming-closed`,
-    `${BASE_URL}/api/reports/response-required`,
+    `${API_URL}/api/dashboard/summary`,
+    `${API_URL}/api/transactions?pageSize=50`,
+    `${API_URL}/api/reports/open`,
+    `${API_URL}/api/reports/department-incoming-closed`,
+    `${API_URL}/api/reports/response-required`,
   ];
 
   for (const url of endpoints) {

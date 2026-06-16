@@ -22,7 +22,7 @@ export default function Login() {
       login(data);
       navigate('/');
     } catch {
-      setError('اسم المستخدم أو كلمة المرور غير صحيحة');
+      setError('بيانات الدخول غير صحيحة');
     } finally {
       setLoading(false);
     }
@@ -47,7 +47,6 @@ export default function Login() {
             {loading ? 'جاري الدخول...' : 'تسجيل الدخول'}
           </button>
         </form>
-        <p className="login-hint">المستخدم الافتراضي: admin / Admin@123</p>
       </div>
     </div>
   );

@@ -21,6 +21,8 @@ public class AppDbContext : DbContext
     public DbSet<Attachment> Attachments => Set<Attachment>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<LetterTemplate> LetterTemplates => Set<LetterTemplate>();
+    public DbSet<LoginAttemptLog> LoginAttemptLogs => Set<LoginAttemptLog>();
+    public DbSet<SecurityAlert> SecurityAlerts => Set<SecurityAlert>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -138,6 +140,24 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<LetterTemplate>(e =>
         {
             e.HasIndex(t => t.Code).IsUnique();
+        });
+
+        modelBuilder.Entity<LoginAttemptLog>(e =>
+        {
+            e.Property(l => l.UserAgent).HasMaxLength(512);
+            e.HasIndex(l => l.OccurredAt);
+            e.HasIndex(l => new { l.Username, l.OccurredAt });
+            e.HasIndex(l => new { l.IpAddress, l.OccurredAt });
+            e.HasIndex(l => new { l.Succeeded, l.OccurredAt });
+        });
+
+        modelBuilder.Entity<SecurityAlert>(e =>
+        {
+            e.Property(a => a.UserAgent).HasMaxLength(512);
+            e.HasIndex(a => a.CreatedAt);
+            e.HasIndex(a => new { a.IsRead, a.CreatedAt });
+            e.HasIndex(a => new { a.Type, a.CreatedAt });
+            e.HasIndex(a => new { a.Severity, a.CreatedAt });
         });
     }
 }

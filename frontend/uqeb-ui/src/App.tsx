@@ -10,6 +10,7 @@ import TransactionDetail from './pages/TransactionDetail';
 import Reports from './pages/Reports';
 import { UsersPage, DepartmentsPage, ExternalPartiesPage } from './pages/AdminPages';
 import LetterTemplatePage from './pages/LetterTemplatePage';
+import SecurityPage from './pages/SecurityPage';
 
 export default function App() {
   return (
@@ -28,6 +29,14 @@ export default function App() {
             <Route path="users" element={<UsersPage />} />
             <Route path="departments" element={<DepartmentsPage />} />
             <Route path="external-parties" element={<ExternalPartiesPage />} />
+            <Route
+              path="security"
+              element={(
+                <ProtectedRoute requiredRoles={["Admin"]}>
+                  <SecurityPage />
+                </ProtectedRoute>
+              )}
+            />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -297,3 +297,44 @@ export interface FollowUpLetterPreview {
   content: string;
   targetEntity: string;
 }
+
+export interface LoginAttemptLog {
+  id: number;
+  username?: string;
+  userId?: number;
+  ipAddress?: string;
+  userAgent?: string;
+  succeeded: boolean;
+  failureReason?: string;
+  riskLevel: string;
+  occurredAt: string;
+}
+
+export interface SecurityAlert {
+  id: number;
+  type: string;
+  title: string;
+  message: string;
+  severity: string;
+  username?: string;
+  ipAddress?: string;
+  userAgent?: string;
+  isRead: boolean;
+  createdAt: string;
+  readAt?: string;
+}
+
+export interface SecurityAlertsSummary {
+  unreadCount: number;
+  items: SecurityAlert[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface LoginAttemptsPage {
+  items: LoginAttemptLog[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+}
