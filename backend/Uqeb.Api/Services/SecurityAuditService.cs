@@ -1,3 +1,4 @@
+using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.Security;
@@ -83,8 +84,7 @@ public class SecurityAuditService : ISecurityAuditService
                     && l.FailureReason == "invalid_credentials"
                     && l.OccurredAt >= since);
 
-            if (userFails >= UsernameFailThreshold
-                && !await HasRecentAlertAsync("account_bruteforce", username, ipAddress, since))
+            if (userFails >= UsernameFailThreshold)
             {
                 await CreateSecurityAlertAsync(
                     "account_bruteforce",
@@ -103,8 +103,7 @@ public class SecurityAuditService : ISecurityAuditService
                 && l.FailureReason == "invalid_credentials"
                 && l.OccurredAt >= since);
 
-        if (ipFails >= IpFailThreshold
-            && !await HasRecentAlertAsync("failed_login_burst", null, ipAddress, since))
+        if (ipFails >= IpFailThreshold)
         {
             await CreateSecurityAlertAsync(
                 "failed_login_burst",
@@ -126,8 +125,7 @@ public class SecurityAuditService : ISecurityAuditService
             .Distinct()
             .CountAsync();
 
-        if (distinctUsernames >= SprayUsernameThreshold
-            && !await HasRecentAlertAsync("ip_password_spray", null, ipAddress, since))
+        if (distinctUsernames >= SprayUsernameThreshold)
         {
             await CreateSecurityAlertAsync(
                 "ip_password_spray",
@@ -149,6 +147,25 @@ public class SecurityAuditService : ISecurityAuditService
         string? ipAddress,
         string? userAgent)
     {
+        var now = DateTime.UtcNow;
+        var since = now.AddMinutes(-WindowMinutes);
+        var dedupeUsername = UsesUsernameDedupe(type) ? username : null;
+        var dedupeIpAddress = ipAddress;
+
+        await using var transaction = await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+
+        var duplicateExists = await _db.SecurityAlerts.AnyAsync(a =>
+            a.Type == type
+            && a.CreatedAt >= since
+            && (dedupeUsername == null || a.Username == dedupeUsername)
+            && (dedupeIpAddress == null || a.IpAddress == dedupeIpAddress));
+
+        if (duplicateExists)
+        {
+            await transaction.CommitAsync();
+            return;
+        }
+
         _db.SecurityAlerts.Add(new SecurityAlert
         {
             Type = type,
@@ -159,9 +176,10 @@ public class SecurityAuditService : ISecurityAuditService
             IpAddress = ipAddress,
             UserAgent = Truncate(userAgent, 512),
             IsRead = false,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = now
         });
         await _db.SaveChangesAsync();
+        await transaction.CommitAsync();
     }
 
     public async Task RecordUnauthorizedAccessAsync(HttpContext httpContext, int statusCode, string? reason)
@@ -189,8 +207,7 @@ public class SecurityAuditService : ISecurityAuditService
         });
         await _db.SaveChangesAsync();
 
-        if (statusCode == 403 && HttpContextSecurityHelper.IsAdminProbePath(httpContext.Request.Path)
-            && !await HasRecentAlertAsync("admin_endpoint_probe", username, ip, DateTime.UtcNow.AddMinutes(-WindowMinutes)))
+        if (statusCode == 403 && HttpContextSecurityHelper.IsAdminProbePath(httpContext.Request.Path))
         {
             await CreateSecurityAlertAsync(
                 "admin_endpoint_probe",
@@ -209,8 +226,7 @@ public class SecurityAuditService : ISecurityAuditService
                 && l.OccurredAt >= since
                 && (l.FailureReason == "unauthorized_access" || l.FailureReason == "forbidden_access"));
 
-        if (unauthorizedCount >= UnauthorizedThreshold
-            && !await HasRecentAlertAsync("unauthorized_access", null, ip, since))
+        if (unauthorizedCount >= UnauthorizedThreshold)
         {
             var severity = unauthorizedCount >= 10 ? "high" : "medium";
             await CreateSecurityAlertAsync(
@@ -338,13 +354,8 @@ public class SecurityAuditService : ISecurityAuditService
                 .SetProperty(a => a.ReadAt, now));
     }
 
-    // TODO: enforce alert deduplication at the database boundary with a unique dedupe key/window bucket.
-    private async Task<bool> HasRecentAlertAsync(string type, string? username, string? ipAddress, DateTime since) =>
-        await _db.SecurityAlerts.AsNoTracking().AnyAsync(a =>
-            a.Type == type
-            && a.CreatedAt >= since
-            && (username == null || a.Username == username)
-            && (ipAddress == null || a.IpAddress == ipAddress));
+    private static bool UsesUsernameDedupe(string type) =>
+        type is "account_bruteforce" or "admin_endpoint_probe";
 
     private static string? Truncate(string? value, int maxLength)
     {
