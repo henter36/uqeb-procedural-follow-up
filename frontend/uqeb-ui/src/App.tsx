@@ -29,7 +29,14 @@ export default function App() {
             <Route path="users" element={<UsersPage />} />
             <Route path="departments" element={<DepartmentsPage />} />
             <Route path="external-parties" element={<ExternalPartiesPage />} />
-            <Route path="security" element={<SecurityPage />} />
+            <Route
+              path="security"
+              element={(
+                <ProtectedRoute requiredRoles={["Admin"]}>
+                  <SecurityPage />
+                </ProtectedRoute>
+              )}
+            />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
