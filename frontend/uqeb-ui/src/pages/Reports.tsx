@@ -10,10 +10,13 @@ import { statusLabels, statusBadgeClass } from '../utils/labels';
 import DateDisplay from '../components/DateDisplay';
 import DepartmentBadges from '../components/DepartmentBadges';
 import { responseTimingBadgeClass } from '../utils/responseTiming';
-
-const TIMING_REPORT_TABS: ReportTab[] = ['response-required', 'overdue-responses', 'waiting', 'open'];
+import { downloadBlob, resolveDownloadFilename } from '../utils/downloadBlob';
 
 type ReportTab = 'response-required' | 'overdue-responses' | 'pending-assignments' | 'partial-replies' | 'overdue' | 'open' | 'waiting';
+
+const DEFAULT_TAB: ReportTab = 'response-required';
+
+const TIMING_REPORT_TABS: ReportTab[] = ['response-required', 'overdue-responses', 'waiting', 'open'];
 
 type TabState = {
   items: ReportTransactionRow[];
@@ -105,7 +108,7 @@ function TableSkeleton({ rows = 5 }: { rows?: number }) {
 
 export default function ReportsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [tab, setTab] = useState<ReportTab | null>(() => parseReportTab(searchParams.get('tab')));
+  const [tab, setTab] = useState<ReportTab>(() => parseReportTab(searchParams.get('tab')) ?? DEFAULT_TAB);
   const [tabStates, setTabStates] = useState<Record<ReportTab, TabState>>(() =>
     Object.fromEntries(tabConfig.map((t) => [t.key, defaultTabState()])) as Record<ReportTab, TabState>
   );
@@ -132,12 +135,14 @@ export default function ReportsPage() {
     dateFrom: '', dateTo: '', categoryId: '', departmentId: '', status: '', incomingSourceType: '',
   });
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const summaryAbortRef = useRef<AbortController | null>(null);
   const monthlyRef = useRef<HTMLDivElement>(null);
   const tabStatesRef = useRef(tabStates);
   tabStatesRef.current = tabStates;
-  const initialUrlTabRef = useRef(parseReportTab(searchParams.get('tab')));
+  const initialLoadDoneRef = useRef(false);
 
   const filterParams = useCallback((): Record<string, unknown> => {
     const f = appliedFilters;
@@ -214,11 +219,14 @@ export default function ReportsPage() {
   }, [filterParams]);
 
   useEffect(() => {
-    if (!initialUrlTabRef.current) return;
-    const urlTab = initialUrlTabRef.current;
-    initialUrlTabRef.current = null;
-    loadTabDetails(urlTab, 1, DEFAULT_PAGE_SIZE);
-  }, [loadTabDetails]);
+    if (!searchParams.get('tab')) {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.set('tab', tab);
+        return next;
+      }, { replace: true });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const urlTab = parseReportTab(searchParams.get('tab'));
@@ -309,6 +317,23 @@ export default function ReportsPage() {
       });
   }, [filterParams]);
 
+  const prevFilterKeyRef = useRef(filterKey);
+
+  useEffect(() => {
+    if (initialLoadDoneRef.current) return;
+    initialLoadDoneRef.current = true;
+    loadTabDetails(tab, 1, DEFAULT_PAGE_SIZE);
+    loadAnalytics();
+  }, [loadTabDetails, loadAnalytics, tab]);
+
+  useEffect(() => {
+    if (prevFilterKeyRef.current === filterKey) return;
+    prevFilterKeyRef.current = filterKey;
+    if (!initialLoadDoneRef.current) return;
+    loadTabDetails(tab, 1, tabStatesRef.current[tab].pageSize, true);
+    loadAnalytics(true);
+  }, [filterKey, tab, loadTabDetails, loadAnalytics]);
+
   useEffect(() => {
     const el = monthlyRef.current;
     if (!el || monthlyLoaded) return;
@@ -354,10 +379,7 @@ export default function ReportsPage() {
       }
       return next;
     });
-    const wasAnalyticsLoaded = analyticsLoadedRef.current;
     resetAnalytics();
-    if (wasAnalyticsLoaded) loadAnalytics(true);
-    if (tab) loadTabDetails(tab, 1, tabStates[tab].pageSize, true);
   };
 
   const selectTab = (tabKey: ReportTab) => {
@@ -387,21 +409,52 @@ export default function ReportsPage() {
   };
 
   const exportExcel = async (currentPageOnly: boolean) => {
-    if (!tab) return;
-    const state = tabStates[tab];
-    const params: Record<string, unknown> = {
-      ...filterParams(),
-      currentPageOnly,
-      page: state.page,
-      pageSize: state.pageSize,
-    };
-    const res = await reportsApi.exportExcel(tab, params);
-    const url = window.URL.createObjectURL(res.data);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `report-${tab}${currentPageOnly ? '-page' : '-all'}.xlsx`;
-    a.click();
-    window.URL.revokeObjectURL(url);
+    if (!tab || exporting) return;
+    setExportError(null);
+    setExporting(true);
+    try {
+      const state = tabStates[tab];
+      const params: Record<string, unknown> = {
+        ...filterParams(),
+        currentPageOnly,
+        page: state.page,
+        pageSize: state.pageSize,
+      };
+      const res = await reportsApi.exportExcel(tab, params);
+      const fallback = `uqeb-report-${tab}${currentPageOnly ? '-page' : ''}.xlsx`;
+      const filename = resolveDownloadFilename(
+        res.headers['content-disposition'] as string | undefined,
+        fallback,
+      );
+      downloadBlob(res.data, filename);
+    } catch {
+      setExportError('تعذر تصدير التقرير. حاول مرة أخرى.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const exportDepartmentReport = async (format: 'excel' | 'pdf') => {
+    if (exporting) return;
+    setExportError(null);
+    setExporting(true);
+    try {
+      const params = filterParams();
+      const res = format === 'excel'
+        ? await reportsApi.exportDepartmentIncomingClosedExcel(params)
+        : await reportsApi.exportDepartmentIncomingClosedPdf(params);
+      const extension = format === 'excel' ? 'xlsx' : 'pdf';
+      const fallback = `uqeb-report-department-incoming-closed.${extension}`;
+      const filename = resolveDownloadFilename(
+        res.headers['content-disposition'] as string | undefined,
+        fallback,
+      );
+      downloadBlob(res.data, filename);
+    } catch {
+      setExportError('تعذر تصدير التقرير. حاول مرة أخرى.');
+    } finally {
+      setExporting(false);
+    }
   };
 
   const currentState = tab ? tabStates[tab] : null;
@@ -415,11 +468,13 @@ export default function ReportsPage() {
         <h2 className="page-title">التقارير</h2>
         {tab && (
           <div className="btn-group">
-            <button className="btn btn-outline" onClick={() => exportExcel(true)}>تصدير الصفحة الحالية</button>
-            <button className="btn btn-primary" onClick={() => exportExcel(false)}>تصدير جميع النتائج</button>
+            <button className="btn btn-outline" onClick={() => exportExcel(true)} disabled={exporting}>تصدير الصفحة الحالية</button>
+            <button className="btn btn-primary" onClick={() => exportExcel(false)} disabled={exporting}>تصدير جميع النتائج</button>
           </div>
         )}
       </div>
+
+      {exportError && <div className="alert alert-error mb-2">{exportError}</div>}
 
       <div className="card filter-card mb-4">
         <div className="filter-form">
@@ -473,12 +528,6 @@ export default function ReportsPage() {
           </button>
         ))}
       </div>
-
-      {!tab && (
-        <div className="card mt-2 text-center text-muted" style={{ padding: '2rem' }}>
-          اختر قسمًا من الأعلى لعرض المعاملات
-        </div>
-      )}
 
       {tab && currentState?.error && <div className="alert alert-error">{currentState.error}</div>}
 
@@ -569,22 +618,16 @@ export default function ReportsPage() {
             >
               {analyticsLoading ? 'جاري التحميل...' : analyticsLoaded ? 'إعادة تحميل التحليلات' : 'تحميل التحليلات'}
             </button>
-            <button className="btn btn-outline" onClick={async () => {
-              const res = await reportsApi.exportDepartmentIncomingClosedExcel(filterParams());
-              const url = window.URL.createObjectURL(res.data);
-              const a = document.createElement('a'); a.href = url; a.download = 'department-incoming-closed.xlsx'; a.click();
-            }}>تصدير Excel</button>
-            <button className="btn btn-outline" onClick={async () => {
-              const res = await reportsApi.exportDepartmentIncomingClosedPdf(filterParams());
-              const url = window.URL.createObjectURL(res.data);
-              const a = document.createElement('a'); a.href = url; a.download = 'department-incoming-closed.pdf'; a.click();
-            }}>تصدير PDF</button>
+            <button className="btn btn-outline" onClick={() => exportDepartmentReport('excel')} disabled={exporting}>تصدير Excel</button>
+            <button className="btn btn-outline" onClick={() => exportDepartmentReport('pdf')} disabled={exporting}>تصدير PDF</button>
           </div>
         </div>
-        <p className="text-muted mb-2">اضغط «تحميل التحليلات» لعرض الجداول أدناه. يُحسب الوارد حسب تاريخ الوارد (الإدارات الصادر لها)، والمغلق حسب تاريخ الإغلاق ضمن الفترة المحددة.</p>
+        <p className="text-muted mb-2">تُحمَّل التحليلات تلقائيًا عند فتح الصفحة. يُحسب الوارد حسب تاريخ الوارد (الإدارات الصادر لها)، والمغلق حسب تاريخ الإغلاق ضمن الفترة المحددة.</p>
         {analyticsError && <div className="alert alert-error mb-2">{analyticsError}</div>}
-        {!analyticsLoaded ? (
-          <div className="text-center text-muted" style={{ padding: '1.5rem' }}>لم يتم تحميل التحليلات بعد.</div>
+        {!analyticsLoaded && analyticsLoading ? (
+          <div className="loading">جاري تحميل التحليلات...</div>
+        ) : !analyticsLoaded ? (
+          <div className="text-center text-muted" style={{ padding: '1.5rem' }}>تعذر تحميل التحليلات.</div>
         ) : analyticsLoading ? <div className="loading">جاري التحميل...</div> : (
           <>
           <h4 className="mb-2">تقرير الوارد والمغلق لكل إدارة</h4>

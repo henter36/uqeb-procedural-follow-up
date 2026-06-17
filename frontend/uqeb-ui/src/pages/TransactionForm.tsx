@@ -172,11 +172,6 @@ export default function TransactionForm({ mode }: Props) {
               {fieldError('incomingDate') && <span className="field-error">{fieldError('incomingDate')}</span>}
             </div>
             <div className="form-group full-width">
-              <label>الموضوع *</label>
-              <input value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
-              {fieldError('subject') && <span className="field-error">{fieldError('subject')}</span>}
-            </div>
-            <div className="form-group full-width">
               <label>نوع الجهة الوارد منها *</label>
               <div className="radio-group">
                 <label className="radio-label">
@@ -212,23 +207,6 @@ export default function TransactionForm({ mode }: Props) {
               {fieldError('incomingFromPartyId') && <span className="field-error">{fieldError('incomingFromPartyId')}</span>}
               {fieldError('incomingFromDepartmentId') && <span className="field-error">{fieldError('incomingFromDepartmentId')}</span>}
             </div>
-          </div>
-        </div>
-
-        <div className="card section-card mt-4">
-          <h3 className="section-title">ب. بيانات الصادر</h3>
-          <p className="text-muted mb-2">{OUTGOING_HINT}</p>
-          <div className="form-grid">
-            <div className="form-group">
-              <label>رقم الصادر</label>
-              <input value={form.outgoingNumber} onChange={(e) => setForm({ ...form, outgoingNumber: e.target.value })} />
-              {fieldError('outgoingNumber') && <span className="field-error">{fieldError('outgoingNumber')}</span>}
-            </div>
-            <div className="form-group">
-              <label>تاريخ الصادر (ميلادي)</label>
-              <input type="date" value={form.outgoingDate} onChange={(e) => setForm({ ...form, outgoingDate: e.target.value })} />
-              {fieldError('outgoingDate') && <span className="field-error">{fieldError('outgoingDate')}</span>}
-            </div>
             <div className="form-group">
               <label>التصنيف *</label>
               <select value={form.categoryId} onChange={(e) => setForm({ ...form, categoryId: e.target.value })}>
@@ -245,6 +223,28 @@ export default function TransactionForm({ mode }: Props) {
                 <option value="VeryUrgent">عاجل جداً</option>
               </select>
               {fieldError('priority') && <span className="field-error">{fieldError('priority')}</span>}
+            </div>
+            <div className="form-group full-width">
+              <label>الموضوع *</label>
+              <input value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
+              {fieldError('subject') && <span className="field-error">{fieldError('subject')}</span>}
+            </div>
+          </div>
+        </div>
+
+        <div className="card section-card mt-4">
+          <h3 className="section-title">ب. بيانات الصادر</h3>
+          <p className="text-muted mb-2">{OUTGOING_HINT}</p>
+          <div className="form-grid">
+            <div className="form-group">
+              <label>رقم الصادر</label>
+              <input value={form.outgoingNumber} onChange={(e) => setForm({ ...form, outgoingNumber: e.target.value })} />
+              {fieldError('outgoingNumber') && <span className="field-error">{fieldError('outgoingNumber')}</span>}
+            </div>
+            <div className="form-group">
+              <label>تاريخ الصادر (ميلادي)</label>
+              <input type="date" value={form.outgoingDate} onChange={(e) => setForm({ ...form, outgoingDate: e.target.value })} />
+              {fieldError('outgoingDate') && <span className="field-error">{fieldError('outgoingDate')}</span>}
             </div>
             <div className="form-group full-width">
               <MultiSelect

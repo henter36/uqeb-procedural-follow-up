@@ -111,14 +111,14 @@ public class ReportsController : ControllerBase
     {
         var bytes = await _reports.ExportDepartmentIncomingClosedExcelAsync(filter);
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            $"department-incoming-closed-{DateTime.UtcNow:yyyyMMdd}.xlsx");
+            $"uqeb-report-department-incoming-closed-{DateTime.UtcNow:yyyyMMdd}.xlsx");
     }
 
     [HttpGet("department-incoming-closed/export-pdf")]
     public async Task<IActionResult> ExportDepartmentIncomingClosedPdf([FromQuery] ReportFilterRequest filter)
     {
         var bytes = await _reports.ExportDepartmentIncomingClosedPdfAsync(filter);
-        return File(bytes, "application/pdf", $"department-incoming-closed-{DateTime.UtcNow:yyyyMMdd}.pdf");
+        return File(bytes, "application/pdf", $"uqeb-report-department-incoming-closed-{DateTime.UtcNow:yyyyMMdd}.pdf");
     }
 
     [HttpGet("monthly")]
@@ -147,7 +147,7 @@ public class ReportsController : ControllerBase
             PageSize = ReportPageSize.Normalize(pageSize)
         };
         var bytes = await _reports.ExportReportDetailsExcelAsync(reportType, pagedFilter, currentPageOnly);
-        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"report-{reportType}.xlsx");
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"uqeb-report-{reportType}.xlsx");
     }
 
     [HttpGet("response-required/details")]
