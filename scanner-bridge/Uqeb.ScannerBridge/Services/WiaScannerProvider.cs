@@ -124,11 +124,7 @@ public sealed class WiaScannerProvider : IScannerProvider
         }
         catch
         {
-            if (File.Exists(tempPath))
-            {
-                File.Delete(tempPath);
-            }
-
+            TryDeleteTempFile(tempPath);
             throw;
         }
         finally
@@ -230,6 +226,21 @@ public sealed class WiaScannerProvider : IScannerProvider
         catch
         {
             // Best effort COM cleanup.
+        }
+    }
+
+    private void TryDeleteTempFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to delete WIA temp scan file {Path}", path);
         }
     }
 }

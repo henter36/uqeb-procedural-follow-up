@@ -29,19 +29,42 @@ public sealed class MockScannerProvider : IScannerProvider
         var fileName = $"scan-mock-{DateTime.UtcNow:yyyyMMdd-HHmmss}.jpg";
         var tempPath = Path.Combine(Path.GetTempPath(), $"uqeb-mock-{Guid.NewGuid():N}.jpg");
 
-        using (var bitmap = CreateDocumentBitmap(1240, 1754))
+        try
         {
-            bitmap.Save(tempPath, ImageFormat.Jpeg);
-        }
+            using (var bitmap = CreateDocumentBitmap(1240, 1754))
+            {
+                bitmap.Save(tempPath, ImageFormat.Jpeg);
+            }
 
-        var preview = ScanImageHelper.CreatePreviewFromFile(tempPath, _options.PreviewMaxWidth, out var width, out var height);
-        return Task.FromResult(new ScanOutput(
-            tempPath,
-            "image/jpeg",
-            fileName,
-            width,
-            height,
-            preview));
+            var preview = ScanImageHelper.CreatePreviewFromFile(tempPath, _options.PreviewMaxWidth, out var width, out var height);
+            return Task.FromResult(new ScanOutput(
+                tempPath,
+                "image/jpeg",
+                fileName,
+                width,
+                height,
+                preview));
+        }
+        catch
+        {
+            TryDeleteTempFile(tempPath);
+            throw;
+        }
+    }
+
+    private static void TryDeleteTempFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+            // Best-effort cleanup; preserve the original exception.
+        }
     }
 
     internal static Bitmap CreateDocumentBitmap(int width, int height)
