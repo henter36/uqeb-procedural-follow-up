@@ -40,31 +40,51 @@ app.UseCors(policy => policy
 
 app.MapGet("/status", (ScannerProviderResolver resolver, IOptions<ScannerBridgeOptions> options) =>
 {
-    var provider = resolver.Resolve();
-    var scanners = provider.ListScanners();
-
-    return Results.Json(new StatusResponse
+    try
     {
-        Ok = true,
-        Version = options.Value.Version,
-        ScannerApi = provider.ApiName,
-        ScannerCount = scanners.Count
-    });
+        var provider = resolver.Resolve();
+        var scanners = ScannerProviderResolver.ListScannersSafe(provider);
+
+        return Results.Json(new StatusResponse
+        {
+            Ok = true,
+            Version = options.Value.Version,
+            ScannerApi = provider.ApiName,
+            ScannerCount = scanners.Count
+        });
+    }
+    catch (InvalidOperationException)
+    {
+        return Results.Json(new StatusResponse
+        {
+            Ok = true,
+            Version = options.Value.Version,
+            ScannerApi = "Unavailable",
+            ScannerCount = 0
+        });
+    }
 });
 
 app.MapGet("/scanners", (ScannerProviderResolver resolver) =>
 {
-    var provider = resolver.Resolve();
-    var scanners = provider.ListScanners()
-        .Select(scanner => new ScannerDeviceDto
-        {
-            Id = scanner.Id,
-            Name = scanner.Name,
-            Default = scanner.Default
-        })
-        .ToList();
+    try
+    {
+        var provider = resolver.Resolve();
+        var scanners = ScannerProviderResolver.ListScannersSafe(provider)
+            .Select(scanner => new ScannerDeviceDto
+            {
+                Id = scanner.Id,
+                Name = scanner.Name,
+                Default = scanner.Default
+            })
+            .ToList();
 
-    return Results.Json(new ScannersResponse { Scanners = scanners });
+        return Results.Json(new ScannersResponse { Scanners = scanners });
+    }
+    catch (InvalidOperationException)
+    {
+        return Results.Json(new ScannersResponse { Scanners = [] });
+    }
 });
 
 app.MapPost("/scan", async Task<IResult> (
@@ -78,29 +98,33 @@ app.MapPost("/scan", async Task<IResult> (
         return ErrorResult("INVALID_REQUEST", "scannerId is required.");
     }
 
-    var provider = resolver.Resolve();
-    var scanners = provider.ListScanners();
-    if (scanners.Count == 0)
-    {
-        return ErrorResult("NO_SCANNER", "No scanner is available on this machine.");
-    }
-
-    if (scanners.All(scanner => scanner.Id != request.ScannerId))
-    {
-        return ErrorResult("SCANNER_NOT_FOUND", "The requested scanner was not found.");
-    }
-
-    var input = new ScanInput(
-        request.ScannerId,
-        string.IsNullOrWhiteSpace(request.Format) ? "image/jpeg" : request.Format,
-        request.Dpi is > 0 ? request.Dpi.Value : 300,
-        string.IsNullOrWhiteSpace(request.ColorMode) ? "color" : request.ColorMode);
-
     try
     {
+        var provider = resolver.Resolve();
+        var scanners = ScannerProviderResolver.ListScannersSafe(provider);
+        if (scanners.Count == 0)
+        {
+            return ErrorResult("NO_SCANNER", "No scanner is available on this machine.");
+        }
+
+        if (scanners.All(scanner => scanner.Id != request.ScannerId))
+        {
+            return ErrorResult("SCANNER_NOT_FOUND", "The requested scanner was not found.");
+        }
+
+        var input = new ScanInput(
+            request.ScannerId,
+            string.IsNullOrWhiteSpace(request.Format) ? "image/jpeg" : request.Format,
+            request.Dpi is > 0 ? request.Dpi.Value : 300,
+            string.IsNullOrWhiteSpace(request.ColorMode) ? "color" : request.ColorMode);
+
         var output = await provider.ScanAsync(input, cancellationToken);
         var stored = store.SaveScan(output);
         return Results.Json(store.ToResponse(stored));
+    }
+    catch (InvalidOperationException ex)
+    {
+        return ErrorResult("PROVIDER_UNAVAILABLE", ex.Message);
     }
     catch (Exception ex)
     {

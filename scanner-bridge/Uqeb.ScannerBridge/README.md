@@ -5,7 +5,7 @@ Windows-only local HTTP bridge for Uqeb scanner UI. Listens on loopback only (`1
 ## Requirements
 
 - Windows 10/11 or Windows Server
-- .NET 10 runtime
+- .NET 8 runtime (ASP.NET Core 8). The bridge targets `net8.0` for broader Windows deployment; `Uqeb.Api` may run on a newer runtime separately.
 - Optional: WIA-compatible scanner
 
 ## Run locally

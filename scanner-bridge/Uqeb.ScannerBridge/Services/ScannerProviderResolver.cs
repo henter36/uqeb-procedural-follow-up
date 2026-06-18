@@ -31,12 +31,19 @@ public sealed class ScannerProviderResolver
 
         if (provider.Equals("Mock", StringComparison.OrdinalIgnoreCase))
         {
-            if (!_environment.IsDevelopment() && !_options.AllowMockFallback)
+            if (_environment.IsDevelopment() || _options.AllowMockFallback)
             {
-                _logger.LogWarning("Mock provider requested outside development without AllowMockFallback.");
+                return _mockProvider;
             }
 
-            return _mockProvider;
+            if (_wiaProvider.IsAvailable)
+            {
+                _logger.LogWarning("Mock provider denied outside Development; falling back to WIA.");
+                return _wiaProvider;
+            }
+
+            throw new InvalidOperationException(
+                "Mock provider is not allowed outside Development unless ScannerBridge:AllowMockFallback is true.");
         }
 
         if (provider.Equals("WIA", StringComparison.OrdinalIgnoreCase))
@@ -56,5 +63,17 @@ public sealed class ScannerProviderResolver
         }
 
         return _wiaProvider;
+    }
+
+    public static IReadOnlyList<ScannerDeviceInfo> ListScannersSafe(IScannerProvider provider)
+    {
+        try
+        {
+            return provider.ListScanners();
+        }
+        catch (Exception)
+        {
+            return [];
+        }
     }
 }
