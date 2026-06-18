@@ -6,6 +6,20 @@
 
 ---
 
+## 0. بوابة القرار — قرارات ثابتة (Design Gate)
+
+| # | القرار |
+|---|--------|
+| 1 | الواجهة **حاليًا** تستخدم `transactionsApi.uploadAttachment` من تبويب **المرفقات** في `TransactionDetail.tsx` لرفع الملفات يدويًا. |
+| 2 | بعد المسح، يُرفع الملف عبر **`POST /api/transactions/{id}/attachments`** — نفس endpoint الموجود. |
+| 3 | `attachmentType` للمسح الضوئي: **`"Scan"`** (قيمة ثابتة مقترحة). |
+| 4 | **لا حاجة لـ backend PR الآن** — نموذج المرفقات و endpoints الحالية كافية. |
+| 5 | **PR 2 (backend readiness)** اختياري وليس **blocker** — فقط إذا رُغب لاحقًا بتحقق إضافي من نوع الملف. |
+| 6 | **Bridge endpoints:** `GET http://127.0.0.1:5055/status` · `GET http://127.0.0.1:5055/scanners` · `POST http://127.0.0.1:5055/scan` · `DELETE /scan/{scanId}` (اختياري لاحقًا). |
+| 7 | **خطة PRs:** PR 1 design gate فقط → PR 2 backend اختياري → PR 3 UI + mock bridge → PR 4 .NET Scanner Bridge MVP → PR 5 integration test على جهاز بماسح فعلي. |
+
+---
+
 ## 1. الهدف
 
 تمكين المستخدم من داخل نافذة معاملة في Uqeb أن:
@@ -222,7 +236,7 @@
 
 الكيان `Attachment` يحتوي: `TransactionId`, `AttachmentType`, `OriginalFileName`, `StoredFileName`, `FilePath`, `ContentType`, `FileSize`, `UploadedById`, `UploadedAt`.
 
-مسح ضوئي = ملف صورة (JPEG/PNG/PDF) يُرفع كأي مرفق آخر مع `attachmentType = "Scan"` (أو `"ScannedDocument"`).
+مسح ضوئي = ملف صورة (JPEG/PNG/PDF) يُرفع كأي مرفق آخر مع **`attachmentType = "Scan"`**.
 
 ### 6.2 Endpoints القائمة (كافية)
 
@@ -236,9 +250,10 @@
 
 - `TransactionsController.UploadAttachment` — `[RequestSizeLimit(50_000_000)]`, `[Authorize(Policy = "CanEditTransactions")]`
 - `AttachmentService.UploadAsync` — تخزين في `FileStorage:Path`
-- Frontend: `transactionsApi.uploadAttachment(id, file, attachmentType?)`
+- Frontend: `frontend/uqeb-ui/src/pages/TransactionDetail.tsx` — تبويب المرفقات يستدعي `transactionsApi.uploadAttachment`
+- API client: `frontend/uqeb-ui/src/api/services.ts` → `uploadAttachment`
 
-### 6.3 تغييرات Backend المقترحة (PR 2 — إن لزم)
+### 6.3 تغييرات Backend المقترحة (PR 2 — اختياري، ليس blocker)
 
 | التغيير | ضرورة | الملاحظة |
 |---------|--------|----------|
@@ -327,7 +342,7 @@ scanner-bridge/
 | PR | المحتوى | تغيير DB | تغيير runtime إنتاجي |
 |----|---------|----------|----------------------|
 | **PR 1** (هذا) | `docs/SCANNER_BRIDGE_DESIGN.md` — قرار وتصميم | لا | لا |
-| **PR 2** | Backend readiness: تحقق اختياري من أنواع الملفات، توثيق `attachmentType=Scan` | لا | لا (أو تحسين بسيط فقط) |
+| **PR 2** | Backend readiness (اختياري — **ليس blocker**): تحقق اختياري من أنواع الملفات، توثيق `attachmentType=Scan` | لا | لا |
 | **PR 3** | Frontend: `ScanAttachmentButton`, `ScannerPanel`, mock bridge للتطوير | لا | لا — mock فقط |
 | **PR 4** | `Uqeb.ScannerBridge` MVP: WIA, `/status`, `/scanners`, `/scan`, temp cleanup | لا | Bridge جديد (منفصل) |
 | **PR 5** | Integration: اختبار على جهاز بماسح فعلي، تعليمات تثبيت، تحسين رسائل الخطأ | لا | Bridge + ربط UI |
