@@ -15,7 +15,7 @@
 | 3 | `attachmentType` للمسح الضوئي: **`"Scan"`** (قيمة ثابتة مقترحة). |
 | 4 | **لا حاجة لـ backend PR الآن** — نموذج المرفقات و endpoints الحالية كافية. |
 | 5 | **PR 2 (backend readiness)** اختياري وليس **blocker** — فقط إذا رُغب لاحقًا بتحقق إضافي من نوع الملف. |
-| 6 | **Bridge endpoints:** `GET http://127.0.0.1:5055/status` · `GET http://127.0.0.1:5055/scanners` · `POST http://127.0.0.1:5055/scan` · `DELETE /scan/{scanId}` (اختياري لاحقًا). |
+| 6 | **Bridge endpoints:** `GET /status` · `GET /scanners` · `POST /scan` · `GET /scan/{scanId}/file` · `DELETE /scan/{scanId}` (اختياري لاحقًا). |
 | 7 | **خطة PRs:** PR 1 design gate فقط → PR 2 backend اختياري → PR 3 UI + mock bridge → PR 4 .NET Scanner Bridge MVP → PR 5 integration test على جهاز بماسح فعلي. |
 
 ---
@@ -79,24 +79,26 @@
 3. إن كان متاحًا: GET /scanners → قائمة الأجهزة
 4. المستخدم يختار ماسحًا ويضغط "مسح"
 5. Frontend: POST /scan { scannerId, format: "image/jpeg", dpi: 300 }
-6. Bridge يمسح → يرجع معاينة (base64 أو blob URL مؤقت)
-7. المستخدم يعاين → تدوير / إعادة مسح / حفظ / إلغاء
+6. Bridge يمسح → يرجع scanId + previewBase64 (معاينة منخفضة الدقة فقط)
+7. المستخدم يعاين previewBase64 → تدوير / إعادة مسح / حفظ / إلغاء
 8. عند "حفظ كمرفق":
-   - Frontend يحوّل النتيجة إلى File/Blob
-   - يرفع عبر transactionsApi.uploadAttachment(transactionId, file, 'Scan')
+   - Frontend: GET /scan/{scanId}/file → Blob بالدقة الكاملة (binary stream)
+   - لا يُستخدم previewBase64 للرفع — لتجنب مشاكل الذاكرة على الملفات الكبيرة
+   - يرفع Blob عبر transactionsApi.uploadAttachment → POST /api/transactions/{id}/attachments
    - Bridge يُبلَغ بحذف الملف المؤقت (أو يحذف تلقائيًا بعد TTL)
 9. Frontend يحدّث قائمة المرفقات
 ```
 
 ### 3.2 Local Scanner Bridge — واجهة HTTP المقترحة
 
-**Base URL:** `http://127.0.0.1:5055` (ثابت في الإعدادات، قابل للتجاوز عبر `VITE_SCANNER_BRIDGE_URL` لاحقًا)
+**Base URL:** `http://127.0.0.1:5055` أو `http://[::1]:5055` (ثابت في الإعدادات، قابل للتجاوز عبر `VITE_SCANNER_BRIDGE_URL` لاحقًا)
 
 | Method | Path | الغرض |
 |--------|------|--------|
 | `GET` | `/status` | صحة الخدمة، إصدار Bridge، عدد الماسحات |
 | `GET` | `/scanners` | قائمة الماسحات المتاحة |
-| `POST` | `/scan` | تنفيذ مسح وإرجاع صورة |
+| `POST` | `/scan` | تنفيذ مسح؛ إرجاع `scanId` + `previewBase64` للمعاينة |
+| `GET` | `/scan/{scanId}/file` | استرجاع الملف بكامل الدقة كـ **binary stream** (للرفع) |
 | `DELETE` | `/scan/{scanId}` | حذف نتيجة مؤقتة (اختياري — PR 4) |
 
 #### `GET /status` — مثال استجابة
@@ -147,12 +149,24 @@
   "fileName": "scan-20260618-120000.jpg",
   "width": 2480,
   "height": 3508,
-  "previewBase64": "<base64>",
+  "previewBase64": "<base64-thumbnail-only>",
   "expiresAtUtc": "2026-06-18T12:05:00Z"
 }
 ```
 
-> **ملاحظة:** في MVP يمكن إرجاع `previewBase64` مباشرة. لاحقًا يمكن إضافة `GET /scan/{scanId}/preview` لتقليل حجم استجابة `POST /scan`.
+> **`previewBase64` للمعاينة فقط** — صورة مصغّرة أو منخفضة الدقة لعرضها في `ScannerPanel`. **ليس** الملف الكامل ولا يُستخدم كمسار الرفع النهائي.
+
+#### `GET /scan/{scanId}/file` — استرجاع الملف الكامل
+
+- **الاستجابة:** `Content-Type: image/jpeg` (أو PNG/PDF حسب المسح) — **binary stream** بالدقة الكاملة.
+- **الاستخدام:** Frontend يستدعي هذا endpoint عند «حفظ كمرفق»، يحوّل الاستجابة إلى `Blob`/`File`، ثم يرفعها إلى:
+  `POST /api/transactions/{id}/attachments` مع `attachmentType = "Scan"`.
+- **السبب:** تجنّب تحميل الملف الكامل في JSON/base64 داخل `POST /scan` — يقلّل استهلاك الذاكرة في المتصفح وفي Bridge.
+
+```http
+GET http://127.0.0.1:5055/scan/a1b2c3d4-e5f6-7890-abcd-ef1234567890/file
+→ 200 OK, body: binary image data
+```
 
 ### 3.3 Bridge — تقنية المسح
 
@@ -168,9 +182,9 @@
 
 | القاعدة | التطبيق |
 |---------|---------|
-| **localhost فقط** | `Kestrel` يستمع على `127.0.0.1:5055` — لا `0.0.0.0` |
-| **لا فتح على الشبكة** | لا reverse proxy، لا firewall rule |
-| **أصل موثوق** | Bridge يتحقق من `Origin` / `Referer` ضد قائمة مسموحة: `http://localhost`, `http://127.0.0.1`, عنوان IIS المحلي (مثل `http://server-name`) — قابلة للإعداد في `appsettings` للـ Bridge |
+| **loopback فقط (IPv4 + IPv6)** | Bridge يستمع على **`127.0.0.1:5055`** و**`[::1]:5055`** — عبر Kestrel loopback bindings لكل من IPv4 وIPv6. **لا** `0.0.0.0` ولا `::` (جميع الواجهات) |
+| **لا فتح على الشبكة** | لا reverse proxy، لا firewall rule، لا تعريض للشبكة المحلية |
+| **أصل موثوق** | Bridge يتحقق من `Origin` / `Referer` ضد قائمة مسموحة: **`http://127.0.0.1`**, **`http://localhost`**, **`http://[::1]`** (إن استُخدم IPv6)، وأصل IIS المحلي (مثل `http://server-name`) — قابلة للإعداد في `appsettings` للـ Bridge |
 | **CORS محدود** | `Access-Control-Allow-Origin` لأصول Uqeb المعروفة فقط |
 | **مجلد مؤقت محدد** | `%LOCALAPPDATA%\Uqeb\ScannerBridge\temp` |
 | **تنظيف تلقائي** | حذف الملفات بعد الرفع الناجح + TTL (مثلاً 10 دقائق) + تنظيف عند إغلاق Bridge |
@@ -185,7 +199,7 @@
 |---------|---------|
 | موقع خبيث على نفس الجهاز يستدعي Bridge | فحص Origin + (اختياري لاحقًا) token محلي قصير العمر يُصدر عند فتح ScannerPanel |
 | تراكم ملفات مؤقتة | TTL + حذف عند الحفظ/الإلغاء |
-| ملف مسح كبير | حد حجم في Bridge (مثلاً 25 MB) متوافق مع `[RequestSizeLimit(50_000_000)]` في API |
+| ملف مسح كبير | `previewBase64` مصغّر فقط؛ الملف الكامل عبر `GET /scan/{scanId}/file` (stream). حد حجم في Bridge (مثلاً 25 MB) متوافق مع `[RequestSizeLimit(50_000_000)]` في API |
 
 ---
 
@@ -213,7 +227,7 @@
 |------|--------|
 | **تدوير** | تدوير 90° في الذاكرة (Canvas) قبل الحفظ |
 | **إعادة المسح** | `POST /scan` مجددًا |
-| **حفظ كمرفق** | رفع عبر API الحالي → إغلاق اللوحة → تحديث القائمة |
+| **حفظ كمرفق** | `GET /scan/{scanId}/file` → Blob → `POST /api/transactions/{id}/attachments` → إغلاق اللوحة → تحديث القائمة |
 | **إلغاء** | إغلاق + طلب حذف temp من Bridge إن وُجد `scanId` |
 
 ### 5.4 رسائل الخطأ (عربية — ثابتة في الواجهة)
@@ -331,7 +345,7 @@ scanner-bridge/
 
 - Development: `dotnet run` من مجلد Bridge
 - Production: Windows Service أو Scheduled Task «At log on» للمستخدم
-- المنفذ: `5055` (لا يتعارض مع API `5000`)
+- المنفذ: `5055` على loopback فقط (`127.0.0.1` + `::1`) — لا يتعارض مع API `5000`
 
 **لا يُضاف إلى `Uqeb.Api`** — عملية منفصلة، إصدار منفصل، نشر اختياري على أجهزة بها ماسح.
 
@@ -344,7 +358,7 @@ scanner-bridge/
 | **PR 1** (هذا) | `docs/SCANNER_BRIDGE_DESIGN.md` — قرار وتصميم | لا | لا |
 | **PR 2** | Backend readiness (اختياري — **ليس blocker**): تحقق اختياري من أنواع الملفات، توثيق `attachmentType=Scan` | لا | لا |
 | **PR 3** | Frontend: `ScanAttachmentButton`, `ScannerPanel`, mock bridge للتطوير | لا | لا — mock فقط |
-| **PR 4** | `Uqeb.ScannerBridge` MVP: WIA, `/status`, `/scanners`, `/scan`, temp cleanup | لا | Bridge جديد (منفصل) |
+| **PR 4** | `Uqeb.ScannerBridge` MVP: WIA, `/status`, `/scanners`, `/scan`, `/scan/{scanId}/file`, temp cleanup | لا | Bridge جديد (منفصل) |
 | **PR 5** | Integration: اختبار على جهاز بماسح فعلي، تعليمات تثبيت، تحسين رسائل الخطأ | لا | Bridge + ربط UI |
 
 ### تبعيات
@@ -367,9 +381,9 @@ PR 1 ──► PR 2 (اختياري) ──► PR 3 ──► PR 4 ──► PR 
 | AC-5 | بعد الحفظ | المرفق يظهر في جدول المرفقات |
 | AC-6 | فشل المسح | رسالة خطأ؛ يمكن إعادة المحاولة أو الإلغاء؛ لا crash |
 | AC-7 | إلغاء | لا مرفق جديد؛ temp يُنظَّف |
-| AC-8 | Login | لا تأثر |
-| AC-9 | Reports | لا تأثر |
-| AC-10 | Transactions list/detail (بدون مسح) | لا تأثر |
+| AC-8 | Login | لا يتأثر |
+| AC-9 | Reports | لا تتأثر |
+| AC-10 | Transactions list/detail (بدون مسح) | لا تتأثر |
 | AC-11 | رفع ملف يدوي | يستمر بالعمل |
 
 ---
@@ -389,12 +403,13 @@ PR 1 ──► PR 2 (اختياري) ──► PR 3 ──► PR 4 ──► PR 
 
 | # | القرار | السبب |
 |---|--------|--------|
-| D1 | Local Bridge على `127.0.0.1:5055` | المتصفح لا يصل للماسح مباشرة |
+| D1 | Local Bridge على loopback `127.0.0.1` + `::1` (منفذ `5055`) | المتصفح لا يصل للماسح مباشرة؛ دعم IPv4/IPv6 |
 | D2 | إعادة استخدام `POST .../attachments` | API وDB جاهزان — أقل مخاطرة |
 | D3 | WIA أولًا في MVP | تغطية Windows + ماسحات مكتب شائعة |
 | D4 | مكوّن frontend منفصل + lazy load | عدم كسر `TransactionDetail` |
 | D5 | Bridge عملية منفصلة عن API | أمان ونشر مستقل |
 | D6 | لا DB changes في PR 1–4 | نموذج `Attachment` كافٍ |
+| D7 | معاينة عبر `previewBase64`؛ رفع عبر `GET /scan/{scanId}/file` | تجنّب base64 للملف الكامل — مشاكل الذاكرة |
 
 ---
 
