@@ -102,7 +102,7 @@ function SortableTh({
 }
 
 export default function TransactionsList() {
-  const { canEdit } = useAuth();
+  const { canEdit, isAdmin } = useAuth();
   const [searchParams] = useSearchParams();
   const [items, setItems] = useState<TransactionListItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -162,7 +162,14 @@ export default function TransactionsList() {
     <div>
       <div className="page-header">
         <h2 className="page-title">المعاملات</h2>
-        {canEdit && <Link to="/transactions/new" className="btn btn-primary">إضافة معاملة</Link>}
+        <div className="page-header-actions">
+          {isAdmin && (
+            <Link to="/transactions/import" className="btn btn-secondary">
+              استيراد من Excel
+            </Link>
+          )}
+          {canEdit && <Link to="/transactions/new" className="btn btn-primary">إضافة معاملة</Link>}
+        </div>
       </div>
 
       <div className="card filter-card">

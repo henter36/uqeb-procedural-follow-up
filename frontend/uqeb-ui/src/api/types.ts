@@ -338,3 +338,38 @@ export interface LoginAttemptsPage {
   page: number;
   pageSize: number;
 }
+
+export interface ExcelImportPreviewRowData {
+  incomingNumber: string;
+  incomingDate?: string | null;
+  subject: string;
+  assignedDepartmentName: string;
+  actionTaken?: string | null;
+  willCompleteResponse: boolean;
+}
+
+export interface ExcelImportPreviewRow {
+  rowNumber: number;
+  isValid: boolean;
+  errors: string[];
+  data?: ExcelImportPreviewRowData | null;
+}
+
+export interface ExcelImportPreviewResult {
+  totalRows: number;
+  validRows: number;
+  invalidRows: number;
+  rows: ExcelImportPreviewRow[];
+}
+
+export interface ExcelImportRejectedRow {
+  rowNumber: number;
+  errors: string[];
+}
+
+export interface ExcelImportCommitResult {
+  importedCount: number;
+  rejectedCount: number;
+  importedTransactionIds: number[];
+  rejectedRows: ExcelImportRejectedRow[];
+}

@@ -76,6 +76,12 @@ body {
 /* Page */
 .page-title { font-size: 1.5rem; margin-bottom: 1rem; }
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+.page-header-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.import-summary { display: flex; gap: 1.5rem; flex-wrap: wrap; margin: 1rem 0; }
+.text-success { color: #065f46; }
+.text-danger { color: #991b1b; }
+.error-cell { color: #991b1b; font-size: 0.9rem; }
+.row-invalid { background: #fef2f2; }
 
 /* Stats */
 .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 1rem; }
