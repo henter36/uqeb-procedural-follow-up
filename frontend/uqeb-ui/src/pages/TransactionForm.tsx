@@ -118,8 +118,7 @@ export default function TransactionForm({ mode }: Props) {
     return errs;
   };
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const submit = async (submitMode: 'save' | 'saveAndOpenAttachments') => {
     if (isSubmitting) return;
     setError('');
     const clientErrs = validateClient();
@@ -132,7 +131,11 @@ export default function TransactionForm({ mode }: Props) {
     try {
       if (mode === 'create') {
         const res = await transactionsApi.create(buildCreateTransactionPayload(form));
-        navigate(`/transactions/${res.data.id}`);
+        const destination =
+          submitMode === 'saveAndOpenAttachments'
+            ? `/transactions/${res.data.id}?tab=attachments`
+            : `/transactions/${res.data.id}`;
+        navigate(destination);
       } else {
         await transactionsApi.update(+id!, buildUpdateTransactionPayload(form));
         navigate(`/transactions/${id}`);
@@ -143,6 +146,11 @@ export default function TransactionForm({ mode }: Props) {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    await submit('save');
   };
 
   const fieldError = (name: string) => fieldErrors[name];
@@ -298,6 +306,16 @@ export default function TransactionForm({ mode }: Props) {
           <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
             {isSubmitting ? 'جاري الحفظ...' : 'حفظ'}
           </button>
+          {mode === 'create' && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={isSubmitting}
+              onClick={() => submit('saveAndOpenAttachments')}
+            >
+              {isSubmitting ? 'جاري الحفظ...' : 'حفظ وفتح المرفقات'}
+            </button>
+          )}
           <button type="button" className="btn btn-outline" onClick={() => navigate(-1)}>إلغاء</button>
         </div>
       </form>

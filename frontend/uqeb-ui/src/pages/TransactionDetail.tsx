@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { transactionsApi, departmentsApi } from '../api/services';
 import type {
   TransactionDetail, Department, FollowUpDepartmentOption,
@@ -31,6 +31,7 @@ type DetailTab = 'attachments' | 'audit';
 export default function TransactionDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { canEdit, canClose, isDepartmentUser } = useAuth();
   const [tx, setTx] = useState<TransactionDetail | null>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -40,7 +41,7 @@ export default function TransactionDetailPage() {
   const [auditPage, setAuditPage] = useState(1);
   const [auditHasMore, setAuditHasMore] = useState(false);
   const [auditLoadingMore, setAuditLoadingMore] = useState(false);
-  const [activeTab, setActiveTab] = useState<DetailTab | null>(null);
+  const [activeTab, setActiveTab] = useState<DetailTab>('attachments');
   const [loadedTabs, setLoadedTabs] = useState<Record<DetailTab, boolean>>({
     attachments: false,
     audit: false,
@@ -132,6 +133,9 @@ export default function TransactionDetailPage() {
     if (!id) return;
     let active = true;
 
+    const tabFromUrl = searchParams.get('tab');
+    const initialTab: DetailTab = tabFromUrl === 'audit' ? 'audit' : 'attachments';
+
     setTx(null);
     setAssignments([]);
     setFollowUps([]);
@@ -140,7 +144,7 @@ export default function TransactionDetailPage() {
     setAuditPage(1);
     setAuditHasMore(false);
     setLoadedTabs({ attachments: false, audit: false });
-    setActiveTab(null);
+    setActiveTab(initialTab);
     setAssignmentsError('');
     setFollowUpsError('');
 
@@ -151,8 +155,21 @@ export default function TransactionDetailPage() {
     }
     departmentsApi.getAll().then((r) => { if (active) setDepartments(r.data); });
 
+    if (initialTab === 'attachments') {
+      setTabLoading(true);
+      transactionsApi.getAttachments(+id)
+        .then((res) => {
+          if (!active) return;
+          setAttachments(res.data);
+          setLoadedTabs((prev) => ({ ...prev, attachments: true }));
+        })
+        .finally(() => {
+          if (active) setTabLoading(false);
+        });
+    }
+
     return () => { active = false; };
-  }, [id, loadBasic, loadAssignments, loadFollowUps]);
+  }, [id, searchParams, loadBasic, loadAssignments, loadFollowUps]);
 
   const handleClose = async () => {
     if (!tx) return;
@@ -174,8 +191,7 @@ export default function TransactionDetailPage() {
   };
 
   const refreshAttachments = () => {
-    setLoadedTabs((prev) => ({ ...prev, attachments: false }));
-    if (activeTab === 'attachments') loadTab('attachments', true);
+    loadTab('attachments', true);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -385,13 +401,9 @@ export default function TransactionDetailPage() {
         <button type="button" className={activeTab === 'audit' ? 'active' : ''} onClick={() => selectTab('audit')}>سجل التدقيق</button>
       </div>
 
-      {!activeTab && (
-        <div className="card mt-2 text-center text-muted" style={{ padding: '1.5rem' }}>
-          اختر تبويبًا لعرض المرفقات أو سجل التدقيق.
-        </div>
-      )}
+      {tabLoading && activeTab === 'attachments' && <div className="loading mt-2">جاري التحميل...</div>}
 
-      {tabLoading && <div className="loading mt-2">جاري التحميل...</div>}
+      {activeTab === 'audit' && tabLoading && <div className="loading mt-2">جاري التحميل...</div>}
 
       {activeTab === 'attachments' && !tabLoading && (
         <div className="card mt-2">
