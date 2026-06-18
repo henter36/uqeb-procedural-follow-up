@@ -15,7 +15,11 @@ cd scanner-bridge/Uqeb.ScannerBridge
 dotnet run
 ```
 
-Development profile uses `Provider=Mock` via `appsettings.Development.json`.
+Development profile uses `Provider=Mock` when `appsettings.Development.json` is present locally (see `appsettings.Development.example.json`), or set:
+
+```powershell
+$env:ScannerBridge__Provider = "Mock"
+```
 
 Production-style run without mock:
 
