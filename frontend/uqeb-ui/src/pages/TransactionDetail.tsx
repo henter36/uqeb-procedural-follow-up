@@ -24,6 +24,7 @@ import {
 import DateDisplay from '../components/DateDisplay';
 import MultiSelect from '../components/MultiSelect';
 import { responseTimingBadgeClass, formatDaysSince } from '../utils/responseTiming';
+import ScanAttachmentButton from '../features/scanner/ScanAttachmentButton';
 
 type DetailTab = 'attachments' | 'audit';
 
@@ -172,12 +173,16 @@ export default function TransactionDetailPage() {
     }
   };
 
+  const refreshAttachments = () => {
+    setLoadedTabs((prev) => ({ ...prev, attachments: false }));
+    if (activeTab === 'attachments') loadTab('attachments', true);
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     await transactionsApi.uploadAttachment(+id!, file);
-    setLoadedTabs((prev) => ({ ...prev, attachments: false }));
-    if (activeTab === 'attachments') loadTab('attachments', true);
+    refreshAttachments();
   };
 
   const downloadAttachment = async (attachmentId: number, fileName: string) => {
@@ -392,7 +397,15 @@ export default function TransactionDetailPage() {
         <div className="card mt-2">
           <div className="card-header">
             <h3>المرفقات</h3>
-            {canEdit && <label className="btn btn-sm btn-primary">رفع ملف<input type="file" hidden onChange={handleFileUpload} /></label>}
+            {canEdit && (
+              <div className="btn-group">
+                <label className="btn btn-sm btn-primary">
+                  رفع ملف
+                  <input type="file" hidden onChange={handleFileUpload} />
+                </label>
+                <ScanAttachmentButton transactionId={+id!} onSaved={refreshAttachments} />
+              </div>
+            )}
           </div>
           <table className="data-table">
             <thead><tr><th>الملف</th><th>الحجم</th><th>رفع بواسطة</th><th>التاريخ</th><th>تحميل</th></tr></thead>
