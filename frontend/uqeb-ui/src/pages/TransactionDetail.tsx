@@ -166,6 +166,19 @@ export default function TransactionDetailPage() {
         .finally(() => {
           if (active) setTabLoading(false);
         });
+    } else if (initialTab === 'audit') {
+      setTabLoading(true);
+      transactionsApi.getAuditLog(+id, 1)
+        .then((res) => {
+          if (!active) return;
+          setAuditLogs(res.data.items);
+          setAuditPage(1);
+          setAuditHasMore(res.data.hasNextPage);
+          setLoadedTabs((prev) => ({ ...prev, audit: true }));
+        })
+        .finally(() => {
+          if (active) setTabLoading(false);
+        });
     }
 
     return () => { active = false; };
