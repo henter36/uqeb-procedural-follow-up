@@ -19,8 +19,8 @@ public sealed class CorsOptions
 
     public string[] AllowedOrigins { get; set; } =
     [
-        "http://localhost",
-        "http://127.0.0.1",
-        "http://[::1]"
+        "http://localhost", // NOSONAR S5332 - loopback-only bridge; HTTPS is not used on 127.0.0.1
+        "http://127.0.0.1", // NOSONAR S5332
+        "http://[::1]" // NOSONAR S5332
     ];
 }

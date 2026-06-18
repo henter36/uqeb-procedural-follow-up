@@ -60,7 +60,7 @@ public sealed class ScanTempStore
         {
             _logger.LogError(ex, "Failed to move scan file to temp store.");
             TryDeleteFile(output.FilePath);
-            throw;
+            throw new IOException($"Failed to move scan file to {destination}.", ex);
         }
 
         var stored = new StoredScan(
