@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "Uqeb.ScannerBridge": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}
