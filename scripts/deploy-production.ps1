@@ -8,6 +8,9 @@
 
 .PARAMETER InstallRoot
   Target install root (default C:\Uqeb).
+
+.PARAMETER ApiPort
+  Kestrel listen port (default 5000).
 #>
 
 param(
@@ -22,6 +25,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+function Test-IsAdministrator {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
 
 function Write-Step {
     param([string]$Message)
@@ -73,6 +82,25 @@ function Get-SpaWebConfigContent {
 '@
 }
 
+function Get-TargetFrameworkFromRuntimeConfig {
+    param([string]$RuntimeConfigPath)
+
+    if (-not (Test-Path -LiteralPath $RuntimeConfigPath)) {
+        return "net10.0"
+    }
+
+    try {
+        $config = Get-Content -LiteralPath $RuntimeConfigPath -Raw | ConvertFrom-Json
+        if ($config.runtimeOptions.tfm) {
+            return [string]$config.runtimeOptions.tfm
+        }
+    } catch {
+        Write-WarnMsg ("Could not read runtimeconfig.json: " + $_.Exception.Message)
+    }
+
+    return "net10.0"
+}
+
 function Ensure-Directory {
     param([string]$Path)
 
@@ -82,10 +110,46 @@ function Ensure-Directory {
     }
 }
 
+function Test-IsUqebApiProcess {
+    param(
+        [System.Diagnostics.Process]$Process,
+        [string]$ApiDirectory
+    )
+
+    if ($Process.ProcessName -eq "Uqeb.Api") {
+        return $true
+    }
+
+    if ($Process.ProcessName -ne "dotnet") {
+        return $false
+    }
+
+    try {
+        $commandLine = (Get-CimInstance Win32_Process -Filter ("ProcessId=" + $Process.Id)).CommandLine
+        if ([string]::IsNullOrWhiteSpace($commandLine)) {
+            return $false
+        }
+
+        $normalizedApiDir = $ApiDirectory.TrimEnd('\')
+        if ($commandLine -like ("*" + $normalizedApiDir + "*")) {
+            return $true
+        }
+
+        if ($commandLine -like "*Uqeb.Api.dll*") {
+            return $true
+        }
+    } catch {
+        Write-WarnMsg ("Could not inspect dotnet command line for PID " + $Process.Id + ": " + $_.Exception.Message)
+    }
+
+    return $false
+}
+
 function Stop-UqebApi {
     param(
         [int]$Port,
-        [string]$TaskName
+        [string]$TaskName,
+        [string]$ApiDirectory
     )
 
     Write-Step "Stopping existing Uqeb API if running"
@@ -112,26 +176,46 @@ function Stop-UqebApi {
     }
 
     try {
-        $connections = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
-        foreach ($conn in $connections) {
-            $owningProcessId = $conn.OwningProcess
-            if (-not $owningProcessId -or $owningProcessId -le 0) { continue }
-
-            $process = Get-Process -Id $owningProcessId -ErrorAction SilentlyContinue
-            if ($null -eq $process) { continue }
-
-            if ($process.ProcessName -eq "Uqeb.Api" -or $process.ProcessName -eq "dotnet") {
-                Write-Info ("Stopping process on port " + $Port + ": " + $process.ProcessName + " PID " + $process.Id)
-                Stop-Process -Id $process.Id -Force
-            } else {
-                Write-WarnMsg ("Port " + $Port + " is used by " + $process.ProcessName + " PID " + $process.Id + ". Not stopping automatically.")
+        $dotnetProcesses = Get-Process -Name "dotnet" -ErrorAction SilentlyContinue
+        foreach ($proc in $dotnetProcesses) {
+            if (Test-IsUqebApiProcess -Process $proc -ApiDirectory $ApiDirectory) {
+                Write-Info ("Stopping dotnet hosting Uqeb PID " + $proc.Id)
+                Stop-Process -Id $proc.Id -Force
             }
         }
     } catch {
-        Write-WarnMsg ("Could not inspect port " + $Port + ": " + $_.Exception.Message)
+        Write-WarnMsg ("Could not stop dotnet processes: " + $_.Exception.Message)
     }
 
     Start-Sleep -Seconds 2
+
+    $listeners = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    foreach ($conn in $listeners) {
+        $owningProcessId = $conn.OwningProcess
+        if (-not $owningProcessId -or $owningProcessId -le 0) { continue }
+
+        $process = Get-Process -Id $owningProcessId -ErrorAction SilentlyContinue
+        if ($null -eq $process) { continue }
+
+        if (Test-IsUqebApiProcess -Process $process -ApiDirectory $ApiDirectory) {
+            try {
+                Write-Info ("Stopping remaining listener on port " + $Port + ": " + $process.ProcessName + " PID " + $process.Id)
+                Stop-Process -Id $process.Id -Force
+            } catch {
+                throw ("Failed to stop Uqeb API process on port " + $Port + " (PID " + $process.Id + "): " + $_.Exception.Message)
+            }
+            continue
+        }
+
+        throw ("Port " + $Port + " is in use by " + $process.ProcessName + " (PID " + $process.Id + "). Stop it manually before deployment.")
+    }
+
+    Start-Sleep -Seconds 1
+    $stillListening = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    if ($stillListening) {
+        throw ("Port " + $Port + " is still in use after stop attempts. Stop the blocking process manually before deployment.")
+    }
+
     return $hadTask
 }
 
@@ -164,7 +248,7 @@ function Backup-DirectoryOrThrow {
     return $destination
 }
 
-function Copy-DirectoryContents {
+function Copy-TreeSafe {
     param(
         [string]$Source,
         [string]$Destination,
@@ -173,23 +257,27 @@ function Copy-DirectoryContents {
 
     Ensure-Directory $Destination
 
-    Get-ChildItem -LiteralPath $Source -Force | ForEach-Object {
-        if ($ExcludeFileNames -contains $_.Name) {
-            Write-Info ("Skipped package file (preserved locally if present): " + $_.Name)
-            return
+    foreach ($item in Get-ChildItem -LiteralPath $Source -Force) {
+        if ($ExcludeFileNames -contains $item.Name) {
+            Write-Info ("Skipped package file (preserved locally if present): " + $item.Name)
+            continue
         }
 
-        $targetPath = Join-Path $Destination $_.Name
+        $targetPath = Join-Path $Destination $item.Name
 
-        if ($_.PSIsContainer) {
+        if ($item.PSIsContainer) {
             if (Test-Path -LiteralPath $targetPath) {
                 Remove-Item -LiteralPath $targetPath -Recurse -Force
             }
-            Copy-Item -LiteralPath $_.FullName -Destination $targetPath -Recurse -Force
+            Copy-Item -LiteralPath $item.FullName -Destination $targetPath -Recurse -Force
         } else {
-            Copy-Item -LiteralPath $_.FullName -Destination $targetPath -Force
+            Copy-Item -LiteralPath $item.FullName -Destination $targetPath -Force
         }
     }
+}
+
+if (-not (Test-IsAdministrator)) {
+    throw "deploy-production.ps1 must run as Administrator. Open PowerShell as Administrator and retry."
 }
 
 Write-Step "Validating source package"
@@ -227,7 +315,9 @@ if (-not (Test-Path -LiteralPath $webAssets)) {
     throw "Web package must contain assets folder"
 }
 
+$targetFramework = Get-TargetFrameworkFromRuntimeConfig -RuntimeConfigPath $apiRuntimeConfig
 Write-Info ("Source package: " + $sourceRoot)
+Write-Info ("Package target framework: " + $targetFramework)
 
 $apiTarget = Join-Path $InstallRoot "api"
 $webTarget = Join-Path $InstallRoot "web"
@@ -235,11 +325,6 @@ $logsTarget = Join-Path $InstallRoot "logs"
 $uploadsTarget = Join-Path $InstallRoot "uploads"
 $backupTarget = Join-Path $InstallRoot "backup"
 $productionSettings = Join-Path $apiTarget "appsettings.Production.json"
-$existingProductionSettings = $null
-
-if (Test-Path -LiteralPath $productionSettings) {
-    $existingProductionSettings = $true
-}
 
 Write-Step "Creating target folders"
 
@@ -250,7 +335,7 @@ Ensure-Directory $logsTarget
 Ensure-Directory $uploadsTarget
 Ensure-Directory $backupTarget
 
-$restartTask = Stop-UqebApi -Port $ApiPort -TaskName $ScheduledTaskName
+$restartTask = Stop-UqebApi -Port $ApiPort -TaskName $ScheduledTaskName -ApiDirectory $apiTarget
 
 Write-Step "Backing up current deployment (abort on failure)"
 
@@ -265,7 +350,7 @@ if (Test-Path -LiteralPath $productionSettings) {
 
 Write-Step "Deploying API"
 
-Copy-DirectoryContents -Source $apiSource -Destination $apiTarget -ExcludeFileNames $excludeFromPackage
+Copy-TreeSafe -Source $apiSource -Destination $apiTarget -ExcludeFileNames $excludeFromPackage
 
 if (-not (Test-Path -LiteralPath $productionSettings)) {
     $packageProductionSettings = Join-Path $apiSource "appsettings.Production.json"
@@ -279,9 +364,16 @@ if (-not (Test-Path -LiteralPath $productionSettings)) {
     Write-Info "Preserved existing appsettings.Production.json"
 }
 
+$sourceFileCount = (Get-ChildItem -LiteralPath $apiSource -File -Force | Where-Object { $_.Name -ne "appsettings.Production.json" }).Count
+$deployedFileCount = (Get-ChildItem -LiteralPath $apiTarget -File -Force | Where-Object { $_.Name -ne "appsettings.Production.json" }).Count
+if ($deployedFileCount -lt $sourceFileCount) {
+    throw ("API file copy verification failed. Expected at least " + $sourceFileCount + " non-settings files, found " + $deployedFileCount + ".")
+}
+Write-Info ("API file copy verification passed (" + $deployedFileCount + " files excluding settings).")
+
 Write-Step "Deploying web"
 
-Copy-DirectoryContents -Source $webSource -Destination $webTarget
+Copy-TreeSafe -Source $webSource -Destination $webTarget
 
 $webConfigPath = Join-Path $webTarget "web.config"
 Set-Content -LiteralPath $webConfigPath -Value (Get-SpaWebConfigContent) -Encoding UTF8
@@ -315,7 +407,7 @@ SourcePackage: $sourceRoot
 InstallRoot: $InstallRoot
 ScheduledTask: $ScheduledTaskName
 ApiPort: $ApiPort
-TargetFramework: net10.0
+TargetFramework: $targetFramework
 "@
 Set-Content -LiteralPath $buildInfoPath -Value $buildInfo -Encoding UTF8
 Write-Info ("Wrote BUILD_INFO.txt: " + $buildInfoPath)
@@ -351,5 +443,5 @@ Write-Output ("   powershell -ExecutionPolicy Bypass -File " + $startApiScript)
 Write-Output ("3. Test login: POST http://localhost:" + $ApiPort + "/api/auth/login")
 Write-Output "4. Point IIS website physical path to:"
 Write-Output ("   " + $webTarget)
-Write-Output "5. IIS serves static UI only. API runs on Kestrel port 5000."
+Write-Output ("5. IIS serves static UI only. API runs on Kestrel port " + $ApiPort + ".")
 Write-Output "6. /api/health and /swagger are not guaranteed in Production unless explicitly enabled."

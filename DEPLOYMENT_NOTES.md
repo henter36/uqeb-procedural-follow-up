@@ -54,12 +54,31 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy-production.ps1 `
 ### ما يفعله السكربت
 
 1. يتحقق من `publish\api` و`publish\web` والملفات الأساسية.
-2. يوقف API / Scheduled Task / المنفذ 5000 إن لزم.
+2. يوقف **Uqeb.Api** أو **dotnet** المرتبط بـ `-InstallRoot\api` فقط — لا يقتل عمليات أخرى على المنفذ. إذا كان `-ApiPort` مستخدمًا من عملية غير معروفة، **يفشل النشر** برسالة واضحة.
 3. **ينسخ احتياطيًا** إلى `C:\Uqeb\backup\api-YYYYMMDD-HHmmss` و`web-YYYYMMDD-HHmmss` — **يفشل النشر إذا فشل النسخ الاحتياطي**.
 4. ينشر إلى `C:\Uqeb\api` و`C:\Uqeb\web`.
 5. **لا يستبدل** `C:\Uqeb\api\appsettings.Production.json` إن وُجد.
 6. يحافظ على `logs` و`uploads` و`backup` (خارج مجلدي api/web).
 7. يكتب `web.config` للـ SPA و`BUILD_INFO.txt` و`start-api.ps1`.
+
+**متطلبات التشغيل:** يجب تشغيل السكربت **كمسؤول** (Administrator) لأنه يوقف Scheduled Tasks وعمليات API ويكتب تحت `-InstallRoot`.
+
+**معاملات اختيارية:** `-InstallRoot` (افتراضي `C:\Uqeb`)، `-ApiPort` (افتراضي `5000`)، `-ScheduledTaskName` (افتراضي `UqebApi`).
+
+---
+
+## 3.1 قيود web.config (SPA fallback)
+
+السكربت يكتب `web.config` يعتمد على **defaultDocument** و**httpErrors** فقط — **بدون** IIS URL Rewrite Module.
+
+| السلوك | التفاصيل |
+|--------|----------|
+| المسار `/` | يُقدّم `index.html` عبر Default Document |
+| مسارات عميقة (مثل `/reports`) | عند عدم وجود ملف فعلي، يعيد IIS **HTTP 404** مع **محتوى** `index.html` (بفضل `httpErrors`) |
+| التوجيه داخل React | يعمل بعد تحميل الصفحة |
+| حالة HTTP | تبقى **404** وليست 200 — قد يؤثر على تحليلات أو SEO |
+
+هذا **مقبول للتشغيل الداخلي الحالي**. إذا احتجت **200 نظيف** لكل مسار SPA (تحليلات، فهرسة، مراقبة)، استخدم **IIS URL Rewrite** أو **reverse proxy** مع fallback صريح — خارج نطاق هذا PR.
 
 ---
 

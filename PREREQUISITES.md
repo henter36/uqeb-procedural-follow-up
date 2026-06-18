@@ -9,7 +9,7 @@
 | المتطلب | التفاصيل |
 |---------|----------|
 | **نظام التشغيل** | Windows 10 Pro، Windows 11 Pro، أو Windows Server 2019/2022 |
-| **الصلاحيات** | حساب مسؤول لتثبيت IIS وSQL Server وتشغيل سكربتات النشر |
+| **الصلاحيات** | حساب مسؤول لتثبيت IIS وSQL Server؛ **مطلوب** لتشغيل `deploy-production.ps1` (ليس لـ `check-prerequisites.ps1` — قراءة فقط) |
 
 ---
 
@@ -35,9 +35,18 @@
 |--------|--------|
 | **Static Content** | تقديم `index.html` و`assets/` |
 | **Default Document** | فتح `index.html` تلقائيًا |
-| **HttpErrors** | SPA fallback بدون URL Rewrite Module |
+| **HttpErrors** | SPA fallback بدون URL Rewrite Module — انظر القسم 3.2 |
 
-**المجلد الفعلي للموقع:** `C:\Uqeb\web`
+**المجلد الفعلي للموقع:** `C:\Uqeb\web` (أو `-InstallRoot\web`)
+
+### 3.2 قيود SPA بدون URL Rewrite
+
+`web.config` المُنشأ يستخدم `httpErrors` لإرجاع `index.html` عند 404. النتيجة:
+
+- المسارات العميقة (مثل `/transactions`) تعمل في المتصفح بعد تحميل React.
+- **رمز الاستجابة HTTP يبقى 404** وليس 200.
+- مناسب للاستخدام الداخلي الحالي.
+- للحصول على 200 لكل مسار SPA: ثبّت **URL Rewrite** أو **reverse proxy** مع rewrite rule — ليس جزءًا من هذا PR.
 
 ---
 
@@ -54,13 +63,15 @@
 
 ---
 
-## 5. ASP.NET Core Runtime 10.x
+## 5. ASP.NET Core Runtime
 
 ```powershell
 dotnet --list-runtimes
 ```
 
-يجب ظهور `Microsoft.AspNetCore.App 10.0.x`.
+يجب توفر `Microsoft.AspNetCore.App` متوافق مع TFM الحزمة (`net10.0` في `Uqeb.Api.runtimeconfig.json`).
+
+`check-prerequisites.ps1` يقرأ `InstallRoot\api\Uqeb.Api.runtimeconfig.json` إن وُجد لتحديد الإصدار المطلوب؛ وإلا يفترض `net10.0` / ASP.NET Core 10.x.
 
 ---
 

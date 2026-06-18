@@ -5,7 +5,8 @@
 #>
 
 param(
-    [string]$InstallRoot = "C:\Uqeb"
+    [string]$InstallRoot = "C:\Uqeb",
+    [int]$ApiPort = 5000
 )
 
 $ErrorActionPreference = "Stop"
@@ -88,26 +89,44 @@ if (-not $iisOk) {
 
 Add-Check -Name "IIS / Web Server" -Passed $iisOk -Detail $iisDetail
 
+$runtimeConfigPath = Join-Path $InstallRoot "api\Uqeb.Api.runtimeconfig.json"
+$expectedTfm = "net10.0"
+$tfmDetail = "No installed runtimeconfig at " + $runtimeConfigPath + "; checking for ASP.NET Core 10.x"
+
+if (Test-Path -LiteralPath $runtimeConfigPath) {
+    try {
+        $runtimeConfig = Get-Content -LiteralPath $runtimeConfigPath -Raw | ConvertFrom-Json
+        if ($runtimeConfig.runtimeOptions.tfm) {
+            $expectedTfm = [string]$runtimeConfig.runtimeOptions.tfm
+            $tfmDetail = "Installed runtimeconfig TFM: " + $expectedTfm
+        }
+    } catch {
+        Write-Warning ("Could not parse runtimeconfig.json: " + $_.Exception.Message)
+    }
+}
+
 $dotnetOk = $false
 $dotnetDetail = "dotnet command not found"
 
 if (Test-CommandExists "dotnet") {
     $runtimes = & dotnet --list-runtimes 2>$null
-    $aspnet10 = $runtimes | Where-Object { $_ -match "Microsoft\.AspNetCore\.App 10\." }
-    if ($aspnet10) {
+    $tfmMajor = if ($expectedTfm -match "net(\d+)") { $Matches[1] } else { "10" }
+    $aspnetMatch = $runtimes | Where-Object { $_ -match ("Microsoft\.AspNetCore\.App " + $tfmMajor + "\.") }
+
+    if ($aspnetMatch) {
         $dotnetOk = $true
-        $dotnetDetail = ($aspnet10 | Select-Object -First 1).Trim()
+        $dotnetDetail = $tfmDetail + ". Runtime: " + (($aspnetMatch | Select-Object -First 1).Trim())
     } else {
         $aspnetAny = $runtimes | Where-Object { $_ -match "Microsoft\.AspNetCore\.App" }
         $dotnetDetail = if ($aspnetAny) {
-            "Microsoft.AspNetCore.App 10.x not found. Installed: " + ($aspnetAny -join "; ")
+            $tfmDetail + ". Required Microsoft.AspNetCore.App " + $tfmMajor + ".x not found. Installed: " + ($aspnetAny -join "; ")
         } else {
             "dotnet exists, but Microsoft.AspNetCore.App runtime was not found."
         }
     }
 }
 
-Add-Check -Name "ASP.NET Core Runtime 10.x" -Passed $dotnetOk -Detail $dotnetDetail
+Add-Check -Name ("ASP.NET Core Runtime (" + $expectedTfm + ")") -Passed $dotnetOk -Detail $dotnetDetail
 
 $sqlOk = $false
 $sqlDetail = "SQL Server service not found"
@@ -158,17 +177,17 @@ foreach ($folder in $folders) {
     })
 }
 
-$portDetail = "Port 5000 appears free"
+$portDetail = "Port " + $ApiPort + " appears free"
 try {
-    $conn = Get-NetTCPConnection -LocalPort 5000 -ErrorAction SilentlyContinue
+    $conn = Get-NetTCPConnection -LocalPort $ApiPort -ErrorAction SilentlyContinue
     if ($conn) {
-        $portDetail = "Port 5000 is currently in use (API may already be running)"
+        $portDetail = "Port " + $ApiPort + " is currently in use (API may already be running)"
     }
 } catch {
-    $portDetail = "Unable to check port 5000: " + $_.Exception.Message
+    $portDetail = "Unable to check port " + $ApiPort + ": " + $_.Exception.Message
 }
 
-Add-Check -Name "Port 5000" -Passed $true -Detail $portDetail -Required $false
+Add-Check -Name ("Port " + $ApiPort) -Passed $true -Detail $portDetail -Required $false
 
 Write-CheckLine ""
 Write-CheckLine "Results"
