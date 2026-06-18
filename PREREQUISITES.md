@@ -41,12 +41,12 @@
 
 ### 3.2 قيود SPA بدون URL Rewrite
 
-`web.config` المُنشأ يستخدم `httpErrors` لإرجاع `index.html` عند 404. النتيجة:
+`web.config` المُنشأ يستخدم `httpErrors` لإرجاع `index.html` عند 404 — **بدون** IIS URL Rewrite Module. النتيجة:
 
 - المسارات العميقة (مثل `/transactions`) تعمل في المتصفح بعد تحميل React.
-- **رمز الاستجابة HTTP يبقى 404** وليس 200.
+- **رمز الاستجابة HTTP يبقى 404** وليس 200 — قد يؤثر على التحليلات أو SEO.
 - مناسب للاستخدام الداخلي الحالي.
-- للحصول على 200 لكل مسار SPA: ثبّت **URL Rewrite** أو **reverse proxy** مع rewrite rule — ليس جزءًا من هذا PR.
+- إذا كانت **رموز 200 نظيفة** مطلوبة: ثبّت **IIS URL Rewrite** (أو reverse proxy مع rewrite rule) — ليس جزءًا من هذا PR.
 
 ---
 
@@ -82,7 +82,7 @@ dotnet --list-runtimes
 | Git | النشر عبر `deploy-production.ps1` |
 | Node.js / npm | الواجهة مبنية مسبقًا في الحزمة |
 | .NET SDK | يكفي Runtime |
-| dotnet ef | migrations عند الإعداد الأولي فقط |
+| dotnet ef | سكربتات ترحيل قاعدة البيانات (migration scripts) عند الإعداد الأولي فقط |
 
 ---
 

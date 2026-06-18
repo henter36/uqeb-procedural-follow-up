@@ -32,6 +32,10 @@ function Test-IsAdministrator {
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+if (-not (Test-IsAdministrator)) {
+    throw "deploy-production.ps1 must run as Administrator. Open PowerShell as Administrator and retry."
+}
+
 function Write-Step {
     param([string]$Message)
     Write-Output ""
@@ -131,11 +135,12 @@ function Test-IsUqebApiProcess {
         }
 
         $normalizedApiDir = $ApiDirectory.TrimEnd('\')
-        if ($commandLine -like ("*" + $normalizedApiDir + "*")) {
+        $expectedDll = Join-Path $normalizedApiDir "Uqeb.Api.dll"
+        if ($commandLine -like ("*" + $expectedDll + "*")) {
             return $true
         }
 
-        if ($commandLine -like "*Uqeb.Api.dll*") {
+        if ($commandLine -like ("*" + $normalizedApiDir + "*") -and $commandLine -like "*Uqeb.Api.dll*") {
             return $true
         }
     } catch {
@@ -143,6 +148,125 @@ function Test-IsUqebApiProcess {
     }
 
     return $false
+}
+
+function Stop-UqebScheduledTask {
+    param([string]$TaskName)
+
+    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    if ($null -eq $task) {
+        return $false
+    }
+
+    try {
+        Stop-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+        Write-Info ("Stopped scheduled task: " + $TaskName)
+    } catch {
+        Write-WarnMsg ("Could not stop scheduled task " + $TaskName + ": " + $_.Exception.Message)
+    }
+
+    return $true
+}
+
+function Get-UqebApiProcessCandidates {
+    param([string]$ApiDirectory)
+
+    $candidates = New-Object System.Collections.Generic.List[System.Diagnostics.Process]
+
+    $apiProcesses = Get-Process -Name "Uqeb.Api" -ErrorAction SilentlyContinue
+    if ($apiProcesses) {
+        foreach ($proc in $apiProcesses) {
+            $candidates.Add($proc)
+        }
+    }
+
+    $dotnetProcesses = Get-Process -Name "dotnet" -ErrorAction SilentlyContinue
+    if ($dotnetProcesses) {
+        foreach ($proc in $dotnetProcesses) {
+            if (Test-IsUqebApiProcess -Process $proc -ApiDirectory $ApiDirectory) {
+                $candidates.Add($proc)
+            }
+        }
+    }
+
+    return $candidates
+}
+
+function Stop-UqebApiProcess {
+    param([System.Diagnostics.Process]$Process)
+
+    Write-Info ("Stopping " + $Process.ProcessName + " PID " + $Process.Id)
+    Stop-Process -Id $Process.Id -Force
+}
+
+function Test-PortOwnerIsUqebApi {
+    param(
+        [int]$Port,
+        [string]$ApiDirectory,
+        [System.Diagnostics.Process]$Process
+    )
+
+    if ($null -eq $Process) {
+        return $true
+    }
+
+    if (Test-IsUqebApiProcess -Process $Process -ApiDirectory $ApiDirectory) {
+        return $true
+    }
+
+    return $false
+}
+
+function Stop-ListenersOnPort {
+    param(
+        [int]$Port,
+        [string]$ApiDirectory
+    )
+
+    $listeners = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    foreach ($conn in $listeners) {
+        $owningProcessId = $conn.OwningProcess
+        if (-not $owningProcessId -or $owningProcessId -le 0) { continue }
+
+        $process = Get-Process -Id $owningProcessId -ErrorAction SilentlyContinue
+        if ($null -eq $process) { continue }
+
+        if (-not (Test-PortOwnerIsUqebApi -Port $Port -ApiDirectory $ApiDirectory -Process $process)) {
+            throw ("Port " + $Port + " is in use by " + $process.ProcessName + " (PID " + $process.Id + "). Stop it manually before deployment.")
+        }
+
+        try {
+            Stop-UqebApiProcess -Process $process
+        } catch {
+            throw ("Failed to stop Uqeb API process on port " + $Port + " (PID " + $process.Id + "): " + $_.Exception.Message)
+        }
+    }
+}
+
+function Assert-ApiPortAvailable {
+    param(
+        [int]$Port,
+        [string]$ApiDirectory
+    )
+
+    $stillListening = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    if (-not $stillListening) {
+        return
+    }
+
+    foreach ($conn in $stillListening) {
+        $owningProcessId = $conn.OwningProcess
+        if (-not $owningProcessId -or $owningProcessId -le 0) { continue }
+
+        $process = Get-Process -Id $owningProcessId -ErrorAction SilentlyContinue
+        if ($null -eq $process) { continue }
+
+        if (Test-PortOwnerIsUqebApi -Port $Port -ApiDirectory $ApiDirectory -Process $process) {
+            throw ("Port " + $Port + " is still in use by Uqeb API (PID " + $process.Id + "). Stop it manually before deployment.")
+        }
+
+        throw ("Port " + $Port + " is in use by " + $process.ProcessName + " (PID " + $process.Id + "). Stop it manually before deployment.")
+    }
 }
 
 function Stop-UqebApi {
@@ -154,67 +278,20 @@ function Stop-UqebApi {
 
     Write-Step "Stopping existing Uqeb API if running"
 
-    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-    $hadTask = $null -ne $task
-    if ($hadTask) {
-        try {
-            Stop-ScheduledTask -TaskName $TaskName -ErrorAction Stop
-            Write-Info ("Stopped scheduled task: " + $TaskName)
-        } catch {
-            Write-WarnMsg ("Could not stop scheduled task " + $TaskName + ": " + $_.Exception.Message)
-        }
-    }
+    $hadTask = Stop-UqebScheduledTask -TaskName $TaskName
 
     try {
-        $apiProcesses = Get-Process -Name "Uqeb.Api" -ErrorAction SilentlyContinue
-        foreach ($proc in $apiProcesses) {
-            Write-Info ("Stopping process Uqeb.Api PID " + $proc.Id)
-            Stop-Process -Id $proc.Id -Force
+        foreach ($proc in (Get-UqebApiProcessCandidates -ApiDirectory $ApiDirectory)) {
+            Stop-UqebApiProcess -Process $proc
         }
     } catch {
-        Write-WarnMsg ("Could not stop Uqeb.Api process: " + $_.Exception.Message)
-    }
-
-    try {
-        $dotnetProcesses = Get-Process -Name "dotnet" -ErrorAction SilentlyContinue
-        foreach ($proc in $dotnetProcesses) {
-            if (Test-IsUqebApiProcess -Process $proc -ApiDirectory $ApiDirectory) {
-                Write-Info ("Stopping dotnet hosting Uqeb PID " + $proc.Id)
-                Stop-Process -Id $proc.Id -Force
-            }
-        }
-    } catch {
-        Write-WarnMsg ("Could not stop dotnet processes: " + $_.Exception.Message)
+        Write-WarnMsg ("Could not stop Uqeb API process: " + $_.Exception.Message)
     }
 
     Start-Sleep -Seconds 2
-
-    $listeners = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
-    foreach ($conn in $listeners) {
-        $owningProcessId = $conn.OwningProcess
-        if (-not $owningProcessId -or $owningProcessId -le 0) { continue }
-
-        $process = Get-Process -Id $owningProcessId -ErrorAction SilentlyContinue
-        if ($null -eq $process) { continue }
-
-        if (Test-IsUqebApiProcess -Process $process -ApiDirectory $ApiDirectory) {
-            try {
-                Write-Info ("Stopping remaining listener on port " + $Port + ": " + $process.ProcessName + " PID " + $process.Id)
-                Stop-Process -Id $process.Id -Force
-            } catch {
-                throw ("Failed to stop Uqeb API process on port " + $Port + " (PID " + $process.Id + "): " + $_.Exception.Message)
-            }
-            continue
-        }
-
-        throw ("Port " + $Port + " is in use by " + $process.ProcessName + " (PID " + $process.Id + "). Stop it manually before deployment.")
-    }
-
+    Stop-ListenersOnPort -Port $Port -ApiDirectory $ApiDirectory
     Start-Sleep -Seconds 1
-    $stillListening = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
-    if ($stillListening) {
-        throw ("Port " + $Port + " is still in use after stop attempts. Stop the blocking process manually before deployment.")
-    }
+    Assert-ApiPortAvailable -Port $Port -ApiDirectory $ApiDirectory
 
     return $hadTask
 }
@@ -248,6 +325,24 @@ function Backup-DirectoryOrThrow {
     return $destination
 }
 
+function Copy-ChildItemSafe {
+    param(
+        [System.IO.FileSystemInfo]$Item,
+        [string]$Destination
+    )
+
+    $targetPath = Join-Path $Destination $Item.Name
+
+    if ($Item.PSIsContainer) {
+        if (Test-Path -LiteralPath $targetPath) {
+            Remove-Item -LiteralPath $targetPath -Recurse -Force
+        }
+        Copy-Item -LiteralPath $Item.FullName -Destination $targetPath -Recurse -Force
+    } else {
+        Copy-Item -LiteralPath $Item.FullName -Destination $targetPath -Force
+    }
+}
+
 function Copy-TreeSafe {
     param(
         [string]$Source,
@@ -263,21 +358,8 @@ function Copy-TreeSafe {
             continue
         }
 
-        $targetPath = Join-Path $Destination $item.Name
-
-        if ($item.PSIsContainer) {
-            if (Test-Path -LiteralPath $targetPath) {
-                Remove-Item -LiteralPath $targetPath -Recurse -Force
-            }
-            Copy-Item -LiteralPath $item.FullName -Destination $targetPath -Recurse -Force
-        } else {
-            Copy-Item -LiteralPath $item.FullName -Destination $targetPath -Force
-        }
+        Copy-ChildItemSafe -Item $item -Destination $Destination
     }
-}
-
-if (-not (Test-IsAdministrator)) {
-    throw "deploy-production.ps1 must run as Administrator. Open PowerShell as Administrator and retry."
 }
 
 Write-Step "Validating source package"
