@@ -28,7 +28,7 @@ public sealed class ScanTempStore
         Directory.CreateDirectory(TempRoot);
     }
 
-    public string TempRoot =>
+    public static string TempRoot =>
         Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Uqeb",
@@ -51,7 +51,17 @@ public sealed class ScanTempStore
 
         var scanId = Guid.NewGuid();
         var destination = Path.Combine(TempRoot, $"{scanId:N}.jpg");
-        File.Move(output.FilePath, destination, overwrite: true);
+
+        try
+        {
+            File.Move(output.FilePath, destination, overwrite: true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to move scan file to temp store.");
+            TryDeleteFile(output.FilePath);
+            throw;
+        }
 
         var stored = new StoredScan(
             scanId,
@@ -73,73 +83,95 @@ public sealed class ScanTempStore
 
     public StoredScan? GetScan(Guid scanId)
     {
+        string? filePath = null;
+        StoredScan? stored = null;
+
         lock (_gate)
         {
-            if (_scans.TryGetValue(scanId, out var stored))
+            if (!_scans.TryGetValue(scanId, out stored))
             {
-                if (stored.ExpiresAtUtc <= DateTime.UtcNow)
-                {
-                    RemoveScan(scanId);
-                    return null;
-                }
+                return null;
+            }
 
-                return stored;
+            if (stored.ExpiresAtUtc <= DateTime.UtcNow)
+            {
+                RemoveScan(scanId, out filePath);
+                stored = null;
             }
         }
 
-        return null;
+        if (filePath is not null)
+        {
+            TryDeleteFile(filePath);
+        }
+
+        return stored;
     }
 
     public bool DeleteScan(Guid scanId)
     {
+        string? filePath;
         lock (_gate)
         {
-            return RemoveScan(scanId);
+            if (!RemoveScan(scanId, out filePath))
+            {
+                return false;
+            }
         }
+
+        TryDeleteFile(filePath);
+        return true;
     }
 
     public int CleanupExpired()
     {
-        List<Guid> expired;
+        List<(Guid Id, string FilePath)> expired;
         lock (_gate)
         {
             expired = _scans
                 .Where(pair => pair.Value.ExpiresAtUtc <= DateTime.UtcNow)
-                .Select(pair => pair.Key)
+                .Select(pair => (pair.Key, pair.Value.FilePath))
                 .ToList();
-        }
 
-        var removed = 0;
-        foreach (var scanId in expired)
-        {
-            if (DeleteScan(scanId))
+            foreach (var (id, _) in expired)
             {
-                removed++;
+                _scans.Remove(id);
             }
         }
 
-        if (removed > 0)
+        foreach (var (_, filePath) in expired)
         {
-            _logger.LogInformation("Removed {Count} expired scan temp file(s).", removed);
+            TryDeleteFile(filePath);
         }
 
-        return removed;
+        if (expired.Count > 0)
+        {
+            _logger.LogInformation("Removed {Count} expired scan temp file(s).", expired.Count);
+        }
+
+        return expired.Count;
     }
 
-    private bool RemoveScan(Guid scanId)
+    private bool RemoveScan(Guid scanId, out string? filePath)
     {
+        filePath = null;
         if (!_scans.TryGetValue(scanId, out var stored))
         {
             return false;
         }
 
         _scans.Remove(scanId);
-        TryDeleteFile(stored.FilePath);
+        filePath = stored.FilePath;
         return true;
     }
 
-    private void TryDeleteFile(string path)
+    private void TryDeleteFile(string? path)
     {
+        if (string.IsNullOrEmpty(path))
+        {
+            return;
+        }
+
         try
         {
             if (File.Exists(path))

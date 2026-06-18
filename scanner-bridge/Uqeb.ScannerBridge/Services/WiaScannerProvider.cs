@@ -44,14 +44,21 @@ public sealed class WiaScannerProvider : IScannerProvider
             manager = CreateDeviceManager();
             foreach (dynamic deviceInfo in manager.DeviceInfos)
             {
-                if ((int)deviceInfo.Type != ScannerDeviceType)
+                try
                 {
-                    continue;
-                }
+                    if ((int)deviceInfo.Type != ScannerDeviceType)
+                    {
+                        continue;
+                    }
 
-                var id = (string)deviceInfo.DeviceID;
-                var name = GetDeviceName(deviceInfo);
-                scanners.Add(new ScannerDeviceInfo($"wia:{id}", name, scanners.Count == 0));
+                    var id = (string)deviceInfo.DeviceID;
+                    var name = GetDeviceName(deviceInfo);
+                    scanners.Add(new ScannerDeviceInfo($"wia:{id}", name, scanners.Count == 0));
+                }
+                finally
+                {
+                    ReleaseCom(deviceInfo);
+                }
             }
         }
         catch (Exception ex)
@@ -90,6 +97,12 @@ public sealed class WiaScannerProvider : IScannerProvider
         {
             manager = CreateDeviceManager();
             device = ConnectDevice(manager, wiaDeviceId);
+
+            if ((int)device.Items.Count == 0)
+            {
+                throw new InvalidOperationException("The scanner has no items or is not ready.");
+            }
+
             item = device.Items[1];
 
             SetResolution(item, input.Dpi);
@@ -137,15 +150,27 @@ public sealed class WiaScannerProvider : IScannerProvider
 
     private static dynamic ConnectDevice(dynamic manager, string deviceId)
     {
-        foreach (dynamic deviceInfo in manager.DeviceInfos)
-        {
-            if ((string)deviceInfo.DeviceID == deviceId)
-            {
-                return deviceInfo.Connect();
-            }
-        }
+        dynamic? matchedInfo = null;
 
-        throw new InvalidOperationException($"Scanner not found: {deviceId}");
+        try
+        {
+            foreach (dynamic deviceInfo in manager.DeviceInfos)
+            {
+                if ((string)deviceInfo.DeviceID == deviceId)
+                {
+                    matchedInfo = deviceInfo;
+                    return deviceInfo.Connect();
+                }
+
+                ReleaseCom(deviceInfo);
+            }
+
+            throw new InvalidOperationException($"Scanner not found: {deviceId}");
+        }
+        finally
+        {
+            ReleaseCom(matchedInfo);
+        }
     }
 
     private static string GetDeviceName(dynamic deviceInfo)
