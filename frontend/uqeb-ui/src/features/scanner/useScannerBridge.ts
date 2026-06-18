@@ -55,6 +55,7 @@ export function useScannerBridge(): UseScannerBridgeState {
   const [selectedScannerId, setSelectedScannerId] = useState('');
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isRotated, setIsRotated] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const isMock = isScannerMockMode();
 
@@ -63,6 +64,7 @@ export function useScannerBridge(): UseScannerBridgeState {
     setErrorMessage('');
     setScanResult(null);
     setPreviewUrl(null);
+    setIsRotated(false);
 
     try {
       const status = await getBridgeStatus();
@@ -101,6 +103,7 @@ export function useScannerBridge(): UseScannerBridgeState {
 
     setPhase('scanning');
     setErrorMessage('');
+    setIsRotated(false);
 
     try {
       const result = await scanDocument({
@@ -111,6 +114,7 @@ export function useScannerBridge(): UseScannerBridgeState {
       });
       setScanResult(result);
       setPreviewUrl(buildPreviewUrl(result.previewBase64, result.contentType));
+      setIsRotated(false);
       setPhase('preview');
     } catch (err) {
       const message = err instanceof ScannerBridgeError
@@ -124,13 +128,17 @@ export function useScannerBridge(): UseScannerBridgeState {
   const rotatePreview = useCallback(() => {
     if (!previewUrl) return;
     rotateImageDataUrl(previewUrl)
-      .then((rotated) => setPreviewUrl(rotated))
+      .then((rotated) => {
+        setPreviewUrl(rotated);
+        setIsRotated(true);
+      })
       .catch(() => setErrorMessage('تعذر تدوير المعاينة.'));
   }, [previewUrl]);
 
   const resetPreview = useCallback(() => {
     setScanResult(null);
     setPreviewUrl(null);
+    setIsRotated(false);
     setErrorMessage('');
     setPhase(scanners.length > 0 ? 'ready' : 'no-scanner');
   }, [scanners.length]);
@@ -140,7 +148,7 @@ export function useScannerBridge(): UseScannerBridgeState {
       throw new ScannerBridgeError('SCAN_FAILED');
     }
 
-    if (previewUrl?.startsWith('data:')) {
+    if (isRotated && previewUrl?.startsWith('data:')) {
       const response = await fetch(previewUrl);
       const blob = await response.blob();
       return new File([blob], scanResult.fileName, { type: blob.type || scanResult.contentType });
@@ -148,7 +156,7 @@ export function useScannerBridge(): UseScannerBridgeState {
 
     const blob = await getScanFile(scanResult.scanId);
     return new File([blob], scanResult.fileName, { type: scanResult.contentType });
-  }, [previewUrl, scanResult]);
+  }, [isRotated, previewUrl, scanResult]);
 
   return {
     phase,

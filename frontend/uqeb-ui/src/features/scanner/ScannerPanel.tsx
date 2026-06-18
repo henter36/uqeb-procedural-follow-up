@@ -10,6 +10,11 @@ interface ScannerPanelProps {
   onSaved: () => void;
 }
 
+function cleanupScan(scanId: string): void {
+  if (isScannerMockMode()) return;
+  deleteScan(scanId).catch(() => {});
+}
+
 export default function ScannerPanel({ transactionId, onClose, onSaved }: ScannerPanelProps) {
   const {
     phase,
@@ -28,29 +33,35 @@ export default function ScannerPanel({ transactionId, onClose, onSaved }: Scanne
   } = useScannerBridge();
 
   const [saveError, setSaveError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     initialize();
   }, [initialize]);
 
-  const handleClose = async () => {
-    if (scanResult && !isScannerMockMode()) {
-      await deleteScan(scanResult.scanId);
+  const handleClose = () => {
+    if (scanResult) {
+      cleanupScan(scanResult.scanId);
     }
     onClose();
   };
 
   const handleSave = async () => {
+    if (isSaving) return;
+
     setSaveError('');
+    setIsSaving(true);
+
     try {
       const file = await getFileForUpload();
       await transactionsApi.uploadAttachment(transactionId, file, 'Scan');
-      if (scanResult && !isScannerMockMode()) {
-        await deleteScan(scanResult.scanId);
+      if (scanResult) {
+        cleanupScan(scanResult.scanId);
       }
       onSaved();
       onClose();
     } catch (err) {
+      setIsSaving(false);
       const message = err instanceof ScannerBridgeError
         ? err.message
         : getScannerErrorMessage('UPLOAD_FAILED');
@@ -59,12 +70,12 @@ export default function ScannerPanel({ transactionId, onClose, onSaved }: Scanne
   };
 
   const showMockBadge = isMock || isScannerMockMode();
+  const previewActionsDisabled = isSaving;
 
   return (
-    <div className="modal-overlay" onClick={handleClose}>
+    <div className="modal-overlay">
       <div
         className="modal scanner-panel-modal"
-        onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-labelledby="scanner-panel-title"
       >
@@ -123,19 +134,44 @@ export default function ScannerPanel({ transactionId, onClose, onSaved }: Scanne
             </div>
             {saveError && <div className="alert alert-error">{saveError}</div>}
             <div className="scanner-actions">
-              <button type="button" className="btn btn-primary" onClick={handleSave}>
-                حفظ كمرفق
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={previewActionsDisabled}
+                onClick={handleSave}
+              >
+                {isSaving ? 'جاري الحفظ...' : 'حفظ كمرفق'}
               </button>
-              <button type="button" className="btn btn-secondary" onClick={rotatePreview}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={previewActionsDisabled}
+                onClick={rotatePreview}
+              >
                 تدوير
               </button>
-              <button type="button" className="btn btn-secondary" onClick={runScan}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={previewActionsDisabled}
+                onClick={runScan}
+              >
                 إعادة المسح
               </button>
-              <button type="button" className="btn btn-secondary" onClick={resetPreview}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={previewActionsDisabled}
+                onClick={resetPreview}
+              >
                 إلغاء المعاينة
               </button>
-              <button type="button" className="btn btn-secondary" onClick={handleClose}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={previewActionsDisabled}
+                onClick={handleClose}
+              >
                 إلغاء
               </button>
             </div>
