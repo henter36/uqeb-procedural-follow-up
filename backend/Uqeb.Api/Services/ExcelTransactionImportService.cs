@@ -26,6 +26,7 @@ public class ExcelTransactionImportService : IExcelTransactionImportService
     private const string CorruptExcelFileError =
         "فشل قراءة ملف Excel. تأكد من أن الملف غير تالف وصيغته .xlsx صالحة.";
     private const string TooManyRowsError = "عدد الصفوف في الملف يتجاوز الحد المسموح للاستيراد";
+    private const string EmptyExcelFileError = "الملف فارغ";
 
     private static readonly string IncomingSourceTypeInternal = IncomingSourceType.Internal.ToString();
     private static readonly string PriorityNormal = Priority.Normal.ToString();
@@ -286,11 +287,11 @@ public class ExcelTransactionImportService : IExcelTransactionImportService
             using var workbook = new XLWorkbook(fileStream);
             var worksheet = workbook.Worksheets.FirstOrDefault();
             if (worksheet == null)
-                return ParseResult.WithFileError("الملف فارغ");
+                return ParseResult.WithFileError(EmptyExcelFileError);
 
             var headerRow = worksheet.FirstRowUsed();
             if (headerRow == null)
-                return ParseResult.WithFileError("الملف فارغ");
+                return ParseResult.WithFileError(EmptyExcelFileError);
 
             var columnMap = MapHeaders(headerRow);
             var missingHeaders = RequiredHeaders.Where(h => !columnMap.ContainsKey(h)).ToList();
@@ -304,32 +305,17 @@ public class ExcelTransactionImportService : IExcelTransactionImportService
             var actionColumn = ActionHeaderVariants.First(columnMap.ContainsKey);
             var lastRow = worksheet.LastRowUsed()?.RowNumber() ?? headerRow.RowNumber();
             if (lastRow <= headerRow.RowNumber())
-                return ParseResult.WithFileError("الملف فارغ");
+                return ParseResult.WithFileError(EmptyExcelFileError);
 
-            var rows = new List<ValidatedImportRow>();
-            var fileIncomingNumbers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            for (var rowNumber = headerRow.RowNumber() + 1; rowNumber <= lastRow; rowNumber++)
-            {
-                var row = worksheet.Row(rowNumber);
-                if (IsEmptyDataRow(row, columnMap, actionColumn))
-                    continue;
-
-                var validated = ValidateRow(
-                    rowNumber,
-                    row,
-                    columnMap,
-                    actionColumn,
-                    context,
-                    fileIncomingNumbers);
-
-                rows.Add(validated);
-                if (validated.IsValid)
-                    fileIncomingNumbers.Add(validated.IncomingNumber);
-            }
+            var rows = ReadAndValidateRows(
+                worksheet,
+                headerRow,
+                columnMap,
+                actionColumn,
+                context);
 
             if (rows.Count == 0)
-                return ParseResult.WithFileError("الملف فارغ");
+                return ParseResult.WithFileError(EmptyExcelFileError);
 
             if (rows.Count > MaxImportRows)
                 return ParseResult.WithFileError(TooManyRowsError);
@@ -344,6 +330,40 @@ public class ExcelTransactionImportService : IExcelTransactionImportService
         {
             return ParseResult.WithFileError(CorruptExcelFileError);
         }
+    }
+
+    private static List<ValidatedImportRow> ReadAndValidateRows(
+        IXLWorksheet worksheet,
+        IXLRow headerRow,
+        IReadOnlyDictionary<string, int> columnMap,
+        string actionColumn,
+        ImportContext context)
+    {
+        var rows = new List<ValidatedImportRow>();
+        var fileIncomingNumbers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var lastRow = worksheet.LastRowUsed()?.RowNumber() ?? headerRow.RowNumber();
+
+        for (var rowNumber = headerRow.RowNumber() + 1; rowNumber <= lastRow; rowNumber++)
+        {
+            var row = worksheet.Row(rowNumber);
+            if (IsEmptyDataRow(row, columnMap, actionColumn))
+                continue;
+
+            var validated = ValidateRow(
+                rowNumber,
+                row,
+                columnMap,
+                actionColumn,
+                context,
+                fileIncomingNumbers);
+
+            rows.Add(validated);
+
+            if (validated.IsValid)
+                fileIncomingNumbers.Add(validated.IncomingNumber);
+        }
+
+        return rows;
     }
 
     private static Dictionary<string, int> MapHeaders(IXLRow headerRow)
@@ -364,7 +384,7 @@ public class ExcelTransactionImportService : IExcelTransactionImportService
     private static string NormalizeHeader(string? value) =>
         string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
 
-    private static bool IsEmptyDataRow(IXLRow row, Dictionary<string, int> columnMap, string actionColumn)
+    private static bool IsEmptyDataRow(IXLRow row, IReadOnlyDictionary<string, int> columnMap, string actionColumn)
     {
         var values = RequiredHeaders
             .Select(h => GetCellText(row.Cell(columnMap[h])))
@@ -377,7 +397,7 @@ public class ExcelTransactionImportService : IExcelTransactionImportService
     private static ValidatedImportRow ValidateRow(
         int rowNumber,
         IXLRow row,
-        Dictionary<string, int> columnMap,
+        IReadOnlyDictionary<string, int> columnMap,
         string actionColumn,
         ImportContext context,
         HashSet<string> fileIncomingNumbers)
