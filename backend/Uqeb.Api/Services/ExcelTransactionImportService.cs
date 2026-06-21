@@ -46,6 +46,16 @@ public class ExcelTransactionImportService : IExcelTransactionImportService
         "الاجراء المتخذ"
     ];
 
+    private static readonly string[] SupportedGregorianDateFormats =
+    [
+        "yyyy-MM-dd",
+        "yyyy/MM/dd",
+        "dd/MM/yyyy",
+        "d/M/yyyy",
+        "dd-MM-yyyy",
+        "d-M-yyyy"
+    ];
+
     private readonly AppDbContext _db;
     private readonly ITransactionService _transactions;
     private readonly ILogger<ExcelTransactionImportService> _logger;
@@ -307,18 +317,20 @@ public class ExcelTransactionImportService : IExcelTransactionImportService
             if (lastRow <= headerRow.RowNumber())
                 return ParseResult.WithFileError(EmptyExcelFileError);
 
-            var rows = ReadAndValidateRows(
+            var scanResult = ReadAndValidateRows(
                 worksheet,
                 headerRow,
                 columnMap,
                 actionColumn,
                 context);
 
+            if (scanResult.ExceededLimit)
+                return ParseResult.WithFileError(TooManyRowsError);
+
+            var rows = scanResult.Rows;
+
             if (rows.Count == 0)
                 return ParseResult.WithFileError(EmptyExcelFileError);
-
-            if (rows.Count > MaxImportRows)
-                return ParseResult.WithFileError(TooManyRowsError);
 
             return new ParseResult(null, rows);
         }
@@ -332,7 +344,7 @@ public class ExcelTransactionImportService : IExcelTransactionImportService
         }
     }
 
-    private static List<ValidatedImportRow> ReadAndValidateRows(
+    private static RowScanResult ReadAndValidateRows(
         IXLWorksheet worksheet,
         IXLRow headerRow,
         IReadOnlyDictionary<string, int> columnMap,
@@ -349,6 +361,9 @@ public class ExcelTransactionImportService : IExcelTransactionImportService
             if (IsEmptyDataRow(row, columnMap, actionColumn))
                 continue;
 
+            if (rows.Count >= MaxImportRows)
+                return new RowScanResult(rows, true);
+
             var validated = ValidateRow(
                 rowNumber,
                 row,
@@ -363,7 +378,7 @@ public class ExcelTransactionImportService : IExcelTransactionImportService
                 fileIncomingNumbers.Add(validated.IncomingNumber);
         }
 
-        return rows;
+        return new RowScanResult(rows, false);
     }
 
     private static Dictionary<string, int> MapHeaders(IXLRow headerRow)
@@ -499,13 +514,12 @@ public class ExcelTransactionImportService : IExcelTransactionImportService
         }
 
         var text = cell.GetString().Trim();
-        if (DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
-        {
-            date = date.Date;
-            return true;
-        }
-
-        if (DateTime.TryParse(text, new CultureInfo("ar-SA"), DateTimeStyles.None, out date))
+        if (DateTime.TryParseExact(
+                text,
+                SupportedGregorianDateFormats,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out date))
         {
             date = date.Date;
             return true;
@@ -514,6 +528,10 @@ public class ExcelTransactionImportService : IExcelTransactionImportService
         date = default;
         return false;
     }
+
+    private sealed record RowScanResult(
+        List<ValidatedImportRow> Rows,
+        bool ExceededLimit);
 
     private sealed record ImportContext(
         int DefaultIncomingDepartmentId,

@@ -10,6 +10,8 @@ import DateDisplay from '../components/DateDisplay';
 
 type Step = 'upload' | 'preview' | 'result';
 
+const MAX_EXCEL_IMPORT_BYTES = 5 * 1024 * 1024;
+
 function formatErrors(errors: string[]) {
   return errors.join('؛ ');
 }
@@ -24,11 +26,31 @@ export default function TransactionImport() {
   const [commitResult, setCommitResult] = useState<ExcelImportCommitResult | null>(null);
 
   const handleFileChange = (selected: File | null) => {
-    setFile(selected);
     setPreview(null);
     setCommitResult(null);
     setStep('upload');
     setError(null);
+
+    if (!selected) {
+      setFile(null);
+      return;
+    }
+
+    if (!selected.name.toLowerCase().endsWith('.xlsx')) {
+      setFile(null);
+      setError('يُقبل ملفات xlsx فقط');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    if (selected.size > MAX_EXCEL_IMPORT_BYTES) {
+      setFile(null);
+      setError('حجم الملف يتجاوز الحد المسموح للاستيراد (5 ميجابايت)');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    setFile(selected);
   };
 
   const handlePreview = async () => {
