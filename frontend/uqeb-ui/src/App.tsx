@@ -11,6 +11,7 @@ import Reports from './pages/Reports';
 import { UsersPage, DepartmentsPage, ExternalPartiesPage } from './pages/AdminPages';
 import LetterTemplatePage from './pages/LetterTemplatePage';
 import SecurityPage from './pages/SecurityPage';
+import TransactionImport from './pages/TransactionImport';
 
 export default function App() {
   return (
@@ -21,6 +22,14 @@ export default function App() {
           <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route index element={<Dashboard />} />
             <Route path="transactions" element={<TransactionsList />} />
+            <Route
+              path="transactions/import"
+              element={(
+                <ProtectedRoute requiredRoles={['Admin']}>
+                  <TransactionImport />
+                </ProtectedRoute>
+              )}
+            />
             <Route path="transactions/new" element={<TransactionForm mode="create" />} />
             <Route path="transactions/:id" element={<TransactionDetail />} />
             <Route path="transactions/:id/edit" element={<TransactionForm mode="edit" />} />

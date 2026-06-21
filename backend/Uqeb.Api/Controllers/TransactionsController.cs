@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Uqeb.Api.DTOs.LetterTemplates;
 using Uqeb.Api.DTOs.Transactions;
+using Uqeb.Api.Authorization;
 using Uqeb.Api.Helpers;
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Services;
@@ -13,20 +14,26 @@ namespace Uqeb.Api.Controllers;
 [Authorize]
 public class TransactionsController : ControllerBase
 {
+    // Admin-only xlsx import; caps upload size to reduce DoS risk from large multipart payloads.
+    private const long MaxExcelImportFileBytes = 5 * 1024 * 1024;
+
     private readonly ITransactionService _transactions;
     private readonly IAttachmentService _attachments;
     private readonly ILetterTemplateService _letterTemplates;
+    private readonly IExcelTransactionImportService _excelImport;
     private readonly ICurrentUserService _currentUser;
 
     public TransactionsController(
         ITransactionService transactions,
         IAttachmentService attachments,
         ILetterTemplateService letterTemplates,
+        IExcelTransactionImportService excelImport,
         ICurrentUserService currentUser)
     {
         _transactions = transactions;
         _attachments = attachments;
         _letterTemplates = letterTemplates;
+        _excelImport = excelImport;
         _currentUser = currentUser;
     }
 
@@ -297,5 +304,60 @@ public class TransactionsController : ControllerBase
             _currentUser);
         if (bytes == null) return NotFound();
         return File(bytes, "application/pdf", $"follow-up-letter-{id}.pdf");
+    }
+
+    [HttpPost("import/excel/preview")]
+    [Authorize(Policy = Policies.AdminOnly)]
+    [RequestSizeLimit(MaxExcelImportFileBytes)]
+    public async Task<IActionResult> PreviewExcelImport(IFormFile file, CancellationToken cancellationToken)
+    {
+        var validationError = ValidateExcelFile(file);
+        if (validationError != null)
+            return BadRequest(new { message = validationError });
+
+        try
+        {
+            await using var stream = file.OpenReadStream();
+            return Ok(await _excelImport.PreviewAsync(stream, cancellationToken));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("import/excel/commit")]
+    [Authorize(Policy = Policies.AdminOnly)]
+    [RequestSizeLimit(MaxExcelImportFileBytes)]
+    public async Task<IActionResult> CommitExcelImport(IFormFile file, CancellationToken cancellationToken)
+    {
+        var validationError = ValidateExcelFile(file);
+        if (validationError != null)
+            return BadRequest(new { message = validationError });
+
+        try
+        {
+            await using var stream = file.OpenReadStream();
+            return Ok(await _excelImport.CommitAsync(stream, _currentUser, cancellationToken));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    private static string? ValidateExcelFile(IFormFile? file)
+    {
+        if (file == null || file.Length == 0)
+            return "يجب اختيار ملف Excel";
+
+        if (file.Length > MaxExcelImportFileBytes)
+            return "حجم الملف يتجاوز الحد المسموح للاستيراد (5 ميجابايت)";
+
+        var extension = Path.GetExtension(file.FileName);
+        if (!string.Equals(extension, ".xlsx", StringComparison.OrdinalIgnoreCase))
+            return "يُقبل ملفات xlsx فقط";
+
+        return null;
     }
 }

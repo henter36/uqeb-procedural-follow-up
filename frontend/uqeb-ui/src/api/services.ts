@@ -51,6 +51,16 @@ export const transactionsApi = {
     api.post<FollowUpLetterPreview>(`/transactions/${id}/follow-up-letter/preview`, data ?? {}),
   downloadFollowUpLetterPdf: (id: number, data: { targetEntity?: string; content: string }) =>
     api.post(`/transactions/${id}/follow-up-letter/pdf`, data, { responseType: 'blob' }),
+  previewExcelImport: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return api.post<import('./types').ExcelImportPreviewResult>('/transactions/import/excel/preview', form);
+  },
+  commitExcelImport: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return api.post<import('./types').ExcelImportCommitResult>('/transactions/import/excel/commit', form);
+  },
 };
 
 export const dashboardApi = {
