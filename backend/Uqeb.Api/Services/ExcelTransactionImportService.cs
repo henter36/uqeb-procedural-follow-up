@@ -18,6 +18,18 @@ public class ExcelTransactionImportService : IExcelTransactionImportService
 {
     private const string NotesDefault = "تم الاستيراد من ملف Excel";
     private const int DefaultResponseDueDays = 10;
+    private const int MaxImportRows = 1000;
+    private const string DefaultIncomingDepartmentName = "وارد مستورد";
+    private const string DefaultCategoryName = "عام";
+    private const string ExistingIncomingNumberError = "رقم الخطاب الوارد موجود مسبقاً في النظام";
+    private const string UnexpectedRowImportError = "تعذر استيراد هذا الصف بسبب خطأ غير متوقع";
+    private const string CorruptExcelFileError =
+        "فشل قراءة ملف Excel. تأكد من أن الملف غير تالف وصيغته .xlsx صالحة.";
+    private const string TooManyRowsError = "عدد الصفوف في الملف يتجاوز الحد المسموح للاستيراد";
+
+    private static readonly string IncomingSourceTypeInternal = IncomingSourceType.Internal.ToString();
+    private static readonly string PriorityNormal = Priority.Normal.ToString();
+    private static readonly string ResponseTypeExternal = ResponseType.External.ToString();
 
     private static readonly string[] RequiredHeaders =
     [
@@ -35,11 +47,16 @@ public class ExcelTransactionImportService : IExcelTransactionImportService
 
     private readonly AppDbContext _db;
     private readonly ITransactionService _transactions;
+    private readonly ILogger<ExcelTransactionImportService> _logger;
 
-    public ExcelTransactionImportService(AppDbContext db, ITransactionService transactions)
+    public ExcelTransactionImportService(
+        AppDbContext db,
+        ITransactionService transactions,
+        ILogger<ExcelTransactionImportService> logger)
     {
         _db = db;
         _transactions = transactions;
+        _logger = logger;
     }
 
     public async Task<ExcelImportPreviewResultDto> PreviewAsync(Stream fileStream, CancellationToken cancellationToken = default)
@@ -50,6 +67,8 @@ public class ExcelTransactionImportService : IExcelTransactionImportService
         if (parseResult.FileError != null)
             throw new InvalidOperationException(parseResult.FileError);
 
+        await ApplyExistingIncomingNumberChecksAsync(parseResult.Rows, cancellationToken);
+
         return new ExcelImportPreviewResultDto
         {
             TotalRows = parseResult.Rows.Count,
@@ -58,6 +77,7 @@ public class ExcelTransactionImportService : IExcelTransactionImportService
             Rows = parseResult.Rows.Select(MapPreviewRow).ToList()
         };
     }
+
     public Task<ExcelImportCommitResultDto> CommitAsync(Stream fileStream, ICurrentUserService currentUser, CancellationToken cancellationToken = default) =>
         ProcessCommitAsync(fileStream, currentUser, cancellationToken);
 
@@ -71,6 +91,8 @@ public class ExcelTransactionImportService : IExcelTransactionImportService
 
         if (parseResult.FileError != null)
             throw new InvalidOperationException(parseResult.FileError);
+
+        await ApplyExistingIncomingNumberChecksAsync(parseResult.Rows, cancellationToken);
 
         var result = new ExcelImportCommitResultDto
         {
@@ -91,10 +113,10 @@ public class ExcelTransactionImportService : IExcelTransactionImportService
                     IncomingNumber = row.IncomingNumber,
                     IncomingDate = row.IncomingDate,
                     Subject = row.Subject,
-                    IncomingSourceType = "Internal",
+                    IncomingSourceType = IncomingSourceTypeInternal,
                     IncomingFromDepartmentId = context.DefaultIncomingDepartmentId,
-                    Priority = "Normal",
-                    ResponseType = "External",
+                    Priority = PriorityNormal,
+                    ResponseType = ResponseTypeExternal,
                     ResponseDueDays = DefaultResponseDueDays,
                     CategoryId = context.DefaultCategoryId,
                     Notes = NotesDefault,
@@ -132,26 +154,33 @@ public class ExcelTransactionImportService : IExcelTransactionImportService
 
                 await tx.CommitAsync(cancellationToken);
                 result.ImportedTransactionIds.Add(created.Id);
-                context.ExistingIncomingNumbers.Add(row.IncomingNumber);
+            }
+            catch (OperationCanceledException)
+            {
+                await tx.RollbackAsync(cancellationToken);
+                throw;
             }
             catch (DuplicateIncomingNumberException)
             {
                 await tx.RollbackAsync(cancellationToken);
+                _db.ChangeTracker.Clear();
                 result.RejectedCount++;
                 result.RejectedRows.Add(new ExcelImportRejectedRowDto
                 {
                     RowNumber = row.RowNumber,
-                    Errors = ["رقم الخطاب الوارد موجود مسبقاً في النظام"]
+                    Errors = [ExistingIncomingNumberError]
                 });
             }
             catch (Exception ex)
             {
                 await tx.RollbackAsync(cancellationToken);
+                _db.ChangeTracker.Clear();
+                _logger.LogError(ex, "Failed to import Excel row {RowNumber}", row.RowNumber);
                 result.RejectedCount++;
                 result.RejectedRows.Add(new ExcelImportRejectedRowDto
                 {
                     RowNumber = row.RowNumber,
-                    Errors = [ex.Message]
+                    Errors = [UnexpectedRowImportError]
                 });
             }
         }
@@ -197,80 +226,124 @@ public class ExcelTransactionImportService : IExcelTransactionImportService
             throw new InvalidOperationException("لا توجد تصنيفات في النظام. لا يمكن الاستيراد.");
 
         var defaultIncoming = departments.FirstOrDefault(d =>
-                string.Equals(d.Name.Trim(), "وارد مستورد", StringComparison.OrdinalIgnoreCase))
+                string.Equals(d.Name.Trim(), DefaultIncomingDepartmentName, StringComparison.OrdinalIgnoreCase))
             ?? departments[0];
 
         var defaultCategory = categories.FirstOrDefault(c =>
-                string.Equals(c.Name.Trim(), "عام", StringComparison.OrdinalIgnoreCase))
+                string.Equals(c.Name.Trim(), DefaultCategoryName, StringComparison.OrdinalIgnoreCase))
             ?? categories[0];
 
         var departmentMap = departments
             .GroupBy(d => d.Name.Trim(), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First().Id, StringComparer.OrdinalIgnoreCase);
 
-        var existingNumbers = await _db.Transactions
-            .AsNoTracking()
-            .Select(t => t.IncomingNumber)
-            .ToListAsync(cancellationToken);
-
         return new ImportContext(
             defaultIncoming.Id,
             defaultCategory.Id,
-            departmentMap,
-            new HashSet<string>(existingNumbers, StringComparer.OrdinalIgnoreCase));
+            departmentMap);
+    }
+
+    private async Task ApplyExistingIncomingNumberChecksAsync(
+        List<ValidatedImportRow> rows,
+        CancellationToken cancellationToken)
+    {
+        var incomingNumbersInFile = rows
+            .Select(r => r.IncomingNumber)
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (incomingNumbersInFile.Count == 0)
+            return;
+
+        var existingInDb = await _db.Transactions
+            .AsNoTracking()
+            .Where(t => incomingNumbersInFile.Contains(t.IncomingNumber))
+            .Select(t => t.IncomingNumber)
+            .ToListAsync(cancellationToken);
+
+        var existingSet = new HashSet<string>(existingInDb, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var row in rows)
+        {
+            if (string.IsNullOrWhiteSpace(row.IncomingNumber))
+                continue;
+
+            if (!existingSet.Contains(row.IncomingNumber))
+                continue;
+
+            if (!row.Errors.Contains(ExistingIncomingNumberError))
+                row.Errors.Add(ExistingIncomingNumberError);
+
+            row.IsValid = false;
+        }
     }
 
     private static ParseResult ParseWorkbook(Stream fileStream, ImportContext context)
     {
-        using var workbook = new XLWorkbook(fileStream);
-        var worksheet = workbook.Worksheets.FirstOrDefault();
-        if (worksheet == null)
-            return ParseResult.WithFileError("الملف فارغ");
-
-        var headerRow = worksheet.FirstRowUsed();
-        if (headerRow == null)
-            return ParseResult.WithFileError("الملف فارغ");
-
-        var columnMap = MapHeaders(headerRow);
-        var missingHeaders = RequiredHeaders.Where(h => !columnMap.ContainsKey(h)).ToList();
-        var hasActionColumn = ActionHeaderVariants.Any(columnMap.ContainsKey);
-        if (missingHeaders.Count > 0 || !hasActionColumn)
+        try
         {
-            var missing = missingHeaders.Concat(hasActionColumn ? [] : [ActionHeaderVariants[0]]).ToList();
-            return ParseResult.WithFileError($"الملف لا يحتوي على الأعمدة المطلوبة: {string.Join("، ", missing)}");
+            using var workbook = new XLWorkbook(fileStream);
+            var worksheet = workbook.Worksheets.FirstOrDefault();
+            if (worksheet == null)
+                return ParseResult.WithFileError("الملف فارغ");
+
+            var headerRow = worksheet.FirstRowUsed();
+            if (headerRow == null)
+                return ParseResult.WithFileError("الملف فارغ");
+
+            var columnMap = MapHeaders(headerRow);
+            var missingHeaders = RequiredHeaders.Where(h => !columnMap.ContainsKey(h)).ToList();
+            var hasActionColumn = ActionHeaderVariants.Any(columnMap.ContainsKey);
+            if (missingHeaders.Count > 0 || !hasActionColumn)
+            {
+                var missing = missingHeaders.Concat(hasActionColumn ? [] : [ActionHeaderVariants[0]]).ToList();
+                return ParseResult.WithFileError($"الملف لا يحتوي على الأعمدة المطلوبة: {string.Join("، ", missing)}");
+            }
+
+            var actionColumn = ActionHeaderVariants.First(columnMap.ContainsKey);
+            var lastRow = worksheet.LastRowUsed()?.RowNumber() ?? headerRow.RowNumber();
+            if (lastRow <= headerRow.RowNumber())
+                return ParseResult.WithFileError("الملف فارغ");
+
+            var rows = new List<ValidatedImportRow>();
+            var fileIncomingNumbers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            for (var rowNumber = headerRow.RowNumber() + 1; rowNumber <= lastRow; rowNumber++)
+            {
+                var row = worksheet.Row(rowNumber);
+                if (IsEmptyDataRow(row, columnMap, actionColumn))
+                    continue;
+
+                var validated = ValidateRow(
+                    rowNumber,
+                    row,
+                    columnMap,
+                    actionColumn,
+                    context,
+                    fileIncomingNumbers);
+
+                rows.Add(validated);
+                if (validated.IsValid)
+                    fileIncomingNumbers.Add(validated.IncomingNumber);
+            }
+
+            if (rows.Count == 0)
+                return ParseResult.WithFileError("الملف فارغ");
+
+            if (rows.Count > MaxImportRows)
+                return ParseResult.WithFileError(TooManyRowsError);
+
+            return new ParseResult(null, rows);
         }
-
-        var actionColumn = ActionHeaderVariants.First(columnMap.ContainsKey);
-        var lastRow = worksheet.LastRowUsed()?.RowNumber() ?? headerRow.RowNumber();
-        if (lastRow <= headerRow.RowNumber())
-            return ParseResult.WithFileError("الملف فارغ");
-
-        var rows = new List<ValidatedImportRow>();
-        var fileIncomingNumbers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        for (var rowNumber = headerRow.RowNumber() + 1; rowNumber <= lastRow; rowNumber++)
+        catch (OperationCanceledException)
         {
-            var row = worksheet.Row(rowNumber);
-            if (IsEmptyDataRow(row, columnMap, actionColumn))
-                continue;
-
-            var validated = ValidateRow(
-                rowNumber,
-                row,
-                columnMap,
-                actionColumn,
-                context,
-                fileIncomingNumbers);
-
-            rows.Add(validated);
-            if (validated.IsValid)
-                fileIncomingNumbers.Add(validated.IncomingNumber);
+            throw;
         }
-
-        if (rows.Count == 0)
-            return ParseResult.WithFileError("الملف فارغ");
-
-        return new ParseResult(null, rows);
+        catch (Exception)
+        {
+            return ParseResult.WithFileError(CorruptExcelFileError);
+        }
     }
 
     private static Dictionary<string, int> MapHeaders(IXLRow headerRow)
@@ -339,13 +412,8 @@ public class ExcelTransactionImportService : IExcelTransactionImportService
             errors.Add($"الإدارة غير موجودة: {assignedDepartmentName}");
         }
 
-        if (!string.IsNullOrWhiteSpace(incomingNumber))
-        {
-            if (fileIncomingNumbers.Contains(incomingNumber))
-                errors.Add("رقم الخطاب الوارد مكرر في الملف");
-            else if (context.ExistingIncomingNumbers.Contains(incomingNumber))
-                errors.Add("رقم الخطاب الوارد موجود مسبقاً في النظام");
-        }
+        if (!string.IsNullOrWhiteSpace(incomingNumber) && fileIncomingNumbers.Contains(incomingNumber))
+            errors.Add("رقم الخطاب الوارد مكرر في الملف");
 
         var willCompleteResponse = ShouldCompleteResponse(actionTaken);
         var isValid = errors.Count == 0;
@@ -430,8 +498,7 @@ public class ExcelTransactionImportService : IExcelTransactionImportService
     private sealed record ImportContext(
         int DefaultIncomingDepartmentId,
         int DefaultCategoryId,
-        Dictionary<string, int> DepartmentNameToId,
-        HashSet<string> ExistingIncomingNumbers);
+        Dictionary<string, int> DepartmentNameToId);
 
     private sealed class ParseResult
     {
@@ -451,7 +518,7 @@ public class ExcelTransactionImportService : IExcelTransactionImportService
     private sealed class ValidatedImportRow
     {
         public int RowNumber { get; init; }
-        public bool IsValid { get; init; }
+        public bool IsValid { get; set; }
         public List<string> Errors { get; init; } = [];
         public string IncomingNumber { get; init; } = string.Empty;
         public DateTime IncomingDate { get; init; }

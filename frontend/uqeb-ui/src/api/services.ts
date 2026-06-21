@@ -54,16 +54,12 @@ export const transactionsApi = {
   previewExcelImport: (file: File) => {
     const form = new FormData();
     form.append('file', file);
-    return api.post<import('./types').ExcelImportPreviewResult>('/transactions/import/excel/preview', form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+    return api.post<import('./types').ExcelImportPreviewResult>('/transactions/import/excel/preview', form);
   },
   commitExcelImport: (file: File) => {
     const form = new FormData();
     form.append('file', file);
-    return api.post<import('./types').ExcelImportCommitResult>('/transactions/import/excel/commit', form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+    return api.post<import('./types').ExcelImportCommitResult>('/transactions/import/excel/commit', form);
   },
 };
 
