@@ -6,6 +6,8 @@
 docs/PRODUCTION_DEPLOYMENT_TROUBLESHOOTING.md
 ```
 
+> نقطة الدخول المتوافقة للنشر هي `scripts/deploy-production.ps1`، والتنفيذ الآلي المعتمد هو `scripts/deploy-production-v2.ps1`.
+
 ## البيئة المعتمدة
 
 - المستودع: `henter36/uqeb-procedural-follow-up`
@@ -27,7 +29,7 @@ docs/PRODUCTION_DEPLOYMENT_TROUBLESHOOTING.md
 ## مصادر السلطة
 
 1. المسارات الواردة أعلاه هي المسارات المعتمدة.
-2. `scripts/deploy-production.ps1` يجب أن يبقى متوافقًا معها، ويستهدف `C:\Uqeb\publish\api` و`C:\Uqeb\publish\web`.
+2. سكربت النشر الآلي يجب أن يبقى متوافقًا معها، ويستهدف `C:\Uqeb\publish\api` و`C:\Uqeb\publish\web`.
 3. يجب أن يستمع Kestrel على `0.0.0.0:5000` أو عنوان قابل للوصول من الشبكة، وليس `localhost:5000` فقط.
 4. عند اختلاف أي وثيقة أو سكربت قديم مع هذه التعليمات، توقف وعدّل التعارض قبل النشر.
 
