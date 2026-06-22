@@ -142,9 +142,9 @@ export default function TransactionsList() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
-  const [filters, setFilters] = useState<FiltersState>(() =>
-    loadSavedFilters(searchParams.get('status') ?? ''),
-  );
+  const initialFilters = loadSavedFilters(searchParams.get('status') ?? '');
+  const [filters, setFilters] = useState<FiltersState>(initialFilters);
+  const [searchQuery, setSearchQuery] = useState<FiltersState>(initialFilters);
 
   const partyOptions: SelectOption[] = useMemo(
     () => parties.map((p) => ({ id: p.id, name: p.name, isActive: p.isActive })),
@@ -159,12 +159,62 @@ export default function TransactionsList() {
     [categories],
   );
 
-  const load = (override?: Partial<FiltersState>) => {
-    const active = { ...filters, ...override };
+  useEffect(() => {
+    let cancelled = false;
+    transactionsApi.search(buildSearchParams(searchQuery))
+      .then((res) => {
+        if (cancelled) return;
+        setItems(res.data.items);
+        setTotal(res.data.totalCount);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [searchQuery]);
+
+  const handleSearch = (e: FormEvent) => {
+    e.preventDefault();
+    const next = { ...filters, page: 1 };
     setLoading(true);
-    transactionsApi.search(buildSearchParams(active))
-      .then((res) => { setItems(res.data.items); setTotal(res.data.totalCount); })
-      .finally(() => setLoading(false));
+    setFilters(next);
+    setSearchQuery(next);
+    localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(next));
+  };
+
+  const handleReset = () => {
+    const reset = { ...DEFAULT_FILTERS, status: searchParams.get('status') ?? '' };
+    setLoading(true);
+    setFilters(reset);
+    setSearchQuery(reset);
+    localStorage.removeItem(FILTERS_STORAGE_KEY);
+  };
+
+  const handleSort = (columnKey: SortKey) => {
+    setLoading(true);
+    const isSame = filters.sortBy === columnKey;
+    const next = {
+      ...filters,
+      sortBy: columnKey,
+      sortDesc: isSame ? !filters.sortDesc : DATE_SORT_KEYS.has(columnKey),
+      page: 1,
+    };
+    setFilters(next);
+    setSearchQuery(next);
+  };
+
+  const handlePageChange = (page: number) => {
+    setLoading(true);
+    const next = { ...filters, page };
+    setFilters(next);
+    setSearchQuery(next);
+  };
+
+  const handlePageSizeChange = (pageSize: number) => {
+    setLoading(true);
+    const next = { ...filters, pageSize, page: 1 };
+    setFilters(next);
+    setSearchQuery(next);
   };
 
   useEffect(() => {
@@ -172,39 +222,6 @@ export default function TransactionsList() {
     externalPartiesApi.getAll().then((r) => setParties(r.data));
     categoriesApi.getAll().then((r) => setCategories(r.data));
   }, []);
-
-  useEffect(() => {
-    // Data fetch on pagination/sort change
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    load();
-  }, [filters.page, filters.pageSize, filters.sortBy, filters.sortDesc]);
-
-  const handleSearch = (e: FormEvent) => {
-    e.preventDefault();
-    const next = { ...filters, page: 1 };
-    setFilters(next);
-    localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(next));
-    load({ page: 1 });
-  };
-
-  const handleReset = () => {
-    const reset = { ...DEFAULT_FILTERS, status: searchParams.get('status') ?? '' };
-    setFilters(reset);
-    localStorage.removeItem(FILTERS_STORAGE_KEY);
-    load(reset);
-  };
-
-  const handleSort = (columnKey: SortKey) => {
-    setFilters((f) => {
-      const isSame = f.sortBy === columnKey;
-      return {
-        ...f,
-        sortBy: columnKey,
-        sortDesc: isSame ? !f.sortDesc : DATE_SORT_KEYS.has(columnKey),
-        page: 1,
-      };
-    });
-  };
 
   return (
     <div>
@@ -365,7 +382,7 @@ export default function TransactionsList() {
                     <td><DateDisplay date={t.incomingDate} /></td>
                     <td>{t.subject}</td>
                     <td>
-                      <span className="badge badge-gray" style={{ marginLeft: 4 }}>
+                      <span className="badge badge-gray badge-gap">
                         {t.incomingSourceType === 'Internal' ? 'داخلية' : 'خارجية'}
                       </span>
                       {t.incomingFrom || '-'}
@@ -393,8 +410,8 @@ export default function TransactionsList() {
             pageSize={filters.pageSize}
             total={total}
             itemCount={items.length}
-            onPageChange={(page) => setFilters((f) => ({ ...f, page }))}
-            onPageSizeChange={(pageSize) => setFilters((f) => ({ ...f, pageSize, page: 1 }))}
+            onPageChange={handlePageChange}
+            onPageSizeChange={handlePageSizeChange}
           />
         </>
       )}

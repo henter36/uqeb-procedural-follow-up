@@ -34,6 +34,18 @@ type DetailTab = 'overview' | 'assignments' | 'followups' | 'attachments' | 'aud
 
 export default function TransactionDetailPage() {
   const { id } = useParams();
+  if (!id) {
+    return (
+      <div className="loading">
+        <LoadingInline />
+      </div>
+    );
+  }
+  return <TransactionDetailContent key={id} transactionId={id} />;
+}
+
+function TransactionDetailContent({ transactionId }: { transactionId: string }) {
+  const id = transactionId;
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab');
@@ -65,9 +77,11 @@ export default function TransactionDetailPage() {
   useEffect(() => {
     loadedTabsRef.current = loadedTabs;
   }, [loadedTabs]);
-  const [tabLoading, setTabLoading] = useState(false);
-  const [assignmentsLoading, setAssignmentsLoading] = useState(false);
-  const [followUpsLoading, setFollowUpsLoading] = useState(false);
+  const [tabLoading, setTabLoading] = useState(
+    () => initialTabFromUrl === 'attachments' || initialTabFromUrl === 'audit' || initialTabFromUrl === 'timeline',
+  );
+  const [assignmentsLoading, setAssignmentsLoading] = useState(true);
+  const [followUpsLoading, setFollowUpsLoading] = useState(true);
   const [assignmentsError, setAssignmentsError] = useState('');
   const [followUpsError, setFollowUpsError] = useState('');
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -161,39 +175,61 @@ export default function TransactionDetailPage() {
   };
 
   useEffect(() => {
-    if (!id) return;
     let active = true;
-    // Reset detail state when transaction id changes
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setTx(null);
     const isMounted = () => active;
 
-    setAssignments([]);
-    setFollowUps([]);
-    setAttachments([]);
-    setAuditLogs([]);
-    setAuditPage(1);
-    setAuditHasMore(false);
-    const emptyTabs = { attachments: false, audit: false };
-    setLoadedTabs(emptyTabs);
-    loadedTabsRef.current = emptyTabs;
-    setActiveTab(initialTabFromUrl);
-    setAssignmentsError('');
-    setFollowUpsError('');
-
     loadBasic();
-    loadAssignments();
-    loadFollowUps();
+
+    void (async () => {
+      try {
+        const res = await transactionsApi.getAssignments(+id);
+        if (isMounted()) setAssignments(res.data ?? []);
+      } catch {
+        if (isMounted()) setAssignmentsError('تعذر تحميل التحويلات');
+      } finally {
+        if (isMounted()) setAssignmentsLoading(false);
+      }
+    })();
+
+    void (async () => {
+      try {
+        const res = await transactionsApi.getFollowUps(+id);
+        if (isMounted()) setFollowUps(res.data ?? []);
+      } catch {
+        if (isMounted()) setFollowUpsError('تعذر تحميل التعقيبات');
+      } finally {
+        if (isMounted()) setFollowUpsLoading(false);
+      }
+    })();
+
     departmentsApi.getAll().then((r) => { if (isMounted()) setDepartments(r.data); });
 
-    if (initialTabFromUrl === 'attachments') {
-      loadTab('attachments', true, isMounted);
-    } else if (initialTabFromUrl === 'audit' || initialTabFromUrl === 'timeline') {
-      loadTab('audit', true, isMounted);
-    }
+    void (async () => {
+      if (initialTabFromUrl === 'attachments') {
+        try {
+          const res = await transactionsApi.getAttachments(+id);
+          if (!isMounted()) return;
+          setAttachments(res.data);
+          setLoadedTabs((prev) => ({ ...prev, attachments: true }));
+        } finally {
+          if (isMounted()) setTabLoading(false);
+        }
+      } else if (initialTabFromUrl === 'audit' || initialTabFromUrl === 'timeline') {
+        try {
+          const res = await transactionsApi.getAuditLog(+id, 1);
+          if (!isMounted()) return;
+          setAuditLogs(res.data.items);
+          setAuditPage(1);
+          setAuditHasMore(res.data.hasNextPage);
+          setLoadedTabs((prev) => ({ ...prev, audit: true }));
+        } finally {
+          if (isMounted()) setTabLoading(false);
+        }
+      }
+    })();
 
     return () => { active = false; };
-  }, [id, initialTabFromUrl, loadBasic, loadAssignments, loadFollowUps, loadTab]);
+  }, [id, initialTabFromUrl, loadBasic]);
 
   const handleClose = async () => {
     if (!tx) return;
@@ -255,7 +291,7 @@ export default function TransactionDetailPage() {
         {tx.isOverdue && <span className="status-extra"> — متأخرة</span>}
         {tx.hasPendingAssignments && <span className="status-extra"> — باقي إجراء</span>}
         {tx.responseTimingLabel && tx.requiresResponse && (
-          <span className={`status-extra badge ${responseTimingBadgeClass(tx.responseTimingStatus)}`} style={{ marginRight: 8 }}>
+          <span className={`status-extra badge badge-spaced ${responseTimingBadgeClass(tx.responseTimingStatus)}`}>
             {tx.responseTimingLabel}
           </span>
         )}
@@ -352,7 +388,7 @@ export default function TransactionDetailPage() {
                     {a.requiresReply && a.replyStatus !== 'Replied' && a.status !== 'Cancelled' && (isDepartmentUser || canEdit) && (
                       <button type="button" className="btn btn-sm btn-outline" onClick={() => setReplyAssignmentId(a.id)}>تسجيل رد</button>
                     )}
-                    {a.replySummary && <div className="text-muted" style={{ fontSize: '0.85rem', marginTop: '0.25rem' }}>{a.replySummary}</div>}
+                    {a.replySummary && <div className="text-muted reply-summary">{a.replySummary}</div>}
                   </td>
                 </tr>
               ))}
@@ -392,7 +428,7 @@ export default function TransactionDetailPage() {
                     {f.requiresReply && f.replyStatus !== 'Replied' && (isDepartmentUser || canEdit) && (
                       <button type="button" className="btn btn-sm btn-outline" onClick={() => setReplyFollowUpId(f.id)}>تسجيل رد</button>
                     )}
-                    {f.replySummary && <div className="text-muted" style={{ fontSize: '0.85rem', marginTop: '0.25rem' }}>{f.replySummary}</div>}
+                    {f.replySummary && <div className="text-muted reply-summary">{f.replySummary}</div>}
                   </td>
                 </tr>
               ))}
@@ -915,10 +951,21 @@ function FollowUpLetterModal({
   }, [transactionId, recipient, letterBody]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadPreview(defaultRecipient);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transactionId]);
+    let cancelled = false;
+    transactionsApi.previewFollowUpLetter(transactionId, { targetEntity: defaultRecipient })
+      .then((res) => {
+        if (cancelled) return;
+        setLetterBody(res.data.content);
+        if (res.data.targetEntity) setRecipient(res.data.targetEntity);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(getApiErrorMessage(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [transactionId, defaultRecipient]);
 
   const handlePreview = () => loadPreview(recipient, false);
 

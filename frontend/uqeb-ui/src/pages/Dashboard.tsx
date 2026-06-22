@@ -24,9 +24,6 @@ export default function DashboardPage() {
   useEffect(() => {
     const controller = new AbortController();
     let active = true;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLoading(true);
-    setError(null);
 
     dashboardApi.summary()
       .then((res) => {
@@ -158,7 +155,7 @@ export default function DashboardPage() {
       )}
 
       {(detailsLoading || detailsError) && (
-        <div className="mt-4" style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="mt-4 details-banner-row">
           {detailsLoading && <Alert variant="info"><LoadingInline label="جاري تحميل تفاصيل اللوحة..." /></Alert>}
           {detailsError && <Alert variant="warning">{detailsError}</Alert>}
           {detailsLoaded && !detailsLoading && (
@@ -172,7 +169,7 @@ export default function DashboardPage() {
       <div className="dashboard-grid mt-4">
         <div className="card">
           <h3>أكثر الإدارات تأخراً</h3>
-          <div className="table-wrapper" style={{ marginTop: '0.75rem' }}>
+          <div className="table-wrapper table-wrapper-spaced">
             <table className="data-table">
               <thead><tr><th>الإدارة</th><th>المتأخر</th></tr></thead>
               <tbody>
@@ -195,7 +192,7 @@ export default function DashboardPage() {
 
         <div className="card">
           <h3>أكثر الجهات وارد منها</h3>
-          <div className="table-wrapper" style={{ marginTop: '0.75rem' }}>
+          <div className="table-wrapper table-wrapper-spaced">
             <table className="data-table">
               <thead><tr><th>الجهة</th><th>العدد</th></tr></thead>
               <tbody>
@@ -215,7 +212,7 @@ export default function DashboardPage() {
 
         <div className="card">
           <h3>حسب التصنيف</h3>
-          <div className="table-wrapper" style={{ marginTop: '0.75rem' }}>
+          <div className="table-wrapper table-wrapper-spaced">
             <table className="data-table">
               <thead><tr><th>التصنيف</th><th>العدد</th></tr></thead>
               <tbody>
@@ -235,7 +232,7 @@ export default function DashboardPage() {
 
         <div className="card">
           <h3>حسب الحالة</h3>
-          <div className="table-wrapper" style={{ marginTop: '0.75rem' }}>
+          <div className="table-wrapper table-wrapper-spaced">
             <table className="data-table">
               <thead><tr><th>الحالة</th><th>العدد</th></tr></thead>
               <tbody>
@@ -259,7 +256,7 @@ export default function DashboardPage() {
         {detailsLoading && !data?.actionRequired ? (
           <TableSkeleton rows={4} cols={6} />
         ) : (
-          <div className="table-wrapper" style={{ marginTop: '0.75rem' }}>
+          <div className="table-wrapper table-wrapper-spaced">
             <table className="data-table">
               <thead>
                 <tr>

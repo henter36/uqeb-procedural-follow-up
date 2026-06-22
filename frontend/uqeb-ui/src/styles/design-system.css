@@ -288,6 +288,7 @@
   flex-direction: column;
   min-height: 100vh;
   transition: margin-right var(--transition-normal);
+  position: relative;
 }
 
 .app-sidebar.collapsed ~ .app-main-area {

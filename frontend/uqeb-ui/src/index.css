@@ -44,7 +44,37 @@ body {
 .error-cell { color: #991b1b; font-size: 0.9rem; }
 .row-invalid { background: #fef2f2; }
 
-/* Mobile menu button visibility */
+/* Mobile */
+.mobile-menu-btn { display: none; }
+.mobile-sidebar-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 150;
+  background: rgba(26, 35, 50, 0.3);
+  border: none;
+  cursor: default;
+  padding: 0;
+}
+
+.topbar-dept { font-size: 0.8rem; }
+.topbar-user-name { font-weight: 500; color: var(--color-text); }
+.topbar-user-role { font-size: 0.75rem; }
+
+.table-wrapper-spaced { margin-top: var(--space-3); }
+.details-banner-row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.badge-gap { margin-inline-start: var(--space-1); }
+.badge-spaced { margin-inline-end: var(--space-2); }
+.reply-summary { font-size: 0.85rem; margin-top: 0.25rem; }
+.pagination-size-label { margin-inline-start: 6px; }
+.skeleton-mb { margin-bottom: var(--space-4); }
+.skeleton-mb-sm { margin-bottom: var(--space-2); }
+.skeleton-stat-value { height: 1.75rem; margin-bottom: var(--space-2); }
+
 @media (max-width: 768px) {
-  #mobile-menu-btn { display: inline-flex !important; }
+  .mobile-menu-btn { display: inline-flex !important; }
 }

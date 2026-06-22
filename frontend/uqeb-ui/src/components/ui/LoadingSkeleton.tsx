@@ -26,8 +26,8 @@ export function TableSkeleton({ rows = 5, cols = 6 }: TableSkeletonProps) {
 export function CardSkeleton() {
   return (
     <div className="card" aria-hidden="true">
-      <div className="skeleton-bar w-40" style={{ marginBottom: '1rem' }} />
-      <div className="skeleton-bar w-80" style={{ marginBottom: '0.5rem' }} />
+      <div className="skeleton-bar w-40 skeleton-mb" />
+      <div className="skeleton-bar w-80 skeleton-mb-sm" />
       <div className="skeleton-bar w-60" />
     </div>
   );
@@ -38,7 +38,7 @@ export function StatsSkeleton({ count = 4 }: { count?: number }) {
     <div className="stats-grid" aria-hidden="true">
       {Array.from({ length: count }).map((_, i) => (
         <div key={i} className="stat-card">
-          <div className="skeleton-bar w-40" style={{ height: '1.75rem', marginBottom: '0.5rem' }} />
+          <div className="skeleton-bar w-40 skeleton-stat-value" />
           <div className="skeleton-bar w-60" />
         </div>
       ))}

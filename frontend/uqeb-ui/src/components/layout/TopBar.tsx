@@ -7,6 +7,7 @@ import { IconMenu } from '../ui/icons';
 
 type TopBarProps = {
   onMenuToggle: () => void;
+  mobileOpen?: boolean;
 };
 
 function getInitials(name: string): string {
@@ -15,7 +16,7 @@ function getInitials(name: string): string {
   return name.slice(0, 2);
 }
 
-export default function TopBar({ onMenuToggle }: TopBarProps) {
+export default function TopBar({ onMenuToggle, mobileOpen = false }: TopBarProps) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -31,13 +32,12 @@ export default function TopBar({ onMenuToggle }: TopBarProps) {
       <div className="topbar-start">
         <button
           type="button"
-          className="btn btn-ghost btn-sm"
+          className="btn btn-ghost btn-sm mobile-menu-btn"
           onClick={onMenuToggle}
           aria-label="فتح القائمة"
-          style={{ display: 'none' }}
-          id="mobile-menu-btn"
+          aria-expanded={mobileOpen}
         >
-          <IconMenu />
+          <IconMenu aria-hidden="true" />
         </button>
         <h1 className="topbar-title">{meta.title}</h1>
         <Breadcrumbs items={meta.breadcrumbs} />
@@ -45,17 +45,15 @@ export default function TopBar({ onMenuToggle }: TopBarProps) {
 
       <div className="topbar-end">
         {user?.departmentName && (
-          <span className="text-muted" style={{ fontSize: '0.8rem' }}>
-            {user.departmentName}
-          </span>
+          <span className="text-muted topbar-dept">{user.departmentName}</span>
         )}
         <div className="topbar-user">
           <div className="user-avatar" aria-hidden="true">
             {getInitials(user?.fullName ?? '?')}
           </div>
           <div>
-            <div style={{ fontWeight: 500, color: 'var(--color-text)' }}>{user?.fullName}</div>
-            <div style={{ fontSize: '0.75rem' }}>{roleLabels[user?.role ?? ''] ?? user?.role}</div>
+            <div className="topbar-user-name">{user?.fullName}</div>
+            <div className="topbar-user-role">{roleLabels[user?.role ?? ''] ?? user?.role}</div>
           </div>
         </div>
         <button type="button" className="btn btn-outline btn-sm" onClick={handleLogout}>

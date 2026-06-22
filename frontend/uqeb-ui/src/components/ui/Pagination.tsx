@@ -29,7 +29,7 @@ export default function Pagination({
 
       {onPageSizeChange && (
         <label className="pagination-size">
-          <span className="text-muted" style={{ marginLeft: 6 }}>لكل صفحة:</span>
+          <span className="text-muted pagination-size-label">لكل صفحة:</span>
           <select
             value={pageSize}
             onChange={(e) => onPageSizeChange(Number(e.target.value))}
