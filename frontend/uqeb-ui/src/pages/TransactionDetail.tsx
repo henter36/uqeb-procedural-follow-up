@@ -7,7 +7,7 @@ import type {
   TransactionDetail, Assignment, FollowUp, Attachment, AuditLog,
 } from '../api/types';
 import { useAuth } from '../context/AuthContext';
-import { useReferenceData } from '../context/ReferenceDataContext';
+import { useReferenceData } from '../hooks/useReferenceData';
 import {
   statusBadgeClass, responseTypeLabels,
   auditActionLabels, replyStatusLabels,
@@ -335,14 +335,18 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     return Promise.resolve();
   }, [loadTab]);
 
+  const resetAndCloseAction = useCallback(() => {
+    setActiveAction(null);
+    setActionContext({});
+    setActionDirty(false);
+  }, []);
+
   const closeAction = useCallback(() => {
     if (actionDirty && !globalThis.confirm('يوجد بيانات غير محفوظة. هل تريد إغلاق النموذج؟')) {
       return;
     }
-    setActiveAction(null);
-    setActionContext({});
-    setActionDirty(false);
-  }, [actionDirty]);
+    resetAndCloseAction();
+  }, [actionDirty, resetAndCloseAction]);
 
   const openAction = useCallback((action: WorkspaceAction, ctx: WorkspaceActionContext = {}) => {
     if (activeAction && activeAction !== action && actionDirty) {
@@ -369,7 +373,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   ) => {
     setMessage(successMessage);
     setError('');
-    closeAction();
+    resetAndCloseAction();
     const results = await Promise.allSettled([
       ...refreshers.map((refresh) => Promise.resolve(refresh())),
       refreshTimelineIfLoaded(),
@@ -378,7 +382,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     if (allFailed) {
       setError('تم الحفظ لكن تعذر تحديث بعض الأقسام. حاول تحديث الصفحة.');
     }
-  }, [closeAction, refreshTimelineIfLoaded]);
+  }, [resetAndCloseAction, refreshTimelineIfLoaded]);
 
   const handleClose = async () => {
     if (!tx) return;
@@ -680,7 +684,10 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
               responseType={tx.responseType}
               onDirtyChange={setActionDirty}
               onCancel={closeAction}
-              onSuccess={() => handleActionSuccess('تم تسجيل الإفادة بنجاح.', [loadBasic, loadAssignments])}
+              onSuccess={(result) => {
+                const message = result?.attachmentWarning ?? 'تم تسجيل الإفادة بنجاح.';
+                void handleActionSuccess(message, [loadBasic, loadAssignments]);
+              }}
             />
           )}
           {activeAction === 'follow-up-letter' && (

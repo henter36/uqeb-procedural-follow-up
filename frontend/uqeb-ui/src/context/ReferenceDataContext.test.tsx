@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
-import { ReferenceDataProvider, useReferenceData } from './ReferenceDataContext';
+import { ReferenceDataProvider } from './ReferenceDataProvider';
+import { useReferenceData } from '../hooks/useReferenceData';
 import * as services from '../api/services';
 
 vi.mock('../api/services', () => ({

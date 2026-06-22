@@ -113,6 +113,8 @@ export default function FollowUpLetterFormPanel({
         content: letterBody,
       });
       downloadBlob(res.data, `follow-up-letter-${transactionId}.pdf`);
+      baselineRef.current = { recipient, letterBody };
+      baselineReadyRef.current = true;
       onDirtyChange(false);
       onDownloaded();
     } catch (err: unknown) {

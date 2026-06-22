@@ -104,6 +104,49 @@ describe('FollowUpLetterFormPanel', () => {
     });
   });
 
+  it('keeps dirty false after download following edits and rerender', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.downloadFollowUpLetterPdf).mockResolvedValue({
+      data: new Blob(['pdf']),
+    } as never);
+
+    const view = render(
+      <FollowUpLetterFormPanel
+        transactionId={1}
+        tx={baseTx}
+        assignments={[]}
+        onDirtyChange={onDirtyChange}
+        onDownloaded={onDownloaded}
+        onCancel={onCancel}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByLabelText('نص الخطاب')).toBeInTheDocument());
+    await user.type(screen.getByLabelText('نص الخطاب'), ' تعديل');
+    await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(true));
+
+    onDirtyChange.mockClear();
+    await user.click(screen.getByRole('button', { name: 'تحميل PDF' }));
+
+    await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(false));
+
+    onDirtyChange.mockClear();
+    view.rerender(
+      <FollowUpLetterFormPanel
+        transactionId={1}
+        tx={baseTx}
+        assignments={[]}
+        onDirtyChange={onDirtyChange}
+        onDownloaded={onDownloaded}
+        onCancel={onCancel}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onDirtyChange.mock.calls.filter(([dirty]) => dirty)).toHaveLength(0);
+    });
+  });
+
   it('shows preview error without changing baseline', async () => {
     const user = userEvent.setup();
     vi.mocked(services.transactionsApi.previewFollowUpLetter)

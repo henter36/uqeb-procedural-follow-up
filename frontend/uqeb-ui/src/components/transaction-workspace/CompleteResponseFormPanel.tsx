@@ -1,15 +1,21 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { transactionsApi } from '../../api/services';
 import { buildCompleteResponsePayload, getApiErrorMessage } from '../../utils/apiHelpers';
 import { Alert } from '../ui';
+
+export type CompleteResponseSuccessResult = Readonly<{
+  attachmentWarning?: string;
+}>;
 
 type CompleteResponseFormPanelProps = Readonly<{
   transactionId: number;
   responseType: string;
   onDirtyChange: (dirty: boolean) => void;
-  onSuccess: () => void;
+  onSuccess: (result?: CompleteResponseSuccessResult) => void;
   onCancel: () => void;
 }>;
+
+const ATTACHMENT_PARTIAL_WARNING = 'تم تسجيل الإفادة، لكن تعذر رفع المرفق. يمكنك رفعه من قسم المرفقات.';
 
 export default function CompleteResponseFormPanel({
   transactionId,
@@ -28,6 +34,8 @@ export default function CompleteResponseFormPanel({
   const [attachment, setAttachment] = useState<File | null>(null);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [responseSaved, setResponseSaved] = useState(false);
+  const responseSavedRef = useRef(false);
 
   useEffect(() => {
     const dirty = Boolean(
@@ -35,31 +43,49 @@ export default function CompleteResponseFormPanel({
       || form.outgoingNumber.trim()
       || attachment,
     );
-    onDirtyChange(dirty);
-  }, [form, attachment, onDirtyChange]);
+    onDirtyChange(dirty && !responseSaved);
+  }, [form, attachment, onDirtyChange, responseSaved]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
-    if (!form.responseSummary.trim()) {
-      setError('ملخص الإفادة مطلوب');
+    if (!responseSaved) {
+      if (!form.responseSummary.trim()) {
+        setError('ملخص الإفادة مطلوب');
+        return;
+      }
+      if (requiresOutgoing && (!form.outgoingNumber.trim() || !form.outgoingDate)) {
+        setError('رقم الصادر وتاريخ الصادر مطلوبان لنوع الإفادة المحدد');
+        return;
+      }
+    } else if (!attachment) {
       return;
     }
-    if (requiresOutgoing && (!form.outgoingNumber.trim() || !form.outgoingDate)) {
-      setError('رقم الصادر وتاريخ الصادر مطلوبان لنوع الإفادة المحدد');
-      return;
-    }
+
     setError('');
     setIsSubmitting(true);
     try {
-      await transactionsApi.completeResponse(
-        transactionId,
-        buildCompleteResponsePayload({ ...form, requiresOutgoing }),
-      );
-      if (attachment) {
-        await transactionsApi.uploadAttachment(transactionId, attachment, 'Response');
+      if (!responseSavedRef.current) {
+        await transactionsApi.completeResponse(
+          transactionId,
+          buildCompleteResponsePayload({ ...form, requiresOutgoing }),
+        );
+        responseSavedRef.current = true;
+        setResponseSaved(true);
+        onDirtyChange(false);
       }
-      onSuccess();
+
+      if (attachment) {
+        try {
+          await transactionsApi.uploadAttachment(transactionId, attachment, 'Response');
+          onSuccess();
+        } catch {
+          setAttachment(null);
+          onSuccess({ attachmentWarning: ATTACHMENT_PARTIAL_WARNING });
+        }
+      } else {
+        onSuccess();
+      }
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
     } finally {
@@ -73,21 +99,48 @@ export default function CompleteResponseFormPanel({
       <div className="form-grid">
         <div className="form-group">
           <label htmlFor="response-date">تاريخ الإفادة *</label>
-          <input id="response-date" type="date" required value={form.responseDate} onChange={(e) => setForm({ ...form, responseDate: e.target.value })} />
+          <input
+            id="response-date"
+            type="date"
+            required
+            value={form.responseDate}
+            disabled={responseSaved}
+            onChange={(e) => setForm({ ...form, responseDate: e.target.value })}
+          />
         </div>
         <div className="form-group full-width">
           <label htmlFor="response-summary">ملخص الإفادة *</label>
-          <textarea id="response-summary" required rows={4} value={form.responseSummary} onChange={(e) => setForm({ ...form, responseSummary: e.target.value })} />
+          <textarea
+            id="response-summary"
+            required
+            rows={4}
+            value={form.responseSummary}
+            disabled={responseSaved}
+            onChange={(e) => setForm({ ...form, responseSummary: e.target.value })}
+          />
         </div>
         {requiresOutgoing && (
           <>
             <div className="form-group">
               <label htmlFor="outgoing-number">رقم الصادر *</label>
-              <input id="outgoing-number" required value={form.outgoingNumber} onChange={(e) => setForm({ ...form, outgoingNumber: e.target.value })} />
+              <input
+                id="outgoing-number"
+                required
+                value={form.outgoingNumber}
+                disabled={responseSaved}
+                onChange={(e) => setForm({ ...form, outgoingNumber: e.target.value })}
+              />
             </div>
             <div className="form-group">
               <label htmlFor="outgoing-date">تاريخ الصادر *</label>
-              <input id="outgoing-date" type="date" required value={form.outgoingDate} onChange={(e) => setForm({ ...form, outgoingDate: e.target.value })} />
+              <input
+                id="outgoing-date"
+                type="date"
+                required
+                value={form.outgoingDate}
+                disabled={responseSaved}
+                onChange={(e) => setForm({ ...form, outgoingDate: e.target.value })}
+              />
             </div>
           </>
         )}

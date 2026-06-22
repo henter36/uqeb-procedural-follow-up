@@ -120,4 +120,72 @@ describe('FollowUpFormPanel', () => {
     expect(screen.getByText('يجب اختيار إدارة واحدة على الأقل لإرسال التعقيب.')).toBeInTheDocument();
     expect(services.transactionsApi.addFollowUp).not.toHaveBeenCalled();
   });
+
+  it('does not mark dirty after initial department load', async () => {
+    render(
+      <FollowUpFormPanel
+        transactionId={1}
+        onDirtyChange={onDirtyChange}
+        onSuccess={onSuccess}
+        onCancel={onCancel}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('رقم التعقيب')).toBeInTheDocument();
+    });
+    expect(onDirtyChange).toHaveBeenCalledWith(false);
+  });
+
+  it('becomes dirty when followUpDate changes only', async () => {
+    const user = userEvent.setup();
+    render(
+      <FollowUpFormPanel
+        transactionId={1}
+        onDirtyChange={onDirtyChange}
+        onSuccess={onSuccess}
+        onCancel={onCancel}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByLabelText('تاريخ التعقيب')).toBeInTheDocument());
+    const dateInput = screen.getByLabelText('تاريخ التعقيب');
+    const originalDate = (dateInput as HTMLInputElement).value;
+    onDirtyChange.mockClear();
+
+    await user.clear(dateInput);
+    await user.type(dateInput, '2025-11-15');
+
+    await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(true));
+
+    onDirtyChange.mockClear();
+    await user.clear(dateInput);
+    await user.type(dateInput, originalDate);
+
+    await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(false));
+  });
+
+  it('becomes dirty when departments change only', async () => {
+    const user = userEvent.setup();
+    render(
+      <FollowUpFormPanel
+        transactionId={1}
+        onDirtyChange={onDirtyChange}
+        onSuccess={onSuccess}
+        onCancel={onCancel}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByLabelText('إدارة ب')).toBeInTheDocument());
+    onDirtyChange.mockClear();
+
+    await user.click(screen.getByLabelText('إدارة ب'));
+
+    await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(true));
+
+    onDirtyChange.mockClear();
+    await user.click(screen.getByLabelText('إدارة ب'));
+
+    await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(false));
+  });
 });

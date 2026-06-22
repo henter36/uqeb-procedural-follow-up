@@ -1,9 +1,35 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { Department } from '../../api/types';
 import { transactionsApi } from '../../api/services';
 import { buildCreateAssignmentPayload, getApiErrorMessage } from '../../utils/apiHelpers';
 import { addDaysIso } from '../../utils/localDate';
 import { Alert } from '../ui';
+
+type AssignmentFormState = {
+  departmentId: string;
+  assignedDate: string;
+  requiredAction: string;
+  replyDueDays: string | number;
+  dueDate: string;
+};
+
+function createInitialAssignmentForm(): AssignmentFormState {
+  return {
+    departmentId: '',
+    assignedDate: new Date().toISOString().split('T')[0],
+    requiredAction: '',
+    replyDueDays: '',
+    dueDate: '',
+  };
+}
+
+function isAssignmentFormDirty(current: AssignmentFormState, initial: AssignmentFormState): boolean {
+  return current.departmentId !== initial.departmentId
+    || current.assignedDate !== initial.assignedDate
+    || current.requiredAction !== initial.requiredAction
+    || current.replyDueDays !== initial.replyDueDays
+    || current.dueDate !== initial.dueDate;
+}
 
 type AssignmentFormPanelProps = Readonly<{
   transactionId: number;
@@ -22,21 +48,14 @@ export default function AssignmentFormPanel({
   onSuccess,
   onCancel,
 }: AssignmentFormPanelProps) {
-  const [form, setForm] = useState({
-    departmentId: '',
-    assignedDate: new Date().toISOString().split('T')[0],
-    requiredAction: '',
-    replyDueDays: '' as string | number,
-    dueDate: '',
-  });
+  const initialForm = createInitialAssignmentForm();
+  const initialFormRef = useRef<AssignmentFormState>(initialForm);
+  const [form, setForm] = useState<AssignmentFormState>(initialForm);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    const dirty = Boolean(
-      form.departmentId || form.requiredAction || form.replyDueDays || form.dueDate,
-    );
-    onDirtyChange(dirty);
+    onDirtyChange(isAssignmentFormDirty(form, initialFormRef.current));
   }, [form, onDirtyChange]);
 
   const expectedDueDate = form.replyDueDays
@@ -62,7 +81,7 @@ export default function AssignmentFormPanel({
     }
   };
 
-  const update = (patch: Partial<typeof form>) => setForm((prev) => ({ ...prev, ...patch }));
+  const update = (patch: Partial<AssignmentFormState>) => setForm((prev) => ({ ...prev, ...patch }));
 
   return (
     <form onSubmit={submit} className="workspace-form">

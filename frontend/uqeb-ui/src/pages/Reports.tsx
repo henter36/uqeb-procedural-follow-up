@@ -115,7 +115,7 @@ export default function ReportsPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [sectionCounts, setSectionCounts] = useState<ReportSectionCounts | null>(null);
-  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [summaryReadyToken, setSummaryReadyToken] = useState('');
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [summaryRetryKey, setSummaryRetryKey] = useState(0);
   const [categoryReport, setCategoryReport] = useState<{ categoryName: string; count: number }[]>([]);
@@ -123,8 +123,8 @@ export default function ReportsPage() {
   const [outgoingDeptReport, setOutgoingDeptReport] = useState<OutgoingDepartmentReport[]>([]);
   const [deptSummary, setDeptSummary] = useState<DepartmentSummaryReport[]>([]);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
-  const [analyticsLoading, setAnalyticsLoading] = useState(false);
-  const [analyticsLoaded, setAnalyticsLoaded] = useState(false);
+  const [analyticsReadyKey, setAnalyticsReadyKey] = useState<string | null>(null);
+  const [analyticsHasData, setAnalyticsHasData] = useState(false);
   const [analyticsUpdatedAt, setAnalyticsUpdatedAt] = useState<Date | null>(null);
   const [monthly, setMonthly] = useState<{ month: number; incomingCount: number; outgoingCount: number }[]>([]);
   const [monthlyLoaded, setMonthlyLoaded] = useState(false);
@@ -183,6 +183,10 @@ export default function ReportsPage() {
   }, [appliedFilters, debouncedSearch]);
 
   const filterKey = useMemo(() => JSON.stringify(filterParams()), [filterParams]);
+  const summaryToken = `${filterKey}:${summaryRetryKey}`;
+  const summaryLoading = summaryReadyToken !== summaryToken;
+  const analyticsLoading = analyticsReadyKey !== filterKey;
+  const analyticsLoaded = analyticsReadyKey === filterKey && analyticsHasData;
 
   const loadTabDetails = useCallback(async (
     tabKey: ReportTab,
@@ -252,12 +256,14 @@ export default function ReportsPage() {
     summaryAbortRef.current?.abort();
     const controller = new AbortController();
     summaryAbortRef.current = controller;
+    const token = summaryToken;
 
-    setSummaryLoading(true);
-    setSummaryError(null);
     reportsApi.pageSummary(filterParams(), { signal: controller.signal })
       .then((res) => {
-        if (!controller.signal.aborted) setSectionCounts(res.data);
+        if (!controller.signal.aborted) {
+          setSectionCounts(res.data);
+          setSummaryError(null);
+        }
       })
       .catch((err) => {
         if (controller.signal.aborted || (isAxiosError(err) && err.code === 'ERR_CANCELED')) return;
@@ -265,22 +271,16 @@ export default function ReportsPage() {
         setSummaryError('تعذر تحميل ملخص التقارير');
       })
       .finally(() => {
-        if (!controller.signal.aborted) setSummaryLoading(false);
+        if (!controller.signal.aborted) setSummaryReadyToken(token);
       });
 
     return () => controller.abort();
-  }, [filterKey, summaryRetryKey, filterParams]);
+  }, [filterKey, summaryRetryKey, filterParams, summaryToken]);
 
-  const loadAnalytics = useCallback(() => {
+  const runAnalyticsFetch = useCallback((targetKey: string) => {
     const requestId = ++analyticsRequestIdRef.current;
-    setAnalyticsLoading(true);
-    setAnalyticsError(null);
-    setCategoryReport([]);
-    setIncomingReport([]);
-    setOutgoingDeptReport([]);
-    setDeptSummary([]);
     const p = filterParams();
-    void Promise.all([
+    return Promise.all([
       reportsApi.byCategory(p),
       reportsApi.byIncomingParty(p),
       reportsApi.byOutgoingDepartment(p),
@@ -292,20 +292,23 @@ export default function ReportsPage() {
         setIncomingReport(inc.data as typeof incomingReport);
         setOutgoingDeptReport(out.data);
         setDeptSummary(dept.data);
-        setAnalyticsLoaded(true);
+        setAnalyticsHasData(true);
         setAnalyticsUpdatedAt(new Date());
         setAnalyticsError(null);
+        setAnalyticsReadyKey(targetKey);
       })
       .catch(() => {
         if (requestId !== analyticsRequestIdRef.current) return;
-        setAnalyticsLoaded(false);
+        setAnalyticsHasData(false);
         setAnalyticsError('تعذر تحميل التحليلات. حاول مرة أخرى.');
-      })
-      .finally(() => {
-        if (requestId !== analyticsRequestIdRef.current) return;
-        setAnalyticsLoading(false);
+        setAnalyticsReadyKey(targetKey);
       });
   }, [filterParams]);
+
+  const loadAnalytics = useCallback(() => {
+    setAnalyticsReadyKey(null);
+    void runAnalyticsFetch(filterKey);
+  }, [filterKey, runAnalyticsFetch]);
 
   useEffect(() => {
     const el = monthlyRef.current;
@@ -326,8 +329,8 @@ export default function ReportsPage() {
   }, [year, monthlyLoaded]);
 
   useEffect(() => {
-    loadAnalytics();
-  }, [filterKey, loadAnalytics]);
+    void runAnalyticsFetch(filterKey);
+  }, [filterKey, runAnalyticsFetch]);
 
   useEffect(() => {
     loadTabDetails(tab, 1, tabStatesRef.current[tab].pageSize, true);

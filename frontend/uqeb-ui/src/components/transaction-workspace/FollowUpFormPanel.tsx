@@ -1,11 +1,14 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { FollowUpDepartmentOption } from '../../api/types';
 import { transactionsApi } from '../../api/services';
 import { buildCreateFollowUpPayload, getApiErrorMessage } from '../../utils/apiHelpers';
+import { areSortedIdsEqual } from '../../utils/formDirty';
 import MultiSelect from '../MultiSelect';
 import { Alert, LoadingInline } from '../ui';
 import { formatDaysSince } from '../../utils/responseTiming';
 import { createInitialFollowUpForm, getDefaultDepartmentIds } from './followUpDepartments';
+
+type FollowUpFormState = ReturnType<typeof createInitialFollowUpForm>;
 
 type FollowUpFormPanelProps = Readonly<{
   transactionId: number;
@@ -20,6 +23,13 @@ async function loadFollowUpDepartments(transactionId: number): Promise<FollowUpD
   return response.data;
 }
 
+function isFollowUpFormDirty(current: FollowUpFormState, initial: FollowUpFormState): boolean {
+  return current.followUpNumber !== initial.followUpNumber
+    || current.notes !== initial.notes
+    || current.followUpDate !== initial.followUpDate
+    || !areSortedIdsEqual(current.departmentIds, initial.departmentIds);
+}
+
 export default function FollowUpFormPanel({
   transactionId,
   daysSinceLastFollowUp,
@@ -29,9 +39,10 @@ export default function FollowUpFormPanel({
 }: FollowUpFormPanelProps) {
   const [options, setOptions] = useState<FollowUpDepartmentOption[]>([]);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState(createInitialFollowUpForm([]));
+  const [form, setForm] = useState<FollowUpFormState>(() => createInitialFollowUpForm([]));
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const initialFormRef = useRef<FollowUpFormState | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -41,8 +52,11 @@ export default function FollowUpFormPanel({
         const departments = await loadFollowUpDepartments(transactionId);
         if (!active) return;
         const defaultIds = getDefaultDepartmentIds(departments);
+        const initial = createInitialFollowUpForm(defaultIds);
+        initialFormRef.current = initial;
         setOptions(departments);
-        setForm(createInitialFollowUpForm(defaultIds));
+        setForm(initial);
+        onDirtyChange(false);
       } catch {
         if (active) setError('تعذر تحميل الإدارات المتاحة');
       } finally {
@@ -52,12 +66,15 @@ export default function FollowUpFormPanel({
 
     void load();
     return () => { active = false; };
-  }, [transactionId]);
+  }, [transactionId, onDirtyChange]);
 
   useEffect(() => {
-    const dirty = Boolean(form.followUpNumber.trim() || form.notes.trim());
-    onDirtyChange(dirty);
-  }, [form.followUpNumber, form.notes, onDirtyChange]);
+    if (!initialFormRef.current) {
+      onDirtyChange(false);
+      return;
+    }
+    onDirtyChange(isFollowUpFormDirty(form, initialFormRef.current));
+  }, [form, onDirtyChange]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();

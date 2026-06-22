@@ -1,22 +1,10 @@
-import {
-  createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode,
-} from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { categoriesApi, departmentsApi, externalPartiesApi } from '../api/services';
-import type { Category, Department, ExternalParty } from '../api/types';
-
-type ReferenceDataState = {
-  departments: Department[];
-  categories: Category[];
-  parties: ExternalParty[];
-  loading: boolean;
-  error: string | null;
-};
-
-type ReferenceDataContextValue = ReferenceDataState & {
-  refresh: () => void;
-};
-
-const ReferenceDataContext = createContext<ReferenceDataContextValue | null>(null);
+import {
+  ReferenceDataContext,
+  type ReferenceDataContextValue,
+  type ReferenceDataState,
+} from './referenceDataStore';
 
 const EMPTY_STATE: ReferenceDataState = {
   departments: [],
@@ -119,10 +107,4 @@ export function ReferenceDataProvider({ children }: Readonly<{ children: ReactNo
       {children}
     </ReferenceDataContext.Provider>
   );
-}
-
-export function useReferenceData(): ReferenceDataContextValue {
-  const ctx = useContext(ReferenceDataContext);
-  if (!ctx) throw new Error('useReferenceData must be used within ReferenceDataProvider');
-  return ctx;
 }

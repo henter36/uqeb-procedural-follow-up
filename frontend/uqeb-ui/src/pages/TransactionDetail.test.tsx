@@ -19,7 +19,7 @@ vi.mock('../context/AuthContext', () => ({
   useAuth: () => mockUseAuth(),
 }));
 
-vi.mock('../context/ReferenceDataContext', () => ({
+vi.mock('../hooks/useReferenceData', () => ({
   useReferenceData: () => ({
     departments: [{ id: 1, name: 'إدارة اختبار', isActive: true }],
     categories: [],
@@ -245,6 +245,27 @@ describe('TransactionDetailPage operational workspace', () => {
 
     expect(confirmSpy).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('region', { name: 'إضافة تحويل' })).toBeInTheDocument();
+  });
+
+  it('does not confirm after successful assignment save', async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(globalThis, 'confirm');
+    vi.mocked(services.transactionsApi.addAssignment).mockResolvedValue({ data: { id: 9 } } as never);
+
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'إضافة تحويل' })).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'إضافة تحويل' }));
+    await user.selectOptions(screen.getByLabelText('الإدارة *'), '1');
+    await user.type(screen.getByLabelText('الإجراء المطلوب'), 'مراجعة');
+    await user.click(screen.getByRole('button', { name: 'حفظ التحويل' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent('تم إضافة التحويل بنجاح');
+      expect(screen.queryByRole('region', { name: 'إضافة تحويل' })).not.toBeInTheDocument();
+    });
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(services.transactionsApi.addAssignment).toHaveBeenCalledTimes(1);
   });
 
   it('keeps success message when a secondary refresh fails', async () => {
