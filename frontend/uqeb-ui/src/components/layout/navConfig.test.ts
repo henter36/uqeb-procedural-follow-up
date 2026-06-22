@@ -42,4 +42,14 @@ describe('isNavActive', () => {
     expect(isNavActive(home, '/', '')).toBe(true);
     expect(isNavActive(home, '/transactions', '')).toBe(false);
   });
+
+  it('keeps /users active when a tab query is present', () => {
+    const usersItem = findItem('/users');
+    expect(isNavActive(usersItem, '/users', '?tab=permissions')).toBe(true);
+  });
+
+  it('keeps /security active when a tab query is present', () => {
+    const securityItem = findItem('/security');
+    expect(isNavActive(securityItem, '/security', '?tab=alerts')).toBe(true);
+  });
 });

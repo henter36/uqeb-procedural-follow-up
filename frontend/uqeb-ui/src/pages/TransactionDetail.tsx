@@ -65,30 +65,44 @@ type InitialLazyTabHandlers = Readonly<{
   onTabLoadingComplete: () => void;
 }>;
 
+type LazyTabLoadPlan = Readonly<{
+  load: (isMounted: () => boolean) => Promise<void>;
+  onError: () => void;
+}>;
+
+function resolveInitialLazyTabPlan(
+  tab: DetailTab,
+  handlers: InitialLazyTabHandlers,
+): LazyTabLoadPlan | null {
+  if (tab === 'attachments') {
+    return {
+      load: handlers.loadAttachmentsData,
+      onError: handlers.onAttachmentsError,
+    };
+  }
+  if (tab === 'audit' || tab === 'timeline') {
+    return {
+      load: handlers.loadAuditData,
+      onError: handlers.onAuditError,
+    };
+  }
+  return null;
+}
+
 async function loadInitialLazyTab(
   tab: DetailTab,
   isMounted: () => boolean,
   handlers: InitialLazyTabHandlers,
 ): Promise<void> {
-  if (tab === 'attachments') {
-    try {
-      await handlers.loadAttachmentsData(isMounted);
-    } catch {
-      if (isMounted()) handlers.onAttachmentsError();
-    } finally {
-      if (isMounted()) handlers.onTabLoadingComplete();
-    }
-    return;
-  }
+  const plan = resolveInitialLazyTabPlan(tab, handlers);
+  if (!plan) return;
 
-  if (tab === 'audit' || tab === 'timeline') {
-    try {
-      await handlers.loadAuditData(isMounted);
-    } catch {
-      if (isMounted()) handlers.onAuditError();
-    } finally {
-      if (isMounted()) handlers.onTabLoadingComplete();
-    }
+  try {
+    await plan.load(isMounted);
+  } catch {
+    if (isMounted()) plan.onError();
+  } finally {
+    if (isMounted()) handlers.onTabLoadingComplete();
   }
 }
 

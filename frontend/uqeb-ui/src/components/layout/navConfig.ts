@@ -124,8 +124,11 @@ export function isNavActive(item: NavItem, pathname: string, search: string): bo
   if (pathname !== itemPathname) return false;
 
   if (!normalizedItemQuery) {
-    const currentTab = new URLSearchParams(normalizedSearch.slice(1)).get('tab');
-    return !currentTab;
+    if (itemPathname === '/reports') {
+      const currentTab = new URLSearchParams(normalizedSearch.slice(1)).get('tab');
+      return !currentTab;
+    }
+    return true;
   }
 
   return false;

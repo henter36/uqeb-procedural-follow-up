@@ -21,7 +21,7 @@ function resolveActionRequiredView(
   if (detailsLoading && actionRequired === undefined) {
     return 'loading';
   }
-  if (actionRequired !== undefined && actionRequired.length === 0) {
+  if (actionRequired?.length === 0) {
     return 'empty';
   }
   return 'table';
