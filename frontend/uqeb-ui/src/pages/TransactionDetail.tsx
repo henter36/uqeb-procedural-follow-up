@@ -906,84 +906,136 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
 
       {activeTab === 'details' && detailsTabContent}
 
-      {activeTab === 'timeline' && auditTabLoading && <LoadingInline label="جاري تحميل الخط الزمني..." />}
-
-      {activeTab === 'timeline' && !auditTabLoading && auditTabError && (
-        <ErrorState
-          title={auditErrorTitle}
-          description={auditTabError}
-          action={(
-            <button type="button" className="btn btn-primary" onClick={loadAuditTabData}>
-              إعادة المحاولة
-            </button>
-          )}
+      {activeTab === 'timeline' && (
+        <TimelineAuditTabPanel
+          mode="timeline"
+          auditTabLoading={auditTabLoading}
+          auditTabError={auditTabError}
+          auditErrorTitle={auditErrorTitle}
+          timelineEvents={timelineEvents}
+          auditLogs={auditLogs}
+          auditHasMore={auditHasMore}
+          auditLoadingMore={auditLoadingMore}
+          auditPage={auditPage}
+          onRetry={loadAuditTabData}
+          onLoadMore={(page) => loadAuditLog(page, true)}
         />
       )}
 
-      {activeTab === 'timeline' && !auditTabLoading && !auditTabError && (
-        <div className="card">
-          <h3>الخط الزمني</h3>
-          <ActivityTimeline events={timelineEvents} emptyLabel="لا توجد أحداث مسجلة" />
-          {auditHasMore && (
-            <div className="mt-4">
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                disabled={auditLoadingMore}
-                onClick={() => loadAuditLog(auditPage + 1, true)}
-              >
-                {auditLoadingMore ? 'جاري التحميل...' : 'تحميل المزيد'}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {activeTab === 'audit' && auditTabLoading && <LoadingInline label="جاري تحميل سجل التدقيق..." />}
-
-      {activeTab === 'audit' && !auditTabLoading && auditTabError && (
-        <ErrorState
-          title={auditErrorTitle}
-          description={auditTabError}
-          action={(
-            <button type="button" className="btn btn-primary" onClick={loadAuditTabData}>
-              إعادة المحاولة
-            </button>
-          )}
+      {activeTab === 'audit' && (
+        <TimelineAuditTabPanel
+          mode="audit"
+          auditTabLoading={auditTabLoading}
+          auditTabError={auditTabError}
+          auditErrorTitle={auditErrorTitle}
+          timelineEvents={timelineEvents}
+          auditLogs={auditLogs}
+          auditHasMore={auditHasMore}
+          auditLoadingMore={auditLoadingMore}
+          auditPage={auditPage}
+          onRetry={loadAuditTabData}
+          onLoadMore={(page) => loadAuditLog(page, true)}
         />
       )}
+    </div>
+  );
+}
 
-      {activeTab === 'audit' && !auditTabLoading && !auditTabError && (
-        <div className="card">
-          <h3>سجل التدقيق</h3>
-          <div className="table-wrapper">
-            <table className="data-table">
-              <thead><tr><th>الإجراء</th><th>المستخدم</th><th>التاريخ</th><th>التفاصيل</th></tr></thead>
-              <tbody>
-                {auditLogs.map((log) => (
-                  <tr key={log.id}>
-                    <td>{auditActionLabels[log.action] || log.action}</td>
-                    <td>{log.userName}</td>
-                    <td><DateDisplay date={log.createdAt} /></td>
-                    <td>{log.newValue || log.oldValue || '—'}</td>
-                  </tr>
-                ))}
-                {auditLogs.length === 0 && <tr><td colSpan={4} className="text-center">لا توجد سجلات</td></tr>}
-              </tbody>
-            </table>
+type TimelineAuditTabPanelProps = Readonly<{
+  mode: 'timeline' | 'audit';
+  auditTabLoading: boolean;
+  auditTabError: string;
+  auditErrorTitle: string;
+  timelineEvents: TimelineEvent[];
+  auditLogs: AuditLog[];
+  auditHasMore: boolean;
+  auditLoadingMore: boolean;
+  auditPage: number;
+  onRetry: () => void;
+  onLoadMore: (page: number) => void;
+}>;
+
+function TimelineAuditTabPanel({
+  mode,
+  auditTabLoading,
+  auditTabError,
+  auditErrorTitle,
+  timelineEvents,
+  auditLogs,
+  auditHasMore,
+  auditLoadingMore,
+  auditPage,
+  onRetry,
+  onLoadMore,
+}: TimelineAuditTabPanelProps) {
+  const loadingLabel = mode === 'timeline' ? 'جاري تحميل الخط الزمني...' : 'جاري تحميل سجل التدقيق...';
+
+  if (auditTabLoading) return <LoadingInline label={loadingLabel} />;
+
+  if (auditTabError) {
+    return (
+      <ErrorState
+        title={auditErrorTitle}
+        description={auditTabError}
+        action={(
+          <button type="button" className="btn btn-primary" onClick={onRetry}>
+            إعادة المحاولة
+          </button>
+        )}
+      />
+    );
+  }
+
+  if (mode === 'timeline') {
+    return (
+      <div className="card">
+        <h3>الخط الزمني</h3>
+        <ActivityTimeline events={timelineEvents} emptyLabel="لا توجد أحداث مسجلة" />
+        {auditHasMore && (
+          <div className="mt-4">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={auditLoadingMore}
+              onClick={() => onLoadMore(auditPage + 1)}
+            >
+              {auditLoadingMore ? 'جاري التحميل...' : 'تحميل المزيد'}
+            </button>
           </div>
-          {auditHasMore && (
-            <div className="mt-2">
-              <button
-                type="button"
-                className="btn btn-secondary"
-                disabled={auditLoadingMore}
-                onClick={() => loadAuditLog(auditPage + 1, true)}
-              >
-                {auditLoadingMore ? 'جاري التحميل...' : 'تحميل المزيد'}
-              </button>
-            </div>
-          )}
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="card">
+      <h3>سجل التدقيق</h3>
+      <div className="table-wrapper">
+        <table className="data-table">
+          <thead><tr><th>الإجراء</th><th>المستخدم</th><th>التاريخ</th><th>التفاصيل</th></tr></thead>
+          <tbody>
+            {auditLogs.map((log) => (
+              <tr key={log.id}>
+                <td>{auditActionLabels[log.action] || log.action}</td>
+                <td>{log.userName}</td>
+                <td><DateDisplay date={log.createdAt} /></td>
+                <td>{log.newValue || log.oldValue || '—'}</td>
+              </tr>
+            ))}
+            {auditLogs.length === 0 && <tr><td colSpan={4} className="text-center">لا توجد سجلات</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      {auditHasMore && (
+        <div className="mt-2">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={auditLoadingMore}
+            onClick={() => onLoadMore(auditPage + 1)}
+          >
+            {auditLoadingMore ? 'جاري التحميل...' : 'تحميل المزيد'}
+          </button>
         </div>
       )}
     </div>

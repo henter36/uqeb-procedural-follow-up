@@ -495,7 +495,10 @@
 }
 
 .transaction-details-stack {
-  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-top: var(--space-3);
 }
 
 .card-header h3 {
@@ -1491,13 +1494,6 @@
 }
 
 /* ── Transaction detail tab layout ── */
-.transaction-details-stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  margin-top: var(--space-3);
-}
-
 .transaction-hero-card {
   padding: var(--space-5);
 }
