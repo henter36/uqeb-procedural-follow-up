@@ -117,26 +117,46 @@ export const reportsApi = {
 
 export const categoriesApi = {
   getAll: (activeOnly = true) => api.get<Category[]>('/categories', { params: { activeOnly } }),
+  search: (params: import('./types').ReferenceDataListParams) =>
+    api.get<PagedResult<Category>>('/categories', { params }),
+  lookup: (search?: string, activeOnly = true, limit = 50) =>
+    api.get<import('./types').LookupItem[]>('/categories/lookup', { params: { search, activeOnly, limit } }),
+  getById: (id: number) => api.get<Category>(`/categories/${id}`),
   create: (data: Record<string, unknown>) => api.post<Category>('/categories', data),
   update: (id: number, data: Record<string, unknown>) => api.put<Category>(`/categories/${id}`, data),
 };
 
 export const departmentsApi = {
   getAll: (activeOnly = true) => api.get<Department[]>('/departments', { params: { activeOnly } }),
+  search: (params: import('./types').ReferenceDataListParams) =>
+    api.get<PagedResult<Department>>('/departments', { params }),
+  lookup: (search?: string, activeOnly = true, limit = 50) =>
+    api.get<import('./types').LookupItem[]>('/departments/lookup', { params: { search, activeOnly, limit } }),
+  getById: (id: number) => api.get<Department>(`/departments/${id}`),
   create: (data: Record<string, unknown>) => api.post<Department>('/departments', data),
   update: (id: number, data: Record<string, unknown>) => api.put<Department>(`/departments/${id}`, data),
 };
 
 export const externalPartiesApi = {
   getAll: (activeOnly = true) => api.get<ExternalParty[]>('/external-parties', { params: { activeOnly } }),
+  search: (params: import('./types').ReferenceDataListParams) =>
+    api.get<PagedResult<ExternalParty>>('/external-parties', { params }),
+  lookup: (search?: string, activeOnly = true, limit = 50) =>
+    api.get<import('./types').LookupItem[]>('/external-parties/lookup', { params: { search, activeOnly, limit } }),
+  getById: (id: number) => api.get<ExternalParty>(`/external-parties/${id}`),
   create: (data: Record<string, unknown>) => api.post<ExternalParty>('/external-parties', data),
   update: (id: number, data: Record<string, unknown>) => api.put<ExternalParty>(`/external-parties/${id}`, data),
 };
 
 export const usersApi = {
   getAll: () => api.get<User[]>('/users'),
+  search: (params: import('./types').ReferenceDataListParams) =>
+    api.get<PagedResult<User>>('/users', { params }),
+  getById: (id: number) => api.get<User>(`/users/${id}`),
   create: (data: Record<string, unknown>) => api.post<User>('/users', data),
   update: (id: number, data: Record<string, unknown>) => api.put<User>(`/users/${id}`, data),
+  resetPassword: (id: number, newPassword: string) =>
+    api.post(`/users/${id}/reset-password`, { newPassword }),
 };
 
 export const letterTemplatesApi = {

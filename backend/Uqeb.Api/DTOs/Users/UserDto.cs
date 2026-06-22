@@ -10,6 +10,7 @@ public class UserDto
     public int? DepartmentId { get; set; }
     public string? DepartmentName { get; set; }
     public bool IsActive { get; set; }
+    public DateTime CreatedAt { get; set; }
 }
 
 public class CreateUserRequest
@@ -24,10 +25,16 @@ public class CreateUserRequest
 
 public class UpdateUserRequest
 {
+    public string? Username { get; set; }
     public string? FullName { get; set; }
     public string? Email { get; set; }
     public string? Role { get; set; }
     public int? DepartmentId { get; set; }
     public bool? IsActive { get; set; }
     public string? Password { get; set; }
+}
+
+public class ResetPasswordRequest
+{
+    public string NewPassword { get; set; } = string.Empty;
 }

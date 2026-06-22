@@ -12,6 +12,7 @@ export interface Category {
   name: string;
   code?: string;
   isActive: boolean;
+  createdAt?: string;
 }
 
 export interface OutgoingParty {
@@ -264,6 +265,7 @@ export interface Department {
   name: string;
   code?: string;
   isActive: boolean;
+  createdAt?: string;
 }
 
 export interface ExternalParty {
@@ -272,6 +274,7 @@ export interface ExternalParty {
   type?: string;
   contactInfo?: string;
   isActive: boolean;
+  createdAt?: string;
 }
 
 export interface User {
@@ -283,7 +286,24 @@ export interface User {
   departmentId?: number;
   departmentName?: string;
   isActive: boolean;
+  createdAt?: string;
 }
+
+export interface LookupItem {
+  id: number;
+  name: string;
+  isActive: boolean;
+  subLabel?: string;
+}
+
+export type ReferenceDataListParams = {
+  search?: string;
+  status?: string;
+  sortBy?: string;
+  sortDesc?: boolean;
+  page?: number;
+  pageSize?: number;
+};
 
 export interface LetterTemplate {
   id: number;

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { transactionsApi, departmentsApi, categoriesApi, externalPartiesApi } from '../api/services';
@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { statusLabels, statusBadgeClass } from '../utils/labels';
 import DateDisplay from '../components/DateDisplay';
 import DepartmentBadges from '../components/DepartmentBadges';
+import SearchableSelect, { type SelectOption } from '../components/SearchableSelect';
 import { responseTimingBadgeClass } from '../utils/responseTiming';
 
 type SortKey =
@@ -122,6 +123,19 @@ export default function TransactionsList() {
     sortDesc: true,
   });
 
+  const partyOptions: SelectOption[] = useMemo(
+    () => parties.map((p) => ({ id: p.id, name: p.name, isActive: p.isActive })),
+    [parties],
+  );
+  const departmentOptions: SelectOption[] = useMemo(
+    () => departments.map((d) => ({ id: d.id, name: d.name, isActive: d.isActive, subLabel: d.code })),
+    [departments],
+  );
+  const categoryOptions: SelectOption[] = useMemo(
+    () => categories.map((c) => ({ id: c.id, name: c.name, isActive: c.isActive, subLabel: c.code })),
+    [categories],
+  );
+
   const load = (override?: Partial<FiltersState>) => {
     const active = { ...filters, ...override };
     setLoading(true);
@@ -184,29 +198,41 @@ export default function TransactionsList() {
             <option value="Internal">داخلية</option>
           </select>
           {filters.incomingSourceType === 'External' && (
-            <select value={filters.incomingFromPartyId} onChange={(e) => setFilters({ ...filters, incomingFromPartyId: e.target.value })}>
-              <option value="">الجهة الخارجية</option>
-              {parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            <SearchableSelect
+              label="الجهة الخارجية"
+              value={filters.incomingFromPartyId ? +filters.incomingFromPartyId : ''}
+              onChange={(id) => setFilters({ ...filters, incomingFromPartyId: id === '' ? '' : String(id) })}
+              options={partyOptions}
+              allowClear
+            />
           )}
           {filters.incomingSourceType === 'Internal' && (
-            <select value={filters.incomingFromDepartmentId} onChange={(e) => setFilters({ ...filters, incomingFromDepartmentId: e.target.value })}>
-              <option value="">الإدارة الواردة منها</option>
-              {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
+            <SearchableSelect
+              label="الإدارة الواردة منها"
+              value={filters.incomingFromDepartmentId ? +filters.incomingFromDepartmentId : ''}
+              onChange={(id) => setFilters({ ...filters, incomingFromDepartmentId: id === '' ? '' : String(id) })}
+              options={departmentOptions}
+              allowClear
+            />
           )}
           <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
             <option value="">كل الحالات</option>
             {Object.entries(statusLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
-          <select value={filters.categoryId} onChange={(e) => setFilters({ ...filters, categoryId: e.target.value })}>
-            <option value="">كل التصنيفات</option>
-            {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-          <select value={filters.departmentId} onChange={(e) => setFilters({ ...filters, departmentId: e.target.value })}>
-            <option value="">كل الإدارات (تحويل)</option>
-            {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
+          <SearchableSelect
+            label="التصنيف"
+            value={filters.categoryId ? +filters.categoryId : ''}
+            onChange={(id) => setFilters({ ...filters, categoryId: id === '' ? '' : String(id) })}
+            options={categoryOptions}
+            allowClear
+          />
+          <SearchableSelect
+            label="الإدارة (تحويل)"
+            value={filters.departmentId ? +filters.departmentId : ''}
+            onChange={(id) => setFilters({ ...filters, departmentId: id === '' ? '' : String(id) })}
+            options={departmentOptions}
+            allowClear
+          />
           <input type="date" value={filters.dateFrom} onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })} />
           <input type="date" value={filters.dateTo} onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })} />
           <select value={filters.requiresResponse} onChange={(e) => setFilters({ ...filters, requiresResponse: e.target.value })}>

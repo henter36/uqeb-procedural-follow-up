@@ -1,0 +1,60 @@
+.searchable-select { position: relative; margin-bottom: 0.75rem; }
+.searchable-select label { display: block; margin-bottom: 0.35rem; font-weight: 600; }
+.searchable-select-control { display: flex; align-items: center; gap: 0.25rem; }
+.searchable-select input[type="text"] {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--gray-300);
+  border-radius: 6px;
+}
+.searchable-select-clear {
+  border: none;
+  background: var(--gray-100);
+  border-radius: 50%;
+  width: 1.75rem;
+  height: 1.75rem;
+  cursor: pointer;
+}
+.searchable-select-list {
+  position: absolute;
+  z-index: 20;
+  inset-inline: 0;
+  top: calc(100% + 2px);
+  max-height: 240px;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid var(--gray-200);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem 0;
+}
+.searchable-select-option {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: start;
+  font: inherit;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: space-between;
+}
+.searchable-select-option.is-highlighted,
+.searchable-select-option:hover { background: var(--gray-50); }
+.searchable-select-option.is-selected { background: #eff6ff; }
+.searchable-select-empty { padding: 0.75rem; color: var(--gray-500); }
+.searchable-select-sublabel { font-size: 0.8rem; color: var(--gray-500); }
+.inactive-tag { font-size: 0.75rem; color: #991b1b; }
+.searchable-select.is-disabled { opacity: 0.6; pointer-events: none; }
+.reference-toolbar { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
+.reference-toolbar input, .reference-toolbar select { min-width: 180px; }
+.table-actions { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+.btn-sm { padding: 0.25rem 0.6rem; font-size: 0.85rem; }
+.pagination { display: flex; gap: 1rem; align-items: center; justify-content: center; margin: 1rem 0; }
+.field-error { color: #991b1b; font-size: 0.85rem; margin-top: 0.25rem; }
+.multi-select-search { width: 100%; margin-bottom: 0.5rem; }
+.multi-select-item.is-inactive { opacity: 0.85; }
