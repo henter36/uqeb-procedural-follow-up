@@ -13,6 +13,7 @@ import { formatDualDate, formatHijri } from '../utils/dateUtils';
 import MultiSelect from '../components/MultiSelect';
 import SearchableSelect, { type SelectOption } from '../components/SearchableSelect';
 import { PageHeader, FormSection, Alert, LoadingInline } from '../components/ui';
+import { todayLocalIso } from '../utils/localDate';
 
 interface Props { mode: 'create' | 'edit' }
 
@@ -35,7 +36,7 @@ export default function TransactionForm({ mode }: Props) {
   const [loading, setLoading] = useState(mode === 'edit');
   const [referenceLoading, setReferenceLoading] = useState(true);
   const [form, setForm] = useState({
-    incomingNumber: '', incomingDate: new Date().toISOString().split('T')[0],
+    incomingNumber: '', incomingDate: todayLocalIso(),
     subject: '',
     incomingSourceType: 'External' as 'External' | 'Internal',
     incomingFromPartyId: '' as string | number,

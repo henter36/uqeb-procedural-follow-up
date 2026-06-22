@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { Department } from '../../api/types';
 import { transactionsApi } from '../../api/services';
 import { buildCreateAssignmentPayload, getApiErrorMessage } from '../../utils/apiHelpers';
-import { addDaysIso } from '../../utils/localDate';
+import { addDaysIso, todayLocalIso } from '../../utils/localDate';
 import { Alert } from '../ui';
 
 type AssignmentFormState = {
@@ -16,7 +16,7 @@ type AssignmentFormState = {
 function createInitialAssignmentForm(): AssignmentFormState {
   return {
     departmentId: '',
-    assignedDate: new Date().toISOString().split('T')[0],
+    assignedDate: todayLocalIso(),
     requiredAction: '',
     replyDueDays: '',
     dueDate: '',

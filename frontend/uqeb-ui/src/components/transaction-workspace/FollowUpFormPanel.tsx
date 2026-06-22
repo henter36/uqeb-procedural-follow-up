@@ -47,6 +47,13 @@ export default function FollowUpFormPanel({
   useEffect(() => {
     let active = true;
 
+    setLoading(true);
+    setError('');
+    setOptions([]);
+    initialFormRef.current = null;
+    setForm(createInitialFollowUpForm([]));
+    onDirtyChange(false);
+
     const load = async () => {
       try {
         const departments = await loadFollowUpDepartments(transactionId);
@@ -80,7 +87,7 @@ export default function FollowUpFormPanel({
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (isSubmitting) return;
+    if (isSubmitting || loading || !initialFormRef.current) return;
     if (form.departmentIds.length === 0) {
       setError('يجب اختيار إدارة واحدة على الأقل لإرسال التعقيب.');
       return;
@@ -142,7 +149,7 @@ export default function FollowUpFormPanel({
       )}
       <div className="form-actions">
         {options.length > 0 && (
-          <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+          <button type="submit" className="btn btn-primary" disabled={isSubmitting || loading}>
             {isSubmitting ? 'جاري الحفظ...' : 'حفظ التعقيب'}
           </button>
         )}

@@ -1,4 +1,5 @@
 import type { FollowUpDepartmentOption } from '../../api/types';
+import { todayLocalIso } from '../../utils/localDate';
 
 export function getDefaultDepartmentIds(options: FollowUpDepartmentOption[]): number[] {
   return options
@@ -8,7 +9,7 @@ export function getDefaultDepartmentIds(options: FollowUpDepartmentOption[]): nu
 
 export function createInitialFollowUpForm(departmentIds: number[]) {
   return {
-    followUpDate: new Date().toISOString().split('T')[0],
+    followUpDate: todayLocalIso(),
     notes: '',
     followUpNumber: '',
     departmentIds,

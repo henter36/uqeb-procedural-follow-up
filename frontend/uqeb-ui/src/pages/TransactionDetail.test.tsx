@@ -179,6 +179,7 @@ describe('TransactionDetailPage three-tab layout', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     cleanup();
   });
 
@@ -360,6 +361,7 @@ describe('TransactionDetailPage card interaction flows', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     cleanup();
   });
 
@@ -632,6 +634,7 @@ describe('TransactionDetailPage operational workspace', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     cleanup();
   });
 
@@ -698,10 +701,13 @@ describe('TransactionDetailPage permissions', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     cleanup();
   });
 
   it('hides mutation actions for reader role across cards and action bar', async () => {
+    expect(vi.isMockFunction(globalThis.confirm)).toBe(false);
+
     renderDetail();
 
     await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'IN-1' })).toBeInTheDocument());

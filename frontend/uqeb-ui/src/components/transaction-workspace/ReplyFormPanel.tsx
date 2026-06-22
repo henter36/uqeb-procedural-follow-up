@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { buildReplyPayload, getApiErrorMessage } from '../../utils/apiHelpers';
+import { todayLocalIso } from '../../utils/localDate';
 import { Alert } from '../ui';
 
 type ReplyFormPanelProps = Readonly<{
@@ -17,7 +18,7 @@ export default function ReplyFormPanel({
   onSuccess,
   onCancel,
 }: ReplyFormPanelProps) {
-  const [form, setForm] = useState({ replyDate: new Date().toISOString().split('T')[0], replySummary: '' });
+  const [form, setForm] = useState({ replyDate: todayLocalIso(), replySummary: '' });
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 

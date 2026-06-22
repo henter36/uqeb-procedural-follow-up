@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { transactionsApi } from '../../api/services';
 import { buildCompleteResponsePayload, getApiErrorMessage } from '../../utils/apiHelpers';
+import { todayLocalIso } from '../../utils/localDate';
 import { Alert } from '../ui';
 
 export type CompleteResponseSuccessResult = Readonly<{
@@ -26,10 +27,10 @@ export default function CompleteResponseFormPanel({
 }: CompleteResponseFormPanelProps) {
   const requiresOutgoing = responseType === 'External' || responseType === 'Both';
   const [form, setForm] = useState({
-    responseDate: new Date().toISOString().split('T')[0],
+    responseDate: todayLocalIso(),
     responseSummary: '',
     outgoingNumber: '',
-    outgoingDate: new Date().toISOString().split('T')[0],
+    outgoingDate: todayLocalIso(),
   });
   const [attachment, setAttachment] = useState<File | null>(null);
   const [error, setError] = useState('');

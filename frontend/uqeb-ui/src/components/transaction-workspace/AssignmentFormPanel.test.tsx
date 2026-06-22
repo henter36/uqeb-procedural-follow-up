@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AssignmentFormPanel from './AssignmentFormPanel';
 import * as services from '../../api/services';
+import { todayLocalIso } from '../../utils/localDate';
 
 vi.mock('../../api/services', () => ({
   transactionsApi: {
@@ -41,6 +42,7 @@ describe('AssignmentFormPanel dirty state', () => {
     await waitFor(() => {
       expect(onDirtyChange).toHaveBeenCalledWith(false);
     });
+    expect(screen.getByLabelText('تاريخ التحويل')).toHaveValue(todayLocalIso());
   });
 
   it('becomes dirty when assignedDate changes', async () => {

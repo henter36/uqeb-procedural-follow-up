@@ -188,4 +188,38 @@ describe('FollowUpFormPanel', () => {
 
     await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(false));
   });
+
+  it('clears stale departments when transactionId changes before the next load completes', async () => {
+    const departmentsTx2 = [
+      { departmentId: 9, departmentName: 'إدارة معاملة 2', isDefaultSelected: true },
+    ];
+    let resolveTx2: ((value: never) => void) | undefined;
+
+    vi.mocked(services.transactionsApi.getFollowUpDepartments)
+      .mockResolvedValueOnce({ data: departments } as never)
+      .mockImplementationOnce(
+        () => new Promise((resolve) => { resolveTx2 = resolve; }),
+      );
+
+    const props = {
+      onDirtyChange,
+      onSuccess,
+      onCancel,
+    };
+
+    const { rerender } = render(<FollowUpFormPanel transactionId={1} {...props} />);
+
+    await waitFor(() => expect(screen.getByLabelText('إدارة أ')).toBeInTheDocument());
+
+    rerender(<FollowUpFormPanel transactionId={2} {...props} />);
+
+    expect(screen.queryByLabelText('إدارة أ')).not.toBeInTheDocument();
+    expect(screen.getByText(/جاري تحميل الإدارات/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'حفظ التعقيب' })).not.toBeInTheDocument();
+    expect(onDirtyChange).toHaveBeenCalledWith(false);
+
+    resolveTx2!({ data: departmentsTx2 } as never);
+    await waitFor(() => expect(screen.getByLabelText('إدارة معاملة 2')).toBeInTheDocument());
+    expect(services.transactionsApi.getFollowUpDepartments).toHaveBeenLastCalledWith(2);
+  });
 });

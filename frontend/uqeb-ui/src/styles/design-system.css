@@ -489,8 +489,7 @@
   align-items: center;
 }
 
-.card + .card,
-.transaction-details-stack > .card {
+.card + .card {
   margin-top: 1rem;
 }
 
