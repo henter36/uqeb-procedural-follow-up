@@ -5,16 +5,18 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import TransactionDetailPage from './TransactionDetail';
 import * as services from '../api/services';
 
+const mockUseAuth = vi.fn(() => ({
+  canEdit: true,
+  canClose: true,
+  isDepartmentUser: false,
+  user: { fullName: 'مختبر', role: 'Admin' },
+  logout: vi.fn(),
+  login: vi.fn(),
+  isAdmin: true,
+}));
+
 vi.mock('../context/AuthContext', () => ({
-  useAuth: () => ({
-    canEdit: true,
-    canClose: true,
-    isDepartmentUser: false,
-    user: { fullName: 'مختبر', role: 'Admin' },
-    logout: vi.fn(),
-    login: vi.fn(),
-    isAdmin: true,
-  }),
+  useAuth: () => mockUseAuth(),
 }));
 
 vi.mock('../context/ReferenceDataContext', () => ({
@@ -89,6 +91,15 @@ function renderDetail(path = '/transactions/1') {
 describe('TransactionDetailPage tab loading', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseAuth.mockReturnValue({
+      canEdit: true,
+      canClose: true,
+      isDepartmentUser: false,
+      user: { fullName: 'مختبر', role: 'Admin' },
+      logout: vi.fn(),
+      login: vi.fn(),
+      isAdmin: true,
+    });
     vi.mocked(services.transactionsApi.getBasic).mockResolvedValue({ data: baseTx } as never);
     vi.mocked(services.transactionsApi.getAssignments).mockResolvedValue({ data: [] } as never);
     vi.mocked(services.transactionsApi.getFollowUps).mockResolvedValue({ data: [] } as never);
@@ -152,6 +163,15 @@ describe('TransactionDetailPage tab loading', () => {
 describe('TransactionDetailPage operational workspace', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseAuth.mockReturnValue({
+      canEdit: true,
+      canClose: true,
+      isDepartmentUser: false,
+      user: { fullName: 'مختبر', role: 'Admin' },
+      logout: vi.fn(),
+      login: vi.fn(),
+      isAdmin: true,
+    });
     vi.mocked(services.transactionsApi.getBasic).mockResolvedValue({ data: baseTx } as never);
     vi.mocked(services.transactionsApi.getAssignments).mockResolvedValue({ data: [] } as never);
     vi.mocked(services.transactionsApi.getFollowUps).mockResolvedValue({ data: [] } as never);
@@ -210,5 +230,93 @@ describe('TransactionDetailPage operational workspace', () => {
       expect(services.transactionsApi.addAssignment).toHaveBeenCalled();
       expect(screen.getByRole('status')).toHaveTextContent('تم إضافة التحويل بنجاح');
     });
+  });
+
+  it('shows confirm once when closing dirty assignment form', async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(globalThis, 'confirm').mockReturnValue(false);
+
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'إضافة تحويل' })).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'إضافة تحويل' }));
+    await user.selectOptions(screen.getByLabelText('الإدارة *'), '1');
+    await user.click(screen.getByRole('button', { name: 'إغلاق النموذج' }));
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('region', { name: 'إضافة تحويل' })).toBeInTheDocument();
+  });
+
+  it('keeps success message when a secondary refresh fails', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.addAssignment).mockResolvedValue({ data: { id: 9 } } as never);
+    let assignmentCalls = 0;
+    vi.mocked(services.transactionsApi.getAssignments).mockImplementation(async () => {
+      assignmentCalls += 1;
+      if (assignmentCalls === 2) {
+        throw new Error('refresh fail');
+      }
+      return { data: [] } as never;
+    });
+
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'إضافة تحويل' })).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'إضافة تحويل' }));
+    await user.selectOptions(screen.getByLabelText('الإدارة *'), '1');
+    await user.click(screen.getByRole('button', { name: 'حفظ التحويل' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent('تم إضافة التحويل بنجاح');
+    });
+    expect(screen.getByRole('heading', { level: 2, name: 'IN-1' })).toBeInTheDocument();
+  });
+});
+
+describe('TransactionDetailPage permissions', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseAuth.mockReturnValue({
+      canEdit: false,
+      canClose: false,
+      isDepartmentUser: false,
+      user: { fullName: 'قارئ', role: 'Reader' },
+      logout: vi.fn(),
+      login: vi.fn(),
+      isAdmin: false,
+    });
+    vi.mocked(services.transactionsApi.getBasic).mockResolvedValue({ data: baseTx } as never);
+    vi.mocked(services.transactionsApi.getAssignments).mockResolvedValue({ data: [] } as never);
+    vi.mocked(services.transactionsApi.getFollowUps).mockResolvedValue({ data: [] } as never);
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('hides mutation actions for reader role', async () => {
+    renderDetail();
+
+    await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'IN-1' })).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'إضافة تحويل' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'إضافة تعقيب' })).not.toBeInTheDocument();
+  });
+
+  it('hides admin mutation actions for department user', async () => {
+    mockUseAuth.mockReturnValue({
+      canEdit: true,
+      canClose: false,
+      isDepartmentUser: true,
+      user: { fullName: 'موظف', role: 'DepartmentUser' },
+      logout: vi.fn(),
+      login: vi.fn(),
+      isAdmin: false,
+    });
+
+    renderDetail();
+
+    await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'IN-1' })).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'إضافة تحويل' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'تعديل' })).not.toBeInTheDocument();
   });
 });

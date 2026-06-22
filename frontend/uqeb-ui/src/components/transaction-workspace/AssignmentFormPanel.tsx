@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import type { Department } from '../../api/types';
 import { transactionsApi } from '../../api/services';
 import { buildCreateAssignmentPayload, getApiErrorMessage } from '../../utils/apiHelpers';
+import { addDaysIso } from '../../utils/localDate';
 import { Alert } from '../ui';
 
 type AssignmentFormPanelProps = Readonly<{
@@ -12,12 +13,6 @@ type AssignmentFormPanelProps = Readonly<{
   onSuccess: () => void;
   onCancel: () => void;
 }>;
-
-function addDaysIso(baseDate: string, days: number): string {
-  const date = new Date(baseDate);
-  date.setDate(date.getDate() + days);
-  return date.toISOString().split('T')[0];
-}
 
 export default function AssignmentFormPanel({
   transactionId,

@@ -330,8 +330,9 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
 
   const refreshTimelineIfLoaded = useCallback(() => {
     if (loadedTabsRef.current.audit) {
-      void loadTab('audit', true);
+      return loadTab('audit', true);
     }
+    return Promise.resolve();
   }, [loadTab]);
 
   const closeAction = useCallback(() => {
@@ -362,12 +363,21 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     }
   }, [activeAction, closeAction, openAction]);
 
-  const handleActionSuccess = useCallback((successMessage: string, refreshers: Array<() => void | Promise<void>>) => {
+  const handleActionSuccess = useCallback(async (
+    successMessage: string,
+    refreshers: Array<() => void | Promise<void>>,
+  ) => {
     setMessage(successMessage);
     setError('');
     closeAction();
-    refreshers.forEach((fn) => { void fn(); });
-    refreshTimelineIfLoaded();
+    const results = await Promise.allSettled([
+      ...refreshers.map((refresh) => Promise.resolve(refresh())),
+      refreshTimelineIfLoaded(),
+    ]);
+    const allFailed = results.length > 0 && results.every((result) => result.status === 'rejected');
+    if (allFailed) {
+      setError('تم الحفظ لكن تعذر تحديث بعض الأقسام. حاول تحديث الصفحة.');
+    }
   }, [closeAction, refreshTimelineIfLoaded]);
 
   const handleClose = async () => {
@@ -617,7 +627,6 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
         <TransactionActionPanel
           title={actionPanelTitle[activeAction]}
           open
-          dirty={actionDirty}
           onClose={closeAction}
         >
           {activeAction === 'assignment' && (

@@ -5,6 +5,7 @@ import { buildCreateFollowUpPayload, getApiErrorMessage } from '../../utils/apiH
 import MultiSelect from '../MultiSelect';
 import { Alert, LoadingInline } from '../ui';
 import { formatDaysSince } from '../../utils/responseTiming';
+import { createInitialFollowUpForm, getDefaultDepartmentIds } from './followUpDepartments';
 
 type FollowUpFormPanelProps = Readonly<{
   transactionId: number;
@@ -13,6 +14,11 @@ type FollowUpFormPanelProps = Readonly<{
   onSuccess: () => void;
   onCancel: () => void;
 }>;
+
+async function loadFollowUpDepartments(transactionId: number): Promise<FollowUpDepartmentOption[]> {
+  const response = await transactionsApi.getFollowUpDepartments(transactionId);
+  return response.data;
+}
 
 export default function FollowUpFormPanel({
   transactionId,
@@ -23,35 +29,35 @@ export default function FollowUpFormPanel({
 }: FollowUpFormPanelProps) {
   const [options, setOptions] = useState<FollowUpDepartmentOption[]>([]);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({
-    followUpDate: new Date().toISOString().split('T')[0],
-    notes: '',
-    followUpNumber: '',
-    departmentIds: [] as number[],
-  });
+  const [form, setForm] = useState(createInitialFollowUpForm([]));
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     let active = true;
-    transactionsApi.getFollowUpDepartments(transactionId)
-      .then((r) => {
+
+    const load = async () => {
+      try {
+        const departments = await loadFollowUpDepartments(transactionId);
         if (!active) return;
-        setOptions(r.data);
-        setForm((f) => ({
-          ...f,
-          departmentIds: r.data.filter((d) => d.isDefaultSelected).map((d) => d.departmentId),
-        }));
-      })
-      .catch(() => { if (active) setError('تعذر تحميل الإدارات المتاحة'); })
-      .finally(() => { if (active) setLoading(false); });
+        const defaultIds = getDefaultDepartmentIds(departments);
+        setOptions(departments);
+        setForm(createInitialFollowUpForm(defaultIds));
+      } catch {
+        if (active) setError('تعذر تحميل الإدارات المتاحة');
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    void load();
     return () => { active = false; };
   }, [transactionId]);
 
   useEffect(() => {
-    const dirty = Boolean(form.followUpNumber || form.notes || form.departmentIds.length);
+    const dirty = Boolean(form.followUpNumber.trim() || form.notes.trim());
     onDirtyChange(dirty);
-  }, [form, onDirtyChange]);
+  }, [form.followUpNumber, form.notes, onDirtyChange]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -72,7 +78,16 @@ export default function FollowUpFormPanel({
     }
   };
 
-  if (loading) return <LoadingInline label="جاري تحميل الإدارات..." />;
+  if (loading) {
+    return (
+      <div className="workspace-form">
+        <LoadingInline label="جاري تحميل الإدارات..." />
+        <div className="form-actions">
+          <button type="button" className="btn btn-outline" onClick={onCancel}>إلغاء</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <form onSubmit={submit} className="workspace-form">
@@ -83,37 +98,37 @@ export default function FollowUpFormPanel({
       {options.length === 0 ? (
         <Alert variant="error">لا توجد إدارات مرتبطة بهذه المعاملة. أضف تحويلًا قبل إضافة التعقيب.</Alert>
       ) : (
-        <>
-          <div className="form-grid">
-            <div className="form-group">
-              <label htmlFor="followup-number">رقم التعقيب</label>
-              <input id="followup-number" value={form.followUpNumber} onChange={(e) => setForm({ ...form, followUpNumber: e.target.value })} />
-            </div>
-            <div className="form-group">
-              <label htmlFor="followup-date">تاريخ التعقيب</label>
-              <input id="followup-date" type="date" required value={form.followUpDate} onChange={(e) => setForm({ ...form, followUpDate: e.target.value })} />
-            </div>
-            <div className="form-group full-width">
-              <MultiSelect
-                label="مرسل إلى (إدارات)"
-                options={options.map((d) => ({ id: d.departmentId, name: d.departmentName }))}
-                selected={form.departmentIds}
-                onChange={(ids) => setForm({ ...form, departmentIds: ids })}
-              />
-            </div>
-            <div className="form-group full-width">
-              <label htmlFor="followup-notes">ملاحظات التعقيب</label>
-              <textarea id="followup-notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
-            </div>
+        <div className="form-grid">
+          <div className="form-group">
+            <label htmlFor="followup-number">رقم التعقيب</label>
+            <input id="followup-number" value={form.followUpNumber} onChange={(e) => setForm({ ...form, followUpNumber: e.target.value })} />
           </div>
-          <div className="form-actions">
-            <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
-              {isSubmitting ? 'جاري الحفظ...' : 'حفظ التعقيب'}
-            </button>
-            <button type="button" className="btn btn-outline" onClick={onCancel}>إلغاء</button>
+          <div className="form-group">
+            <label htmlFor="followup-date">تاريخ التعقيب</label>
+            <input id="followup-date" type="date" required value={form.followUpDate} onChange={(e) => setForm({ ...form, followUpDate: e.target.value })} />
           </div>
-        </>
+          <div className="form-group full-width">
+            <MultiSelect
+              label="مرسل إلى (إدارات)"
+              options={options.map((d) => ({ id: d.departmentId, name: d.departmentName }))}
+              selected={form.departmentIds}
+              onChange={(ids) => setForm({ ...form, departmentIds: ids })}
+            />
+          </div>
+          <div className="form-group full-width">
+            <label htmlFor="followup-notes">ملاحظات التعقيب</label>
+            <textarea id="followup-notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+          </div>
+        </div>
       )}
+      <div className="form-actions">
+        {options.length > 0 && (
+          <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+            {isSubmitting ? 'جاري الحفظ...' : 'حفظ التعقيب'}
+          </button>
+        )}
+        <button type="button" className="btn btn-outline" onClick={onCancel}>إلغاء</button>
+      </div>
     </form>
   );
 }

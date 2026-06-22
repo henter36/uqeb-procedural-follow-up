@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Assignment, TransactionDetail } from '../../api/types';
 import { transactionsApi } from '../../api/services';
 import { resolveFollowUpLetterRecipient } from '../../utils/followUpLetter';
 import { getApiErrorMessage } from '../../utils/apiHelpers';
+import { downloadBlob } from '../../utils/downloadBlob';
 import { Alert, LoadingInline } from '../ui';
 
 type FollowUpLetterFormPanelProps = Readonly<{
@@ -12,6 +13,11 @@ type FollowUpLetterFormPanelProps = Readonly<{
   onDirtyChange: (dirty: boolean) => void;
   onDownloaded: () => void;
   onCancel: () => void;
+}>;
+
+type LetterBaseline = Readonly<{
+  recipient: string;
+  letterBody: string;
 }>;
 
 export default function FollowUpLetterFormPanel({
@@ -33,10 +39,26 @@ export default function FollowUpLetterFormPanel({
   const [previewing, setPreviewing] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState('');
+  const baselineRef = useRef<LetterBaseline>({ recipient: defaultRecipient, letterBody: '' });
+  const baselineReadyRef = useRef(false);
+
+  const syncDirtyState = useCallback(() => {
+    if (!baselineReadyRef.current) {
+      onDirtyChange(false);
+      return;
+    }
+    const baseline = baselineRef.current;
+    onDirtyChange(recipient !== baseline.recipient || letterBody !== baseline.letterBody);
+  }, [letterBody, onDirtyChange, recipient]);
 
   useEffect(() => {
-    onDirtyChange(Boolean(letterBody.trim() && letterBody !== defaultRecipient));
-  }, [letterBody, defaultRecipient, onDirtyChange]);
+    syncDirtyState();
+  }, [syncDirtyState]);
+
+  const applyPreviewResult = (content: string, targetEntity?: string) => {
+    setLetterBody(content);
+    if (targetEntity) setRecipient(targetEntity);
+  };
 
   const loadPreview = useCallback(async (targetEntity?: string, keepEditedContent = false) => {
     setError('');
@@ -46,8 +68,7 @@ export default function FollowUpLetterFormPanel({
         targetEntity: targetEntity ?? recipient,
         ...(keepEditedContent && letterBody.trim() ? { content: letterBody } : {}),
       });
-      setLetterBody(res.data.content);
-      if (res.data.targetEntity) setRecipient(res.data.targetEntity);
+      applyPreviewResult(res.data.content, res.data.targetEntity);
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
     } finally {
@@ -58,20 +79,30 @@ export default function FollowUpLetterFormPanel({
 
   useEffect(() => {
     let cancelled = false;
-    transactionsApi.previewFollowUpLetter(transactionId, { targetEntity: defaultRecipient })
-      .then((res) => {
+
+    const loadInitial = async () => {
+      try {
+        const res = await transactionsApi.previewFollowUpLetter(transactionId, {
+          targetEntity: defaultRecipient,
+        });
         if (cancelled) return;
-        setLetterBody(res.data.content);
-        if (res.data.targetEntity) setRecipient(res.data.targetEntity);
-      })
-      .catch((err: unknown) => {
+        const initialRecipient = res.data.targetEntity ?? defaultRecipient;
+        const initialBody = res.data.content;
+        baselineRef.current = { recipient: initialRecipient, letterBody: initialBody };
+        baselineReadyRef.current = true;
+        setRecipient(initialRecipient);
+        setLetterBody(initialBody);
+        onDirtyChange(false);
+      } catch (err: unknown) {
         if (!cancelled) setError(getApiErrorMessage(err));
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    };
+
+    void loadInitial();
     return () => { cancelled = true; };
-  }, [transactionId, defaultRecipient]);
+  }, [transactionId, defaultRecipient, onDirtyChange]);
 
   const handleDownload = async () => {
     setError('');
@@ -81,12 +112,8 @@ export default function FollowUpLetterFormPanel({
         targetEntity: recipient,
         content: letterBody,
       });
-      const url = window.URL.createObjectURL(res.data);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `follow-up-letter-${transactionId}.pdf`;
-      a.click();
-      window.URL.revokeObjectURL(url);
+      downloadBlob(res.data, `follow-up-letter-${transactionId}.pdf`);
+      onDirtyChange(false);
       onDownloaded();
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));

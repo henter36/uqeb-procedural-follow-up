@@ -10,6 +10,9 @@ import { statusLabels, statusBadgeClass } from '../utils/labels';
 import DateDisplay from '../components/DateDisplay';
 import DepartmentBadges from '../components/DepartmentBadges';
 import { responseTimingBadgeClass } from '../utils/responseTiming';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
+import { downloadBlob } from '../utils/downloadBlob';
+import { getAnalyticsStatusText, getAnalyticsViewState } from '../utils/reportsAnalytics';
 
 const TIMING_REPORT_TABS: ReportTab[] = ['response-required', 'overdue-responses', 'waiting', 'open'];
 
@@ -105,7 +108,7 @@ function TableSkeleton({ rows = 5 }: { rows?: number }) {
 
 export default function ReportsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [tab, setTab] = useState<ReportTab>(() => parseReportTab(searchParams.get('tab')));
+  const tab = parseReportTab(searchParams.get('tab'));
   const [tabStates, setTabStates] = useState<Record<ReportTab, TabState>>(() =>
     Object.fromEntries(tabConfig.map((t) => [t.key, defaultTabState()])) as Record<ReportTab, TabState>
   );
@@ -129,7 +132,7 @@ export default function ReportsPage() {
   const [draftFilters, setDraftFilters] = useState({
     dateFrom: '', dateTo: '', categoryId: '', departmentId: '', status: '', incomingSourceType: '', search: '',
   });
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(draftFilters.search, 300);
   const appliedFilters = useMemo(() => ({
     dateFrom: draftFilters.dateFrom,
     dateTo: draftFilters.dateTo,
@@ -149,8 +152,9 @@ export default function ReportsPage() {
   const summaryAbortRef = useRef<AbortController | null>(null);
   const monthlyRef = useRef<HTMLDivElement>(null);
   const tabStatesRef = useRef(tabStates);
-  tabStatesRef.current = tabStates;
-  const initialTabLoadPendingRef = useRef(true);
+  const analyticsRequestIdRef = useRef(0);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     if (searchParams.get('tab')) return;
@@ -160,6 +164,10 @@ export default function ReportsPage() {
       return next;
     }, { replace: true });
   }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    tabStatesRef.current = tabStates;
+  }, [tabStates]);
 
   const filterParams = useCallback((): Record<string, unknown> => {
     const f = appliedFilters;
@@ -236,20 +244,6 @@ export default function ReportsPage() {
   }, [filterParams]);
 
   useEffect(() => {
-    if (!initialTabLoadPendingRef.current) return;
-    initialTabLoadPendingRef.current = false;
-    loadTabDetails(tab, 1, DEFAULT_PAGE_SIZE);
-  }, [loadTabDetails, tab]);
-
-  useEffect(() => {
-    const urlTab = parseReportTab(searchParams.get('tab'));
-    if (urlTab === tab) return;
-    setTab(urlTab);
-    const state = tabStatesRef.current[urlTab];
-    loadTabDetails(urlTab, state.page, state.pageSize);
-  }, [searchParams, tab, loadTabDetails]);
-
-  useEffect(() => {
     categoriesApi.getAll().then((r) => setCategories(r.data));
     departmentsApi.getAll().then((r) => setDepartments(r.data));
   }, []);
@@ -275,64 +269,40 @@ export default function ReportsPage() {
       });
 
     return () => controller.abort();
-  }, [filterKey, summaryRetryKey]);
+  }, [filterKey, summaryRetryKey, filterParams]);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedSearch(draftFilters.search), 300);
-    return () => window.clearTimeout(timer);
-  }, [draftFilters.search]);
-
-  const prevDebouncedSearch = useRef(debouncedSearch);
-  useEffect(() => {
-    if (prevDebouncedSearch.current === debouncedSearch) return;
-    prevDebouncedSearch.current = debouncedSearch;
-    setTabStates((prev) => {
-      const next = { ...prev };
-      for (const t of tabConfig) {
-        next[t.key] = { ...prev[t.key], page: 1, stale: true };
-      }
-      return next;
-    });
-  }, [debouncedSearch]);
-
-  const analyticsLoadedRef = useRef(false);
-  const analyticsLoadingRef = useRef(false);
-  analyticsLoadedRef.current = analyticsLoaded;
-
-  const loadAnalytics = useCallback((force = false) => {
-    if (analyticsLoadingRef.current && !force) return;
-    if (!force && analyticsLoadedRef.current) return;
-    analyticsLoadingRef.current = true;
+  const loadAnalytics = useCallback(() => {
+    const requestId = ++analyticsRequestIdRef.current;
     setAnalyticsLoading(true);
     setAnalyticsError(null);
-    if (force) {
-      setCategoryReport([]);
-      setIncomingReport([]);
-      setOutgoingDeptReport([]);
-      setDeptSummary([]);
-    }
+    setCategoryReport([]);
+    setIncomingReport([]);
+    setOutgoingDeptReport([]);
+    setDeptSummary([]);
     const p = filterParams();
-    Promise.all([
+    void Promise.all([
       reportsApi.byCategory(p),
       reportsApi.byIncomingParty(p),
       reportsApi.byOutgoingDepartment(p),
       reportsApi.departmentSummary(p),
     ])
       .then(([cat, inc, out, dept]) => {
+        if (requestId !== analyticsRequestIdRef.current) return;
         setCategoryReport(cat.data as typeof categoryReport);
         setIncomingReport(inc.data as typeof incomingReport);
         setOutgoingDeptReport(out.data);
         setDeptSummary(dept.data);
-        analyticsLoadedRef.current = true;
         setAnalyticsLoaded(true);
         setAnalyticsUpdatedAt(new Date());
         setAnalyticsError(null);
       })
       .catch(() => {
+        if (requestId !== analyticsRequestIdRef.current) return;
+        setAnalyticsLoaded(false);
         setAnalyticsError('تعذر تحميل التحليلات. حاول مرة أخرى.');
       })
       .finally(() => {
-        analyticsLoadingRef.current = false;
+        if (requestId !== analyticsRequestIdRef.current) return;
         setAnalyticsLoading(false);
       });
   }, [filterParams]);
@@ -356,7 +326,7 @@ export default function ReportsPage() {
   }, [year, monthlyLoaded]);
 
   useEffect(() => {
-    loadAnalytics(true);
+    loadAnalytics();
   }, [filterKey, loadAnalytics]);
 
   useEffect(() => {
@@ -368,7 +338,6 @@ export default function ReportsPage() {
       dateFrom: '', dateTo: '', categoryId: '', departmentId: '', status: '', incomingSourceType: '', search: '',
     };
     setDraftFilters(empty);
-    setDebouncedSearch('');
     setTabStates((prev) => {
       const next = { ...prev };
       for (const t of tabConfig) {
@@ -379,7 +348,6 @@ export default function ReportsPage() {
   };
 
   const selectTab = (tabKey: ReportTab) => {
-    setTab(tabKey);
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       next.set('tab', tabKey);
@@ -406,25 +374,50 @@ export default function ReportsPage() {
 
   const exportExcel = async (currentPageOnly: boolean) => {
     const state = tabStates[tab];
-    if (state.loading) return;
-    const params: Record<string, unknown> = {
-      ...filterParams(),
-      currentPageOnly,
-      page: state.page,
-      pageSize: state.pageSize,
-    };
-    const res = await reportsApi.exportExcel(tab, params);
-    const url = window.URL.createObjectURL(res.data);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `report-${tab}${currentPageOnly ? '-page' : '-all'}.xlsx`;
-    a.click();
-    window.URL.revokeObjectURL(url);
+    if (state.loading || exporting) return;
+    setExportError(null);
+    setExporting(true);
+    try {
+      const params: Record<string, unknown> = {
+        ...filterParams(),
+        currentPageOnly,
+        page: state.page,
+        pageSize: state.pageSize,
+      };
+      const res = await reportsApi.exportExcel(tab, params);
+      downloadBlob(res.data, `report-${tab}${currentPageOnly ? '-page' : '-all'}.xlsx`);
+    } catch {
+      setExportError('تعذر تصدير التقرير. حاول مرة أخرى.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const exportDepartmentReport = async (format: 'excel' | 'pdf') => {
+    if (analyticsLoading || exporting) return;
+    setExportError(null);
+    setExporting(true);
+    try {
+      const params = filterParams();
+      if (format === 'excel') {
+        const res = await reportsApi.exportDepartmentIncomingClosedExcel(params);
+        downloadBlob(res.data, 'department-incoming-closed.xlsx');
+      } else {
+        const res = await reportsApi.exportDepartmentIncomingClosedPdf(params);
+        downloadBlob(res.data, 'department-incoming-closed.pdf');
+      }
+    } catch {
+      setExportError('تعذر تصدير التحليلات. حاول مرة أخرى.');
+    } finally {
+      setExporting(false);
+    }
   };
 
   const currentState = tabStates[tab];
   const showTimingColumns = TIMING_REPORT_TABS.includes(tab);
   const tableColSpan = showTimingColumns ? 11 : 8;
+  const analyticsViewState = getAnalyticsViewState(analyticsLoading, analyticsLoaded);
+  const analyticsStatusText = getAnalyticsStatusText(analyticsLoading, analyticsUpdatedAt, analyticsLoaded);
   const monthNames = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
 
   return (
@@ -436,7 +429,7 @@ export default function ReportsPage() {
             type="button"
             className="btn btn-outline"
             onClick={() => exportExcel(true)}
-            disabled={!currentState || currentState.loading}
+            disabled={currentState.loading || exporting}
           >
             تصدير الصفحة الحالية
           </button>
@@ -444,7 +437,7 @@ export default function ReportsPage() {
             type="button"
             className="btn btn-primary"
             onClick={() => exportExcel(false)}
-            disabled={!currentState || currentState.loading}
+            disabled={currentState.loading || exporting}
           >
             تصدير جميع النتائج
           </button>
@@ -479,7 +472,7 @@ export default function ReportsPage() {
       </div>
 
       {(appliedFilters.dateFrom || appliedFilters.dateTo || appliedFilters.categoryId || appliedFilters.departmentId || appliedFilters.incomingSourceType || debouncedSearch.trim()) && (
-        <p className="text-muted mb-2" role="status">
+        <output className="text-muted mb-2" aria-live="polite">
           فلاتر مطبقة:
           {appliedFilters.dateFrom && ` من ${appliedFilters.dateFrom}`}
           {appliedFilters.dateTo && ` إلى ${appliedFilters.dateTo}`}
@@ -487,8 +480,10 @@ export default function ReportsPage() {
           {appliedFilters.departmentId && ` | إدارة: ${departments.find((d) => String(d.id) === appliedFilters.departmentId)?.name ?? appliedFilters.departmentId}`}
           {appliedFilters.incomingSourceType && ` | نوع الوارد: ${appliedFilters.incomingSourceType === 'Internal' ? 'داخلي' : 'خارجي'}`}
           {debouncedSearch.trim() && ` | بحث: ${debouncedSearch.trim()}`}
-        </p>
+        </output>
       )}
+
+      {exportError && <div className="alert alert-error">{exportError}</div>}
 
       {summaryError && (
         <div className="alert alert-error">
@@ -603,47 +598,40 @@ export default function ReportsPage() {
             <button
               type="button"
               className="btn btn-secondary"
-              onClick={() => loadAnalytics(true)}
-              disabled={analyticsLoading}
+              onClick={loadAnalytics}
+              disabled={analyticsLoading || exporting}
             >
               {analyticsLoading ? 'جاري التحديث...' : 'تحديث التحليلات'}
             </button>
             <button
               type="button"
               className="btn btn-outline"
-              disabled={analyticsLoading}
-              onClick={async () => {
-                const res = await reportsApi.exportDepartmentIncomingClosedExcel(filterParams());
-                const url = window.URL.createObjectURL(res.data);
-                const a = document.createElement('a'); a.href = url; a.download = 'department-incoming-closed.xlsx'; a.click();
-              }}
+              disabled={analyticsLoading || exporting}
+              onClick={() => exportDepartmentReport('excel')}
             >
               تصدير Excel
             </button>
             <button
               type="button"
               className="btn btn-outline"
-              disabled={analyticsLoading}
-              onClick={async () => {
-                const res = await reportsApi.exportDepartmentIncomingClosedPdf(filterParams());
-                const url = window.URL.createObjectURL(res.data);
-                const a = document.createElement('a'); a.href = url; a.download = 'department-incoming-closed.pdf'; a.click();
-              }}
+              disabled={analyticsLoading || exporting}
+              onClick={() => exportDepartmentReport('pdf')}
             >
               تصدير PDF
             </button>
           </div>
         </div>
-        {analyticsUpdatedAt && (
-          <p className="text-muted mb-2" role="status">
-            آخر تحديث للتحليلات: {analyticsUpdatedAt.toLocaleString('ar-SA')}
-          </p>
-        )}
+        <output className="text-muted mb-2" aria-live="polite">
+          {analyticsStatusText}
+        </output>
         <p className="text-muted mb-2">يُحسب الوارد حسب تاريخ الوارد (الإدارات الصادر لها)، والمغلق حسب تاريخ الإغلاق ضمن الفترة المحددة. تتحدث التحليلات تلقائيًا عند تغيير الفلاتر.</p>
         {analyticsError && <div className="alert alert-error mb-2">{analyticsError}</div>}
-        {analyticsLoading && !analyticsLoaded ? <div className="loading">جاري تحميل التحليلات...</div> : analyticsLoading ? <div className="loading">جاري التحديث...</div> : !analyticsLoaded ? (
+        {analyticsViewState === 'loading-initial' && <div className="loading">جاري تحميل التحليلات...</div>}
+        {analyticsViewState === 'loading-refresh' && <div className="loading">جاري التحديث...</div>}
+        {analyticsViewState === 'empty' && (
           <div className="text-center text-muted" style={{ padding: '1.5rem' }}>لا توجد بيانات تحليلات للفلاتر الحالية.</div>
-        ) : (
+        )}
+        {analyticsViewState === 'content' && (
           <>
           <h4 className="mb-2">تقرير الوارد والمغلق لكل إدارة</h4>
           <table className="data-table">

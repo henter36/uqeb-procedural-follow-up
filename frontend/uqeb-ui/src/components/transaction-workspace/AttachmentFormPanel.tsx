@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ChangeEvent } from 'react';
 import { transactionsApi } from '../../api/services';
 import { getApiErrorMessage } from '../../utils/apiHelpers';
 import ScanAttachmentButton from '../../features/scanner/ScanAttachmentButton';
@@ -33,44 +33,51 @@ export default function AttachmentFormPanel({
     if (uploading) return;
     if (!isAllowedFile(file)) {
       setError(`نوع الملف غير مسموح. الأنواع المسموحة: ${ALLOWED_EXTENSIONS.join(', ')}`);
+      onDirtyChange(false);
       return;
     }
     if (file.size > MAX_BYTES) {
       setError('حجم الملف يتجاوز الحد المسموح (20 ميجابايت).');
+      onDirtyChange(false);
       return;
     }
     setError('');
     setUploading(true);
     setProgressLabel(`جاري رفع ${file.name}...`);
-    onDirtyChange(true);
     try {
       await transactionsApi.uploadAttachment(transactionId, file);
-      onDirtyChange(false);
       onSuccess();
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
     } finally {
+      onDirtyChange(false);
       setUploading(false);
       setProgressLabel('');
+    }
+  };
+
+  const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (file) {
+      await uploadFile(file);
     }
   };
 
   return (
     <div className="workspace-form">
       {error && <Alert variant="error">{error}</Alert>}
-      {progressLabel && <p className="text-muted" role="status">{progressLabel}</p>}
+      {progressLabel && (
+        <output className="text-muted" aria-live="polite">{progressLabel}</output>
+      )}
       <div className="workspace-attachment-actions">
         <label className="btn btn-primary">
-          اختيار ملف من الجهاز
+          <span>اختيار ملف من الجهاز</span>
           <input
             type="file"
             hidden
             disabled={uploading}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void uploadFile(file);
-              e.target.value = '';
-            }}
+            onChange={handleFileChange}
           />
         </label>
         <ScanAttachmentButton transactionId={transactionId} onSaved={onSuccess} />
