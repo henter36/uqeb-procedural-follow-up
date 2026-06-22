@@ -8,7 +8,7 @@ import type {
 } from '../api/types';
 import { useAuth } from '../context/AuthContext';
 import {
-  statusLabels, priorityLabels, statusBadgeClass, responseTypeLabels,
+  statusBadgeClass, responseTypeLabels,
   auditActionLabels, replyStatusLabels,
 } from '../utils/labels';
 import {
@@ -25,15 +25,23 @@ import DateDisplay from '../components/DateDisplay';
 import MultiSelect from '../components/MultiSelect';
 import { responseTimingBadgeClass, formatDaysSince } from '../utils/responseTiming';
 import ScanAttachmentButton from '../features/scanner/ScanAttachmentButton';
+import {
+  PageHeader, Alert, StatusBadge, PriorityBadge, ActivityTimeline, LoadingInline,
+} from '../components/ui';
+import type { TimelineEvent } from '../components/ui';
 
-type DetailTab = 'attachments' | 'audit';
+type DetailTab = 'overview' | 'assignments' | 'followups' | 'attachments' | 'audit' | 'timeline';
 
 export default function TransactionDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab');
-  const initialTabFromUrl: DetailTab = tabFromUrl === 'audit' ? 'audit' : 'attachments';
+  const initialTabFromUrl: DetailTab =
+    tabFromUrl === 'audit' ? 'audit'
+    : tabFromUrl === 'attachments' ? 'attachments'
+    : tabFromUrl === 'timeline' ? 'timeline'
+    : 'overview';
   const { canEdit, canClose, isDepartmentUser } = useAuth();
   const [tx, setTx] = useState<TransactionDetail | null>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -43,15 +51,20 @@ export default function TransactionDetailPage() {
   const [auditPage, setAuditPage] = useState(1);
   const [auditHasMore, setAuditHasMore] = useState(false);
   const [auditLoadingMore, setAuditLoadingMore] = useState(false);
-  const [activeTab, setActiveTab] = useState<DetailTab>(
-    () => (tabFromUrl === 'audit' ? 'audit' : 'attachments'),
-  );
-  const [loadedTabs, setLoadedTabs] = useState<Record<DetailTab, boolean>>({
+  const [activeTab, setActiveTab] = useState<DetailTab>(() => {
+    if (tabFromUrl === 'audit') return 'audit';
+    if (tabFromUrl === 'attachments') return 'attachments';
+    if (tabFromUrl === 'timeline') return 'timeline';
+    return 'overview';
+  });
+  const [loadedTabs, setLoadedTabs] = useState<Record<'attachments' | 'audit', boolean>>({
     attachments: false,
     audit: false,
   });
   const loadedTabsRef = useRef(loadedTabs);
-  loadedTabsRef.current = loadedTabs;
+  useEffect(() => {
+    loadedTabsRef.current = loadedTabs;
+  }, [loadedTabs]);
   const [tabLoading, setTabLoading] = useState(false);
   const [assignmentsLoading, setAssignmentsLoading] = useState(false);
   const [followUpsLoading, setFollowUpsLoading] = useState(false);
@@ -115,7 +128,7 @@ export default function TransactionDetailPage() {
   };
 
   const loadTab = useCallback(async (
-    tab: DetailTab,
+    tab: 'attachments' | 'audit',
     force = false,
     isMounted: () => boolean = () => true,
   ) => {
@@ -142,15 +155,19 @@ export default function TransactionDetailPage() {
 
   const selectTab = (tab: DetailTab) => {
     setActiveTab(tab);
-    loadTab(tab);
+    if (tab === 'attachments' || tab === 'audit' || tab === 'timeline') {
+      loadTab(tab === 'timeline' ? 'audit' : tab);
+    }
   };
 
   useEffect(() => {
     if (!id) return;
     let active = true;
+    // Reset detail state when transaction id changes
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTx(null);
     const isMounted = () => active;
 
-    setTx(null);
     setAssignments([]);
     setFollowUps([]);
     setAttachments([]);
@@ -169,7 +186,11 @@ export default function TransactionDetailPage() {
     loadFollowUps();
     departmentsApi.getAll().then((r) => { if (isMounted()) setDepartments(r.data); });
 
-    loadTab(initialTabFromUrl, true, isMounted);
+    if (initialTabFromUrl === 'attachments') {
+      loadTab('attachments', true, isMounted);
+    } else if (initialTabFromUrl === 'audit' || initialTabFromUrl === 'timeline') {
+      loadTab('audit', true, isMounted);
+    }
 
     return () => { active = false; };
   }, [id, initialTabFromUrl, loadBasic, loadAssignments, loadFollowUps, loadTab]);
@@ -211,7 +232,7 @@ export default function TransactionDetailPage() {
     a.href = url; a.download = fileName; a.click();
   };
 
-  if (!tx) return <div className="loading">جاري التحميل...</div>;
+  if (!tx) return <div className="loading"><LoadingInline /></div>;
 
   const needsResponse = tx.requiresResponse || tx.responseType !== 'None';
   const isTerminal = tx.status === 'Closed' || tx.status === 'Cancelled' || tx.status === 'Archived';
@@ -219,41 +240,18 @@ export default function TransactionDetailPage() {
   const canRegisterResponse = canClose && needsResponse && !tx.responseCompleted && !isTerminal;
   const canShowClose = canClose && !isTerminal && (!needsResponse || tx.responseCompleted);
 
-  return (
-    <div>
-      <div className="page-header">
-        <h2 className="page-title">تفاصيل المعاملة: {tx.incomingNumber}</h2>
-        <div className="btn-group">
-          {canEdit && !isDepartmentUser && (
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => setShowFollowUpLetter(true)}
-            >
-              إنشاء خطاب تعقيب PDF
-            </button>
-          )}
-          {canEdit && !isDepartmentUser && <Link to={`/transactions/${id}/edit`} className="btn btn-primary">تعديل</Link>}
-          {canRegisterResponse && (
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={hasPendingDepts}
-              title={hasPendingDepts ? 'لا يمكن تسجيل الإفادة قبل اكتمال رد جميع الإدارات.' : undefined}
-              onClick={() => setShowCompleteResponse(true)}
-            >
-              تسجيل الإفادة
-            </button>
-          )}
-          {canShowClose && <button type="button" onClick={handleClose} className="btn btn-danger">إغلاق المعاملة</button>}
-        </div>
-      </div>
+  const timelineEvents: TimelineEvent[] = auditLogs.map((log) => ({
+    id: log.id,
+    action: auditActionLabels[log.action] || log.action,
+    userName: log.userName,
+    date: log.createdAt,
+    detail: log.newValue || log.oldValue || undefined,
+  }));
 
-      {message && <div className="alert alert-success">{message}</div>}
-      {error && <div className="alert alert-error">{error}</div>}
-
+  const overviewContent = (
+    <>
       <div className={`status-bar badge ${statusBadgeClass(tx.status, tx.isOverdue)}`}>
-        <strong>الحالة:</strong> {statusLabels[tx.status] || tx.status}
+        <strong>الحالة:</strong> <StatusBadge status={tx.status} isOverdue={tx.isOverdue} />
         {tx.isOverdue && <span className="status-extra"> — متأخرة</span>}
         {tx.hasPendingAssignments && <span className="status-extra"> — باقي إجراء</span>}
         {tx.responseTimingLabel && tx.requiresResponse && (
@@ -279,10 +277,8 @@ export default function TransactionDetailPage() {
           </span>
         </div>
         <div className="timeline-stat">
-          <span className="timeline-stat-label">موعد الرد</span>
-          <span className={`timeline-stat-value badge ${responseTimingBadgeClass(tx.responseTimingStatus)}`}>
-            {tx.requiresResponse ? (tx.responseTimingLabel || '—') : 'غير مطلوب'}
-          </span>
+          <span className="timeline-stat-label">الأولوية</span>
+          <span className="timeline-stat-value"><PriorityBadge priority={tx.priority} /></span>
         </div>
       </div>
 
@@ -291,7 +287,6 @@ export default function TransactionDetailPage() {
           <div><strong>رقم التتبع:</strong> {tx.internalTrackingNumber}</div>
           <div><strong>رقم الوارد:</strong> {tx.incomingNumber}</div>
           <div><strong>تاريخ الوارد:</strong> <DateDisplay date={tx.incomingDate} /></div>
-          <div><strong>الأولوية:</strong> {priorityLabels[tx.priority]}</div>
           <div><strong>التصنيف:</strong> {tx.categoryName || '-'}</div>
           <div><strong>نوع الجهة الوارد منها:</strong> {tx.incomingSourceType === 'Internal' ? 'داخلية' : 'خارجية'}</div>
           <div><strong>الجهة الوارد منها:</strong> {tx.incomingFrom || '-'}</div>
@@ -327,15 +322,19 @@ export default function TransactionDetailPage() {
           {tx.notes && <div className="full-width"><strong>ملاحظات:</strong> {tx.notes}</div>}
         </div>
       </div>
+    </>
+  );
 
-      <div className="card mt-4">
-        <div className="card-header">
-          <h3>التحويلات</h3>
-          {canEdit && !isDepartmentUser && <button className="btn btn-sm btn-primary" onClick={() => setShowAssignment(true)}>إضافة تحويل</button>}
-        </div>
-        {assignmentsLoading && <div className="loading">جاري تحميل التحويلات...</div>}
-        {assignmentsError && <div className="alert alert-error">{assignmentsError}</div>}
-        {!assignmentsLoading && !assignmentsError && (
+  const assignmentsContent = (
+    <div className="card">
+      <div className="card-header">
+        <h3>التحويلات</h3>
+        {canEdit && !isDepartmentUser && <button type="button" className="btn btn-sm btn-primary" onClick={() => setShowAssignment(true)}>إضافة تحويل</button>}
+      </div>
+      {assignmentsLoading && <LoadingInline label="جاري تحميل التحويلات..." />}
+      {assignmentsError && <Alert variant="error">{assignmentsError}</Alert>}
+      {!assignmentsLoading && !assignmentsError && (
+        <div className="table-wrapper">
           <table className="data-table">
             <thead><tr><th>الإدارة</th><th>الإجراء</th><th>تاريخ الاستحقاق</th><th>حالة الرد</th><th>إجراء</th></tr></thead>
             <tbody>
@@ -351,7 +350,7 @@ export default function TransactionDetailPage() {
                   </td>
                   <td>
                     {a.requiresReply && a.replyStatus !== 'Replied' && a.status !== 'Cancelled' && (isDepartmentUser || canEdit) && (
-                      <button className="btn btn-sm" onClick={() => setReplyAssignmentId(a.id)}>تسجيل رد</button>
+                      <button type="button" className="btn btn-sm btn-outline" onClick={() => setReplyAssignmentId(a.id)}>تسجيل رد</button>
                     )}
                     {a.replySummary && <div className="text-muted" style={{ fontSize: '0.85rem', marginTop: '0.25rem' }}>{a.replySummary}</div>}
                   </td>
@@ -360,17 +359,21 @@ export default function TransactionDetailPage() {
               {assignments.length === 0 && <tr><td colSpan={5} className="text-center">لا توجد تحويلات</td></tr>}
             </tbody>
           </table>
-        )}
-      </div>
-
-      <div className="card mt-4">
-        <div className="card-header">
-          <h3>التعقيبات</h3>
-          {canEdit && !isDepartmentUser && <button className="btn btn-sm btn-primary" onClick={() => setShowFollowUp(true)}>إضافة تعقيب</button>}
         </div>
-        {followUpsLoading && <div className="loading">جاري تحميل التعقيبات...</div>}
-        {followUpsError && <div className="alert alert-error">{followUpsError}</div>}
-        {!followUpsLoading && !followUpsError && (
+      )}
+    </div>
+  );
+
+  const followupsContent = (
+    <div className="card">
+      <div className="card-header">
+        <h3>التعقيبات</h3>
+        {canEdit && !isDepartmentUser && <button type="button" className="btn btn-sm btn-primary" onClick={() => setShowFollowUp(true)}>إضافة تعقيب</button>}
+      </div>
+      {followUpsLoading && <LoadingInline label="جاري تحميل التعقيبات..." />}
+      {followUpsError && <Alert variant="error">{followUpsError}</Alert>}
+      {!followUpsLoading && !followUpsError && (
+        <div className="table-wrapper">
           <table className="data-table">
             <thead><tr><th>الرقم</th><th>التاريخ</th><th>مرسل إلى</th><th>ملاحظات</th><th>حالة الرد</th><th>إجراء</th></tr></thead>
             <tbody>
@@ -387,7 +390,7 @@ export default function TransactionDetailPage() {
                   </td>
                   <td>
                     {f.requiresReply && f.replyStatus !== 'Replied' && (isDepartmentUser || canEdit) && (
-                      <button className="btn btn-sm" onClick={() => setReplyFollowUpId(f.id)}>تسجيل رد</button>
+                      <button type="button" className="btn btn-sm btn-outline" onClick={() => setReplyFollowUpId(f.id)}>تسجيل رد</button>
                     )}
                     {f.replySummary && <div className="text-muted" style={{ fontSize: '0.85rem', marginTop: '0.25rem' }}>{f.replySummary}</div>}
                   </td>
@@ -396,15 +399,63 @@ export default function TransactionDetailPage() {
               {followUps.length === 0 && <tr><td colSpan={6} className="text-center">لا توجد تعقيبات</td></tr>}
             </tbody>
           </table>
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div>
+      <PageHeader
+        title={`معاملة ${tx.incomingNumber}`}
+        subtitle={tx.subject}
+        actions={(
+          <div className="btn-group">
+            {canEdit && !isDepartmentUser && (
+              <button type="button" className="btn btn-secondary" onClick={() => setShowFollowUpLetter(true)}>
+                إنشاء خطاب تعقيب PDF
+              </button>
+            )}
+            {canEdit && !isDepartmentUser && <Link to={`/transactions/${id}/edit`} className="btn btn-primary">تعديل</Link>}
+            {canRegisterResponse && (
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={hasPendingDepts}
+                title={hasPendingDepts ? 'لا يمكن تسجيل الإفادة قبل اكتمال رد جميع الإدارات.' : undefined}
+                onClick={() => setShowCompleteResponse(true)}
+              >
+                تسجيل الإفادة
+              </button>
+            )}
+            {canShowClose && <button type="button" onClick={handleClose} className="btn btn-danger">إغلاق المعاملة</button>}
+          </div>
         )}
+      />
+
+      {message && <Alert variant="success">{message}</Alert>}
+      {error && <Alert variant="error">{error}</Alert>}
+
+      <div className="tabs" role="tablist" aria-label="تبويبات تفاصيل المعاملة">
+        <button type="button" role="tab" aria-selected={activeTab === 'overview'} className={activeTab === 'overview' ? 'active' : ''} onClick={() => selectTab('overview')}>نظرة عامة</button>
+        <button type="button" role="tab" aria-selected={activeTab === 'assignments'} className={activeTab === 'assignments' ? 'active' : ''} onClick={() => selectTab('assignments')}>
+          التحويلات<span className="tab-count">{assignments.length}</span>
+        </button>
+        <button type="button" role="tab" aria-selected={activeTab === 'followups'} className={activeTab === 'followups' ? 'active' : ''} onClick={() => selectTab('followups')}>
+          التعقيبات<span className="tab-count">{followUps.length}</span>
+        </button>
+        <button type="button" role="tab" aria-selected={activeTab === 'attachments'} className={activeTab === 'attachments' ? 'active' : ''} onClick={() => selectTab('attachments')}>
+          المرفقات<span className="tab-count">{attachments.length}</span>
+        </button>
+        <button type="button" role="tab" aria-selected={activeTab === 'timeline'} className={activeTab === 'timeline' ? 'active' : ''} onClick={() => selectTab('timeline')}>السجل الزمني</button>
+        <button type="button" role="tab" aria-selected={activeTab === 'audit'} className={activeTab === 'audit' ? 'active' : ''} onClick={() => selectTab('audit')}>سجل التدقيق</button>
       </div>
 
-      <div className="tabs mt-4">
-        <button type="button" className={activeTab === 'attachments' ? 'active' : ''} onClick={() => selectTab('attachments')}>المرفقات</button>
-        <button type="button" className={activeTab === 'audit' ? 'active' : ''} onClick={() => selectTab('audit')}>سجل التدقيق</button>
-      </div>
+      {tabLoading && <LoadingInline label="جاري التحميل..." />}
 
-      {tabLoading && <div className="loading mt-2">جاري التحميل...</div>}
+      {activeTab === 'overview' && overviewContent}
+      {activeTab === 'assignments' && assignmentsContent}
+      {activeTab === 'followups' && followupsContent}
 
       {activeTab === 'attachments' && !tabLoading && (
         <div className="card mt-2">
@@ -420,28 +471,50 @@ export default function TransactionDetailPage() {
               </div>
             )}
           </div>
-          <table className="data-table">
-            <thead><tr><th>الملف</th><th>الحجم</th><th>رفع بواسطة</th><th>التاريخ</th><th>تحميل</th></tr></thead>
-            <tbody>
-              {attachments.map((a) => (
-                <tr key={a.id}>
-                  <td>{a.originalFileName}</td>
-                  <td>{(a.fileSize / 1024).toFixed(1)} KB</td>
-                  <td>{a.uploadedByName}</td>
-                  <td><DateDisplay date={a.uploadedAt} /></td>
-                  <td><button className="btn btn-sm" onClick={() => downloadAttachment(a.id, a.originalFileName)}>تحميل</button></td>
-                </tr>
-              ))}
-              {attachments.length === 0 && <tr><td colSpan={5} className="text-center">لا توجد مرفقات</td></tr>}
-            </tbody>
-          </table>
+          <div className="table-wrapper">
+            <table className="data-table">
+              <thead><tr><th>الملف</th><th>الحجم</th><th>رفع بواسطة</th><th>التاريخ</th><th>تحميل</th></tr></thead>
+              <tbody>
+                {attachments.map((a) => (
+                  <tr key={a.id}>
+                    <td>{a.originalFileName}</td>
+                    <td>{(a.fileSize / 1024).toFixed(1)} KB</td>
+                    <td>{a.uploadedByName}</td>
+                    <td><DateDisplay date={a.uploadedAt} /></td>
+                    <td><button type="button" className="btn btn-sm btn-outline" onClick={() => downloadAttachment(a.id, a.originalFileName)}>تحميل</button></td>
+                  </tr>
+                ))}
+                {attachments.length === 0 && <tr><td colSpan={5} className="text-center">لا توجد مرفقات</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'timeline' && !tabLoading && (
+        <div className="card">
+          <h3>السجل الزمني للمعاملة</h3>
+          <ActivityTimeline events={timelineEvents} emptyLabel="لا توجد أحداث مسجلة" />
+          {auditHasMore && (
+            <div className="mt-4">
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={auditLoadingMore}
+                onClick={() => loadAuditLog(auditPage + 1, true)}
+              >
+                {auditLoadingMore ? 'جاري التحميل...' : 'تحميل المزيد'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
       {activeTab === 'audit' && !tabLoading && (
-        <div className="card mt-2">
+        <div className="card">
           <h3>سجل التدقيق</h3>
-          <table className="data-table">
+          <div className="table-wrapper">
+            <table className="data-table">
             <thead><tr><th>الإجراء</th><th>المستخدم</th><th>التاريخ</th><th>التفاصيل</th></tr></thead>
             <tbody>
               {auditLogs.map((log) => (
@@ -455,6 +528,7 @@ export default function TransactionDetailPage() {
               {auditLogs.length === 0 && <tr><td colSpan={4} className="text-center">لا توجد سجلات</td></tr>}
             </tbody>
           </table>
+          </div>
           {auditHasMore && (
             <div className="mt-2">
               <button
@@ -841,6 +915,7 @@ function FollowUpLetterModal({
   }, [transactionId, recipient, letterBody]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadPreview(defaultRecipient);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transactionId]);

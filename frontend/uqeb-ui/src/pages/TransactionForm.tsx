@@ -12,6 +12,7 @@ import {
 import { formatDualDate, formatHijri } from '../utils/dateUtils';
 import MultiSelect from '../components/MultiSelect';
 import SearchableSelect, { type SelectOption } from '../components/SearchableSelect';
+import { PageHeader, FormSection, Alert, LoadingInline } from '../components/ui';
 
 interface Props { mode: 'create' | 'edit' }
 
@@ -190,16 +191,24 @@ export default function TransactionForm({ mode }: Props) {
 
   const fieldError = (name: string) => fieldErrors[name];
 
-  if (loading || referenceLoading) return <div className="loading">جاري التحميل...</div>;
+  if (loading || referenceLoading) {
+    return (
+      <div className="loading">
+        <LoadingInline label="جاري التحميل..." />
+      </div>
+    );
+  }
 
   return (
     <div>
-      <h2 className="page-title">{mode === 'create' ? 'إضافة معاملة' : 'تعديل معاملة'}</h2>
+      <PageHeader
+        title={mode === 'create' ? 'إضافة معاملة' : 'تعديل معاملة'}
+        subtitle={mode === 'create' ? 'إدخال بيانات معاملة جديدة' : 'تعديل بيانات المعاملة الحالية'}
+      />
       <form onSubmit={handleSubmit} noValidate>
-        {error && <div className="alert alert-error">{error}</div>}
+        {error && <Alert variant="error">{error}</Alert>}
 
-        <div className="card section-card">
-          <h3 className="section-title">أ. بيانات الوارد</h3>
+        <FormSection title="بيانات الوارد">
           <div className="form-grid">
             <div className="form-group">
               <label>رقم الوارد *</label>
@@ -259,11 +268,9 @@ export default function TransactionForm({ mode }: Props) {
               {fieldError('incomingFromDepartmentId') && <span className="field-error">{fieldError('incomingFromDepartmentId')}</span>}
             </div>
           </div>
-        </div>
+        </FormSection>
 
-        <div className="card section-card mt-4">
-          <h3 className="section-title">ب. بيانات الصادر</h3>
-          <p className="text-muted mb-2">{OUTGOING_HINT}</p>
+        <FormSection title="بيانات الصادر والتصنيف" description={OUTGOING_HINT}>
           <div className="form-grid">
             <div className="form-group">
               <label>رقم الصادر</label>
@@ -304,10 +311,9 @@ export default function TransactionForm({ mode }: Props) {
               {fieldError('outgoingDepartmentIds') && <span className="field-error">{fieldError('outgoingDepartmentIds')}</span>}
             </div>
           </div>
-        </div>
+        </FormSection>
 
-        <div className="card section-card mt-4">
-          <h3 className="section-title">ج. الإفادة والمهلة</h3>
+        <FormSection title="الإفادة والمهلة">
           <div className="form-grid">
             <div className="form-group">
               <label>نوع الإفادة *</label>
@@ -333,14 +339,13 @@ export default function TransactionForm({ mode }: Props) {
               <p className="text-muted">لتسجيل الإفادة استخدم إجراء «تسجيل الإفادة» من صفحة تفاصيل المعاملة.</p>
             )}
           </div>
-        </div>
+        </FormSection>
 
-        <div className="card section-card mt-4">
-          <h3 className="section-title">د. ملاحظات</h3>
+        <FormSection title="ملاحظات">
           <div className="form-group">
-            <textarea rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+            <textarea rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} aria-label="ملاحظات" />
           </div>
-        </div>
+        </FormSection>
 
         <div className="form-actions mt-4">
           <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
