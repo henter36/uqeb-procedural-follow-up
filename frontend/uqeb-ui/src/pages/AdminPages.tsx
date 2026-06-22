@@ -7,16 +7,14 @@ import {
 import type { User, Department, ExternalParty, Category } from '../api/types';
 import { roleLabels } from '../utils/labels';
 import SearchableSelect, { type SelectOption } from '../components/SearchableSelect';
-import {
-  ReferenceDataPage, FormModal, fieldError, StatusBadge, type ReferenceListParams,
-} from '../components/ReferenceDataPage';
+import { ReferenceDataPage } from '../components/ReferenceDataPage';
+import { FormModal } from '../components/ReferenceDataFormModal';
+import { FieldError } from '../components/ReferenceDataFieldError';
+import { StatusBadge } from '../components/ReferenceDataStatusBadge';
+import type { ReferenceListParams } from '../components/referenceDataTypes';
 
 function apiError(err: unknown, fallback: string) {
   return isAxiosError(err) ? (err.response?.data as { message?: string })?.message ?? fallback : fallback;
-}
-
-function normalizeName(value: string) {
-  return value.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 function DepartmentForm({
@@ -68,7 +66,7 @@ function DepartmentForm({
       <div className="form-group">
         <label>الاسم</label>
         <input value={name} onChange={(e) => setName(e.target.value)} required />
-        {fieldError(fieldErrors.name)}
+        <FieldError message={fieldErrors.name} />
       </div>
       <div className="form-group">
         <label>الرمز</label>
@@ -369,6 +367,3 @@ export function UsersPage() {
     />
   );
 }
-
-// exported for tests
-export { normalizeName };

@@ -1,25 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { FormEvent, ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { isAxiosError } from 'axios';
 import type { PagedResult } from '../api/types';
-
-export type ReferenceListParams = {
-  search: string;
-  status: string;
-  sortBy: string;
-  sortDesc: boolean;
-  page: number;
-  pageSize: number;
-};
-
-export const defaultListParams = (): ReferenceListParams => ({
-  search: '',
-  status: 'all',
-  sortBy: 'name',
-  sortDesc: false,
-  page: 1,
-  pageSize: 20,
-});
+import { defaultListParams, type ReferenceListParams } from './referenceDataTypes';
 
 type Column<T> = {
   key: string;
@@ -66,6 +49,11 @@ export function ReferenceDataPage<T>({
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<T | null>(null);
 
+  const applyParams = useCallback((updater: (p: ReferenceListParams) => ReferenceListParams) => {
+    setLoading(true);
+    setParams(updater);
+  }, []);
+
   const load = useCallback(async (activeParams: ReferenceListParams) => {
     setLoading(true);
     setError(null);
@@ -82,11 +70,26 @@ export function ReferenceDataPage<T>({
   }, [fetchPage]);
 
   useEffect(() => {
-    load(params);
-  }, [load, params]);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetchPage(params);
+        if (cancelled) return;
+        setItems(res.data.items);
+        setTotal(res.data.totalCount);
+        setTotalPages(res.data.totalPages);
+        setError(null);
+      } catch {
+        if (!cancelled) setError('تعذر تحميل البيانات');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [fetchPage, params]);
 
   const handleSort = (key: string) => {
-    setParams((p) => ({
+    applyParams((p) => ({
       ...p,
       sortBy: key,
       sortDesc: p.sortBy === key ? !p.sortDesc : false,
@@ -147,18 +150,18 @@ export function ReferenceDataPage<T>({
         <input
           placeholder="بحث..."
           value={params.search}
-          onChange={(e) => setParams((p) => ({ ...p, search: e.target.value, page: 1 }))}
+          onChange={(e) => applyParams((p) => ({ ...p, search: e.target.value, page: 1 }))}
         />
         <select
           value={params.status}
-          onChange={(e) => setParams((p) => ({ ...p, status: e.target.value, page: 1 }))}
+          onChange={(e) => applyParams((p) => ({ ...p, status: e.target.value, page: 1 }))}
         >
           <option value="all">الكل</option>
           <option value="active">نشط</option>
           <option value="inactive">غير نشط</option>
         </select>
         {params.search && (
-          <button type="button" className="btn btn-outline" onClick={() => setParams((p) => ({ ...p, search: '', page: 1 }))}>
+          <button type="button" className="btn btn-outline" onClick={() => applyParams((p) => ({ ...p, search: '', page: 1 }))}>
             مسح البحث
           </button>
         )}
@@ -210,9 +213,9 @@ export function ReferenceDataPage<T>({
 
       {totalPages > 1 && (
         <div className="pagination">
-          <button type="button" className="btn btn-outline" disabled={params.page <= 1} onClick={() => setParams((p) => ({ ...p, page: p.page - 1 }))}>السابق</button>
+          <button type="button" className="btn btn-outline" disabled={params.page <= 1} onClick={() => applyParams((p) => ({ ...p, page: p.page - 1 }))}>السابق</button>
           <span>صفحة {params.page} من {totalPages} ({total} سجل)</span>
-          <button type="button" className="btn btn-outline" disabled={params.page >= totalPages} onClick={() => setParams((p) => ({ ...p, page: p.page + 1 }))}>التالي</button>
+          <button type="button" className="btn btn-outline" disabled={params.page >= totalPages} onClick={() => applyParams((p) => ({ ...p, page: p.page + 1 }))}>التالي</button>
         </div>
       )}
 
@@ -224,45 +227,4 @@ export function ReferenceDataPage<T>({
       })}
     </div>
   );
-}
-
-export function FormModal({
-  title,
-  children,
-  onClose,
-  onSubmit,
-  submitting,
-  submitLabel,
-}: {
-  title: string;
-  children: ReactNode;
-  onClose: () => void;
-  onSubmit: (e: FormEvent) => void;
-  submitting: boolean;
-  submitLabel: string;
-}) {
-  return (
-    <div className="modal-overlay">
-      <div className="modal">
-        <h3>{title}</h3>
-        <form onSubmit={onSubmit}>
-          {children}
-          <div className="form-actions">
-            <button type="submit" className="btn btn-primary" disabled={submitting}>
-              {submitting ? 'جاري الحفظ...' : submitLabel}
-            </button>
-            <button type="button" className="btn btn-outline" onClick={onClose} disabled={submitting}>إلغاء</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-export function fieldError(message?: string) {
-  return message ? <div className="field-error">{message}</div> : null;
-}
-
-export function StatusBadge({ active }: { active: boolean }) {
-  return <span className={`badge ${active ? 'badge-green' : 'badge-gray'}`}>{active ? 'نشط' : 'غير نشط'}</span>;
 }

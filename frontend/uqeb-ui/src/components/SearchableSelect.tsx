@@ -61,9 +61,7 @@ export default function SearchableSelect({
     return () => window.clearTimeout(timer);
   }, [query, onSearch, debounceMs]);
 
-  useEffect(() => {
-    setHighlightIndex(0);
-  }, [filtered.length, query]);
+  const clampedHighlight = Math.min(highlightIndex, Math.max(filtered.length - 1, 0));
 
   useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
@@ -85,12 +83,14 @@ export default function SearchableSelect({
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) {
+      setHighlightIndex(0);
       setOpen(true);
       return;
     }
     if (e.key === 'Escape') {
       setOpen(false);
       setQuery('');
+      setHighlightIndex(0);
       return;
     }
     if (!open) return;
@@ -100,9 +100,9 @@ export default function SearchableSelect({
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setHighlightIndex((i) => Math.max(i - 1, 0));
-    } else if (e.key === 'Enter' && filtered[highlightIndex]) {
+    } else if (e.key === 'Enter' && filtered[clampedHighlight]) {
       e.preventDefault();
-      selectOption(filtered[highlightIndex]);
+      selectOption(filtered[clampedHighlight]);
     }
   };
 
@@ -123,9 +123,13 @@ export default function SearchableSelect({
           value={displayValue}
           onChange={(e) => {
             setQuery(e.target.value);
+            setHighlightIndex(0);
             setOpen(true);
           }}
-          onFocus={() => setOpen(true)}
+          onFocus={() => {
+            setHighlightIndex(0);
+            setOpen(true);
+          }}
           onKeyDown={onKeyDown}
         />
         {allowClear && value !== '' && !disabled && (
@@ -133,7 +137,7 @@ export default function SearchableSelect({
             type="button"
             className="searchable-select-clear"
             aria-label="مسح الاختيار"
-            onClick={() => { onChange(''); setQuery(''); }}
+            onClick={() => { onChange(''); setQuery(''); setHighlightIndex(0); }}
           >
             ×
           </button>
@@ -150,7 +154,7 @@ export default function SearchableSelect({
               key={option.id}
               role="option"
               aria-selected={value === option.id}
-              className={`searchable-select-option${index === highlightIndex ? ' is-highlighted' : ''}${value === option.id ? ' is-selected' : ''}${option.isActive === false ? ' is-inactive' : ''}`}
+              className={`searchable-select-option${index === clampedHighlight ? ' is-highlighted' : ''}${value === option.id ? ' is-selected' : ''}${option.isActive === false ? ' is-inactive' : ''}`}
               onMouseEnter={() => setHighlightIndex(index)}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => selectOption(option)}

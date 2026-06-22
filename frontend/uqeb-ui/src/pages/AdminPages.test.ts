@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeName } from '../pages/AdminPages';
+import { normalizeName } from './adminPageHelpers';
 
 describe('normalizeName', () => {
   it('trims and collapses spaces', () => {
