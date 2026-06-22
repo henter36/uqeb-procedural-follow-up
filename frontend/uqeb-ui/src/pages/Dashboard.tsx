@@ -1,12 +1,31 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { dashboardApi } from '../api/services';
-import type { DashboardSummary } from '../api/types';
-import { statusLabels, statusBadgeClass } from '../utils/labels';
+import type { DashboardSummary, TransactionListItem } from '../api/types';
+import { statusLabels } from '../utils/labels';
 import DateDisplay from '../components/DateDisplay';
 import DepartmentBadges from '../components/DepartmentBadges';
+import {
+  PageHeader, StatCard, Alert, StatsSkeleton, TableSkeleton, EmptyState, LoadingInline,
+} from '../components/ui';
+import StatusBadge from '../components/ui/StatusBadge';
 
 const SECTION_UNAVAILABLE = 'لا توجد بيانات متاحة';
+
+type ActionRequiredView = 'loading' | 'empty' | 'table';
+
+function resolveActionRequiredView(
+  detailsLoading: boolean,
+  actionRequired: TransactionListItem[] | undefined,
+): ActionRequiredView {
+  if (detailsLoading && actionRequired === undefined) {
+    return 'loading';
+  }
+  if (actionRequired?.length === 0) {
+    return 'empty';
+  }
+  return 'table';
+}
 
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardSummary | null>(null);
@@ -20,8 +39,6 @@ export default function DashboardPage() {
   useEffect(() => {
     const controller = new AbortController();
     let active = true;
-    setLoading(true);
-    setError(null);
 
     dashboardApi.summary()
       .then((res) => {
@@ -108,12 +125,6 @@ export default function DashboardPage() {
     { label: 'متوسط أيام الإنجاز', value: data?.averageCompletionDays ?? 0, color: 'blue', link: '/reports', suffix: ' يوم' },
   ];
 
-  const topOverdueDepartments = data?.topOverdueDepartments ?? [];
-  const topIncomingParties = data?.topIncomingParties ?? [];
-  const byCategory = data?.byCategory ?? [];
-  const byStatus = data?.byStatus ?? [];
-  const actionRequired = data?.actionRequired ?? [];
-
   const renderSectionRows = <T,>(
     loaded: boolean,
     items: T[],
@@ -122,7 +133,7 @@ export default function DashboardPage() {
     renderItem: (item: T, index: number) => ReactNode,
   ): ReactNode => {
     if (detailsLoading && !loaded) {
-      return <tr><td colSpan={colSpan} className="text-center">جاري التحميل...</td></tr>;
+      return <tr><td colSpan={colSpan} className="text-center"><LoadingInline /></td></tr>;
     }
     if (!loaded) {
       return <tr><td colSpan={colSpan} className="text-center">{SECTION_UNAVAILABLE}</td></tr>;
@@ -133,34 +144,39 @@ export default function DashboardPage() {
     return items.map(renderItem);
   };
 
+  const actionRequiredView = resolveActionRequiredView(detailsLoading, data?.actionRequired);
+
   return (
     <div>
-      <h2 className="page-title">لوحة المتابعة</h2>
+      <PageHeader
+        title="لوحة المتابعة"
+        subtitle="نظرة تشغيلية على المعاملات والإجراءات المطلوبة"
+      />
 
-      {loading && <div className="alert alert-info">جاري التحميل...</div>}
-      {error && <div className="alert alert-error">{error}</div>}
+      {error && <Alert variant="error">{error}</Alert>}
 
-      <div className="stats-grid">
-        {cardItems.map((c) => (
-          <Link key={c.label} to={c.link} className={`stat-card stat-${c.color}`}>
-            <div className="stat-value">
-              {loading ? 'جاري التحميل' : `${c.value}${c.suffix || ''}`}
-            </div>
-            <div className="stat-label">{c.label}</div>
-          </Link>
-        ))}
-      </div>
+      {loading ? (
+        <StatsSkeleton count={8} />
+      ) : (
+        <div className="stats-grid">
+          {cardItems.map((c) => (
+            <StatCard
+              key={c.label}
+              label={c.label}
+              value={`${c.value}${c.suffix ?? ''}`}
+              color={c.color}
+              link={c.link}
+            />
+          ))}
+        </div>
+      )}
 
       {(detailsLoading || detailsError) && (
-        <div className="mt-4" style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          {detailsLoading && <span className="alert alert-info" style={{ margin: 0 }}>جاري تحميل تفاصيل اللوحة...</span>}
-          {detailsError && <span className="alert alert-warning" style={{ margin: 0 }}>{detailsError}</span>}
+        <div className="mt-4 details-banner-row">
+          {detailsLoading && <Alert variant="info"><LoadingInline label="جاري تحميل تفاصيل اللوحة..." /></Alert>}
+          {detailsError && <Alert variant="warning">{detailsError}</Alert>}
           {detailsLoaded && !detailsLoading && (
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={() => loadDetails()}
-            >
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => loadDetails()}>
               إعادة تحميل التفاصيل
             </button>
           )}
@@ -170,103 +186,130 @@ export default function DashboardPage() {
       <div className="dashboard-grid mt-4">
         <div className="card">
           <h3>أكثر الإدارات تأخراً</h3>
-          <table className="data-table">
-            <thead><tr><th>الإدارة</th><th>المتأخر</th></tr></thead>
-            <tbody>
-              {renderSectionRows(
-                data?.topOverdueDepartments !== undefined,
-                topOverdueDepartments,
-                'لا يوجد',
-                2,
-                (d) => (
-                  <tr key={d.departmentId}>
-                    <td>{d.departmentName}</td>
-                    <td><span className="badge badge-red">{d.overdueCount}</span></td>
-                  </tr>
-                ),
-              )}
-            </tbody>
-          </table>
+          <div className="table-wrapper table-wrapper-spaced">
+            <table className="data-table">
+              <thead><tr><th>الإدارة</th><th>المتأخر</th></tr></thead>
+              <tbody>
+                {renderSectionRows(
+                  data?.topOverdueDepartments !== undefined,
+                  data?.topOverdueDepartments ?? [],
+                  'لا يوجد',
+                  2,
+                  (d) => (
+                    <tr key={d.departmentId}>
+                      <td>{d.departmentName}</td>
+                      <td><span className="badge badge-red">{d.overdueCount}</span></td>
+                    </tr>
+                  ),
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <div className="card">
           <h3>أكثر الجهات وارد منها</h3>
-          <table className="data-table">
-            <thead><tr><th>الجهة</th><th>العدد</th></tr></thead>
-            <tbody>
-              {renderSectionRows(
-                data?.topIncomingParties !== undefined,
-                topIncomingParties,
-                'لا يوجد',
-                2,
-                (p, i) => (
-                  <tr key={i}><td>{p.partyName}</td><td>{p.transactionCount}</td></tr>
-                ),
-              )}
-            </tbody>
-          </table>
+          <div className="table-wrapper table-wrapper-spaced">
+            <table className="data-table">
+              <thead><tr><th>الجهة</th><th>العدد</th></tr></thead>
+              <tbody>
+                {renderSectionRows(
+                  data?.topIncomingParties !== undefined,
+                  data?.topIncomingParties ?? [],
+                  'لا يوجد',
+                  2,
+                  (p, i) => (
+                    <tr key={i}><td>{p.partyName}</td><td>{p.transactionCount}</td></tr>
+                  ),
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <div className="card">
           <h3>حسب التصنيف</h3>
-          <table className="data-table">
-            <thead><tr><th>التصنيف</th><th>العدد</th></tr></thead>
-            <tbody>
-              {renderSectionRows(
-                data?.byCategory !== undefined,
-                byCategory,
-                'لا يوجد',
-                2,
-                (c, i) => (
-                  <tr key={i}><td>{c.categoryName}</td><td>{c.count}</td></tr>
-                ),
-              )}
-            </tbody>
-          </table>
+          <div className="table-wrapper table-wrapper-spaced">
+            <table className="data-table">
+              <thead><tr><th>التصنيف</th><th>العدد</th></tr></thead>
+              <tbody>
+                {renderSectionRows(
+                  data?.byCategory !== undefined,
+                  data?.byCategory ?? [],
+                  'لا يوجد',
+                  2,
+                  (c, i) => (
+                    <tr key={i}><td>{c.categoryName}</td><td>{c.count}</td></tr>
+                  ),
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <div className="card">
           <h3>حسب الحالة</h3>
-          <table className="data-table">
-            <thead><tr><th>الحالة</th><th>العدد</th></tr></thead>
-            <tbody>
-              {renderSectionRows(
-                data?.byStatus !== undefined,
-                byStatus,
-                'لا يوجد',
-                2,
-                (s, i) => (
-                  <tr key={i}><td>{statusLabels[s.status] || s.status}</td><td>{s.count}</td></tr>
-                ),
-              )}
-            </tbody>
-          </table>
+          <div className="table-wrapper table-wrapper-spaced">
+            <table className="data-table">
+              <thead><tr><th>الحالة</th><th>العدد</th></tr></thead>
+              <tbody>
+                {renderSectionRows(
+                  data?.byStatus !== undefined,
+                  data?.byStatus ?? [],
+                  'لا يوجد',
+                  2,
+                  (s, i) => (
+                    <tr key={i}><td>{statusLabels[s.status] || s.status}</td><td>{s.count}</td></tr>
+                  ),
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
       <div className="card mt-4">
         <h3>آخر المعاملات التي تحتاج إجراء</h3>
-        <table className="data-table">
-          <thead><tr><th>رقم الوارد</th><th>الموضوع</th><th>الإدارة</th><th>الحالة</th><th>التاريخ</th><th>عرض</th></tr></thead>
-          <tbody>
-            {renderSectionRows(
-              data?.actionRequired !== undefined,
-              actionRequired,
-              'لا توجد',
-              6,
-              (t) => (
-                <tr key={t.id} className={t.isOverdue ? 'row-overdue' : ''}>
-                  <td>{t.incomingNumber}</td>
-                  <td>{t.subject}</td>
-                  <td><DepartmentBadges names={t.outgoingDepartmentNames} /></td>
-                  <td><span className={`badge ${statusBadgeClass(t.status, t.isOverdue)}`}>{statusLabels[t.status]}</span></td>
-                  <td><DateDisplay date={t.incomingDate} /></td>
-                  <td><Link to={`/transactions/${t.id}`} className="btn btn-sm">عرض</Link></td>
+        {actionRequiredView === 'loading' && (
+          <TableSkeleton rows={4} cols={6} />
+        )}
+        {actionRequiredView === 'empty' && (
+          <EmptyState title="لا توجد معاملات تحتاج إجراء" icon="✅" />
+        )}
+        {actionRequiredView === 'table' && (
+          <div className="table-wrapper table-wrapper-spaced">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>رقم الوارد</th>
+                  <th>الموضوع</th>
+                  <th>الإدارة</th>
+                  <th>الحالة</th>
+                  <th>التاريخ</th>
+                  <th>عرض</th>
                 </tr>
-              ),
-            )}
-          </tbody>
-        </table>
+              </thead>
+              <tbody>
+                {renderSectionRows(
+                  data?.actionRequired !== undefined,
+                  data?.actionRequired ?? [],
+                  'لا توجد',
+                  6,
+                  (t) => (
+                    <tr key={t.id} className={t.isOverdue ? 'row-overdue' : ''}>
+                      <td>{t.incomingNumber}</td>
+                      <td>{t.subject}</td>
+                      <td><DepartmentBadges names={t.outgoingDepartmentNames} /></td>
+                      <td><StatusBadge status={t.status} isOverdue={t.isOverdue} /></td>
+                      <td><DateDisplay date={t.incomingDate} /></td>
+                      <td><Link to={`/transactions/${t.id}`} className="btn btn-sm btn-outline">عرض</Link></td>
+                    </tr>
+                  ),
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
