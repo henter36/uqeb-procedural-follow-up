@@ -442,9 +442,14 @@ public class TransactionService : ITransactionService
 
         var oldValues = JsonSerializer.Serialize(new
         {
-            t.IncomingNumber, t.Subject, t.Status, t.CategoryId, t.Priority,
+            t.IncomingNumber,
+            t.Subject,
+            t.Status,
+            t.CategoryId,
+            t.Priority,
             OutgoingDepartmentIds = t.OutgoingDepartments.Select(o => o.DepartmentId).ToList(),
-            t.ResponseDueDays, ResponseType = t.ResponseType.ToString()
+            t.ResponseDueDays,
+            ResponseType = t.ResponseType.ToString()
         });
 
         if (!string.IsNullOrEmpty(request.IncomingNumber) && request.IncomingNumber != t.IncomingNumber)
