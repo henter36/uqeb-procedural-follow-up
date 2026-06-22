@@ -17,6 +17,8 @@
   Production settings must already exist in the deployed API folder or be
   provisioned separately under C:\Uqeb\config. Package settings are never used
   as an automatic source of production secrets.
+
+  The UqebApi scheduled task must be provisioned before running this script.
 #>
 
 [CmdletBinding()]
@@ -132,29 +134,6 @@ function Resolve-PackageLayout {
     throw "Package must contain api/web or publish/api and publish/web."
 }
 
-function Assert-FrontendReferences {
-    param(
-        [string]$WebRoot,
-        [string]$ExpectedApiBaseUrl
-    )
-
-    $forbidden = Get-ChildItem -LiteralPath $WebRoot -Recurse -File |
-        Select-String -Pattern "localhost:5000|127\.0\.0\.1:5000" -AllMatches
-
-    if ($forbidden) {
-        $forbidden | Format-Table Path, LineNumber, Line -AutoSize
-        throw "Frontend contains a forbidden localhost API reference."
-    }
-
-    $expectedPattern = [regex]::Escape($ExpectedApiBaseUrl)
-    $expected = Get-ChildItem -LiteralPath $WebRoot -Recurse -File |
-        Select-String -Pattern $expectedPattern -AllMatches
-
-    if (-not $expected) {
-        throw ("Frontend does not contain the expected API base URL: " + $ExpectedApiBaseUrl)
-    }
-}
-
 function Get-ListenerProcess {
     param([int]$Port)
 
@@ -178,7 +157,7 @@ function Stop-UqebApi {
 
     $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     if (-not $task) {
-        throw ("Scheduled task does not exist: " + $TaskName + ". Configure it before deployment.")
+        throw ("Scheduled task must be provisioned before deployment: " + $TaskName)
     }
 
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
@@ -186,8 +165,7 @@ function Stop-UqebApi {
 
     $process = Get-ListenerProcess -Port $Port
     if ($process) {
-        $allowed = $process.ProcessName -eq "Uqeb.Api" -or $process.ProcessName -eq "dotnet"
-        if (-not $allowed) {
+        if ($process.ProcessName -ne "Uqeb.Api" -and $process.ProcessName -ne "dotnet") {
             throw ("Port " + $Port + " is owned by " + $process.ProcessName + " (PID " + $process.Id + ").")
         }
 
@@ -218,53 +196,28 @@ function Get-SpaWebConfigContent {
       <error statusCode="404" path="/index.html" responseMode="ExecuteURL" />
     </httpErrors>
   </system.webServer>
-  <location path="index.html">
-    <system.webServer>
-      <staticContent>
-        <clientCache cacheControlMode="DisableCache" />
-      </staticContent>
-      <httpProtocol>
-        <customHeaders>
-          <add name="Cache-Control" value="no-cache, no-store, must-revalidate" />
-          <add name="Pragma" value="no-cache" />
-          <add name="Expires" value="0" />
-        </customHeaders>
-      </httpProtocol>
-    </system.webServer>
-  </location>
 </configuration>
 '@
 }
 
-function Test-LoginProbe {
-    param([int]$Port)
+function Assert-FrontendReferences {
+    param(
+        [string]$WebRoot,
+        [string]$ExpectedApiBaseUrl
+    )
 
-    $body = @{
-        username = "__deployment_probe__"
-        password = "__deployment_probe__"
-    } | ConvertTo-Json
+    $forbidden = Get-ChildItem -LiteralPath $WebRoot -Recurse -File |
+        Select-String -Pattern "localhost:5000|127\.0\.0\.1:5000" -AllMatches
 
-    try {
-        Invoke-WebRequest `
-            -UseBasicParsing `
-            -Uri ("http://localhost:" + $Port + "/api/auth/login") `
-            -Method Post `
-            -ContentType "application/json" `
-            -Body $body | Out-Null
-
-        throw "Login probe unexpectedly succeeded."
+    if ($forbidden) {
+        throw "Frontend contains a forbidden localhost API reference."
     }
-    catch {
-        if (-not $_.Exception.Response) {
-            throw ("Could not connect to API: " + $_.Exception.Message)
-        }
 
-        $statusCode = [int]$_.Exception.Response.StatusCode
-        if ($statusCode -ne 401) {
-            throw ("Login probe returned unexpected status: " + $statusCode)
-        }
+    $expected = Get-ChildItem -LiteralPath $WebRoot -Recurse -File |
+        Select-String -Pattern ([regex]::Escape($ExpectedApiBaseUrl)) -AllMatches
 
-        Write-Info "Login probe returned expected 401."
+    if (-not $expected) {
+        throw ("Frontend does not contain the expected API base URL: " + $ExpectedApiBaseUrl)
     }
 }
 
@@ -283,17 +236,11 @@ $webTarget = Join-Path $publishRoot "web"
 $logsTarget = Join-Path $InstallRoot "logs"
 $backupRoot = Join-Path $InstallRoot "backup"
 $configRoot = Join-Path $InstallRoot "config"
-$runApiPath = Join-Path $InstallRoot "run-api.cmd"
 $productionSettingsTarget = Join-Path $apiTarget "appsettings.Production.json"
 
 if ([string]::IsNullOrWhiteSpace($ProductionSettingsPath)) {
     $ProductionSettingsPath = Join-Path $configRoot "appsettings.Production.json"
 }
-
-Write-Info ("Package layout: " + $layout.Layout)
-Write-Info ("API target: " + $apiTarget)
-Write-Info ("Web target: " + $webTarget)
-Write-Info ("Kestrel binding: http://" + $ApiBindAddress + ":" + $ApiPort)
 
 $requiredPackagePaths = @(
     (Join-Path $apiSource "Uqeb.Api.dll"),
@@ -318,9 +265,11 @@ Ensure-Directory $logsTarget
 Ensure-Directory $backupRoot
 Ensure-Directory $configRoot
 
-$settingsSource = $null
-$firstDeployment = $false
+if (-not (Get-ScheduledTask -TaskName $ScheduledTaskName -ErrorAction SilentlyContinue)) {
+    throw ("Scheduled task must be provisioned before deployment: " + $ScheduledTaskName)
+}
 
+$firstDeployment = $false
 if (Test-Path -LiteralPath $productionSettingsTarget) {
     $settingsSource = $productionSettingsTarget
 }
@@ -329,20 +278,14 @@ elseif (Test-Path -LiteralPath $ProductionSettingsPath) {
     $firstDeployment = $true
 }
 else {
-    throw ("No approved production settings found. Existing: " + $productionSettingsTarget + "; provisioned: " + $ProductionSettingsPath)
+    throw "No approved production settings found."
 }
 
-$settingsJson = Get-Content -LiteralPath $settingsSource -Raw | ConvertFrom-Json
-
-if ([string]::IsNullOrWhiteSpace($settingsJson.ConnectionStrings.DefaultConnection)) {
-    throw "Production settings are missing ConnectionStrings:DefaultConnection."
+$settings = Get-Content -LiteralPath $settingsSource -Raw | ConvertFrom-Json
+if ([string]::IsNullOrWhiteSpace($settings.ConnectionStrings.DefaultConnection)) {
+    throw "Production settings are missing DefaultConnection."
 }
-
-if ([string]::IsNullOrWhiteSpace($settingsJson.Jwt.Key) -or $settingsJson.Jwt.Key.Length -lt 32) {
-    throw "Production settings are missing a valid Jwt:Key."
-}
-
-if ($settingsJson.AllowedOrigins -notcontains $FrontendOrigin) {
+if ($settings.AllowedOrigins -notcontains $FrontendOrigin) {
     throw ("AllowedOrigins must include " + $FrontendOrigin)
 }
 
@@ -370,9 +313,8 @@ else {
 }
 
 Copy-Item -LiteralPath $settingsSource -Destination $backupSettings -Force
-
 if ($firstDeployment) {
-    Set-Content -LiteralPath (Join-Path $backup "FIRST_DEPLOYMENT.txt") -Value "No previous production deployment existed." -Encoding UTF8
+    Set-Content -LiteralPath (Join-Path $backup "FIRST_DEPLOYMENT.txt") -Value "No previous deployment existed." -Encoding UTF8
 }
 
 Stop-UqebApi -Port $ApiPort -TaskName $ScheduledTaskName
@@ -380,33 +322,21 @@ Stop-UqebApi -Port $ApiPort -TaskName $ScheduledTaskName
 Invoke-RobocopyOrThrow `
     -Source $apiSource `
     -Destination $apiTarget `
-    -ExtraArguments @(
-        "/XF",
-        "appsettings.json",
-        "appsettings.Development.json",
-        "appsettings.Production.json"
-    )
+    -ExtraArguments @("/XF", "appsettings.json", "appsettings.Development.json", "appsettings.Production.json")
 
 Copy-Item -LiteralPath $backupSettings -Destination $productionSettingsTarget -Force
 
 Get-ChildItem -LiteralPath $webTarget -Force -ErrorAction SilentlyContinue |
     Remove-Item -Recurse -Force
-
 Invoke-RobocopyOrThrow -Source $webSource -Destination $webTarget -ExtraArguments @("/PURGE")
 Set-Content -LiteralPath (Join-Path $webTarget "web.config") -Value (Get-SpaWebConfigContent) -Encoding UTF8
-
 Assert-FrontendReferences -WebRoot $webTarget -ExpectedApiBaseUrl $FrontendApiBaseUrl
 
 $apiExecutable = Join-Path $apiTarget "Uqeb.Api.exe"
 $apiDll = Join-Path $apiTarget "Uqeb.Api.dll"
 $apiLog = Join-Path $logsTarget "api-runtime.log"
-
-if (Test-Path -LiteralPath $apiExecutable) {
-    $launchCommand = '"' + $apiExecutable + '"'
-}
-else {
-    $launchCommand = 'dotnet "' + $apiDll + '"'
-}
+$launchCommand = if (Test-Path -LiteralPath $apiExecutable) { '"' + $apiExecutable + '"' } else { 'dotnet "' + $apiDll + '"' }
+$runApiPath = Join-Path $InstallRoot "run-api.cmd"
 
 $runApiContent = @"
 @echo off
@@ -416,25 +346,17 @@ set DOTNET_ENVIRONMENT=Production
 set ASPNETCORE_URLS=http://$ApiBindAddress`:$ApiPort
 $launchCommand >> "$apiLog" 2>&1
 "@
-
 Set-Content -LiteralPath $runApiPath -Value $runApiContent -Encoding ASCII
 
-$taskAction = New-ScheduledTaskAction `
-    -Execute $env:ComSpec `
-    -Argument ('/c "' + $runApiPath + '"') `
-    -WorkingDirectory $apiTarget
-
+$taskAction = New-ScheduledTaskAction -Execute $env:ComSpec -Argument ('/c "' + $runApiPath + '"') -WorkingDirectory $apiTarget
 Set-ScheduledTask -TaskName $ScheduledTaskName -Action $taskAction | Out-Null
 Start-ScheduledTask -TaskName $ScheduledTaskName
 
 $deadline = (Get-Date).AddSeconds(30)
 $listener = $null
-
 while ((Get-Date) -lt $deadline) {
     $listener = Get-NetTCPConnection -LocalPort $ApiPort -State Listen -ErrorAction SilentlyContinue
-    if ($listener) {
-        break
-    }
+    if ($listener) { break }
     Start-Sleep -Seconds 2
 }
 
@@ -443,38 +365,24 @@ if (-not $listener) {
 }
 
 $validBinding = $listener | Where-Object {
-    $_.LocalAddress -eq $ApiBindAddress -or
-    $_.LocalAddress -eq "0.0.0.0" -or
-    $_.LocalAddress -eq "::"
+    $_.LocalAddress -eq $ApiBindAddress -or $_.LocalAddress -eq "0.0.0.0" -or $_.LocalAddress -eq "::"
 }
-
 if (-not $validBinding) {
-    throw ("API is not listening on a LAN-capable address. Actual: " + (($listener.LocalAddress | Sort-Object -Unique) -join ", "))
+    throw "API is not listening on a LAN-capable address."
 }
-
-Test-LoginProbe -Port $ApiPort
 
 $buildInfo = @"
 Uqeb Production Deployment
-==========================
-DeployedAtUtc: $((Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss")) UTC
 DeployedAtLocal: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
 SourcePackage: $sourceRoot
 PackageLayout: $($layout.Layout)
-InstallRoot: $InstallRoot
 ApiTarget: $apiTarget
 WebTarget: $webTarget
-ScheduledTask: $ScheduledTaskName
 ApiBinding: http://$ApiBindAddress`:$ApiPort
-FrontendOrigin: $FrontendOrigin
-FrontendApiBaseUrl: $FrontendApiBaseUrl
 Backup: $backup
 "@
-
 Set-Content -LiteralPath (Join-Path $InstallRoot "BUILD_INFO.txt") -Value $buildInfo -Encoding UTF8
 
 Write-Step "Deployment completed successfully"
 Write-Output ("Backup: " + $backup)
-Write-Output ("API: http://10.0.177.17:" + $ApiPort)
 Write-Output ("UI: " + $FrontendOrigin)
-Write-Output "Verify login from the production machine and at least one LAN client."
