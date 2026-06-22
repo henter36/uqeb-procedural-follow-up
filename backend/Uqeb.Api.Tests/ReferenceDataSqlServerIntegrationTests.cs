@@ -45,9 +45,27 @@ public class ReferenceDataSqlServerIntegrationTests
         await using (var connection = new SqlConnection(masterBuilder.ConnectionString))
         {
             await connection.OpenAsync();
-            var quotedDatabaseName = SqlTestDatabaseNameHelper.ValidateAndQuoteDatabaseName(connection, databaseName);
+            _ = SqlTestDatabaseNameHelper.ValidateAndQuoteDatabaseName(connection, databaseName);
+
             await using var command = connection.CreateCommand();
-            command.CommandText = $"CREATE DATABASE {quotedDatabaseName}";
+            command.CommandText =
+                """
+                DECLARE @quotedDatabaseName sysname = QUOTENAME(@databaseName);
+
+                IF @quotedDatabaseName IS NULL
+                BEGIN
+                    THROW 51020, N'Invalid SQL Server test database name.', 1;
+                END;
+
+                EXEC(N'CREATE DATABASE ' + @quotedDatabaseName);
+                """;
+
+            command.Parameters.Add(
+                new SqlParameter("@databaseName", SqlDbType.NVarChar, 128)
+                {
+                    Value = databaseName
+                });
+
             await command.ExecuteNonQueryAsync();
         }
 
@@ -173,19 +191,36 @@ public class ReferenceDataSqlServerIntegrationTests
 
         await using var connection = new SqlConnection(builder.ConnectionString);
         await connection.OpenAsync();
-        var quotedDatabaseName = SqlTestDatabaseNameHelper.ValidateAndQuoteDatabaseName(connection, databaseName);
+        _ = SqlTestDatabaseNameHelper.ValidateAndQuoteDatabaseName(connection, databaseName);
+
         await using var command = connection.CreateCommand();
-        command.CommandText = $"""
+        command.CommandText =
+            """
+            DECLARE @quotedDatabaseName sysname = QUOTENAME(@databaseName);
+
+            IF @quotedDatabaseName IS NULL
+            BEGIN
+                THROW 51020, N'Invalid SQL Server test database name.', 1;
+            END;
+
             IF DB_ID(@databaseName) IS NOT NULL
             BEGIN
-                ALTER DATABASE {quotedDatabaseName} SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
-                DROP DATABASE {quotedDatabaseName};
-            END
+                EXEC(
+                    N'ALTER DATABASE ' +
+                    @quotedDatabaseName +
+                    N' SET SINGLE_USER WITH ROLLBACK IMMEDIATE;'
+                );
+
+                EXEC(N'DROP DATABASE ' + @quotedDatabaseName);
+            END;
             """;
-        command.Parameters.Add(new SqlParameter("@databaseName", SqlDbType.NVarChar, 128)
-        {
-            Value = databaseName
-        });
+
+        command.Parameters.Add(
+            new SqlParameter("@databaseName", SqlDbType.NVarChar, 128)
+            {
+                Value = databaseName
+            });
+
         await command.ExecuteNonQueryAsync();
     }
 }
