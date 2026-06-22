@@ -46,7 +46,3 @@ if (-not (Test-Path -LiteralPath $canonicalScript)) {
     -ProductionSettingsPath $ProductionSettingsPath `
     -FrontendOrigin $FrontendOrigin `
     -FrontendApiBaseUrl $FrontendApiBaseUrl
-
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}
