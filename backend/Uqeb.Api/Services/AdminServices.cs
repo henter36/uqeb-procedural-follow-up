@@ -1,3 +1,4 @@
+using System.Data;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Uqeb.Api.Data;
@@ -85,30 +86,27 @@ public class UserService : IUserService
 
     public async Task<UserDto> CreateAsync(CreateUserRequest request, int actorUserId)
     {
-        var username = ReferenceNameNormalizer.FormatDisplayName(request.Username);
+        var username = ReferenceNameNormalizer.RequireDisplayName(request.Username, ReferenceNameNormalizer.EmptyUsernameMessage);
         var normalizedUsername = ReferenceNameNormalizer.NormalizeKey(username);
         if (await _db.Users.AnyAsync(u => u.Username.ToLower() == normalizedUsername))
             throw new DuplicateReferenceException("اسم المستخدم موجود مسبقاً");
 
-        if (!string.IsNullOrWhiteSpace(request.Email))
-        {
-            var email = request.Email.Trim();
-            if (await _db.Users.AnyAsync(u => u.Email != null && u.Email.ToLower() == email.ToLower()))
-                throw new DuplicateReferenceException("البريد الإلكتروني مستخدم مسبقاً");
-        }
+        var email = EmailNormalizer.Normalize(request.Email);
+        if (email != null && await _db.Users.AnyAsync(u => u.Email == email))
+            throw new DuplicateReferenceException("البريد الإلكتروني مستخدم مسبقاً");
 
         var user = new User
         {
             Username = username,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
-            FullName = ReferenceNameNormalizer.FormatDisplayName(request.FullName),
-            Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim(),
+            FullName = ReferenceNameNormalizer.RequireDisplayName(request.FullName),
+            Email = email,
             Role = EnumHelper.ParseUserRole(request.Role),
             DepartmentId = request.DepartmentId,
             IsActive = true
         };
         _db.Users.Add(user);
-        await _db.SaveChangesAsync();
+        await ReferenceDataSaveHelper.SaveChangesAsync(_db);
 
         await _audit.LogAsync(actorUserId, AuditAction.Create, "User", user.Id, null, null,
             JsonSerializer.Serialize(new { user.Username, user.FullName, user.Email, Role = user.Role.ToString(), user.DepartmentId, user.IsActive }));
@@ -117,6 +115,31 @@ public class UserService : IUserService
     }
 
     public async Task<UserDto?> UpdateAsync(int id, UpdateUserRequest request, int actorUserId)
+    {
+        var needsAdminGuard = request.IsActive.HasValue || !string.IsNullOrEmpty(request.Role);
+        if (!needsAdminGuard || !_db.Database.IsRelational())
+            return await ApplyUserUpdateAsync(id, request, actorUserId);
+
+        await using var transaction = await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+        try
+        {
+            var result = await ApplyUserUpdateAsync(id, request, actorUserId);
+            await transaction.CommitAsync();
+            return result;
+        }
+        catch (Exception ex) when (IsConcurrencyConflict(ex))
+        {
+            await transaction.RollbackAsync();
+            throw new InvalidOperationException("تعذر إتمام التعديل بسبب تعارض تزامني. أعد المحاولة.", ex);
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+    }
+
+    private async Task<UserDto?> ApplyUserUpdateAsync(int id, UpdateUserRequest request, int actorUserId)
     {
         var user = await _db.Users.FindAsync(id);
         if (user == null) return null;
@@ -131,7 +154,7 @@ public class UserService : IUserService
         ApplyStatusChange(user, request.IsActive);
         ApplyPasswordChange(user, request.Password);
 
-        await _db.SaveChangesAsync();
+        await ReferenceDataSaveHelper.SaveChangesAsync(_db);
 
         await _audit.LogAsync(actorUserId, AuditAction.Update, "User", user.Id, null,
             JsonSerializer.Serialize(oldSnapshot),
@@ -142,10 +165,10 @@ public class UserService : IUserService
 
     private async Task UpdateUsernameAsync(User user, int id, string? username)
     {
-        if (string.IsNullOrWhiteSpace(username) || username == user.Username)
+        if (username == null || username == user.Username)
             return;
 
-        var formatted = ReferenceNameNormalizer.FormatDisplayName(username);
+        var formatted = ReferenceNameNormalizer.RequireDisplayName(username, ReferenceNameNormalizer.EmptyUsernameMessage);
         var normalizedUsername = ReferenceNameNormalizer.NormalizeKey(formatted);
         if (await _db.Users.AnyAsync(u => u.Username.ToLower() == normalizedUsername && u.Id != id))
             throw new DuplicateReferenceException("اسم المستخدم موجود مسبقاً");
@@ -154,8 +177,8 @@ public class UserService : IUserService
 
     private static void ApplyProfileChanges(User user, UpdateUserRequest request)
     {
-        if (!string.IsNullOrEmpty(request.FullName))
-            user.FullName = ReferenceNameNormalizer.FormatDisplayName(request.FullName);
+        if (request.FullName != null)
+            user.FullName = ReferenceNameNormalizer.RequireDisplayName(request.FullName);
     }
 
     private async Task UpdateEmailAsync(User user, int id, string? emailValue)
@@ -163,8 +186,8 @@ public class UserService : IUserService
         if (emailValue == null)
             return;
 
-        var email = string.IsNullOrWhiteSpace(emailValue) ? null : emailValue.Trim();
-        if (email != null && await _db.Users.AnyAsync(u => u.Email != null && u.Email.ToLower() == email.ToLower() && u.Id != id))
+        var email = EmailNormalizer.Normalize(emailValue);
+        if (email != null && await _db.Users.AnyAsync(u => u.Email == email && u.Id != id))
             throw new DuplicateReferenceException("البريد الإلكتروني مستخدم مسبقاً");
         user.Email = email;
     }
@@ -222,6 +245,17 @@ public class UserService : IUserService
         u.IsActive
     };
 
+    private static bool IsConcurrencyConflict(Exception ex)
+    {
+        for (var current = ex; current != null; current = current.InnerException)
+        {
+            if (current is Microsoft.Data.SqlClient.SqlException sql && sql.Number is 1205 or 1204)
+                return true;
+        }
+
+        return ex is DbUpdateConcurrencyException;
+    }
+
     private async Task EnsureCanChangeAdminStatusAsync(User user, bool? newIsActive, string? newRole)
     {
         if (user.Role != UserRole.Admin || !user.IsActive)
@@ -232,8 +266,8 @@ public class UserService : IUserService
         if (!becomingInactive && !becomingNonAdmin)
             return;
 
-        var activeAdmins = await _db.Users.CountAsync(u => u.IsActive && u.Role == UserRole.Admin);
-        if (activeAdmins <= 1)
+        var activeOtherAdmins = await _db.Users.CountAsync(u => u.IsActive && u.Role == UserRole.Admin && u.Id != user.Id);
+        if (activeOtherAdmins == 0)
             throw new LastActiveAdminException();
     }
 
@@ -346,7 +380,7 @@ public class DepartmentService : IDepartmentService
 
     public async Task<DepartmentDto> CreateAsync(CreateDepartmentRequest request, int actorUserId)
     {
-        var name = ReferenceNameNormalizer.FormatDisplayName(request.Name);
+        var name = ReferenceNameNormalizer.RequireDisplayName(request.Name);
         var normalized = ReferenceNameNormalizer.NormalizeKey(name);
         if (await _db.Departments.AnyAsync(d => d.NameNormalized == normalized))
             throw new DuplicateReferenceException("توجد إدارة مسجلة مسبقًا بالاسم نفسه.");
@@ -359,7 +393,7 @@ public class DepartmentService : IDepartmentService
             IsActive = true
         };
         _db.Departments.Add(dept);
-        await _db.SaveChangesAsync();
+        await ReferenceDataSaveHelper.SaveChangesAsync(_db);
 
         await _audit.LogAsync(actorUserId, AuditAction.Create, "Department", dept.Id, null, null,
             JsonSerializer.Serialize(new { dept.Name, dept.Code, dept.IsActive }));
@@ -381,9 +415,9 @@ public class DepartmentService : IDepartmentService
 
         var oldSnapshot = new { dept.Name, dept.Code, dept.IsActive };
 
-        if (!string.IsNullOrEmpty(request.Name))
+        if (request.Name != null)
         {
-            var name = ReferenceNameNormalizer.FormatDisplayName(request.Name);
+            var name = ReferenceNameNormalizer.RequireDisplayName(request.Name);
             var normalized = ReferenceNameNormalizer.NormalizeKey(name);
             if (await _db.Departments.AnyAsync(d => d.NameNormalized == normalized && d.Id != id))
                 throw new DuplicateReferenceException("توجد إدارة مسجلة مسبقًا بالاسم نفسه.");
@@ -397,7 +431,7 @@ public class DepartmentService : IDepartmentService
         if (request.IsActive.HasValue)
             dept.IsActive = request.IsActive.Value;
 
-        await _db.SaveChangesAsync();
+        await ReferenceDataSaveHelper.SaveChangesAsync(_db);
 
         var action = request.IsActive.HasValue && request.IsActive != oldSnapshot.IsActive
             ? AuditAction.StatusChange
@@ -515,7 +549,7 @@ public class ExternalPartyService : IExternalPartyService
 
     public async Task<ExternalPartyDto> CreateAsync(CreateExternalPartyRequest request, int actorUserId)
     {
-        var name = ReferenceNameNormalizer.FormatDisplayName(request.Name);
+        var name = ReferenceNameNormalizer.RequireDisplayName(request.Name);
         var normalized = ReferenceNameNormalizer.NormalizeKey(name);
         if (await _db.ExternalParties.AnyAsync(p => p.NameNormalized == normalized))
             throw new DuplicateReferenceException("توجد جهة خارجية مسجلة مسبقًا بالاسم نفسه.");
@@ -529,7 +563,7 @@ public class ExternalPartyService : IExternalPartyService
             IsActive = true
         };
         _db.ExternalParties.Add(party);
-        await _db.SaveChangesAsync();
+        await ReferenceDataSaveHelper.SaveChangesAsync(_db);
 
         await _audit.LogAsync(actorUserId, AuditAction.Create, "ExternalParty", party.Id, null, null,
             JsonSerializer.Serialize(new { party.Name, party.Type, party.ContactInfo, party.IsActive }));
@@ -544,9 +578,9 @@ public class ExternalPartyService : IExternalPartyService
 
         var oldSnapshot = new { party.Name, party.Type, party.ContactInfo, party.IsActive };
 
-        if (!string.IsNullOrEmpty(request.Name))
+        if (request.Name != null)
         {
-            var name = ReferenceNameNormalizer.FormatDisplayName(request.Name);
+            var name = ReferenceNameNormalizer.RequireDisplayName(request.Name);
             var normalized = ReferenceNameNormalizer.NormalizeKey(name);
             if (await _db.ExternalParties.AnyAsync(p => p.NameNormalized == normalized && p.Id != id))
                 throw new DuplicateReferenceException("توجد جهة خارجية مسجلة مسبقًا بالاسم نفسه.");
@@ -561,7 +595,7 @@ public class ExternalPartyService : IExternalPartyService
         if (request.IsActive.HasValue)
             party.IsActive = request.IsActive.Value;
 
-        await _db.SaveChangesAsync();
+        await ReferenceDataSaveHelper.SaveChangesAsync(_db);
 
         var action = request.IsActive.HasValue && request.IsActive != oldSnapshot.IsActive
             ? AuditAction.StatusChange

@@ -163,6 +163,10 @@ public class DepartmentsController : ControllerBase
         {
             return Conflict(new { message = ex.Message });
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPut("{id}")]
@@ -179,6 +183,10 @@ public class DepartmentsController : ControllerBase
         catch (DuplicateReferenceException ex)
         {
             return Conflict(new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
         }
     }
 }
@@ -251,6 +259,10 @@ public class ExternalPartiesController : ControllerBase
         {
             return Conflict(new { message = ex.Message });
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPut("{id}")]
@@ -267,6 +279,10 @@ public class ExternalPartiesController : ControllerBase
         catch (DuplicateReferenceException ex)
         {
             return Conflict(new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
         }
     }
 }

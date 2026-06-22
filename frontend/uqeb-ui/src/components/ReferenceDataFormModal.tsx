@@ -18,9 +18,9 @@ export function FormModal({
   submitLabel,
 }: Readonly<FormModalProps>) {
   return (
-    <div className="modal-overlay">
-      <div className="modal">
-        <h3>{title}</h3>
+    <div className="modal-overlay" role="presentation">
+      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="form-modal-title">
+        <h3 id="form-modal-title">{title}</h3>
         <form onSubmit={onSubmit}>
           {children}
           <div className="form-actions">

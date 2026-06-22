@@ -32,6 +32,7 @@ export default function TransactionForm({ mode }: Props) {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(mode === 'edit');
+  const [referenceLoading, setReferenceLoading] = useState(true);
   const [form, setForm] = useState({
     incomingNumber: '', incomingDate: new Date().toISOString().split('T')[0],
     subject: '',
@@ -66,10 +67,27 @@ export default function TransactionForm({ mode }: Props) {
   }, [form.incomingDate, form.responseDueDays]);
 
   useEffect(() => {
+    let cancelled = false;
     const activeOnly = mode === 'create';
-    externalPartiesApi.getAll(activeOnly).then((r) => setParties(r.data));
-    departmentsApi.getAll(activeOnly).then((r) => setDepartments(r.data));
-    categoriesApi.getAll(activeOnly).then((r) => setCategories(r.data));
+    void (async () => {
+      setReferenceLoading(true);
+      const results = await Promise.allSettled([
+        externalPartiesApi.getAll(activeOnly),
+        departmentsApi.getAll(activeOnly),
+        categoriesApi.getAll(activeOnly),
+      ]);
+      if (cancelled) return;
+      const failed: string[] = [];
+      if (results[0].status === 'fulfilled') setParties(results[0].value.data);
+      else failed.push('الجهات الخارجية');
+      if (results[1].status === 'fulfilled') setDepartments(results[1].value.data);
+      else failed.push('الإدارات');
+      if (results[2].status === 'fulfilled') setCategories(results[2].value.data);
+      else failed.push('التصنيفات');
+      if (failed.length > 0) setError(`تعذر تحميل: ${failed.join('، ')}`);
+      setReferenceLoading(false);
+    })();
+    return () => { cancelled = true; };
   }, [mode]);
 
   useEffect(() => {
@@ -93,6 +111,8 @@ export default function TransactionForm({ mode }: Props) {
           categoryId: t.categoryId ?? '',
           notes: t.notes || '',
         });
+      }).catch(() => {
+        setError('تعذر تحميل المعاملة');
       }).finally(() => setLoading(false));
     }
   }, [mode, id]);
@@ -170,7 +190,7 @@ export default function TransactionForm({ mode }: Props) {
 
   const fieldError = (name: string) => fieldErrors[name];
 
-  if (loading) return <div className="loading">جاري التحميل...</div>;
+  if (loading || referenceLoading) return <div className="loading">جاري التحميل...</div>;
 
   return (
     <div>

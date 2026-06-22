@@ -77,6 +77,10 @@ public class CategoriesController : ControllerBase
         {
             return Conflict(new { message = ex.Message });
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPut("{id}")]
@@ -93,6 +97,10 @@ public class CategoriesController : ControllerBase
         catch (DuplicateReferenceException ex)
         {
             return Conflict(new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
         }
     }
 }

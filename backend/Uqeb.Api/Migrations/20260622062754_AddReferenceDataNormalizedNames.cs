@@ -10,15 +10,6 @@ namespace Uqeb.Api.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AlterColumn<string>(
-            name: "Email",
-            table: "Users",
-            type: "nvarchar(450)",
-            nullable: true,
-            oldClrType: typeof(string),
-            oldType: "nvarchar(max)",
-            oldNullable: true);
-
             migrationBuilder.AddColumn<string>(
                 name: "NameNormalized",
                 table: "ExternalParties",
@@ -257,6 +248,23 @@ namespace Uqeb.Api.Migrations
             UPDATE Users
             SET Email = LTRIM(RTRIM(Email))
             WHERE Email IS NOT NULL;
+
+            UPDATE Users
+            SET Email = LOWER(Email)
+            WHERE Email IS NOT NULL;
+            """);
+
+            migrationBuilder.Sql(
+                """
+            IF EXISTS (
+                SELECT 1
+                FROM Users
+                WHERE Email IS NOT NULL
+                  AND DATALENGTH(Email) > 900
+            )
+            BEGIN
+                THROW 51015, N'One or more user email addresses exceed 450 characters after normalization.', 1;
+            END;
             """);
 
             migrationBuilder.Sql(
@@ -272,6 +280,15 @@ namespace Uqeb.Api.Migrations
                 THROW 51014, N'Duplicate user email addresses exist.', 1;
             END;
             """);
+
+            migrationBuilder.AlterColumn<string>(
+                name: "Email",
+                table: "Users",
+                type: "nvarchar(450)",
+                nullable: true,
+                oldClrType: typeof(string),
+                oldType: "nvarchar(max)",
+                oldNullable: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_Users_Email",

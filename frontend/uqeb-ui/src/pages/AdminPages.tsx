@@ -293,11 +293,24 @@ function UserForm({ editing, onClose, onSaved }: Readonly<UserFormProps>) {
   const [error, setError] = useState<string | null>(null);
   const [showReset, setShowReset] = useState(false);
   const [newPassword, setNewPassword] = useState('');
+  const [loadingDepartments, setLoadingDepartments] = useState(true);
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
 
   useEffect(() => {
-    departmentsApi.getAll(false).then((r) => {
-      setDepartments(r.data.map((d) => ({ id: d.id, name: d.name, isActive: d.isActive, subLabel: d.code })));
-    });
+    let cancelled = false;
+    departmentsApi.getAll(false)
+      .then((r) => {
+        if (cancelled) return;
+        setDepartments(r.data.map((d) => ({ id: d.id, name: d.name, isActive: d.isActive, subLabel: d.code })));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setBootstrapError('تعذر تحميل قائمة الإدارات');
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingDepartments(false);
+      });
+    return () => { cancelled = true; };
   }, []);
 
   const submit = async (e: FormEvent) => {
@@ -380,7 +393,7 @@ function UserForm({ editing, onClose, onSaved }: Readonly<UserFormProps>) {
           {Object.entries(roleLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
       </div>
-      <SearchableSelect label="الإدارة" value={departmentId} onChange={setDepartmentId} options={departments} allowClear />
+      <SearchableSelect label="الإدارة" value={departmentId} onChange={setDepartmentId} options={departments} allowClear loading={loadingDepartments} />
       {editing && (
         <fieldset className="form-group">
           <legend>الحالة</legend>
@@ -403,6 +416,7 @@ function UserForm({ editing, onClose, onSaved }: Readonly<UserFormProps>) {
           )}
         </div>
       )}
+      {bootstrapError && <div className="alert alert-error">{bootstrapError}</div>}
       {error && <div className="alert alert-error">{error}</div>}
     </FormModal>
   );

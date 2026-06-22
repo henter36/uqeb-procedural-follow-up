@@ -13,11 +13,14 @@ interface Props {
 export default function MultiSelect({ options, selected, onChange, label, required }: Props) {
   const [query, setQuery] = useState('');
 
+  const showSearch = options.length > 6;
+
   const filtered = useMemo(() => {
+    if (!showSearch) return options;
     const term = query.trim().toLowerCase();
     if (!term) return options;
     return options.filter((o) => o.name.toLowerCase().includes(term));
-  }, [options, query]);
+  }, [options, query, showSearch]);
 
   const toggle = (id: number) => {
     onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
@@ -26,7 +29,7 @@ export default function MultiSelect({ options, selected, onChange, label, requir
   return (
     <div className="form-group">
       {label && <label>{label}{required ? ' *' : ''}</label>}
-      {options.length > 6 && (
+      {showSearch && (
         <input
           className="multi-select-search"
           placeholder="بحث..."

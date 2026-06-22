@@ -95,6 +95,7 @@ export default function SearchableSelect({
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) {
+      e.preventDefault();
       setHighlightIndex(0);
       setOpen(true);
       return;

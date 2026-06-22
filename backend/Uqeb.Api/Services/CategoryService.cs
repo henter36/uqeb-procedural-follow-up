@@ -93,7 +93,7 @@ public class CategoryService : ICategoryService
 
     public async Task<CategoryDto> CreateAsync(CreateCategoryRequest request, int actorUserId)
     {
-        var name = ReferenceNameNormalizer.FormatDisplayName(request.Name);
+        var name = ReferenceNameNormalizer.RequireDisplayName(request.Name);
         var normalized = ReferenceNameNormalizer.NormalizeKey(name);
         if (await _db.Categories.AnyAsync(c => c.NameNormalized == normalized))
             throw new DuplicateReferenceException("يوجد تصنيف مسجل مسبقًا بالاسم نفسه.");
@@ -106,7 +106,7 @@ public class CategoryService : ICategoryService
             IsActive = true
         };
         _db.Categories.Add(cat);
-        await _db.SaveChangesAsync();
+        await ReferenceDataSaveHelper.SaveChangesAsync(_db);
 
         await _audit.LogAsync(actorUserId, AuditAction.Create, "Category", cat.Id, null, null,
             JsonSerializer.Serialize(new { cat.Name, cat.Code, cat.IsActive }));
@@ -121,9 +121,9 @@ public class CategoryService : ICategoryService
 
         var oldSnapshot = new { cat.Name, cat.Code, cat.IsActive };
 
-        if (!string.IsNullOrEmpty(request.Name))
+        if (request.Name != null)
         {
-            var name = ReferenceNameNormalizer.FormatDisplayName(request.Name);
+            var name = ReferenceNameNormalizer.RequireDisplayName(request.Name);
             var normalized = ReferenceNameNormalizer.NormalizeKey(name);
             if (await _db.Categories.AnyAsync(c => c.NameNormalized == normalized && c.Id != id))
                 throw new DuplicateReferenceException("يوجد تصنيف مسجل مسبقًا بالاسم نفسه.");
@@ -136,7 +136,7 @@ public class CategoryService : ICategoryService
         if (request.IsActive.HasValue)
             cat.IsActive = request.IsActive.Value;
 
-        await _db.SaveChangesAsync();
+        await ReferenceDataSaveHelper.SaveChangesAsync(_db);
 
         var action = request.IsActive.HasValue && request.IsActive != oldSnapshot.IsActive
             ? AuditAction.StatusChange
