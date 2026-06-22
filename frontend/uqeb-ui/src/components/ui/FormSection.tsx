@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
 
-type FormSectionProps = {
+type FormSectionProps = Readonly<{
   title: string;
   description?: string;
   children: ReactNode;
-};
+}>;
 
 export default function FormSection({ title, description, children }: FormSectionProps) {
   return (

@@ -1,4 +1,4 @@
-type PaginationProps = {
+type PaginationProps = Readonly<{
   page: number;
   pageSize: number;
   total: number;
@@ -6,7 +6,7 @@ type PaginationProps = {
   onPageChange: (page: number) => void;
   onPageSizeChange?: (size: number) => void;
   pageSizeOptions?: number[];
-};
+}>;
 
 export default function Pagination({
   page,
@@ -18,11 +18,12 @@ export default function Pagination({
   pageSizeOptions = [10, 20, 25, 50],
 }: PaginationProps) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
-  const to = Math.min(page * pageSize, total);
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const from = total === 0 ? 0 : (safePage - 1) * pageSize + 1;
+  const to = total === 0 ? 0 : Math.min(safePage * pageSize, total);
 
   return (
-    <div className="pagination" role="navigation" aria-label="التصفح">
+    <nav className="pagination" aria-label="التصفح">
       <span className="pagination-info">
         عرض {from}–{to} من {total}
       </span>
@@ -45,22 +46,22 @@ export default function Pagination({
       <button
         type="button"
         className="btn btn-outline btn-sm"
-        disabled={page <= 1}
-        onClick={() => onPageChange(page - 1)}
+        disabled={safePage <= 1}
+        onClick={() => onPageChange(safePage - 1)}
         aria-label="الصفحة السابقة"
       >
         السابق
       </button>
-      <span aria-current="page">صفحة {page} من {totalPages}</span>
+      <span aria-current="page">صفحة {safePage} من {totalPages}</span>
       <button
         type="button"
         className="btn btn-outline btn-sm"
-        disabled={itemCount < pageSize || page >= totalPages}
-        onClick={() => onPageChange(page + 1)}
+        disabled={itemCount < pageSize || safePage >= totalPages}
+        onClick={() => onPageChange(safePage + 1)}
         aria-label="الصفحة التالية"
       >
         التالي
       </button>
-    </div>
+    </nav>
   );
 }

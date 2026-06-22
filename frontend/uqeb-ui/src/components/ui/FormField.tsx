@@ -1,12 +1,12 @@
 import type { ReactNode } from 'react';
 
-type FormFieldProps = {
+type FormFieldProps = Readonly<{
   label: string;
   htmlFor?: string;
   required?: boolean;
   error?: string;
   children: ReactNode;
-};
+}>;
 
 export default function FormField({ label, htmlFor, required, error, children }: FormFieldProps) {
   return (

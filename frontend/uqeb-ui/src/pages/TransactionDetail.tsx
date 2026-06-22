@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { FormEvent } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { transactionsApi, departmentsApi } from '../api/services';
@@ -26,11 +26,35 @@ import MultiSelect from '../components/MultiSelect';
 import { responseTimingBadgeClass, formatDaysSince } from '../utils/responseTiming';
 import ScanAttachmentButton from '../features/scanner/ScanAttachmentButton';
 import {
-  PageHeader, Alert, StatusBadge, PriorityBadge, ActivityTimeline, LoadingInline,
+  PageHeader, Alert, StatusBadge, PriorityBadge, ActivityTimeline, LoadingInline, ErrorState,
 } from '../components/ui';
 import type { TimelineEvent } from '../components/ui';
 
 type DetailTab = 'overview' | 'assignments' | 'followups' | 'attachments' | 'audit' | 'timeline';
+type LazyTab = 'attachments' | 'audit';
+
+function parseDetailTab(tabFromUrl: string | null): DetailTab {
+  if (tabFromUrl === 'audit') return 'audit';
+  if (tabFromUrl === 'attachments') return 'attachments';
+  if (tabFromUrl === 'timeline') return 'timeline';
+  return 'overview';
+}
+
+function assignmentReplyBadgeClass(replyStatus: string, isOverdue: boolean): string {
+  if (replyStatus === 'Replied') return 'badge-green';
+  if (isOverdue) return 'badge-red';
+  return 'badge-orange';
+}
+
+function responseStatusLabel(completed: boolean, completedDate?: string | null): ReactNode {
+  if (!completed) return 'لم تتم الإفادة';
+  return (
+    <>
+      تمت الإفادة
+      {completedDate && <> بتاريخ <DateDisplay date={completedDate} /></>}
+    </>
+  );
+}
 
 export default function TransactionDetailPage() {
   const { id } = useParams();
@@ -44,16 +68,12 @@ export default function TransactionDetailPage() {
   return <TransactionDetailContent key={id} transactionId={id} />;
 }
 
-function TransactionDetailContent({ transactionId }: { transactionId: string }) {
+function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: string }>) {
   const id = transactionId;
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab');
-  const initialTabFromUrl: DetailTab =
-    tabFromUrl === 'audit' ? 'audit'
-    : tabFromUrl === 'attachments' ? 'attachments'
-    : tabFromUrl === 'timeline' ? 'timeline'
-    : 'overview';
+  const initialTabFromUrl = parseDetailTab(tabFromUrl);
   const { canEdit, canClose, isDepartmentUser } = useAuth();
   const [tx, setTx] = useState<TransactionDetail | null>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -63,16 +83,13 @@ function TransactionDetailContent({ transactionId }: { transactionId: string }) 
   const [auditPage, setAuditPage] = useState(1);
   const [auditHasMore, setAuditHasMore] = useState(false);
   const [auditLoadingMore, setAuditLoadingMore] = useState(false);
-  const [activeTab, setActiveTab] = useState<DetailTab>(() => {
-    if (tabFromUrl === 'audit') return 'audit';
-    if (tabFromUrl === 'attachments') return 'attachments';
-    if (tabFromUrl === 'timeline') return 'timeline';
-    return 'overview';
-  });
-  const [loadedTabs, setLoadedTabs] = useState<Record<'attachments' | 'audit', boolean>>({
+  const [activeTab, setActiveTab] = useState<DetailTab>(() => parseDetailTab(tabFromUrl));
+  const [loadedTabs, setLoadedTabs] = useState<Record<LazyTab, boolean>>({
     attachments: false,
     audit: false,
   });
+  const [attachmentsTabError, setAttachmentsTabError] = useState('');
+  const [auditTabError, setAuditTabError] = useState('');
   const loadedTabsRef = useRef(loadedTabs);
   useEffect(() => {
     loadedTabsRef.current = loadedTabs;
@@ -127,45 +144,75 @@ function TransactionDetailContent({ transactionId }: { transactionId: string }) 
     }
   }, [id]);
 
-  const loadAuditLog = async (page: number, append: boolean) => {
+  const loadAuditLog = useCallback(async (page: number, append: boolean) => {
     if (!id) return;
     if (append) setAuditLoadingMore(true);
+    else setAuditTabError('');
     try {
       const res = await transactionsApi.getAuditLog(+id, page);
-      setAuditLogs((prev) => append ? [...prev, ...res.data.items] : res.data.items);
+      setAuditLogs((prev) => (append ? [...prev, ...res.data.items] : res.data.items));
       setAuditPage(page);
       setAuditHasMore(res.data.hasNextPage);
-      setLoadedTabs((prev) => ({ ...prev, audit: true }));
+      if (!append) {
+        setLoadedTabs((prev) => ({ ...prev, audit: true }));
+      }
+    } catch {
+      if (!append) {
+        setAuditTabError('تعذر تحميل سجل التدقيق');
+        setAuditLogs([]);
+        setAuditHasMore(false);
+      }
     } finally {
       if (append) setAuditLoadingMore(false);
     }
-  };
+  }, [id]);
+
+  const loadAttachmentsData = useCallback(async (isMounted: () => boolean) => {
+    const res = await transactionsApi.getAttachments(+id);
+    if (!isMounted()) return;
+    setAttachments(res.data);
+    setLoadedTabs((prev) => ({ ...prev, attachments: true }));
+  }, [id]);
+
+  const loadAuditData = useCallback(async (isMounted: () => boolean) => {
+    const res = await transactionsApi.getAuditLog(+id, 1);
+    if (!isMounted()) return;
+    setAuditLogs(res.data.items);
+    setAuditPage(1);
+    setAuditHasMore(res.data.hasNextPage);
+    setLoadedTabs((prev) => ({ ...prev, audit: true }));
+  }, [id]);
 
   const loadTab = useCallback(async (
-    tab: 'attachments' | 'audit',
+    tab: LazyTab,
     force = false,
     isMounted: () => boolean = () => true,
   ) => {
     if (!id || (!force && loadedTabsRef.current[tab])) return;
     setTabLoading(true);
+    if (tab === 'attachments') setAttachmentsTabError('');
+    else setAuditTabError('');
+
     try {
       if (tab === 'attachments') {
-        const res = await transactionsApi.getAttachments(+id);
-        if (!isMounted()) return;
-        setAttachments(res.data);
-        setLoadedTabs((prev) => ({ ...prev, attachments: true }));
+        await loadAttachmentsData(isMounted);
       } else {
-        const res = await transactionsApi.getAuditLog(+id, 1);
-        if (!isMounted()) return;
-        setAuditLogs(res.data.items);
-        setAuditPage(1);
-        setAuditHasMore(res.data.hasNextPage);
-        setLoadedTabs((prev) => ({ ...prev, audit: true }));
+        await loadAuditData(isMounted);
+      }
+    } catch {
+      if (!isMounted()) return;
+      if (tab === 'attachments') {
+        setAttachmentsTabError('تعذر تحميل المرفقات');
+        setAttachments([]);
+      } else {
+        setAuditTabError('تعذر تحميل سجل التدقيق');
+        setAuditLogs([]);
+        setAuditHasMore(false);
       }
     } finally {
       if (isMounted()) setTabLoading(false);
     }
-  }, [id]);
+  }, [id, loadAttachmentsData, loadAuditData]);
 
   const selectTab = (tab: DetailTab) => {
     setActiveTab(tab);
@@ -207,21 +254,24 @@ function TransactionDetailContent({ transactionId }: { transactionId: string }) 
     void (async () => {
       if (initialTabFromUrl === 'attachments') {
         try {
-          const res = await transactionsApi.getAttachments(+id);
-          if (!isMounted()) return;
-          setAttachments(res.data);
-          setLoadedTabs((prev) => ({ ...prev, attachments: true }));
+          await loadAttachmentsData(isMounted);
+        } catch {
+          if (isMounted()) {
+            setAttachmentsTabError('تعذر تحميل المرفقات');
+            setAttachments([]);
+          }
         } finally {
           if (isMounted()) setTabLoading(false);
         }
       } else if (initialTabFromUrl === 'audit' || initialTabFromUrl === 'timeline') {
         try {
-          const res = await transactionsApi.getAuditLog(+id, 1);
-          if (!isMounted()) return;
-          setAuditLogs(res.data.items);
-          setAuditPage(1);
-          setAuditHasMore(res.data.hasNextPage);
-          setLoadedTabs((prev) => ({ ...prev, audit: true }));
+          await loadAuditData(isMounted);
+        } catch {
+          if (isMounted()) {
+            setAuditTabError('تعذر تحميل سجل التدقيق');
+            setAuditLogs([]);
+            setAuditHasMore(false);
+          }
         } finally {
           if (isMounted()) setTabLoading(false);
         }
@@ -229,7 +279,7 @@ function TransactionDetailContent({ transactionId }: { transactionId: string }) 
     })();
 
     return () => { active = false; };
-  }, [id, initialTabFromUrl, loadBasic]);
+  }, [id, initialTabFromUrl, loadBasic, loadAttachmentsData, loadAuditData]);
 
   const handleClose = async () => {
     if (!tx) return;
@@ -338,10 +388,7 @@ function TransactionDetailContent({ transactionId }: { transactionId: string }) 
               <div><strong>مطلوب إفادة:</strong> نعم ({responseTypeLabels[tx.responseType] || tx.responseType})</div>
               {tx.responseDueDate && <div><strong>تاريخ استحقاق الإفادة:</strong> <DateDisplay date={tx.responseDueDate} /></div>}
               <div>
-                <strong>حالة الإفادة:</strong>{' '}
-                {tx.responseCompleted
-                  ? <>تمت الإفادة{tx.responseCompletedDate && <> بتاريخ <DateDisplay date={tx.responseCompletedDate} /></>}</>
-                  : 'لم تتم الإفادة'}
+                <strong>حالة الإفادة:</strong> {responseStatusLabel(tx.responseCompleted, tx.responseCompletedDate)}
               </div>
               {tx.responseSummary && <div className="full-width"><strong>ملخص الإفادة:</strong> {tx.responseSummary}</div>}
               {hasPendingDepts && !tx.responseCompleted && (
@@ -380,7 +427,7 @@ function TransactionDetailContent({ transactionId }: { transactionId: string }) 
                   <td>{a.requiredAction || '-'}</td>
                   <td>{a.dueDate ? <DateDisplay date={a.dueDate} /> : '-'}</td>
                   <td>
-                    <span className={`badge ${a.replyStatus === 'Replied' ? 'badge-green' : a.isOverdue ? 'badge-red' : 'badge-orange'}`}>
+                    <span className={`badge ${assignmentReplyBadgeClass(a.replyStatus, a.isOverdue)}`}>
                       {replyStatusLabels[a.replyStatus] || a.replyStatus}
                     </span>
                   </td>
@@ -493,7 +540,19 @@ function TransactionDetailContent({ transactionId }: { transactionId: string }) 
       {activeTab === 'assignments' && assignmentsContent}
       {activeTab === 'followups' && followupsContent}
 
-      {activeTab === 'attachments' && !tabLoading && (
+      {activeTab === 'attachments' && !tabLoading && attachmentsTabError && (
+        <ErrorState
+          title="تعذر تحميل المرفقات"
+          description={attachmentsTabError}
+          action={(
+            <button type="button" className="btn btn-primary" onClick={() => loadTab('attachments', true)}>
+              إعادة المحاولة
+            </button>
+          )}
+        />
+      )}
+
+      {activeTab === 'attachments' && !tabLoading && !attachmentsTabError && (
         <div className="card mt-2">
           <div className="card-header">
             <h3>المرفقات</h3>
@@ -527,7 +586,19 @@ function TransactionDetailContent({ transactionId }: { transactionId: string }) 
         </div>
       )}
 
-      {activeTab === 'timeline' && !tabLoading && (
+      {activeTab === 'timeline' && !tabLoading && auditTabError && (
+        <ErrorState
+          title="تعذر تحميل السجل الزمني"
+          description={auditTabError}
+          action={(
+            <button type="button" className="btn btn-primary" onClick={() => loadTab('audit', true)}>
+              إعادة المحاولة
+            </button>
+          )}
+        />
+      )}
+
+      {activeTab === 'timeline' && !tabLoading && !auditTabError && (
         <div className="card">
           <h3>السجل الزمني للمعاملة</h3>
           <ActivityTimeline events={timelineEvents} emptyLabel="لا توجد أحداث مسجلة" />
@@ -546,7 +617,19 @@ function TransactionDetailContent({ transactionId }: { transactionId: string }) 
         </div>
       )}
 
-      {activeTab === 'audit' && !tabLoading && (
+      {activeTab === 'audit' && !tabLoading && auditTabError && (
+        <ErrorState
+          title="تعذر تحميل سجل التدقيق"
+          description={auditTabError}
+          action={(
+            <button type="button" className="btn btn-primary" onClick={() => loadTab('audit', true)}>
+              إعادة المحاولة
+            </button>
+          )}
+        />
+      )}
+
+      {activeTab === 'audit' && !tabLoading && !auditTabError && (
         <div className="card">
           <h3>سجل التدقيق</h3>
           <div className="table-wrapper">

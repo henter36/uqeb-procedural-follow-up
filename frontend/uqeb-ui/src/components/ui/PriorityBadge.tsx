@@ -6,9 +6,9 @@ const priorityClass: Record<string, string> = {
   VeryUrgent: 'badge-red',
 };
 
-type PriorityBadgeProps = {
+type PriorityBadgeProps = Readonly<{
   priority: string;
-};
+}>;
 
 export default function PriorityBadge({ priority }: PriorityBadgeProps) {
   return (

@@ -5,9 +5,9 @@ export type BreadcrumbItem = {
   path?: string;
 };
 
-type BreadcrumbsProps = {
+type BreadcrumbsProps = Readonly<{
   items: BreadcrumbItem[];
-};
+}>;
 
 export default function Breadcrumbs({ items }: BreadcrumbsProps) {
   if (items.length === 0) return null;

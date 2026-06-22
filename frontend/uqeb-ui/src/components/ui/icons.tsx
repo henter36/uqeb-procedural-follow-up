@@ -83,7 +83,7 @@ export function IconChevron(props: IconProps & { direction?: 'left' | 'right' })
   const { direction = 'right', ...rest } = props;
   return (
     <svg viewBox="0 0 24 24" {...defaults} {...rest}>
-      {direction === 'right' ? <path d="M15 18l-6-6 6-6" /> : <path d="M9 18l6-6-6-6" />}
+      {direction === 'right' ? <path d="M9 18l6-6-6-6" /> : <path d="M15 18l-6-6 6-6" />}
     </svg>
   );
 }

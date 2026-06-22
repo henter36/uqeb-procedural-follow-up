@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
 
-type ErrorStateProps = {
+type ErrorStateProps = Readonly<{
   title?: string;
   description?: string;
   action?: ReactNode;
-};
+}>;
 
 export default function ErrorState({
   title = 'حدث خطأ',

@@ -2,11 +2,11 @@ import type { ReactNode } from 'react';
 
 type AlertVariant = 'error' | 'info' | 'success' | 'warning';
 
-type AlertProps = {
+type AlertProps = Readonly<{
   variant?: AlertVariant;
   children: ReactNode;
   role?: string;
-};
+}>;
 
 export default function Alert({ variant = 'info', children, role }: AlertProps) {
   return (

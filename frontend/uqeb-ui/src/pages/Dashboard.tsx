@@ -255,6 +255,8 @@ export default function DashboardPage() {
         <h3>آخر المعاملات التي تحتاج إجراء</h3>
         {detailsLoading && !data?.actionRequired ? (
           <TableSkeleton rows={4} cols={6} />
+        ) : data?.actionRequired !== undefined && data.actionRequired.length === 0 ? (
+          <EmptyState title="لا توجد معاملات تحتاج إجراء" icon="✅" />
         ) : (
           <div className="table-wrapper table-wrapper-spaced">
             <table className="data-table">
@@ -288,9 +290,6 @@ export default function DashboardPage() {
               </tbody>
             </table>
           </div>
-        )}
-        {data?.actionRequired?.length === 0 && detailsLoaded && (
-          <EmptyState title="لا توجد معاملات تحتاج إجراء" icon="✅" />
         )}
       </div>
     </div>

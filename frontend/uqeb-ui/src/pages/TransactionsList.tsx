@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { transactionsApi, departmentsApi, categoriesApi, externalPartiesApi } from '../api/services';
@@ -9,8 +9,9 @@ import DateDisplay from '../components/DateDisplay';
 import DepartmentBadges from '../components/DepartmentBadges';
 import SearchableSelect, { type SelectOption } from '../components/SearchableSelect';
 import { responseTimingBadgeClass } from '../utils/responseTiming';
+import { getStorageItem, setStorageItem, removeStorageItem } from '../utils/safeStorage';
 import {
-  PageHeader, Pagination, TableSkeleton, EmptyState, StatusBadge,
+  PageHeader, Pagination, TableSkeleton, EmptyState, ErrorState, StatusBadge,
 } from '../components/ui';
 
 type SortKey =
@@ -97,23 +98,35 @@ function buildSearchParams(f: FiltersState): Record<string, unknown> {
   return params;
 }
 
+function clampPage(page: number, totalCount: number, pageSize: number): number {
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  return Math.min(Math.max(1, page), totalPages);
+}
+
+type SortableThProps = Readonly<{
+  columnKey: SortKey;
+  label: string;
+  sortBy: SortKey;
+  sortDesc: boolean;
+  onSort: (key: SortKey) => void;
+}>;
+
+function getAriaSort(active: boolean, sortDesc: boolean): 'none' | 'ascending' | 'descending' {
+  if (!active) return 'none';
+  return sortDesc ? 'descending' : 'ascending';
+}
+
 function SortableTh({
   columnKey,
   label,
   sortBy,
   sortDesc,
   onSort,
-}: {
-  columnKey: SortKey;
-  label: string;
-  sortBy: SortKey;
-  sortDesc: boolean;
-  onSort: (key: SortKey) => void;
-}) {
+}: SortableThProps) {
   const active = sortBy === columnKey;
   return (
-    <th>
-      <button type="button" className="sortable-th" onClick={() => onSort(columnKey)} aria-sort={active ? (sortDesc ? 'descending' : 'ascending') : 'none'}>
+    <th aria-sort={getAriaSort(active, sortDesc)}>
+      <button type="button" className="sortable-th" onClick={() => onSort(columnKey)}>
         <span>{label}</span>
         {active && <span className="sort-indicator" aria-hidden="true">{sortDesc ? '↓' : '↑'}</span>}
       </button>
@@ -122,13 +135,15 @@ function SortableTh({
 }
 
 function loadSavedFilters(statusFromUrl: string): FiltersState {
-  try {
-    const saved = localStorage.getItem(FILTERS_STORAGE_KEY);
-    if (saved) {
+  const saved = getStorageItem(FILTERS_STORAGE_KEY);
+  if (saved) {
+    try {
       const parsed = JSON.parse(saved) as Partial<FiltersState>;
       return { ...DEFAULT_FILTERS, ...parsed, status: statusFromUrl || parsed.status || '', page: 1 };
+    } catch {
+      return { ...DEFAULT_FILTERS, status: statusFromUrl };
     }
-  } catch { /* ignore */ }
+  }
   return { ...DEFAULT_FILTERS, status: statusFromUrl };
 }
 
@@ -141,6 +156,7 @@ export default function TransactionsList() {
   const [parties, setParties] = useState<ExternalParty[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const initialFilters = loadSavedFilters(searchParams.get('status') ?? '');
   const [filters, setFilters] = useState<FiltersState>(initialFilters);
@@ -159,39 +175,64 @@ export default function TransactionsList() {
     [categories],
   );
 
+  const effectivePage = clampPage(searchQuery.page, total, searchQuery.pageSize);
+  const [retryNonce, setRetryNonce] = useState(0);
+
   useEffect(() => {
     let cancelled = false;
+
     transactionsApi.search(buildSearchParams(searchQuery))
       .then((res) => {
         if (cancelled) return;
+
+        const totalCount = res.data.totalCount;
+        const correctedPage = clampPage(searchQuery.page, totalCount, searchQuery.pageSize);
+
         setItems(res.data.items);
-        setTotal(res.data.totalCount);
+        setTotal(totalCount);
+
+        if (correctedPage !== searchQuery.page) {
+          const corrected = { ...searchQuery, page: correctedPage };
+          setFilters(corrected);
+          setSearchQuery(corrected);
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setItems([]);
+        setTotal(0);
+        setLoadError('تعذر تحميل قائمة المعاملات. تحقق من الاتصال وحاول مرة أخرى.');
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
-    return () => { cancelled = true; };
-  }, [searchQuery]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [searchQuery, retryNonce]);
+
+  const applyQuery = useCallback((next: FiltersState) => {
+    setLoading(true);
+    setLoadError(null);
+    setFilters(next);
+    setSearchQuery(next);
+  }, []);
 
   const handleSearch = (e: FormEvent) => {
     e.preventDefault();
     const next = { ...filters, page: 1 };
-    setLoading(true);
-    setFilters(next);
-    setSearchQuery(next);
-    localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(next));
+    setStorageItem(FILTERS_STORAGE_KEY, JSON.stringify(next));
+    applyQuery(next);
   };
 
   const handleReset = () => {
     const reset = { ...DEFAULT_FILTERS, status: searchParams.get('status') ?? '' };
-    setLoading(true);
-    setFilters(reset);
-    setSearchQuery(reset);
-    localStorage.removeItem(FILTERS_STORAGE_KEY);
+    removeStorageItem(FILTERS_STORAGE_KEY);
+    applyQuery(reset);
   };
 
   const handleSort = (columnKey: SortKey) => {
-    setLoading(true);
     const isSame = filters.sortBy === columnKey;
     const next = {
       ...filters,
@@ -199,22 +240,21 @@ export default function TransactionsList() {
       sortDesc: isSame ? !filters.sortDesc : DATE_SORT_KEYS.has(columnKey),
       page: 1,
     };
-    setFilters(next);
-    setSearchQuery(next);
+    applyQuery(next);
   };
 
   const handlePageChange = (page: number) => {
-    setLoading(true);
-    const next = { ...filters, page };
-    setFilters(next);
-    setSearchQuery(next);
+    applyQuery({ ...filters, page });
   };
 
   const handlePageSizeChange = (pageSize: number) => {
+    applyQuery({ ...filters, pageSize, page: 1 });
+  };
+
+  const handleRetry = () => {
     setLoading(true);
-    const next = { ...filters, pageSize, page: 1 };
-    setFilters(next);
-    setSearchQuery(next);
+    setLoadError(null);
+    setRetryNonce((nonce) => nonce + 1);
   };
 
   useEffect(() => {
@@ -222,6 +262,91 @@ export default function TransactionsList() {
     externalPartiesApi.getAll().then((r) => setParties(r.data));
     categoriesApi.getAll().then((r) => setCategories(r.data));
   }, []);
+
+  const listContent = (() => {
+    if (loading) return <TableSkeleton rows={8} cols={11} />;
+    if (loadError) {
+      return (
+        <ErrorState
+          title="تعذر تحميل المعاملات"
+          description={loadError}
+          action={(
+            <button type="button" className="btn btn-primary" onClick={handleRetry}>
+              إعادة المحاولة
+            </button>
+          )}
+        />
+      );
+    }
+    if (items.length === 0) {
+      return (
+        <EmptyState
+          title="لا توجد معاملات"
+          description="جرّب تعديل معايير البحث أو إضافة معاملة جديدة"
+          action={canEdit ? <Link to="/transactions/new" className="btn btn-primary">إضافة معاملة</Link> : undefined}
+        />
+      );
+    }
+    return (
+      <>
+        <div className="table-wrapper">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <SortableTh columnKey="incomingNumber" label="رقم الوارد" sortBy={filters.sortBy} sortDesc={filters.sortDesc} onSort={handleSort} />
+                <SortableTh columnKey="incomingDate" label="التاريخ" sortBy={filters.sortBy} sortDesc={filters.sortDesc} onSort={handleSort} />
+                <SortableTh columnKey="subject" label="الموضوع" sortBy={filters.sortBy} sortDesc={filters.sortDesc} onSort={handleSort} />
+                <SortableTh columnKey="incomingFrom" label="الجهة الوارد منها" sortBy={filters.sortBy} sortDesc={filters.sortDesc} onSort={handleSort} />
+                <SortableTh columnKey="category" label="التصنيف" sortBy={filters.sortBy} sortDesc={filters.sortDesc} onSort={handleSort} />
+                <th>الإدارة</th>
+                <SortableTh columnKey="status" label="الحالة" sortBy={filters.sortBy} sortDesc={filters.sortDesc} onSort={handleSort} />
+                <SortableTh columnKey="responseDueDate" label="تاريخ الرد المطلوب" sortBy={filters.sortBy} sortDesc={filters.sortDesc} onSort={handleSort} />
+                <th>حالة الرد</th>
+                <th>آخر تعقيب</th>
+                <th>إجراءات</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((t) => (
+                <tr key={t.id} className={t.isOverdue ? 'row-overdue' : ''}>
+                  <td>{t.incomingNumber}</td>
+                  <td><DateDisplay date={t.incomingDate} /></td>
+                  <td>{t.subject}</td>
+                  <td>
+                    <span className="badge badge-gray badge-gap">
+                      {t.incomingSourceType === 'Internal' ? 'داخلية' : 'خارجية'}
+                    </span>
+                    {t.incomingFrom || '-'}
+                  </td>
+                  <td>{t.categoryName || '-'}</td>
+                  <td><DepartmentBadges names={t.outgoingDepartmentNames} /></td>
+                  <td><StatusBadge status={t.status} isOverdue={t.isOverdue} /></td>
+                  <td>{t.responseDueDate ? <DateDisplay date={t.responseDueDate} /> : '—'}</td>
+                  <td>
+                    {t.requiresResponse ? (
+                      <span className={`badge ${responseTimingBadgeClass(t.responseTimingStatus)}`}>
+                        {t.responseTimingLabel || (t.responseCompleted ? 'مكتمل' : '—')}
+                      </span>
+                    ) : '—'}
+                  </td>
+                  <td>{t.lastFollowUpDate ? <DateDisplay date={t.lastFollowUpDate} /> : '—'}</td>
+                  <td><Link to={`/transactions/${t.id}`} className="btn btn-sm btn-outline">عرض</Link></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <Pagination
+          page={effectivePage}
+          pageSize={searchQuery.pageSize}
+          total={total}
+          itemCount={items.length}
+          onPageChange={handlePageChange}
+          onPageSizeChange={handlePageSizeChange}
+        />
+      </>
+    );
+  })();
 
   return (
     <div>
@@ -348,73 +473,7 @@ export default function TransactionsList() {
         </form>
       </div>
 
-      {loading ? (
-        <TableSkeleton rows={8} cols={11} />
-      ) : items.length === 0 ? (
-        <EmptyState
-          title="لا توجد معاملات"
-          description="جرّب تعديل معايير البحث أو إضافة معاملة جديدة"
-          action={canEdit ? <Link to="/transactions/new" className="btn btn-primary">إضافة معاملة</Link> : undefined}
-        />
-      ) : (
-        <>
-          <div className="table-wrapper">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <SortableTh columnKey="incomingNumber" label="رقم الوارد" sortBy={filters.sortBy} sortDesc={filters.sortDesc} onSort={handleSort} />
-                  <SortableTh columnKey="incomingDate" label="التاريخ" sortBy={filters.sortBy} sortDesc={filters.sortDesc} onSort={handleSort} />
-                  <SortableTh columnKey="subject" label="الموضوع" sortBy={filters.sortBy} sortDesc={filters.sortDesc} onSort={handleSort} />
-                  <SortableTh columnKey="incomingFrom" label="الجهة الوارد منها" sortBy={filters.sortBy} sortDesc={filters.sortDesc} onSort={handleSort} />
-                  <SortableTh columnKey="category" label="التصنيف" sortBy={filters.sortBy} sortDesc={filters.sortDesc} onSort={handleSort} />
-                  <th>الإدارة</th>
-                  <SortableTh columnKey="status" label="الحالة" sortBy={filters.sortBy} sortDesc={filters.sortDesc} onSort={handleSort} />
-                  <SortableTh columnKey="responseDueDate" label="تاريخ الرد المطلوب" sortBy={filters.sortBy} sortDesc={filters.sortDesc} onSort={handleSort} />
-                  <th>حالة الرد</th>
-                  <th>آخر تعقيب</th>
-                  <th>إجراءات</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((t) => (
-                  <tr key={t.id} className={t.isOverdue ? 'row-overdue' : ''}>
-                    <td>{t.incomingNumber}</td>
-                    <td><DateDisplay date={t.incomingDate} /></td>
-                    <td>{t.subject}</td>
-                    <td>
-                      <span className="badge badge-gray badge-gap">
-                        {t.incomingSourceType === 'Internal' ? 'داخلية' : 'خارجية'}
-                      </span>
-                      {t.incomingFrom || '-'}
-                    </td>
-                    <td>{t.categoryName || '-'}</td>
-                    <td><DepartmentBadges names={t.outgoingDepartmentNames} /></td>
-                    <td><StatusBadge status={t.status} isOverdue={t.isOverdue} /></td>
-                    <td>{t.responseDueDate ? <DateDisplay date={t.responseDueDate} /> : '—'}</td>
-                    <td>
-                      {t.requiresResponse ? (
-                        <span className={`badge ${responseTimingBadgeClass(t.responseTimingStatus)}`}>
-                          {t.responseTimingLabel || (t.responseCompleted ? 'مكتمل' : '—')}
-                        </span>
-                      ) : '—'}
-                    </td>
-                    <td>{t.lastFollowUpDate ? <DateDisplay date={t.lastFollowUpDate} /> : '—'}</td>
-                    <td><Link to={`/transactions/${t.id}`} className="btn btn-sm btn-outline">عرض</Link></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Pagination
-            page={filters.page}
-            pageSize={filters.pageSize}
-            total={total}
-            itemCount={items.length}
-            onPageChange={handlePageChange}
-            onPageSizeChange={handlePageSizeChange}
-          />
-        </>
-      )}
+      {listContent}
     </div>
   );
 }

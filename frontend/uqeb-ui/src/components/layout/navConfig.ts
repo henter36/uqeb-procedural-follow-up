@@ -1,5 +1,4 @@
-import type { ComponentType } from 'react';
-import type { SVGProps } from 'react';
+import type { ComponentType, SVGProps } from 'react';
 import {
   IconDashboard, IconTransactions, IconReports, IconUsers,
   IconSettings, IconImport, IconSecurity, IconLetter,
@@ -53,6 +52,9 @@ export type RouteMeta = {
   breadcrumbs: { label: string; path?: string }[];
 };
 
+const TRANSACTION_EDIT_REGEX = /^\/transactions\/(\d+)\/edit$/;
+const TRANSACTION_DETAIL_REGEX = /^\/transactions\/(\d+)$/;
+
 export function getRouteMeta(pathname: string, search: string): RouteMeta {
   const full = pathname + search;
 
@@ -72,8 +74,7 @@ export function getRouteMeta(pathname: string, search: string): RouteMeta {
 
   if (routes[pathname]) return routes[pathname];
 
-  const editMatch = pathname.match(/^\/transactions\/(\d+)\/edit$/);
-  if (editMatch) {
+  if (TRANSACTION_EDIT_REGEX.exec(pathname)) {
     return {
       title: 'تعديل المعاملة',
       breadcrumbs: [
@@ -83,8 +84,7 @@ export function getRouteMeta(pathname: string, search: string): RouteMeta {
     };
   }
 
-  const detailMatch = pathname.match(/^\/transactions\/(\d+)$/);
-  if (detailMatch) {
+  if (TRANSACTION_DETAIL_REGEX.exec(pathname)) {
     return {
       title: 'تفاصيل المعاملة',
       breadcrumbs: [
@@ -101,9 +101,32 @@ export function getRouteMeta(pathname: string, search: string): RouteMeta {
   return { title: 'المتابعة الإجرائية', breadcrumbs: [] };
 }
 
-export function isNavActive(item: NavItem, pathname: string): boolean {
+function normalizeSearch(search: string): string {
+  if (!search) return '';
+  return search.startsWith('?') ? search : `?${search}`;
+}
+
+export function isNavActive(item: NavItem, pathname: string, search: string): boolean {
   if (item.path === '/') return pathname === '/';
-  const itemPath = item.path.split('?')[0];
-  if (item.matchPrefix) return pathname === itemPath || pathname.startsWith(itemPath + '/');
-  return pathname === itemPath;
+
+  const [itemPathname, itemQuery = ''] = item.path.split('?');
+  const normalizedSearch = normalizeSearch(search);
+  const normalizedItemQuery = itemQuery ? `?${itemQuery}` : '';
+
+  if (normalizedItemQuery) {
+    return pathname === itemPathname && normalizedSearch === normalizedItemQuery;
+  }
+
+  if (item.matchPrefix) {
+    return pathname === itemPathname || pathname.startsWith(`${itemPathname}/`);
+  }
+
+  if (pathname !== itemPathname) return false;
+
+  if (!normalizedItemQuery) {
+    const currentTab = new URLSearchParams(normalizedSearch.slice(1)).get('tab');
+    return !currentTab;
+  }
+
+  return false;
 }

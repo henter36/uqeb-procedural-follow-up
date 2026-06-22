@@ -1,12 +1,12 @@
 import { Link } from 'react-router-dom';
 
-type StatCardProps = {
+type StatCardProps = Readonly<{
   label: string;
   value: string | number;
   color?: string;
   link?: string;
   loading?: boolean;
-};
+}>;
 
 export default function StatCard({ label, value, color = 'blue', link, loading }: StatCardProps) {
   const content = (

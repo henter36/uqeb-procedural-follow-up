@@ -16,7 +16,7 @@
   --color-border-strong: #c5ced9;
   --color-text: #1a2332;
   --color-text-secondary: #5a6578;
-  --color-text-muted: #8b95a5;
+  --color-text-muted: #6b7280;
   --color-text-inverse: #ffffff;
 
   /* Semantic */
@@ -41,7 +41,7 @@
   --space-12: 3rem;
 
   /* Typography */
-  --font-family: 'Segoe UI', 'Noto Sans Arabic', Tahoma, Arial, sans-serif;
+  --font-family: 'Segoe UI', 'Noto Sans Arabic', tahoma, arial, sans-serif;
   --font-size-xs: 0.75rem;
   --font-size-sm: 0.8125rem;
   --font-size-base: 0.9375rem;
@@ -125,6 +125,34 @@
   padding: var(--space-4) var(--space-4);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   min-height: var(--topbar-height);
+  position: relative;
+}
+
+.sidebar-mobile-close {
+  position: absolute;
+  left: var(--space-3);
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.15);
+  color: var(--color-text-inverse);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+}
+
+.sidebar-mobile-close:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.sidebar-mobile-close:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.6);
+  outline-offset: 2px;
 }
 
 .sidebar-brand-icon {
@@ -277,7 +305,8 @@
   z-index: 300;
 }
 
-.app-sidebar.collapsed .sidebar-link:hover[data-tooltip]::after {
+.app-sidebar.collapsed .sidebar-link:hover[data-tooltip]::after,
+.app-sidebar.collapsed .sidebar-link:focus-visible[data-tooltip]::after {
   opacity: 1;
 }
 
@@ -598,7 +627,7 @@
 .badge-green { background: var(--color-success-bg); color: var(--color-success); }
 .badge-orange { background: #ffedd5; color: #9a3412; }
 .badge-red { background: var(--color-danger-bg); color: var(--color-danger); }
-.badge-gray { background: var(--gray-200); color: var(--color-text-secondary); }
+.badge-gray { background: var(--gray-200); color: var(--gray-700, #374151); }
 .badge-dark { background: #374151; color: #fff; }
 .badge-purple { background: #ede9fe; color: #5b21b6; }
 
@@ -967,6 +996,8 @@
 .activity-timeline {
   position: relative;
   padding-right: var(--space-6);
+  list-style: none;
+  margin: 0;
 }
 
 .activity-timeline::before {
@@ -1217,6 +1248,10 @@
 
   .app-sidebar.mobile-open {
     transform: translateX(0);
+  }
+
+  .sidebar-mobile-close {
+    display: flex;
   }
 
   .app-main-area {

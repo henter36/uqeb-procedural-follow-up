@@ -5,10 +5,10 @@ import { getRouteMeta } from './navConfig';
 import Breadcrumbs from '../ui/Breadcrumbs';
 import { IconMenu } from '../ui/icons';
 
-type TopBarProps = {
+type TopBarProps = Readonly<{
   onMenuToggle: () => void;
   mobileOpen?: boolean;
-};
+}>;
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/);

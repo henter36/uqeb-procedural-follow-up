@@ -4,22 +4,22 @@ import { useAuth } from '../../context/AuthContext';
 import { APP_DISPLAY_NAME, APP_SUBTITLE } from '../../constants/app';
 import { navSections, isNavActive, type NavItem } from './navConfig';
 import { IconChevron } from '../ui/icons';
+import { getStorageItem, setStorageItem } from '../../utils/safeStorage';
 
 const SIDEBAR_KEY = 'uqeb-sidebar-collapsed';
 
-export default function Sidebar({
-  mobileOpen,
-  onMobileClose,
-}: {
+type SidebarProps = Readonly<{
   mobileOpen: boolean;
   onMobileClose: () => void;
-}) {
+}>;
+
+export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const { isAdmin, canClose } = useAuth();
   const location = useLocation();
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(SIDEBAR_KEY) === 'true');
+  const [collapsed, setCollapsed] = useState(() => getStorageItem(SIDEBAR_KEY) === 'true');
 
   useEffect(() => {
-    localStorage.setItem(SIDEBAR_KEY, String(collapsed));
+    setStorageItem(SIDEBAR_KEY, String(collapsed));
   }, [collapsed]);
 
   const isVisible = (item: NavItem) => {
@@ -38,6 +38,16 @@ export default function Sidebar({
       aria-label="القائمة الجانبية"
     >
       <div className="sidebar-brand">
+        {mobileOpen && (
+          <button
+            type="button"
+            className="sidebar-mobile-close"
+            onClick={onMobileClose}
+            aria-label="إغلاق القائمة"
+          >
+            ✕
+          </button>
+        )}
         <div className="sidebar-brand-icon" aria-hidden="true">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
@@ -60,7 +70,7 @@ export default function Sidebar({
               <div className="sidebar-section-label">{section.label}</div>
               {visibleItems.map((item) => {
                 const Icon = item.icon;
-                const active = isNavActive(item, location.pathname);
+                const active = isNavActive(item, location.pathname, location.search);
                 return (
                   <Link
                     key={item.path}

@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
 
-type PageHeaderProps = {
+type PageHeaderProps = Readonly<{
   title: string;
   subtitle?: string;
   actions?: ReactNode;
-};
+}>;
 
 export default function PageHeader({ title, subtitle, actions }: PageHeaderProps) {
   return (

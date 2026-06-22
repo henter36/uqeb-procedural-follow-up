@@ -8,10 +8,10 @@ export type TimelineEvent = {
   detail?: string;
 };
 
-type ActivityTimelineProps = {
+type ActivityTimelineProps = Readonly<{
   events: TimelineEvent[];
   emptyLabel?: string;
-};
+}>;
 
 export default function ActivityTimeline({ events, emptyLabel = 'لا توجد أحداث' }: ActivityTimelineProps) {
   if (events.length === 0) {
@@ -19,9 +19,9 @@ export default function ActivityTimeline({ events, emptyLabel = 'لا توجد �
   }
 
   return (
-    <div className="activity-timeline" role="list" aria-label="السجل الزمني">
+    <ol className="activity-timeline" aria-label="السجل الزمني">
       {events.map((event) => (
-        <div key={event.id} className="timeline-item" role="listitem">
+        <li key={event.id} className="timeline-item">
           <div className="timeline-dot" aria-hidden="true" />
           <div className="timeline-item-content">
             <div className="timeline-item-header">
@@ -37,8 +37,8 @@ export default function ActivityTimeline({ events, emptyLabel = 'لا توجد �
               <div className="timeline-item-detail">{event.detail}</div>
             )}
           </div>
-        </div>
+        </li>
       ))}
-    </div>
+    </ol>
   );
 }

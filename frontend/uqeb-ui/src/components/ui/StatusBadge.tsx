@@ -1,9 +1,9 @@
 import { statusLabels, statusBadgeClass } from '../../utils/labels';
 
-type StatusBadgeProps = {
+type StatusBadgeProps = Readonly<{
   status: string;
   isOverdue?: boolean;
-};
+}>;
 
 export default function StatusBadge({ status, isOverdue }: StatusBadgeProps) {
   return (
