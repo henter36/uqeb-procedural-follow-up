@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AxiosResponse } from 'axios';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import ReportsPage from './Reports';
 import * as services from '../api/services';
+import type { ReportSectionCounts } from '../api/types';
 
 const emptyPage = {
   items: [],
@@ -13,6 +15,26 @@ const emptyPage = {
   totalPages: 0,
   hasNextPage: false,
   hasPreviousPage: false,
+};
+
+function mockAxiosResponse<T>(data: T): AxiosResponse<T> {
+  return {
+    data,
+    status: 200,
+    statusText: 'OK',
+    headers: {},
+    config: { headers: {} } as AxiosResponse<T>['config'],
+  };
+}
+
+const emptySummary: ReportSectionCounts = {
+  open: 0,
+  responseRequired: 0,
+  overdueResponses: 0,
+  openAssignments: 0,
+  partialReplies: 0,
+  overdue: 0,
+  waitingReply: 0,
 };
 
 vi.mock('../api/services', () => ({
@@ -46,24 +68,14 @@ describe('ReportsPage auto loading', () => {
       disconnect = vi.fn();
     }
     vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
-    vi.mocked(services.categoriesApi.getAll).mockResolvedValue({ data: [] } as never);
-    vi.mocked(services.departmentsApi.getAll).mockResolvedValue({ data: [] } as never);
-    vi.mocked(services.reportsApi.pageSummary).mockResolvedValue({
-      data: {
-        open: 0,
-        responseRequired: 0,
-        overdueResponses: 0,
-        openAssignments: 0,
-        partialReplies: 0,
-        overdue: 0,
-        waitingReply: 0,
-      },
-    } as never);
-    vi.mocked(services.reportsApi.openDetails).mockResolvedValue({ data: emptyPage } as never);
-    vi.mocked(services.reportsApi.byCategory).mockResolvedValue({ data: [] } as never);
-    vi.mocked(services.reportsApi.byIncomingParty).mockResolvedValue({ data: [] } as never);
-    vi.mocked(services.reportsApi.byOutgoingDepartment).mockResolvedValue({ data: [] } as never);
-    vi.mocked(services.reportsApi.departmentSummary).mockResolvedValue({ data: [] } as never);
+    vi.mocked(services.categoriesApi.getAll).mockResolvedValue(mockAxiosResponse([]));
+    vi.mocked(services.departmentsApi.getAll).mockResolvedValue(mockAxiosResponse([]));
+    vi.mocked(services.reportsApi.pageSummary).mockResolvedValue(mockAxiosResponse(emptySummary));
+    vi.mocked(services.reportsApi.openDetails).mockResolvedValue(mockAxiosResponse(emptyPage));
+    vi.mocked(services.reportsApi.byCategory).mockResolvedValue(mockAxiosResponse([]));
+    vi.mocked(services.reportsApi.byIncomingParty).mockResolvedValue(mockAxiosResponse([]));
+    vi.mocked(services.reportsApi.byOutgoingDepartment).mockResolvedValue(mockAxiosResponse([]));
+    vi.mocked(services.reportsApi.departmentSummary).mockResolvedValue(mockAxiosResponse([]));
   });
 
   afterEach(() => {

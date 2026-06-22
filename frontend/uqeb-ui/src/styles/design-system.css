@@ -475,10 +475,27 @@
 
 .card-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: var(--space-4);
-  gap: var(--space-3);
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.card-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.card + .card,
+.transaction-details-stack > .card {
+  margin-top: 1rem;
+}
+
+.transaction-details-stack {
+  margin-top: 0.5rem;
 }
 
 .card-header h3 {

@@ -19,6 +19,7 @@ import {
   PageHeader, Alert, StatusBadge, PriorityBadge, ActivityTimeline, LoadingInline, ErrorState,
 } from '../components/ui';
 import type { TimelineEvent } from '../components/ui';
+import ScanAttachmentButton from '../features/scanner/ScanAttachmentButton';
 import TransactionWorkspaceHeader from '../components/transaction-workspace/TransactionWorkspaceHeader';
 import TransactionActionBar from '../components/transaction-workspace/TransactionActionBar';
 import TransactionActionPanel from '../components/transaction-workspace/TransactionActionPanel';
@@ -29,16 +30,7 @@ import ReplyFormPanel from '../components/transaction-workspace/ReplyFormPanel';
 import CompleteResponseFormPanel from '../components/transaction-workspace/CompleteResponseFormPanel';
 import FollowUpLetterFormPanel from '../components/transaction-workspace/FollowUpLetterFormPanel';
 import type { WorkspaceAction, WorkspaceActionContext } from '../components/transaction-workspace/types';
-
-type DetailTab = 'overview' | 'assignments' | 'followups' | 'attachments' | 'audit' | 'timeline';
-type LazyTab = 'attachments' | 'audit';
-
-function parseDetailTab(tabFromUrl: string | null): DetailTab {
-  if (tabFromUrl === 'audit') return 'audit';
-  if (tabFromUrl === 'attachments') return 'attachments';
-  if (tabFromUrl === 'timeline') return 'timeline';
-  return 'overview';
-}
+import { parseDetailTab, type DetailTab } from './transactionDetailTabs';
 
 function assignmentReplyBadgeClass(replyStatus: string, isOverdue: boolean): string {
   if (replyStatus === 'Replied') return 'badge-green';
@@ -56,64 +48,9 @@ function responseStatusLabel(completed: boolean, completedDate?: string | null):
   );
 }
 
-type InitialLazyTabHandlers = Readonly<{
-  loadAttachmentsData: (isMounted: () => boolean) => Promise<void>;
-  loadAuditData: (isMounted: () => boolean) => Promise<void>;
-  onAttachmentsError: () => void;
-  onAuditError: () => void;
-  onTabLoadingComplete: () => void;
-}>;
-
-type LazyTabLoadPlan = Readonly<{
-  load: (isMounted: () => boolean) => Promise<void>;
-  onError: () => void;
-}>;
-
-function resolveInitialLazyTabPlan(
-  tab: DetailTab,
-  handlers: InitialLazyTabHandlers,
-): LazyTabLoadPlan | null {
-  if (tab === 'attachments') {
-    return {
-      load: handlers.loadAttachmentsData,
-      onError: handlers.onAttachmentsError,
-    };
-  }
-  if (tab === 'audit' || tab === 'timeline') {
-    return {
-      load: handlers.loadAuditData,
-      onError: handlers.onAuditError,
-    };
-  }
-  return null;
-}
-
-async function loadInitialLazyTab(
-  tab: DetailTab,
-  isMounted: () => boolean,
-  handlers: InitialLazyTabHandlers,
-): Promise<void> {
-  const plan = resolveInitialLazyTabPlan(tab, handlers);
-  if (!plan) return;
-
-  try {
-    await plan.load(isMounted);
-  } catch {
-    if (isMounted()) plan.onError();
-  } finally {
-    if (isMounted()) handlers.onTabLoadingComplete();
-  }
-}
-
-function handleLazyTabLoadFailure(
-  tab: LazyTab,
-  isMounted: () => boolean,
-  onAttachmentsFailure: () => void,
-  onAuditFailure: () => void,
-): void {
-  if (!isMounted()) return;
-  if (tab === 'attachments') onAttachmentsFailure();
-  else onAuditFailure();
+function isPreviewableAttachment(contentType?: string): boolean {
+  if (!contentType) return false;
+  return contentType.startsWith('image/') || contentType === 'application/pdf';
 }
 
 export default function TransactionDetailPage() {
@@ -133,7 +70,6 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab');
-  const initialTabFromUrl = parseDetailTab(tabFromUrl);
   const { canEdit, canClose, isDepartmentUser } = useAuth();
   const { departments } = useReferenceData();
   const [tx, setTx] = useState<TransactionDetail | null>(null);
@@ -145,23 +81,20 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const [auditHasMore, setAuditHasMore] = useState(false);
   const [auditLoadingMore, setAuditLoadingMore] = useState(false);
   const [activeTab, setActiveTab] = useState<DetailTab>(() => parseDetailTab(tabFromUrl));
-  const [loadedTabs, setLoadedTabs] = useState<Record<LazyTab, boolean>>({
-    attachments: false,
-    audit: false,
-  });
-  const [attachmentsTabError, setAttachmentsTabError] = useState('');
-  const [auditTabError, setAuditTabError] = useState('');
-  const loadedTabsRef = useRef(loadedTabs);
-  useEffect(() => {
-    loadedTabsRef.current = loadedTabs;
-  }, [loadedTabs]);
-  const [tabLoading, setTabLoading] = useState(
-    () => initialTabFromUrl === 'attachments' || initialTabFromUrl === 'audit' || initialTabFromUrl === 'timeline',
+  const [auditTabLoading, setAuditTabLoading] = useState(
+    () => {
+      const tab = parseDetailTab(tabFromUrl);
+      return tab === 'timeline' || tab === 'audit';
+    },
   );
+  const [auditTabError, setAuditTabError] = useState('');
+  const auditDataLoadedRef = useRef(false);
   const [assignmentsLoading, setAssignmentsLoading] = useState(true);
   const [followUpsLoading, setFollowUpsLoading] = useState(true);
+  const [attachmentsLoading, setAttachmentsLoading] = useState(true);
   const [assignmentsError, setAssignmentsError] = useState('');
   const [followUpsError, setFollowUpsError] = useState('');
+  const [attachmentsError, setAttachmentsError] = useState('');
   const [activeAction, setActiveAction] = useState<WorkspaceAction | null>(null);
   const [actionContext, setActionContext] = useState<WorkspaceActionContext>({});
   const [actionDirty, setActionDirty] = useState(false);
@@ -201,6 +134,21 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     }
   }, [id]);
 
+  const loadAttachments = useCallback(async () => {
+    if (!id) return;
+    setAttachmentsLoading(true);
+    setAttachmentsError('');
+    try {
+      const res = await transactionsApi.getAttachments(+id);
+      setAttachments(res.data ?? []);
+    } catch {
+      setAttachmentsError('تعذر تحميل المرفقات');
+      setAttachments([]);
+    } finally {
+      setAttachmentsLoading(false);
+    }
+  }, [id]);
+
   const loadAuditLog = useCallback(async (page: number, append: boolean) => {
     if (!id) return;
     if (append) setAuditLoadingMore(true);
@@ -210,9 +158,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
       setAuditLogs((prev) => (append ? [...prev, ...res.data.items] : res.data.items));
       setAuditPage(page);
       setAuditHasMore(res.data.hasNextPage);
-      if (!append) {
-        setLoadedTabs((prev) => ({ ...prev, audit: true }));
-      }
+      auditDataLoadedRef.current = true;
     } catch {
       if (!append) {
         setAuditTabError('تعذر تحميل سجل التدقيق');
@@ -224,116 +170,112 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     }
   }, [id]);
 
-  const loadAttachmentsData = useCallback(async (isMounted: () => boolean) => {
-    const res = await transactionsApi.getAttachments(+id);
-    if (!isMounted()) return;
-    setAttachments(res.data);
-    setLoadedTabs((prev) => ({ ...prev, attachments: true }));
-  }, [id]);
-
-  const loadAuditData = useCallback(async (isMounted: () => boolean) => {
-    const res = await transactionsApi.getAuditLog(+id, 1);
-    if (!isMounted()) return;
-    setAuditLogs(res.data.items);
-    setAuditPage(1);
-    setAuditHasMore(res.data.hasNextPage);
-    setLoadedTabs((prev) => ({ ...prev, audit: true }));
-  }, [id]);
-
-  const loadTab = useCallback(async (
-    tab: LazyTab,
-    force = false,
-    isMounted: () => boolean = () => true,
-  ) => {
-    if (!id || (!force && loadedTabsRef.current[tab])) return;
-    setTabLoading(true);
-    if (tab === 'attachments') setAttachmentsTabError('');
-    else setAuditTabError('');
-
-    try {
-      if (tab === 'attachments') {
-        await loadAttachmentsData(isMounted);
-      } else {
-        await loadAuditData(isMounted);
-      }
-    } catch {
-      handleLazyTabLoadFailure(
-        tab,
-        isMounted,
-        () => {
-          setAttachmentsTabError('تعذر تحميل المرفقات');
-          setAttachments([]);
-        },
-        () => {
-          setAuditTabError('تعذر تحميل سجل التدقيق');
-          setAuditLogs([]);
-          setAuditHasMore(false);
-        },
-      );
-    } finally {
-      if (isMounted()) setTabLoading(false);
+  const loadAuditTabData = useCallback(async () => {
+    if (!id || auditDataLoadedRef.current) {
+      setAuditTabLoading(false);
+      return;
     }
-  }, [id, loadAttachmentsData, loadAuditData]);
+    setAuditTabLoading(true);
+    setAuditTabError('');
+    try {
+      const res = await transactionsApi.getAuditLog(+id, 1);
+      setAuditLogs(res.data.items);
+      setAuditPage(1);
+      setAuditHasMore(res.data.hasNextPage);
+      auditDataLoadedRef.current = true;
+    } catch {
+      setAuditTabError('تعذر تحميل سجل التدقيق');
+      setAuditLogs([]);
+      setAuditHasMore(false);
+    } finally {
+      setAuditTabLoading(false);
+    }
+  }, [id]);
 
   const selectTab = (tab: DetailTab) => {
     setActiveTab(tab);
-    if (tab === 'attachments' || tab === 'audit' || tab === 'timeline') {
-      loadTab(tab === 'timeline' ? 'audit' : tab);
+    if (tab === 'timeline' || tab === 'audit') {
+      void loadAuditTabData();
     }
   };
 
   useEffect(() => {
     let active = true;
-    const isMounted = () => active;
 
     loadBasic();
 
-    void (async () => {
-      try {
-        const res = await transactionsApi.getAssignments(+id);
-        if (isMounted()) setAssignments(res.data ?? []);
-      } catch {
-        if (isMounted()) setAssignmentsError('تعذر تحميل التحويلات');
-      } finally {
-        if (isMounted()) setAssignmentsLoading(false);
-      }
-    })();
+    void transactionsApi.getAssignments(+id)
+      .then((res) => {
+        if (active) setAssignments(res.data ?? []);
+      })
+      .catch(() => {
+        if (active) setAssignmentsError('تعذر تحميل التحويلات');
+      })
+      .finally(() => {
+        if (active) setAssignmentsLoading(false);
+      });
 
-    void (async () => {
-      try {
-        const res = await transactionsApi.getFollowUps(+id);
-        if (isMounted()) setFollowUps(res.data ?? []);
-      } catch {
-        if (isMounted()) setFollowUpsError('تعذر تحميل التعقيبات');
-      } finally {
-        if (isMounted()) setFollowUpsLoading(false);
-      }
-    })();
+    void transactionsApi.getFollowUps(+id)
+      .then((res) => {
+        if (active) setFollowUps(res.data ?? []);
+      })
+      .catch(() => {
+        if (active) setFollowUpsError('تعذر تحميل التعقيبات');
+      })
+      .finally(() => {
+        if (active) setFollowUpsLoading(false);
+      });
 
-    void loadInitialLazyTab(initialTabFromUrl, isMounted, {
-      loadAttachmentsData,
-      loadAuditData,
-      onAttachmentsError: () => {
-        setAttachmentsTabError('تعذر تحميل المرفقات');
-        setAttachments([]);
-      },
-      onAuditError: () => {
+    void transactionsApi.getAttachments(+id)
+      .then((res) => {
+        if (active) setAttachments(res.data ?? []);
+      })
+      .catch(() => {
+        if (active) {
+          setAttachmentsError('تعذر تحميل المرفقات');
+          setAttachments([]);
+        }
+      })
+      .finally(() => {
+        if (active) setAttachmentsLoading(false);
+      });
+
+    return () => { active = false; };
+  }, [id, loadBasic]);
+
+  useEffect(() => {
+    const tab = parseDetailTab(tabFromUrl);
+    if (tab !== 'timeline' && tab !== 'audit') return;
+
+    let active = true;
+
+    void transactionsApi.getAuditLog(+id, 1)
+      .then((res) => {
+        if (!active) return;
+        setAuditLogs(res.data.items);
+        setAuditPage(1);
+        setAuditHasMore(res.data.hasNextPage);
+        auditDataLoadedRef.current = true;
+      })
+      .catch(() => {
+        if (!active) return;
         setAuditTabError('تعذر تحميل سجل التدقيق');
         setAuditLogs([]);
         setAuditHasMore(false);
-      },
-      onTabLoadingComplete: () => setTabLoading(false),
-    });
+      })
+      .finally(() => {
+        if (active) setAuditTabLoading(false);
+      });
 
     return () => { active = false; };
-  }, [id, initialTabFromUrl, loadBasic, loadAttachmentsData, loadAuditData]);
+  }, [id, tabFromUrl]);
 
-  const refreshTimelineIfLoaded = useCallback(() => {
-    if (loadedTabsRef.current.audit) {
-      return loadTab('audit', true);
+  const refreshAuditIfLoaded = useCallback(() => {
+    if (auditDataLoadedRef.current) {
+      return loadAuditTabData();
     }
     return Promise.resolve();
-  }, [loadTab]);
+  }, [loadAuditTabData]);
 
   const resetAndCloseAction = useCallback(() => {
     setActiveAction(null);
@@ -376,13 +318,13 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     resetAndCloseAction();
     const results = await Promise.allSettled([
       ...refreshers.map((refresh) => Promise.resolve(refresh())),
-      refreshTimelineIfLoaded(),
+      refreshAuditIfLoaded(),
     ]);
     const allFailed = results.length > 0 && results.every((result) => result.status === 'rejected');
     if (allFailed) {
       setError('تم الحفظ لكن تعذر تحديث بعض الأقسام. حاول تحديث الصفحة.');
     }
-  }, [resetAndCloseAction, refreshTimelineIfLoaded]);
+  }, [resetAndCloseAction, refreshAuditIfLoaded]);
 
   const handleClose = async () => {
     if (!tx) return;
@@ -403,15 +345,27 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     }
   };
 
-  const refreshAttachments = () => {
-    loadTab('attachments', true);
+  const handleScannedAttachmentSaved = async () => {
+    setMessage('تم رفع المرفق بنجاح.');
+    await loadAttachments();
   };
 
   const downloadAttachment = async (attachmentId: number, fileName: string) => {
     const res = await transactionsApi.downloadAttachment(+id!, attachmentId);
     const url = window.URL.createObjectURL(res.data);
     const a = document.createElement('a');
-    a.href = url; a.download = fileName; a.click();
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const previewAttachment = async (attachmentId: number, contentType?: string) => {
+    if (!isPreviewableAttachment(contentType)) return;
+    const res = await transactionsApi.downloadAttachment(+id!, attachmentId);
+    const url = window.URL.createObjectURL(res.data);
+    window.open(url, '_blank', 'noopener,noreferrer');
+    window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
   };
 
   if (!tx) return <div className="loading"><LoadingInline /></div>;
@@ -421,6 +375,8 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const hasPendingDepts = tx.pendingDepartmentNames.length > 0;
   const canRegisterResponse = canClose && needsResponse && !tx.responseCompleted && !isTerminal;
   const canShowClose = canClose && !isTerminal && (!needsResponse || tx.responseCompleted);
+  const showMutationActions = canEdit && !isDepartmentUser;
+  const canReply = isDepartmentUser || canEdit;
 
   const timelineEvents: TimelineEvent[] = auditLogs.map((log) => ({
     id: log.id,
@@ -430,42 +386,58 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     detail: log.newValue || log.oldValue || undefined,
   }));
 
-  const overviewContent = (
-    <>
-      <div className={`status-bar badge ${statusBadgeClass(tx.status, tx.isOverdue)}`}>
-        <strong>الحالة:</strong> <StatusBadge status={tx.status} isOverdue={tx.isOverdue} />
-        {tx.isOverdue && <span className="status-extra"> — متأخرة</span>}
-        {tx.hasPendingAssignments && <span className="status-extra"> — باقي إجراء</span>}
-        {tx.responseTimingLabel && tx.requiresResponse && (
-          <span className={`status-extra badge badge-spaced ${responseTimingBadgeClass(tx.responseTimingStatus)}`}>
-            {tx.responseTimingLabel}
-          </span>
-        )}
-      </div>
+  const auditErrorTitle = activeTab === 'timeline'
+    ? 'تعذر تحميل الخط الزمني'
+    : 'تعذر تحميل سجل التدقيق';
 
-      <div className="timeline-stats mt-4">
-        <div className="timeline-stat">
-          <span className="timeline-stat-label">منذ ورود المعاملة</span>
-          <span className="timeline-stat-value">{formatDaysSince(tx.daysSinceIncoming, '0')}</span>
-        </div>
-        <div className="timeline-stat">
-          <span className="timeline-stat-label">منذ آخر تعقيب</span>
-          <span className="timeline-stat-value">{formatDaysSince(tx.daysSinceLastFollowUp)}</span>
-        </div>
-        <div className="timeline-stat">
-          <span className="timeline-stat-label">تاريخ الرد المطلوب</span>
-          <span className="timeline-stat-value">
-            {tx.responseDueDate ? <DateDisplay date={tx.responseDueDate} /> : '—'}
-          </span>
-        </div>
-        <div className="timeline-stat">
-          <span className="timeline-stat-label">الأولوية</span>
-          <span className="timeline-stat-value"><PriorityBadge priority={tx.priority} /></span>
-        </div>
-      </div>
+  const existingDepartmentIds = assignments.map((a) => a.departmentId);
 
-      <div className="card mt-4">
-        <div className="detail-grid">
+  const actionPanelTitle: Record<WorkspaceAction, string> = {
+    assignment: 'إضافة تحويل',
+    followup: 'إضافة تعقيب',
+    attachment: 'إضافة مرفق',
+    'reply-assignment': 'تسجيل رد على التحويل',
+    'reply-followup': 'تسجيل رد على التعقيب',
+    'complete-response': 'تسجيل الإفادة',
+    'follow-up-letter': 'خطاب تعقيب PDF',
+  };
+
+  const detailsTabContent = (
+    <div className="transaction-details-stack">
+      <section className="card" aria-label="معلومات المعاملة">
+        <div className={`status-bar badge ${statusBadgeClass(tx.status, tx.isOverdue)}`}>
+          <strong>الحالة:</strong> <StatusBadge status={tx.status} isOverdue={tx.isOverdue} />
+          {tx.isOverdue && <span className="status-extra"> — متأخرة</span>}
+          {tx.hasPendingAssignments && <span className="status-extra"> — باقي إجراء</span>}
+          {tx.responseTimingLabel && tx.requiresResponse && (
+            <span className={`status-extra badge badge-spaced ${responseTimingBadgeClass(tx.responseTimingStatus)}`}>
+              {tx.responseTimingLabel}
+            </span>
+          )}
+        </div>
+
+        <div className="timeline-stats mt-4">
+          <div className="timeline-stat">
+            <span className="timeline-stat-label">منذ ورود المعاملة</span>
+            <span className="timeline-stat-value">{formatDaysSince(tx.daysSinceIncoming, '0')}</span>
+          </div>
+          <div className="timeline-stat">
+            <span className="timeline-stat-label">منذ آخر تعقيب</span>
+            <span className="timeline-stat-value">{formatDaysSince(tx.daysSinceLastFollowUp)}</span>
+          </div>
+          <div className="timeline-stat">
+            <span className="timeline-stat-label">تاريخ الرد المطلوب</span>
+            <span className="timeline-stat-value">
+              {tx.responseDueDate ? <DateDisplay date={tx.responseDueDate} /> : '—'}
+            </span>
+          </div>
+          <div className="timeline-stat">
+            <span className="timeline-stat-label">الأولوية</span>
+            <span className="timeline-stat-value"><PriorityBadge priority={tx.priority} /></span>
+          </div>
+        </div>
+
+        <div className="detail-grid mt-4">
           <div><strong>رقم التتبع:</strong> {tx.internalTrackingNumber}</div>
           <div><strong>رقم الوارد:</strong> {tx.incomingNumber}</div>
           <div><strong>تاريخ الوارد:</strong> <DateDisplay date={tx.incomingDate} /></div>
@@ -500,110 +472,163 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
           )}
           {tx.notes && <div className="full-width"><strong>ملاحظات:</strong> {tx.notes}</div>}
         </div>
-      </div>
-    </>
-  );
+      </section>
 
-  const assignmentsContent = (
-    <div className="card">
-      <div className="card-header">
-        <h3>التحويلات والردود</h3>
-      </div>
-      {assignmentsLoading && <LoadingInline label="جاري تحميل التحويلات..." />}
-      {assignmentsError && <Alert variant="error">{assignmentsError}</Alert>}
-      {!assignmentsLoading && !assignmentsError && (
-        <div className="table-wrapper">
-          <table className="data-table">
-            <thead><tr><th>الإدارة</th><th>الإجراء</th><th>تاريخ الاستحقاق</th><th>حالة الرد</th><th>إجراء</th></tr></thead>
-            <tbody>
-              {assignments.map((a) => (
-                <tr key={a.id} className={a.isOverdue ? 'row-overdue' : ''}>
-                  <td>{a.departmentName}</td>
-                  <td>{a.requiredAction || '-'}</td>
-                  <td>{a.dueDate ? <DateDisplay date={a.dueDate} /> : '-'}</td>
-                  <td>
-                    <span className={`badge ${assignmentReplyBadgeClass(a.replyStatus, a.isOverdue)}`}>
-                      {replyStatusLabels[a.replyStatus] || a.replyStatus}
-                    </span>
-                  </td>
-                  <td>
-                    {a.requiresReply && a.replyStatus !== 'Replied' && a.status !== 'Cancelled' && (isDepartmentUser || canEdit) && (
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-outline"
-                        onClick={() => openAction('reply-assignment', { replyAssignmentId: a.id })}
-                      >
-                        تسجيل رد
-                      </button>
-                    )}
-                    {a.replySummary && <div className="text-muted reply-summary">{a.replySummary}</div>}
-                  </td>
-                </tr>
-              ))}
-              {assignments.length === 0 && <tr><td colSpan={5} className="text-center">لا توجد تحويلات</td></tr>}
-            </tbody>
-          </table>
+      <section className="card" aria-label="التحويلات والردود">
+        <div className="card-header">
+          <h3>التحويلات والردود</h3>
+          {showMutationActions && (
+            <div className="card-header-actions">
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => openAction('assignment')}>
+                إضافة تحويل
+              </button>
+            </div>
+          )}
         </div>
-      )}
+        {assignmentsLoading && <LoadingInline label="جاري تحميل التحويلات..." />}
+        {assignmentsError && <Alert variant="error">{assignmentsError}</Alert>}
+        {!assignmentsLoading && !assignmentsError && (
+          <div className="table-wrapper">
+            <table className="data-table">
+              <thead><tr><th>الإدارة</th><th>الإجراء</th><th>تاريخ الاستحقاق</th><th>حالة الرد</th><th>إجراء</th></tr></thead>
+              <tbody>
+                {assignments.map((a) => (
+                  <tr key={a.id} className={a.isOverdue ? 'row-overdue' : ''}>
+                    <td>{a.departmentName}</td>
+                    <td>{a.requiredAction || '-'}</td>
+                    <td>{a.dueDate ? <DateDisplay date={a.dueDate} /> : '-'}</td>
+                    <td>
+                      <span className={`badge ${assignmentReplyBadgeClass(a.replyStatus, a.isOverdue)}`}>
+                        {replyStatusLabels[a.replyStatus] || a.replyStatus}
+                      </span>
+                    </td>
+                    <td>
+                      {a.requiresReply && a.replyStatus !== 'Replied' && a.status !== 'Cancelled' && canReply && (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline"
+                          onClick={() => openAction('reply-assignment', { replyAssignmentId: a.id })}
+                        >
+                          تسجيل رد
+                        </button>
+                      )}
+                      {a.replySummary && <div className="text-muted reply-summary">{a.replySummary}</div>}
+                    </td>
+                  </tr>
+                ))}
+                {assignments.length === 0 && <tr><td colSpan={5} className="text-center">لا توجد تحويلات</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="card" aria-label="التعقيبات والردود">
+        <div className="card-header">
+          <h3>التعقيبات والردود</h3>
+          {showMutationActions && (
+            <div className="card-header-actions">
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => openAction('followup')}>
+                إضافة تعقيب
+              </button>
+            </div>
+          )}
+        </div>
+        {followUpsLoading && <LoadingInline label="جاري تحميل التعقيبات..." />}
+        {followUpsError && <Alert variant="error">{followUpsError}</Alert>}
+        {!followUpsLoading && !followUpsError && (
+          <div className="table-wrapper">
+            <table className="data-table">
+              <thead><tr><th>الرقم</th><th>التاريخ</th><th>مرسل إلى</th><th>ملاحظات</th><th>حالة الرد</th><th>إجراء</th></tr></thead>
+              <tbody>
+                {followUps.map((f) => (
+                  <tr key={f.id}>
+                    <td>{f.followUpNumber || '-'}</td>
+                    <td><DateDisplay date={f.followUpDate} /></td>
+                    <td>{f.departments?.length > 0 ? f.departments.map((d) => d.departmentName).join('، ') : f.sentTo || '-'}</td>
+                    <td>{f.notes || '-'}</td>
+                    <td>
+                      <span className={`badge ${f.replyStatus === 'Replied' ? 'badge-green' : 'badge-orange'}`}>
+                        {replyStatusLabels[f.replyStatus] || f.replyStatus}
+                      </span>
+                    </td>
+                    <td>
+                      {f.requiresReply && f.replyStatus !== 'Replied' && canReply && (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline"
+                          onClick={() => openAction('reply-followup', { replyFollowUpId: f.id })}
+                        >
+                          تسجيل رد
+                        </button>
+                      )}
+                      {f.replySummary && <div className="text-muted reply-summary">{f.replySummary}</div>}
+                    </td>
+                  </tr>
+                ))}
+                {followUps.length === 0 && <tr><td colSpan={6} className="text-center">لا توجد تعقيبات</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="card" aria-label="المرفقات">
+        <div className="card-header">
+          <h3>المرفقات</h3>
+          {showMutationActions && (
+            <div className="card-header-actions">
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => openAction('attachment')}>
+                رفع ملف
+              </button>
+              <ScanAttachmentButton transactionId={+id} onSaved={handleScannedAttachmentSaved} />
+            </div>
+          )}
+        </div>
+        {attachmentsLoading && <LoadingInline label="جاري تحميل المرفقات..." />}
+        {attachmentsError && (
+          <Alert variant="error">
+            {attachmentsError}
+            <button type="button" className="btn btn-sm btn-outline ms-2" onClick={() => { void loadAttachments(); }}>
+              إعادة المحاولة
+            </button>
+          </Alert>
+        )}
+        {!attachmentsLoading && !attachmentsError && (
+          <div className="table-wrapper">
+            <table className="data-table">
+              <thead><tr><th>الملف</th><th>الحجم</th><th>رفع بواسطة</th><th>التاريخ</th><th>إجراءات</th></tr></thead>
+              <tbody>
+                {attachments.map((a) => (
+                  <tr key={a.id}>
+                    <td>{a.originalFileName}</td>
+                    <td>{(a.fileSize / 1024).toFixed(1)} KB</td>
+                    <td>{a.uploadedByName}</td>
+                    <td><DateDisplay date={a.uploadedAt} /></td>
+                    <td>
+                      <button type="button" className="btn btn-sm btn-outline" onClick={() => { void downloadAttachment(a.id, a.originalFileName); }}>
+                        تحميل
+                      </button>
+                      {isPreviewableAttachment(a.contentType) && (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline ms-1"
+                          onClick={() => { void previewAttachment(a.id, a.contentType); }}
+                        >
+                          معاينة
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {attachments.length === 0 && <tr><td colSpan={5} className="text-center">لا توجد مرفقات</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </div>
   );
-
-  const followupsContent = (
-    <div className="card">
-      <div className="card-header">
-        <h3>التعقيبات</h3>
-      </div>
-      {followUpsLoading && <LoadingInline label="جاري تحميل التعقيبات..." />}
-      {followUpsError && <Alert variant="error">{followUpsError}</Alert>}
-      {!followUpsLoading && !followUpsError && (
-        <div className="table-wrapper">
-          <table className="data-table">
-            <thead><tr><th>الرقم</th><th>التاريخ</th><th>مرسل إلى</th><th>ملاحظات</th><th>حالة الرد</th><th>إجراء</th></tr></thead>
-            <tbody>
-              {followUps.map((f) => (
-                <tr key={f.id}>
-                  <td>{f.followUpNumber || '-'}</td>
-                  <td><DateDisplay date={f.followUpDate} /></td>
-                  <td>{f.departments?.length > 0 ? f.departments.map((d) => d.departmentName).join('، ') : f.sentTo || '-'}</td>
-                  <td>{f.notes || '-'}</td>
-                  <td>
-                    <span className={`badge ${f.replyStatus === 'Replied' ? 'badge-green' : 'badge-orange'}`}>
-                      {replyStatusLabels[f.replyStatus] || f.replyStatus}
-                    </span>
-                  </td>
-                  <td>
-                    {f.requiresReply && f.replyStatus !== 'Replied' && (isDepartmentUser || canEdit) && (
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-outline"
-                        onClick={() => openAction('reply-followup', { replyFollowUpId: f.id })}
-                      >
-                        تسجيل رد
-                      </button>
-                    )}
-                    {f.replySummary && <div className="text-muted reply-summary">{f.replySummary}</div>}
-                  </td>
-                </tr>
-              ))}
-              {followUps.length === 0 && <tr><td colSpan={6} className="text-center">لا توجد تعقيبات</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-
-  const existingDepartmentIds = assignments.map((a) => a.departmentId);
-
-  const actionPanelTitle: Record<WorkspaceAction, string> = {
-    assignment: 'إضافة تحويل',
-    followup: 'إضافة تعقيب',
-    attachment: 'إضافة مرفق',
-    'reply-assignment': 'تسجيل رد على التحويل',
-    'reply-followup': 'تسجيل رد على التعقيب',
-    'complete-response': 'تسجيل الإفادة',
-    'follow-up-letter': 'خطاب تعقيب PDF',
-  };
 
   return (
     <div className="transaction-workspace">
@@ -657,7 +682,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
               transactionId={+id}
               onDirtyChange={setActionDirty}
               onCancel={closeAction}
-              onSuccess={() => handleActionSuccess('تم رفع المرفق بنجاح.', [refreshAttachments])}
+              onSuccess={() => handleActionSuccess('تم رفع المرفق بنجاح.', [loadAttachments])}
             />
           )}
           {activeAction === 'reply-assignment' && actionContext.replyAssignmentId && (
@@ -675,7 +700,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
               onDirtyChange={setActionDirty}
               onCancel={closeAction}
               onSubmit={(payload) => transactionsApi.replyFollowUp(+id, actionContext.replyFollowUpId!, payload)}
-              onSuccess={() => handleActionSuccess('تم تسجيل الرد بنجاح.', [loadFollowUps])}
+              onSuccess={() => handleActionSuccess('تم تسجيل الرد بنجاح.', [loadFollowUps, loadBasic])}
             />
           )}
           {activeAction === 'complete-response' && (
@@ -685,8 +710,8 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
               onDirtyChange={setActionDirty}
               onCancel={closeAction}
               onSuccess={(result) => {
-                const message = result?.attachmentWarning ?? 'تم تسجيل الإفادة بنجاح.';
-                void handleActionSuccess(message, [loadBasic, loadAssignments]);
+                const successMessage = result?.attachmentWarning ?? 'تم تسجيل الإفادة بنجاح.';
+                void handleActionSuccess(successMessage, [loadBasic, loadAssignments]);
               }}
             />
           )}
@@ -704,78 +729,54 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
       )}
 
       <div className="tabs" role="tablist" aria-label="تبويبات تفاصيل المعاملة">
-        <button type="button" role="tab" aria-selected={activeTab === 'overview'} className={activeTab === 'overview' ? 'active' : ''} onClick={() => selectTab('overview')}>نظرة عامة</button>
-        <button type="button" role="tab" aria-selected={activeTab === 'assignments'} className={activeTab === 'assignments' ? 'active' : ''} onClick={() => selectTab('assignments')}>
-          التحويلات<span className="tab-count">{assignments.length}</span>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'details'}
+          className={activeTab === 'details' ? 'active' : ''}
+          onClick={() => selectTab('details')}
+        >
+          تفاصيل المعاملة
         </button>
-        <button type="button" role="tab" aria-selected={activeTab === 'followups'} className={activeTab === 'followups' ? 'active' : ''} onClick={() => selectTab('followups')}>
-          التعقيبات<span className="tab-count">{followUps.length}</span>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'timeline'}
+          className={activeTab === 'timeline' ? 'active' : ''}
+          onClick={() => selectTab('timeline')}
+        >
+          الخط الزمني
         </button>
-        <button type="button" role="tab" aria-selected={activeTab === 'attachments'} className={activeTab === 'attachments' ? 'active' : ''} onClick={() => selectTab('attachments')}>
-          المرفقات<span className="tab-count">{attachments.length}</span>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'audit'}
+          className={activeTab === 'audit' ? 'active' : ''}
+          onClick={() => selectTab('audit')}
+        >
+          سجل التدقيق
         </button>
-        <button type="button" role="tab" aria-selected={activeTab === 'timeline'} className={activeTab === 'timeline' ? 'active' : ''} onClick={() => selectTab('timeline')}>السجل الزمني</button>
-        <button type="button" role="tab" aria-selected={activeTab === 'audit'} className={activeTab === 'audit' ? 'active' : ''} onClick={() => selectTab('audit')}>سجل التدقيق</button>
       </div>
 
-      {tabLoading && <LoadingInline label="جاري التحميل..." />}
+      {activeTab === 'details' && detailsTabContent}
 
-      {activeTab === 'overview' && overviewContent}
-      {activeTab === 'assignments' && assignmentsContent}
-      {activeTab === 'followups' && followupsContent}
+      {activeTab === 'timeline' && auditTabLoading && <LoadingInline label="جاري تحميل الخط الزمني..." />}
 
-      {activeTab === 'attachments' && !tabLoading && attachmentsTabError && (
+      {activeTab === 'timeline' && !auditTabLoading && auditTabError && (
         <ErrorState
-          title="تعذر تحميل المرفقات"
-          description={attachmentsTabError}
-          action={(
-            <button type="button" className="btn btn-primary" onClick={() => loadTab('attachments', true)}>
-              إعادة المحاولة
-            </button>
-          )}
-        />
-      )}
-
-      {activeTab === 'attachments' && !tabLoading && !attachmentsTabError && (
-        <div className="card mt-2">
-          <div className="card-header">
-            <h3>المرفقات</h3>
-          </div>
-          <div className="table-wrapper">
-            <table className="data-table">
-              <thead><tr><th>الملف</th><th>الحجم</th><th>رفع بواسطة</th><th>التاريخ</th><th>تحميل</th></tr></thead>
-              <tbody>
-                {attachments.map((a) => (
-                  <tr key={a.id}>
-                    <td>{a.originalFileName}</td>
-                    <td>{(a.fileSize / 1024).toFixed(1)} KB</td>
-                    <td>{a.uploadedByName}</td>
-                    <td><DateDisplay date={a.uploadedAt} /></td>
-                    <td><button type="button" className="btn btn-sm btn-outline" onClick={() => downloadAttachment(a.id, a.originalFileName)}>تحميل</button></td>
-                  </tr>
-                ))}
-                {attachments.length === 0 && <tr><td colSpan={5} className="text-center">لا توجد مرفقات</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {activeTab === 'timeline' && !tabLoading && auditTabError && (
-        <ErrorState
-          title="تعذر تحميل السجل الزمني"
+          title={auditErrorTitle}
           description={auditTabError}
           action={(
-            <button type="button" className="btn btn-primary" onClick={() => loadTab('audit', true)}>
+            <button type="button" className="btn btn-primary" onClick={() => { void loadAuditTabData(); }}>
               إعادة المحاولة
             </button>
           )}
         />
       )}
 
-      {activeTab === 'timeline' && !tabLoading && !auditTabError && (
+      {activeTab === 'timeline' && !auditTabLoading && !auditTabError && (
         <div className="card">
-          <h3>السجل الزمني للمعاملة</h3>
+          <h3>الخط الزمني</h3>
           <ActivityTimeline events={timelineEvents} emptyLabel="لا توجد أحداث مسجلة" />
           {auditHasMore && (
             <div className="mt-4">
@@ -783,7 +784,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                 type="button"
                 className="btn btn-secondary btn-sm"
                 disabled={auditLoadingMore}
-                onClick={() => loadAuditLog(auditPage + 1, true)}
+                onClick={() => { void loadAuditLog(auditPage + 1, true); }}
               >
                 {auditLoadingMore ? 'جاري التحميل...' : 'تحميل المزيد'}
               </button>
@@ -792,36 +793,38 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
         </div>
       )}
 
-      {activeTab === 'audit' && !tabLoading && auditTabError && (
+      {activeTab === 'audit' && auditTabLoading && <LoadingInline label="جاري تحميل سجل التدقيق..." />}
+
+      {activeTab === 'audit' && !auditTabLoading && auditTabError && (
         <ErrorState
-          title="تعذر تحميل سجل التدقيق"
+          title={auditErrorTitle}
           description={auditTabError}
           action={(
-            <button type="button" className="btn btn-primary" onClick={() => loadTab('audit', true)}>
+            <button type="button" className="btn btn-primary" onClick={() => { void loadAuditTabData(); }}>
               إعادة المحاولة
             </button>
           )}
         />
       )}
 
-      {activeTab === 'audit' && !tabLoading && !auditTabError && (
+      {activeTab === 'audit' && !auditTabLoading && !auditTabError && (
         <div className="card">
           <h3>سجل التدقيق</h3>
           <div className="table-wrapper">
             <table className="data-table">
-            <thead><tr><th>الإجراء</th><th>المستخدم</th><th>التاريخ</th><th>التفاصيل</th></tr></thead>
-            <tbody>
-              {auditLogs.map((log) => (
-                <tr key={log.id}>
-                  <td>{auditActionLabels[log.action] || log.action}</td>
-                  <td>{log.userName}</td>
-                  <td><DateDisplay date={log.createdAt} /></td>
-                  <td>{log.newValue || log.oldValue || '-'}</td>
-                </tr>
-              ))}
-              {auditLogs.length === 0 && <tr><td colSpan={4} className="text-center">لا توجد سجلات</td></tr>}
-            </tbody>
-          </table>
+              <thead><tr><th>الإجراء</th><th>المستخدم</th><th>التاريخ</th><th>التفاصيل</th></tr></thead>
+              <tbody>
+                {auditLogs.map((log) => (
+                  <tr key={log.id}>
+                    <td>{auditActionLabels[log.action] || log.action}</td>
+                    <td>{log.userName}</td>
+                    <td><DateDisplay date={log.createdAt} /></td>
+                    <td>{log.newValue || log.oldValue || '-'}</td>
+                  </tr>
+                ))}
+                {auditLogs.length === 0 && <tr><td colSpan={4} className="text-center">لا توجد سجلات</td></tr>}
+              </tbody>
+            </table>
           </div>
           {auditHasMore && (
             <div className="mt-2">
@@ -829,7 +832,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                 type="button"
                 className="btn btn-secondary"
                 disabled={auditLoadingMore}
-                onClick={() => loadAuditLog(auditPage + 1, true)}
+                onClick={() => { void loadAuditLog(auditPage + 1, true); }}
               >
                 {auditLoadingMore ? 'جاري التحميل...' : 'تحميل المزيد'}
               </button>
