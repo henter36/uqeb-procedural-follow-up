@@ -13,5 +13,6 @@ public enum AuditAction
     Cancel = 9,
     Archive = 10,
     CloseAttemptFailed = 11,
-    CompleteResponse = 12
+    CompleteResponse = 12,
+    ResetPassword = 13
 }

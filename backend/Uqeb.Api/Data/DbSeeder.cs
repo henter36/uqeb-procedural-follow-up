@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Uqeb.Api.Helpers;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Services;
@@ -27,12 +28,18 @@ public static class DbSeeder
         if (!await db.Categories.AnyAsync())
         {
             db.Categories.AddRange(
-                new Category { Name = "استفسار", Code = "INQ", IsActive = true },
-                new Category { Name = "تعميم", Code = "CIRC", IsActive = true },
-                new Category { Name = "طلب", Code = "REQ", IsActive = true },
-                new Category { Name = "شكوى", Code = "COMP", IsActive = true },
-                new Category { Name = "متابعة", Code = "FUP", IsActive = true }
+                CreateCategory("استفسار", "INQ"),
+                CreateCategory("تعميم", "CIRC"),
+                CreateCategory("طلب", "REQ"),
+                CreateCategory("شكوى", "COMP"),
+                CreateCategory("متابعة", "FUP"),
+                CreateCategory("عام", "GEN")
             );
+            await db.SaveChangesAsync();
+        }
+        else if (!await db.Categories.AnyAsync(c => c.NameNormalized == ReferenceNameNormalizer.NormalizeKey("عام")))
+        {
+            db.Categories.Add(CreateCategory("عام", "GEN"));
             await db.SaveChangesAsync();
         }
 
@@ -40,22 +47,22 @@ public static class DbSeeder
 
         var departments = new[]
         {
-            new Department { Name = "الشؤون الإدارية", Code = "ADM", IsActive = true },
-            new Department { Name = "الموارد البشرية", Code = "HR", IsActive = true },
-            new Department { Name = "الشؤون القانونية", Code = "LEG", IsActive = true },
-            new Department { Name = "تقنية المعلومات", Code = "IT", IsActive = true },
-            new Department { Name = "المالية", Code = "FIN", IsActive = true }
+            CreateDepartment("الشؤون الإدارية", "ADM"),
+            CreateDepartment("الموارد البشرية", "HR"),
+            CreateDepartment("الشؤون القانونية", "LEG"),
+            CreateDepartment("تقنية المعلومات", "IT"),
+            CreateDepartment("المالية", "FIN")
         };
         db.Departments.AddRange(departments);
         await db.SaveChangesAsync();
 
         var parties = new[]
         {
-            new ExternalParty { Name = "وزارة الداخلية", Type = "حكومي" },
-            new ExternalParty { Name = "وزارة المالية", Type = "حكومي" },
-            new ExternalParty { Name = "شركة الاتصالات", Type = "خاص" },
-            new ExternalParty { Name = "البنك الأهلي", Type = "خاص" },
-            new ExternalParty { Name = "أمانة المنطقة", Type = "حكومي" }
+            CreateParty("وزارة الداخلية", "حكومي"),
+            CreateParty("وزارة المالية", "حكومي"),
+            CreateParty("شركة الاتصالات", "خاص"),
+            CreateParty("البنك الأهلي", "خاص"),
+            CreateParty("أمانة المنطقة", "حكومي")
         };
         db.ExternalParties.AddRange(parties);
         await db.SaveChangesAsync();
@@ -227,5 +234,41 @@ public static class DbSeeder
         });
 
         await db.SaveChangesAsync();
+    }
+
+    private static Category CreateCategory(string name, string code)
+    {
+        var formatted = ReferenceNameNormalizer.FormatDisplayName(name);
+        return new Category
+        {
+            Name = formatted,
+            NameNormalized = ReferenceNameNormalizer.NormalizeKey(formatted),
+            Code = code,
+            IsActive = true
+        };
+    }
+
+    private static Department CreateDepartment(string name, string code)
+    {
+        var formatted = ReferenceNameNormalizer.FormatDisplayName(name);
+        return new Department
+        {
+            Name = formatted,
+            NameNormalized = ReferenceNameNormalizer.NormalizeKey(formatted),
+            Code = code,
+            IsActive = true
+        };
+    }
+
+    private static ExternalParty CreateParty(string name, string type)
+    {
+        var formatted = ReferenceNameNormalizer.FormatDisplayName(name);
+        return new ExternalParty
+        {
+            Name = formatted,
+            NameNormalized = ReferenceNameNormalizer.NormalizeKey(formatted),
+            Type = type,
+            IsActive = true
+        };
     }
 }

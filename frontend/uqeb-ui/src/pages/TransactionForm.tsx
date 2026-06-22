@@ -11,6 +11,7 @@ import {
 } from '../utils/apiHelpers';
 import { formatDualDate, formatHijri } from '../utils/dateUtils';
 import MultiSelect from '../components/MultiSelect';
+import SearchableSelect, { type SelectOption } from '../components/SearchableSelect';
 
 interface Props { mode: 'create' | 'edit' }
 
@@ -42,6 +43,19 @@ export default function TransactionForm({ mode }: Props) {
     priority: 'Normal', categoryId: '' as string | number, notes: '',
   });
 
+  const partyOptions: SelectOption[] = useMemo(
+    () => parties.map((p) => ({ id: p.id, name: p.name, isActive: p.isActive, subLabel: p.type })),
+    [parties],
+  );
+  const departmentOptions: SelectOption[] = useMemo(
+    () => departments.map((d) => ({ id: d.id, name: d.name, isActive: d.isActive, subLabel: d.code })),
+    [departments],
+  );
+  const categoryOptions: SelectOption[] = useMemo(
+    () => categories.map((c) => ({ id: c.id, name: c.name, isActive: c.isActive, subLabel: c.code })),
+    [categories],
+  );
+
   const computedResponseDueDate = useMemo(() => {
     if (!form.incomingDate || !form.responseDueDays) return null;
     const days = Number(form.responseDueDays);
@@ -52,10 +66,11 @@ export default function TransactionForm({ mode }: Props) {
   }, [form.incomingDate, form.responseDueDays]);
 
   useEffect(() => {
-    externalPartiesApi.getAll().then((r) => setParties(r.data));
-    departmentsApi.getAll().then((r) => setDepartments(r.data));
-    categoriesApi.getAll().then((r) => setCategories(r.data));
-  }, []);
+    const activeOnly = mode === 'create';
+    externalPartiesApi.getAll(activeOnly).then((r) => setParties(r.data));
+    departmentsApi.getAll(activeOnly).then((r) => setDepartments(r.data));
+    categoriesApi.getAll(activeOnly).then((r) => setCategories(r.data));
+  }, [mode]);
 
   useEffect(() => {
     if (mode === 'edit' && id) {
@@ -203,19 +218,22 @@ export default function TransactionForm({ mode }: Props) {
               {fieldError('incomingSourceType') && <span className="field-error">{fieldError('incomingSourceType')}</span>}
             </div>
             <div className="form-group full-width">
-              <label>الجهة الوارد منها *</label>
               {form.incomingSourceType === 'External' ? (
-                <select value={form.incomingFromPartyId}
-                  onChange={(e) => setForm({ ...form, incomingFromPartyId: e.target.value, incomingFromDepartmentId: '' })}>
-                  <option value="">-- اختر الجهة الخارجية --</option>
-                  {parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
+                <SearchableSelect
+                  label="الجهة الوارد منها *"
+                  required
+                  value={form.incomingFromPartyId === '' ? '' : Number(form.incomingFromPartyId)}
+                  onChange={(id) => setForm({ ...form, incomingFromPartyId: id, incomingFromDepartmentId: '' })}
+                  options={partyOptions}
+                />
               ) : (
-                <select value={form.incomingFromDepartmentId}
-                  onChange={(e) => setForm({ ...form, incomingFromDepartmentId: e.target.value, incomingFromPartyId: '' })}>
-                  <option value="">-- اختر الإدارة --</option>
-                  {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </select>
+                <SearchableSelect
+                  label="الجهة الوارد منها *"
+                  required
+                  value={form.incomingFromDepartmentId === '' ? '' : Number(form.incomingFromDepartmentId)}
+                  onChange={(id) => setForm({ ...form, incomingFromDepartmentId: id, incomingFromPartyId: '' })}
+                  options={departmentOptions}
+                />
               )}
               {fieldError('incomingFromPartyId') && <span className="field-error">{fieldError('incomingFromPartyId')}</span>}
               {fieldError('incomingFromDepartmentId') && <span className="field-error">{fieldError('incomingFromDepartmentId')}</span>}
@@ -238,11 +256,13 @@ export default function TransactionForm({ mode }: Props) {
               {fieldError('outgoingDate') && <span className="field-error">{fieldError('outgoingDate')}</span>}
             </div>
             <div className="form-group">
-              <label>التصنيف *</label>
-              <select value={form.categoryId} onChange={(e) => setForm({ ...form, categoryId: e.target.value })}>
-                <option value="">-- اختر التصنيف --</option>
-                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <SearchableSelect
+                label="التصنيف *"
+                required
+                value={form.categoryId === '' ? '' : Number(form.categoryId)}
+                onChange={(id) => setForm({ ...form, categoryId: id })}
+                options={categoryOptions}
+              />
               {fieldError('categoryId') && <span className="field-error">{fieldError('categoryId')}</span>}
             </div>
             <div className="form-group">

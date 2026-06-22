@@ -30,6 +30,7 @@ export default function Layout() {
       { path: '/users', label: 'المستخدمون' },
       { path: '/departments', label: 'الإدارات' },
       { path: '/external-parties', label: 'الجهات الخارجية' },
+      { path: '/categories', label: 'التصنيفات' },
       { path: '/security', label: 'الأمن والتنبيهات' },
     ] : []),
   ];

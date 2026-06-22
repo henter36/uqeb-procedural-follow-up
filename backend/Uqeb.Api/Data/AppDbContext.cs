@@ -31,17 +31,25 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<User>(e =>
         {
             e.HasIndex(u => u.Username).IsUnique();
+            e.HasIndex(u => u.Email).IsUnique().HasFilter("[Email] IS NOT NULL");
             e.HasOne(u => u.Department).WithMany(d => d.Users).HasForeignKey(u => u.DepartmentId).OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<Department>(e =>
         {
             e.HasIndex(d => d.Code).IsUnique().HasFilter("[Code] IS NOT NULL");
+            e.HasIndex(d => d.NameNormalized).IsUnique();
+        });
+
+        modelBuilder.Entity<ExternalParty>(e =>
+        {
+            e.HasIndex(p => p.NameNormalized).IsUnique();
         });
 
         modelBuilder.Entity<Category>(e =>
         {
             e.HasIndex(c => c.Code).IsUnique().HasFilter("[Code] IS NOT NULL");
+            e.HasIndex(c => c.NameNormalized).IsUnique();
         });
 
         modelBuilder.Entity<Transaction>(e =>

@@ -8,7 +8,7 @@ import TransactionsList from './pages/TransactionsList';
 import TransactionForm from './pages/TransactionForm';
 import TransactionDetail from './pages/TransactionDetail';
 import Reports from './pages/Reports';
-import { UsersPage, DepartmentsPage, ExternalPartiesPage } from './pages/AdminPages';
+import { UsersPage, DepartmentsPage, ExternalPartiesPage, CategoriesPage } from './pages/AdminPages';
 import LetterTemplatePage from './pages/LetterTemplatePage';
 import SecurityPage from './pages/SecurityPage';
 import TransactionImport from './pages/TransactionImport';
@@ -35,9 +35,38 @@ export default function App() {
             <Route path="transactions/:id/edit" element={<TransactionForm mode="edit" />} />
             <Route path="reports" element={<Reports />} />
             <Route path="letter-template" element={<LetterTemplatePage />} />
-            <Route path="users" element={<UsersPage />} />
-            <Route path="departments" element={<DepartmentsPage />} />
-            <Route path="external-parties" element={<ExternalPartiesPage />} />
+            <Route
+              path="users"
+              element={(
+                <ProtectedRoute requiredRoles={['Admin']}>
+                  <UsersPage />
+                </ProtectedRoute>
+              )}
+            />
+            <Route
+              path="departments"
+              element={(
+                <ProtectedRoute requiredRoles={['Admin']}>
+                  <DepartmentsPage />
+                </ProtectedRoute>
+              )}
+            />
+            <Route
+              path="external-parties"
+              element={(
+                <ProtectedRoute requiredRoles={['Admin']}>
+                  <ExternalPartiesPage />
+                </ProtectedRoute>
+              )}
+            />
+            <Route
+              path="categories"
+              element={(
+                <ProtectedRoute requiredRoles={['Admin']}>
+                  <CategoriesPage />
+                </ProtectedRoute>
+              )}
+            />
             <Route
               path="security"
               element={(
