@@ -7,6 +7,23 @@ namespace Uqeb.Api.Services;
 
 public static class ReferenceDataQueryHelper
 {
+    public static ReferenceDataListRequest NormalizeListRequest(ReferenceDataListRequest request) => new()
+    {
+        Search = request.Search,
+        Status = request.Status,
+        SortBy = string.IsNullOrWhiteSpace(request.SortBy) ? "name" : request.SortBy,
+        SortDesc = request.SortDesc ?? false,
+        Page = Math.Max(1, request.Page ?? 1),
+        PageSize = request.PageSize is null or <= 0 ? 20 : Math.Min(request.PageSize.Value, 100),
+    };
+
+    public static LookupRequest NormalizeLookupRequest(LookupRequest request) => new()
+    {
+        Search = request.Search,
+        ActiveOnly = request.ActiveOnly ?? true,
+        Limit = request.Limit is null or <= 0 ? 50 : Math.Min(request.Limit.Value, 100),
+    };
+
     public static IQueryable<T> ApplyStatusFilter<T>(IQueryable<T> query, string? status, Func<IQueryable<T>, IQueryable<T>> activeFilter, Func<IQueryable<T>, IQueryable<T>> inactiveFilter)
     {
         if (string.Equals(status, "active", StringComparison.OrdinalIgnoreCase))
@@ -23,11 +40,14 @@ public static class ReferenceDataQueryHelper
         Expression<Func<TEntity, TDto>> selector,
         CancellationToken cancellationToken = default)
     {
-        var page = Math.Max(1, request.Page);
-        var pageSize = request.PageSize <= 0 ? 20 : Math.Min(request.PageSize, 100);
+        var normalized = NormalizeListRequest(request);
+        var page = normalized.Page!.Value;
+        var pageSize = normalized.PageSize!.Value;
+        var sortBy = normalized.SortBy!;
+        var sortDesc = normalized.SortDesc!.Value;
 
         var total = await query.CountAsync(cancellationToken);
-        query = applySort(query, request.SortBy, request.SortDesc);
+        query = applySort(query, sortBy, sortDesc);
 
         var items = await query
             .Skip((page - 1) * pageSize)

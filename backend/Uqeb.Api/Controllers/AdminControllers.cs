@@ -28,8 +28,11 @@ public class UsersController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] ReferenceDataListRequest? list, CancellationToken cancellationToken)
     {
-        if (list != null && list.Page > 0)
-            return Ok(await _users.SearchAsync(list, cancellationToken));
+        if (Request.IsPagedReferenceDataRequest())
+        {
+            var request = ReferenceDataQueryHelper.NormalizeListRequest(list ?? new ReferenceDataListRequest());
+            return Ok(await _users.SearchAsync(request, cancellationToken));
+        }
 
         return Ok(await _users.GetAllAsync());
     }
@@ -120,9 +123,10 @@ public class DepartmentsController : ControllerBase
         [FromQuery] ReferenceDataListRequest? list = null,
         CancellationToken cancellationToken = default)
     {
-        if (list != null && list.Page > 0)
+        if (Request.IsPagedReferenceDataRequest())
         {
-            return Ok(await _departments.SearchAsync(list, cancellationToken));
+            var request = ReferenceDataQueryHelper.NormalizeListRequest(list ?? new ReferenceDataListRequest());
+            return Ok(await _departments.SearchAsync(request, cancellationToken));
         }
 
         var cacheKey = _cacheInvalidation.BuildDepartmentsKey(activeOnly);
@@ -207,9 +211,10 @@ public class ExternalPartiesController : ControllerBase
         [FromQuery] ReferenceDataListRequest? list = null,
         CancellationToken cancellationToken = default)
     {
-        if (list != null && list.Page > 0)
+        if (Request.IsPagedReferenceDataRequest())
         {
-            return Ok(await _parties.SearchAsync(list, cancellationToken));
+            var request = ReferenceDataQueryHelper.NormalizeListRequest(list ?? new ReferenceDataListRequest());
+            return Ok(await _parties.SearchAsync(request, cancellationToken));
         }
 
         var cacheKey = _cacheInvalidation.BuildExternalPartiesKey(activeOnly);

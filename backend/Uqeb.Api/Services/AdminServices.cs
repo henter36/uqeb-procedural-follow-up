@@ -123,40 +123,13 @@ public class UserService : IUserService
 
         var oldSnapshot = SnapshotUser(user);
 
-        if (!string.IsNullOrWhiteSpace(request.Username) && request.Username != user.Username)
-        {
-            var username = ReferenceNameNormalizer.FormatDisplayName(request.Username);
-            var normalizedUsername = ReferenceNameNormalizer.NormalizeKey(username);
-            if (await _db.Users.AnyAsync(u => u.Username.ToLower() == normalizedUsername && u.Id != id))
-                throw new DuplicateReferenceException("اسم المستخدم موجود مسبقاً");
-            user.Username = username;
-        }
-
-        if (!string.IsNullOrEmpty(request.FullName))
-            user.FullName = ReferenceNameNormalizer.FormatDisplayName(request.FullName);
-
-        if (request.Email != null)
-        {
-            var email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim();
-            if (email != null && await _db.Users.AnyAsync(u => u.Email != null && u.Email.ToLower() == email.ToLower() && u.Id != id))
-                throw new DuplicateReferenceException("البريد الإلكتروني مستخدم مسبقاً");
-            user.Email = email;
-        }
-
-        if (!string.IsNullOrEmpty(request.Role))
-            user.Role = EnumHelper.ParseUserRole(request.Role);
-
-        if (request.DepartmentId.HasValue)
-            user.DepartmentId = request.DepartmentId;
-
-        if (request.IsActive.HasValue || !string.IsNullOrEmpty(request.Role))
-            await EnsureCanChangeAdminStatusAsync(user, request.IsActive, request.Role);
-
-        if (request.IsActive.HasValue)
-            user.IsActive = request.IsActive.Value;
-
-        if (!string.IsNullOrEmpty(request.Password))
-            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password);
+        await UpdateUsernameAsync(user, id, request.Username);
+        ApplyProfileChanges(user, request);
+        await UpdateEmailAsync(user, id, request.Email);
+        ApplyRoleAndDepartment(user, request);
+        await ValidateAdminStatusChangeAsync(user, request.IsActive, request.Role);
+        ApplyStatusChange(user, request.IsActive);
+        ApplyPasswordChange(user, request.Password);
 
         await _db.SaveChangesAsync();
 
@@ -165,6 +138,64 @@ public class UserService : IUserService
             JsonSerializer.Serialize(SnapshotUser(user)));
 
         return await GetByIdAsync(id);
+    }
+
+    private async Task UpdateUsernameAsync(User user, int id, string? username)
+    {
+        if (string.IsNullOrWhiteSpace(username) || username == user.Username)
+            return;
+
+        var formatted = ReferenceNameNormalizer.FormatDisplayName(username);
+        var normalizedUsername = ReferenceNameNormalizer.NormalizeKey(formatted);
+        if (await _db.Users.AnyAsync(u => u.Username.ToLower() == normalizedUsername && u.Id != id))
+            throw new DuplicateReferenceException("اسم المستخدم موجود مسبقاً");
+        user.Username = formatted;
+    }
+
+    private static void ApplyProfileChanges(User user, UpdateUserRequest request)
+    {
+        if (!string.IsNullOrEmpty(request.FullName))
+            user.FullName = ReferenceNameNormalizer.FormatDisplayName(request.FullName);
+    }
+
+    private async Task UpdateEmailAsync(User user, int id, string? emailValue)
+    {
+        if (emailValue == null)
+            return;
+
+        var email = string.IsNullOrWhiteSpace(emailValue) ? null : emailValue.Trim();
+        if (email != null && await _db.Users.AnyAsync(u => u.Email != null && u.Email.ToLower() == email.ToLower() && u.Id != id))
+            throw new DuplicateReferenceException("البريد الإلكتروني مستخدم مسبقاً");
+        user.Email = email;
+    }
+
+    private static void ApplyRoleAndDepartment(User user, UpdateUserRequest request)
+    {
+        if (!string.IsNullOrEmpty(request.Role))
+            user.Role = EnumHelper.ParseUserRole(request.Role);
+
+        if (request.DepartmentId.HasValue)
+            user.DepartmentId = request.DepartmentId;
+    }
+
+    private static void ApplyStatusChange(User user, bool? isActive)
+    {
+        if (isActive.HasValue)
+            user.IsActive = isActive.Value;
+    }
+
+    private static void ApplyPasswordChange(User user, string? password)
+    {
+        if (!string.IsNullOrEmpty(password))
+            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(password);
+    }
+
+    private async Task ValidateAdminStatusChangeAsync(User user, bool? newIsActive, string? newRole)
+    {
+        if (!newIsActive.HasValue && string.IsNullOrEmpty(newRole))
+            return;
+
+        await EnsureCanChangeAdminStatusAsync(user, newIsActive, newRole);
     }
 
     public async Task<bool> ResetPasswordAsync(int id, ResetPasswordRequest request, int actorUserId)
@@ -285,14 +316,15 @@ public class DepartmentService : IDepartmentService
 
     public async Task<List<LookupItemDto>> LookupAsync(LookupRequest request, CancellationToken cancellationToken = default)
     {
-        var limit = request.Limit <= 0 ? 50 : Math.Min(request.Limit, 100);
+        var normalized = ReferenceDataQueryHelper.NormalizeLookupRequest(request);
+        var limit = normalized.Limit ?? 50;
         var query = _db.Departments.AsQueryable();
-        if (request.ActiveOnly)
+        if (normalized.ActiveOnly != false)
             query = query.Where(d => d.IsActive);
 
-        if (!string.IsNullOrWhiteSpace(request.Search))
+        if (!string.IsNullOrWhiteSpace(normalized.Search))
         {
-            var term = request.Search.Trim();
+            var term = normalized.Search.Trim();
             query = query.Where(d => d.Name.Contains(term) || (d.Code != null && d.Code.Contains(term)));
         }
 
@@ -453,14 +485,15 @@ public class ExternalPartyService : IExternalPartyService
 
     public async Task<List<LookupItemDto>> LookupAsync(LookupRequest request, CancellationToken cancellationToken = default)
     {
-        var limit = request.Limit <= 0 ? 50 : Math.Min(request.Limit, 100);
+        var normalized = ReferenceDataQueryHelper.NormalizeLookupRequest(request);
+        var limit = normalized.Limit ?? 50;
         var query = _db.ExternalParties.AsQueryable();
-        if (request.ActiveOnly)
+        if (normalized.ActiveOnly != false)
             query = query.Where(p => p.IsActive);
 
-        if (!string.IsNullOrWhiteSpace(request.Search))
+        if (!string.IsNullOrWhiteSpace(normalized.Search))
         {
-            var term = request.Search.Trim();
+            var term = normalized.Search.Trim();
             query = query.Where(p => p.Name.Contains(term) || (p.Type != null && p.Type.Contains(term)));
         }
 

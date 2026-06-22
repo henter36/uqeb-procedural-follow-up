@@ -21,7 +21,6 @@ type ReferenceDataPageProps<T> = {
     editing: T | null;
     onClose: () => void;
     onSaved: (item: T) => void;
-    listParams: ReferenceListParams;
   }) => ReactNode;
   onDeactivate?: (item: T) => Promise<void>;
   canDeactivate?: (item: T) => boolean;
@@ -38,7 +37,7 @@ export function ReferenceDataPage<T>({
   onDeactivate,
   canDeactivate,
   deactivateLabel = 'تعطيل',
-}: ReferenceDataPageProps<T>) {
+}: Readonly<ReferenceDataPageProps<T>>) {
   const [params, setParams] = useState<ReferenceListParams>(defaultListParams);
   const [items, setItems] = useState<T[]>([]);
   const [total, setTotal] = useState(0);
@@ -101,18 +100,21 @@ export function ReferenceDataPage<T>({
     setEditing(null);
     setShowForm(true);
     setSuccess(null);
+    setError(null);
   };
 
   const openEdit = (item: T) => {
     setEditing(item);
     setShowForm(true);
     setSuccess(null);
+    setError(null);
   };
 
   const handleSaved = (item: T) => {
     setShowForm(false);
     setEditing(null);
     setSuccess('تم الحفظ بنجاح');
+    setError(null);
     setItems((prev) => {
       const id = getRowId(item);
       const idx = prev.findIndex((x) => getRowId(x) === id);
@@ -129,12 +131,14 @@ export function ReferenceDataPage<T>({
 
   const handleDeactivate = async (item: T) => {
     if (!onDeactivate) return;
-    if (!window.confirm(`هل تريد ${deactivateLabel} هذا السجل؟`)) return;
+    if (!globalThis.confirm(`هل تريد ${deactivateLabel} هذا السجل؟`)) return;
     try {
       await onDeactivate(item);
       setSuccess('تم تحديث الحالة بنجاح');
+      setError(null);
       load(params);
     } catch (err) {
+      setSuccess(null);
       setError(isAxiosError(err) ? (err.response?.data as { message?: string })?.message ?? 'تعذر تحديث الحالة' : 'تعذر تحديث الحالة');
     }
   };
@@ -223,7 +227,6 @@ export function ReferenceDataPage<T>({
         editing,
         onClose: () => { setShowForm(false); setEditing(null); },
         onSaved: handleSaved,
-        listParams: params,
       })}
     </div>
   );

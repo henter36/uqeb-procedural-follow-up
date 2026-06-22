@@ -11,20 +11,19 @@ import { ReferenceDataPage } from '../components/ReferenceDataPage';
 import { FormModal } from '../components/ReferenceDataFormModal';
 import { FieldError } from '../components/ReferenceDataFieldError';
 import { StatusBadge } from '../components/ReferenceDataStatusBadge';
-import type { ReferenceListParams } from '../components/referenceDataTypes';
+import { isEmptyTrimmedName, normalizeTrimmedName } from './adminPageHelpers';
 
 function apiError(err: unknown, fallback: string) {
   return isAxiosError(err) ? (err.response?.data as { message?: string })?.message ?? fallback : fallback;
 }
 
-function DepartmentForm({
-  editing, onClose, onSaved,
-}: {
+type DepartmentFormProps = {
   editing: Department | null;
   onClose: () => void;
   onSaved: (item: Department) => void;
-  listParams: ReferenceListParams;
-}) {
+};
+
+function DepartmentForm({ editing, onClose, onSaved }: Readonly<DepartmentFormProps>) {
   const [name, setName] = useState(editing?.name ?? '');
   const [code, setCode] = useState(editing?.code ?? '');
   const [isActive, setIsActive] = useState(editing?.isActive ?? true);
@@ -36,9 +35,9 @@ function DepartmentForm({
     e.preventDefault();
     setError(null);
     setFieldErrors({});
-    const trimmed = name.trim().replace(/\s+/g, ' ');
-    if (!trimmed) {
-      setFieldErrors({ name: 'الاسم مطلوب' });
+    const trimmed = normalizeTrimmedName(name);
+    if (isEmptyTrimmedName(name)) {
+      setError('الاسم مطلوب');
       return;
     }
     setSubmitting(true);
@@ -64,18 +63,22 @@ function DepartmentForm({
       submitLabel={editing ? 'حفظ التعديلات' : 'إضافة'}
     >
       <div className="form-group">
-        <label>الاسم</label>
-        <input value={name} onChange={(e) => setName(e.target.value)} required />
+        <label htmlFor="department-name">الاسم</label>
+        <input id="department-name" value={name} onChange={(e) => setName(e.target.value)} required />
         <FieldError message={fieldErrors.name} />
       </div>
       <div className="form-group">
-        <label>الرمز</label>
-        <input value={code} onChange={(e) => setCode(e.target.value)} />
+        <label htmlFor="department-code">الرمز</label>
+        <input id="department-code" value={code} onChange={(e) => setCode(e.target.value)} />
       </div>
       {editing && (
-        <div className="form-group">
-          <label><input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} /> نشطة</label>
-        </div>
+        <fieldset className="form-group">
+          <legend>الحالة</legend>
+          <label htmlFor="department-active">
+            <input id="department-active" type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
+            {' '}نشطة
+          </label>
+        </fieldset>
       )}
       {error && <div className="alert alert-error">{error}</div>}
     </FormModal>
@@ -98,21 +101,20 @@ export function DepartmentsPage() {
       onDeactivate={(d) => departmentsApi.update(d.id, { isActive: false }).then(() => undefined)}
       canDeactivate={(d) => d.isActive}
       deactivateLabel="تعطيل"
-      renderForm={({ editing, onClose, onSaved, listParams }) => (
-        <DepartmentForm editing={editing} onClose={onClose} onSaved={onSaved} listParams={listParams} />
+      renderForm={({ editing, onClose, onSaved }) => (
+        <DepartmentForm editing={editing} onClose={onClose} onSaved={onSaved} />
       )}
     />
   );
 }
 
-function ExternalPartyForm({
-  editing, onClose, onSaved,
-}: {
+type ExternalPartyFormProps = {
   editing: ExternalParty | null;
   onClose: () => void;
   onSaved: (item: ExternalParty) => void;
-  listParams: ReferenceListParams;
-}) {
+};
+
+function ExternalPartyForm({ editing, onClose, onSaved }: Readonly<ExternalPartyFormProps>) {
   const [name, setName] = useState(editing?.name ?? '');
   const [type, setType] = useState(editing?.type ?? '');
   const [contactInfo, setContactInfo] = useState(editing?.contactInfo ?? '');
@@ -123,8 +125,11 @@ function ExternalPartyForm({
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
-    const trimmed = name.trim().replace(/\s+/g, ' ');
-    if (!trimmed) return;
+    const trimmed = normalizeTrimmedName(name);
+    if (isEmptyTrimmedName(name)) {
+      setError('الاسم مطلوب');
+      return;
+    }
     setSubmitting(true);
     try {
       const payload = { name: trimmed, type: type.trim() || null, contactInfo: contactInfo.trim() || null, isActive };
@@ -141,10 +146,27 @@ function ExternalPartyForm({
 
   return (
     <FormModal title={editing ? 'تعديل جهة خارجية' : 'إضافة جهة خارجية'} onClose={onClose} onSubmit={submit} submitting={submitting} submitLabel={editing ? 'حفظ التعديلات' : 'إضافة'}>
-      <div className="form-group"><label>الاسم</label><input value={name} onChange={(e) => setName(e.target.value)} required /></div>
-      <div className="form-group"><label>النوع</label><input value={type} onChange={(e) => setType(e.target.value)} /></div>
-      <div className="form-group"><label>معلومات الاتصال</label><input value={contactInfo} onChange={(e) => setContactInfo(e.target.value)} /></div>
-      {editing && <div className="form-group"><label><input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} /> نشطة</label></div>}
+      <div className="form-group">
+        <label htmlFor="external-party-name">الاسم</label>
+        <input id="external-party-name" value={name} onChange={(e) => setName(e.target.value)} required />
+      </div>
+      <div className="form-group">
+        <label htmlFor="external-party-type">النوع</label>
+        <input id="external-party-type" value={type} onChange={(e) => setType(e.target.value)} />
+      </div>
+      <div className="form-group">
+        <label htmlFor="external-party-contact">معلومات الاتصال</label>
+        <input id="external-party-contact" value={contactInfo} onChange={(e) => setContactInfo(e.target.value)} />
+      </div>
+      {editing && (
+        <fieldset className="form-group">
+          <legend>الحالة</legend>
+          <label htmlFor="external-party-active">
+            <input id="external-party-active" type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
+            {' '}نشطة
+          </label>
+        </fieldset>
+      )}
       {error && <div className="alert alert-error">{error}</div>}
     </FormModal>
   );
@@ -165,21 +187,20 @@ export function ExternalPartiesPage() {
       ]}
       onDeactivate={(p) => externalPartiesApi.update(p.id, { isActive: false }).then(() => undefined)}
       canDeactivate={(p) => p.isActive}
-      renderForm={({ editing, onClose, onSaved, listParams }) => (
-        <ExternalPartyForm editing={editing} onClose={onClose} onSaved={onSaved} listParams={listParams} />
+      renderForm={({ editing, onClose, onSaved }) => (
+        <ExternalPartyForm editing={editing} onClose={onClose} onSaved={onSaved} />
       )}
     />
   );
 }
 
-function CategoryForm({
-  editing, onClose, onSaved,
-}: {
+type CategoryFormProps = {
   editing: Category | null;
   onClose: () => void;
   onSaved: (item: Category) => void;
-  listParams: ReferenceListParams;
-}) {
+};
+
+function CategoryForm({ editing, onClose, onSaved }: Readonly<CategoryFormProps>) {
   const [name, setName] = useState(editing?.name ?? '');
   const [code, setCode] = useState(editing?.code ?? '');
   const [isActive, setIsActive] = useState(editing?.isActive ?? true);
@@ -189,8 +210,11 @@ function CategoryForm({
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
-    const trimmed = name.trim().replace(/\s+/g, ' ');
-    if (!trimmed) return;
+    const trimmed = normalizeTrimmedName(name);
+    if (isEmptyTrimmedName(name)) {
+      setError('الاسم مطلوب');
+      return;
+    }
     setSubmitting(true);
     try {
       const payload = { name: trimmed, code: code.trim() || null, isActive };
@@ -207,9 +231,23 @@ function CategoryForm({
 
   return (
     <FormModal title={editing ? 'تعديل تصنيف' : 'إضافة تصنيف'} onClose={onClose} onSubmit={submit} submitting={submitting} submitLabel={editing ? 'حفظ التعديلات' : 'إضافة'}>
-      <div className="form-group"><label>الاسم</label><input value={name} onChange={(e) => setName(e.target.value)} required /></div>
-      <div className="form-group"><label>الرمز</label><input value={code} onChange={(e) => setCode(e.target.value)} /></div>
-      {editing && <div className="form-group"><label><input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} /> نشط</label></div>}
+      <div className="form-group">
+        <label htmlFor="category-name">الاسم</label>
+        <input id="category-name" value={name} onChange={(e) => setName(e.target.value)} required />
+      </div>
+      <div className="form-group">
+        <label htmlFor="category-code">الرمز</label>
+        <input id="category-code" value={code} onChange={(e) => setCode(e.target.value)} />
+      </div>
+      {editing && (
+        <fieldset className="form-group">
+          <legend>الحالة</legend>
+          <label htmlFor="category-active">
+            <input id="category-active" type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
+            {' '}نشط
+          </label>
+        </fieldset>
+      )}
       {error && <div className="alert alert-error">{error}</div>}
     </FormModal>
   );
@@ -229,21 +267,20 @@ export function CategoriesPage() {
       ]}
       onDeactivate={(c) => categoriesApi.update(c.id, { isActive: false }).then(() => undefined)}
       canDeactivate={(c) => c.isActive}
-      renderForm={({ editing, onClose, onSaved, listParams }) => (
-        <CategoryForm editing={editing} onClose={onClose} onSaved={onSaved} listParams={listParams} />
+      renderForm={({ editing, onClose, onSaved }) => (
+        <CategoryForm editing={editing} onClose={onClose} onSaved={onSaved} />
       )}
     />
   );
 }
 
-function UserForm({
-  editing, onClose, onSaved,
-}: {
+type UserFormProps = {
   editing: User | null;
   onClose: () => void;
   onSaved: (item: User) => void;
-  listParams: ReferenceListParams;
-}) {
+};
+
+function UserForm({ editing, onClose, onSaved }: Readonly<UserFormProps>) {
   const [departments, setDepartments] = useState<SelectOption[]>([]);
   const [username, setUsername] = useState(editing?.username ?? '');
   const [password, setPassword] = useState('');
@@ -266,12 +303,17 @@ function UserForm({
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
+    const trimmedFullName = normalizeTrimmedName(fullName);
+    if (!trimmedFullName) {
+      setError('الاسم مطلوب');
+      return;
+    }
     setSubmitting(true);
     try {
       if (editing) {
         const res = await usersApi.update(editing.id, {
           username: username.trim(),
-          fullName: fullName.trim(),
+          fullName: trimmedFullName,
           email: email.trim() || null,
           role,
           departmentId: departmentId === '' ? null : departmentId,
@@ -282,7 +324,7 @@ function UserForm({
         const res = await usersApi.create({
           username: username.trim(),
           password,
-          fullName: fullName.trim(),
+          fullName: trimmedFullName,
           email: email.trim() || null,
           role,
           departmentId: departmentId === '' ? null : departmentId,
@@ -304,8 +346,7 @@ function UserForm({
       await usersApi.resetPassword(editing.id, newPassword);
       setShowReset(false);
       setNewPassword('');
-      setError(null);
-      alert('تم إعادة تعيين كلمة المرور');
+      globalThis.alert('تم إعادة تعيين كلمة المرور');
     } catch (err) {
       setError(apiError(err, 'تعذر إعادة تعيين كلمة المرور'));
     } finally {
@@ -315,27 +356,50 @@ function UserForm({
 
   return (
     <FormModal title={editing ? 'تعديل مستخدم' : 'إضافة مستخدم'} onClose={onClose} onSubmit={submit} submitting={submitting} submitLabel={editing ? 'حفظ التعديلات' : 'إضافة'}>
-      <div className="form-group"><label>اسم المستخدم</label><input required value={username} onChange={(e) => setUsername(e.target.value)} /></div>
-      {!editing && <div className="form-group"><label>كلمة المرور</label><input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} /></div>}
-      <div className="form-group"><label>الاسم الكامل</label><input required value={fullName} onChange={(e) => setFullName(e.target.value)} /></div>
-      <div className="form-group"><label>البريد الإلكتروني</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
-      <div className="form-group"><label>الدور</label>
-        <select value={role} onChange={(e) => setRole(e.target.value)}>
+      <div className="form-group">
+        <label htmlFor="user-username">اسم المستخدم</label>
+        <input id="user-username" required value={username} onChange={(e) => setUsername(e.target.value)} />
+      </div>
+      {!editing && (
+        <div className="form-group">
+          <label htmlFor="user-password">كلمة المرور</label>
+          <input id="user-password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+        </div>
+      )}
+      <div className="form-group">
+        <label htmlFor="user-fullname">الاسم الكامل</label>
+        <input id="user-fullname" required value={fullName} onChange={(e) => setFullName(e.target.value)} />
+      </div>
+      <div className="form-group">
+        <label htmlFor="user-email">البريد الإلكتروني</label>
+        <input id="user-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+      </div>
+      <div className="form-group">
+        <label htmlFor="user-role">الدور</label>
+        <select id="user-role" value={role} onChange={(e) => setRole(e.target.value)}>
           {Object.entries(roleLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
       </div>
       <SearchableSelect label="الإدارة" value={departmentId} onChange={setDepartmentId} options={departments} allowClear />
-      {editing && <div className="form-group"><label><input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} /> نشط</label></div>}
+      {editing && (
+        <fieldset className="form-group">
+          <legend>الحالة</legend>
+          <label htmlFor="user-active">
+            <input id="user-active" type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
+            {' '}نشط
+          </label>
+        </fieldset>
+      )}
       {editing && (
         <div className="form-group">
-          {!showReset ? (
-            <button type="button" className="btn btn-outline" onClick={() => setShowReset(true)}>إعادة تعيين كلمة المرور</button>
-          ) : (
+          {showReset ? (
             <>
-              <label>كلمة المرور الجديدة</label>
-              <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+              <label htmlFor="user-new-password">كلمة المرور الجديدة</label>
+              <input id="user-new-password" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
               <button type="button" className="btn btn-secondary" onClick={resetPassword} disabled={submitting || !newPassword}>تأكيد إعادة التعيين</button>
             </>
+          ) : (
+            <button type="button" className="btn btn-outline" onClick={() => setShowReset(true)}>إعادة تعيين كلمة المرور</button>
           )}
         </div>
       )}
@@ -361,8 +425,8 @@ export function UsersPage() {
       ]}
       onDeactivate={(u) => usersApi.update(u.id, { isActive: false }).then(() => undefined)}
       canDeactivate={(u) => u.isActive}
-      renderForm={({ editing, onClose, onSaved, listParams }) => (
-        <UserForm editing={editing} onClose={onClose} onSaved={onSaved} listParams={listParams} />
+      renderForm={({ editing, onClose, onSaved }) => (
+        <UserForm editing={editing} onClose={onClose} onSaved={onSaved} />
       )}
     />
   );

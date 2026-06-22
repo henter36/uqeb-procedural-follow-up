@@ -5,17 +5,17 @@ public class ReferenceDataListRequest
     public string? Search { get; set; }
     /// <summary>all | active | inactive</summary>
     public string? Status { get; set; }
-    public string SortBy { get; set; } = "name";
-    public bool SortDesc { get; set; }
-    public int Page { get; set; } = 1;
-    public int PageSize { get; set; } = 20;
+    public string? SortBy { get; set; }
+    public bool? SortDesc { get; set; }
+    public int? Page { get; set; }
+    public int? PageSize { get; set; }
 }
 
 public class LookupRequest
 {
     public string? Search { get; set; }
-    public bool ActiveOnly { get; set; } = true;
-    public int Limit { get; set; } = 50;
+    public bool? ActiveOnly { get; set; }
+    public int? Limit { get; set; }
 }
 
 public class LookupItemDto

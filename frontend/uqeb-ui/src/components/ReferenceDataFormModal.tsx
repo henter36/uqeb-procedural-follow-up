@@ -1,5 +1,14 @@
 import type { FormEvent, ReactNode } from 'react';
 
+type FormModalProps = {
+  title: string;
+  children: ReactNode;
+  onClose: () => void;
+  onSubmit: (e: FormEvent) => void;
+  submitting: boolean;
+  submitLabel: string;
+};
+
 export function FormModal({
   title,
   children,
@@ -7,14 +16,7 @@ export function FormModal({
   onSubmit,
   submitting,
   submitLabel,
-}: {
-  title: string;
-  children: ReactNode;
-  onClose: () => void;
-  onSubmit: (e: FormEvent) => void;
-  submitting: boolean;
-  submitLabel: string;
-}) {
+}: Readonly<FormModalProps>) {
   return (
     <div className="modal-overlay">
       <div className="modal">

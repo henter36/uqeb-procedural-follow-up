@@ -21,6 +21,17 @@ type SearchableSelectProps = {
   debounceMs?: number;
 };
 
+function getDisplayValue(open: boolean, query: string, selected: SelectOption | null): string {
+  if (open) return query;
+  if (!selected) return '';
+  const inactiveSuffix = selected.isActive === false ? ' (غير نشط)' : '';
+  return `${selected.name}${inactiveSuffix}`;
+}
+
+function optionId(listboxId: string, optionId: number) {
+  return `${listboxId}-option-${optionId}`;
+}
+
 export default function SearchableSelect({
   label,
   value,
@@ -33,7 +44,7 @@ export default function SearchableSelect({
   onSearch,
   loading = false,
   debounceMs = 300,
-}: SearchableSelectProps) {
+}: Readonly<SearchableSelectProps>) {
   const inputId = useId();
   const listboxId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -57,23 +68,24 @@ export default function SearchableSelect({
 
   useEffect(() => {
     if (!onSearch) return undefined;
-    const timer = window.setTimeout(() => onSearch(query.trim()), debounceMs);
-    return () => window.clearTimeout(timer);
+    const timer = globalThis.setTimeout(() => onSearch(query.trim()), debounceMs);
+    return () => globalThis.clearTimeout(timer);
   }, [query, onSearch, debounceMs]);
 
   const clampedHighlight = Math.min(highlightIndex, Math.max(filtered.length - 1, 0));
+  const activeOption = filtered[clampedHighlight] ?? null;
+  const activeDescendantId = activeOption ? optionId(listboxId, activeOption.id) : undefined;
 
   useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      const target = e.target;
+      if (target instanceof Node && !rootRef.current?.contains(target)) setOpen(false);
     };
     document.addEventListener('mousedown', onDocClick);
     return () => document.removeEventListener('mousedown', onDocClick);
   }, []);
 
-  const displayValue = open ? query : (selected
-    ? `${selected.name}${selected.isActive === false ? ' (غير نشط)' : ''}`
-    : '');
+  const displayValue = getDisplayValue(open, query, selected);
 
   const selectOption = useCallback((option: SelectOption) => {
     onChange(option.id);
@@ -100,9 +112,9 @@ export default function SearchableSelect({
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setHighlightIndex((i) => Math.max(i - 1, 0));
-    } else if (e.key === 'Enter' && filtered[clampedHighlight]) {
+    } else if (e.key === 'Enter' && activeOption) {
       e.preventDefault();
-      selectOption(filtered[clampedHighlight]);
+      selectOption(activeOption);
     }
   };
 
@@ -117,6 +129,7 @@ export default function SearchableSelect({
           aria-expanded={open}
           aria-controls={listboxId}
           aria-autocomplete="list"
+          aria-activedescendant={open ? activeDescendantId : undefined}
           autoComplete="off"
           disabled={disabled}
           placeholder={placeholder}
@@ -144,14 +157,16 @@ export default function SearchableSelect({
         )}
       </div>
       {open && (
-        <ul id={listboxId} className="searchable-select-list" role="listbox">
-          {loading && <li className="searchable-select-empty">جاري التحميل...</li>}
+        <div id={listboxId} className="searchable-select-list" role="listbox" aria-label={label}>
+          {loading && <div className="searchable-select-empty">جاري التحميل...</div>}
           {!loading && filtered.length === 0 && (
-            <li className="searchable-select-empty">لا توجد نتائج</li>
+            <div className="searchable-select-empty">لا توجد نتائج</div>
           )}
           {!loading && filtered.map((option, index) => (
-            <li
+            <button
               key={option.id}
+              id={optionId(listboxId, option.id)}
+              type="button"
               role="option"
               aria-selected={value === option.id}
               className={`searchable-select-option${index === clampedHighlight ? ' is-highlighted' : ''}${value === option.id ? ' is-selected' : ''}${option.isActive === false ? ' is-inactive' : ''}`}
@@ -162,9 +177,9 @@ export default function SearchableSelect({
               <span>{option.name}</span>
               {option.isActive === false && <span className="inactive-tag">غير نشط</span>}
               {option.subLabel && <span className="searchable-select-sublabel">{option.subLabel}</span>}
-            </li>
+            </button>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );

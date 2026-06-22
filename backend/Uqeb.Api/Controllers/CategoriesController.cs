@@ -37,9 +37,10 @@ public class CategoriesController : ControllerBase
         [FromQuery] ReferenceDataListRequest? list = null,
         CancellationToken cancellationToken = default)
     {
-        if (list != null && list.Page > 0)
+        if (Request.IsPagedReferenceDataRequest())
         {
-            return Ok(await _categories.SearchAsync(list, cancellationToken));
+            var request = ReferenceDataQueryHelper.NormalizeListRequest(list ?? new ReferenceDataListRequest());
+            return Ok(await _categories.SearchAsync(request, cancellationToken));
         }
 
         var cacheKey = _cacheInvalidation.BuildCategoriesKey(activeOnly);

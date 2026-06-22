@@ -40,16 +40,6 @@ namespace Uqeb.Api.Migrations
                 nullable: false,
                 defaultValue: "");
 
-            /*
-             * Backfill normalized values before creating unique indexes.
-             *
-             * This mirrors ReferenceNameNormalizer as closely as SQL Server
-             * permits:
-             * - convert common Unicode whitespace characters to normal spaces;
-             * - trim leading and trailing spaces;
-             * - collapse repeated spaces;
-             * - convert to lowercase.
-             */
             migrationBuilder.Sql(
                 """
             UPDATE Departments
@@ -194,10 +184,6 @@ namespace Uqeb.Api.Migrations
             END;
             """);
 
-            /*
-             * Abort the migration if an existing reference name becomes empty
-             * after normalization.
-             */
             migrationBuilder.Sql(
                 """
             IF EXISTS (
@@ -228,9 +214,6 @@ namespace Uqeb.Api.Migrations
             END;
             """);
 
-            /*
-             * Abort instead of deleting or merging duplicate reference records.
-             */
             migrationBuilder.Sql(
                 """
             IF EXISTS (
@@ -264,11 +247,6 @@ namespace Uqeb.Api.Migrations
             END;
             """);
 
-            /*
-             * Normalize existing email values before creating the unique index:
-             * - convert empty or whitespace-only values to NULL;
-             * - trim leading and trailing spaces.
-             */
             migrationBuilder.Sql(
                 """
             UPDATE Users
@@ -281,9 +259,6 @@ namespace Uqeb.Api.Migrations
             WHERE Email IS NOT NULL;
             """);
 
-            /*
-             * Abort if duplicate non-null email addresses still exist.
-             */
             migrationBuilder.Sql(
                 """
             IF EXISTS (

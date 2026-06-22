@@ -63,14 +63,15 @@ public class CategoryService : ICategoryService
 
     public async Task<List<LookupItemDto>> LookupAsync(LookupRequest request, CancellationToken cancellationToken = default)
     {
-        var limit = request.Limit <= 0 ? 50 : Math.Min(request.Limit, 100);
+        var normalized = ReferenceDataQueryHelper.NormalizeLookupRequest(request);
+        var limit = normalized.Limit ?? 50;
         var query = _db.Categories.AsQueryable();
-        if (request.ActiveOnly)
+        if (normalized.ActiveOnly != false)
             query = query.Where(c => c.IsActive);
 
-        if (!string.IsNullOrWhiteSpace(request.Search))
+        if (!string.IsNullOrWhiteSpace(normalized.Search))
         {
-            var term = request.Search.Trim();
+            var term = normalized.Search.Trim();
             query = query.Where(c => c.Name.Contains(term) || (c.Code != null && c.Code.Contains(term)));
         }
 
