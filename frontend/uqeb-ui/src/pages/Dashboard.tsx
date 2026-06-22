@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { dashboardApi } from '../api/services';
-import type { DashboardSummary } from '../api/types';
+import type { DashboardSummary, TransactionListItem } from '../api/types';
 import { statusLabels } from '../utils/labels';
 import DateDisplay from '../components/DateDisplay';
 import DepartmentBadges from '../components/DepartmentBadges';
@@ -11,6 +11,21 @@ import {
 import StatusBadge from '../components/ui/StatusBadge';
 
 const SECTION_UNAVAILABLE = 'لا توجد بيانات متاحة';
+
+type ActionRequiredView = 'loading' | 'empty' | 'table';
+
+function resolveActionRequiredView(
+  detailsLoading: boolean,
+  actionRequired: TransactionListItem[] | undefined,
+): ActionRequiredView {
+  if (detailsLoading && actionRequired === undefined) {
+    return 'loading';
+  }
+  if (actionRequired !== undefined && actionRequired.length === 0) {
+    return 'empty';
+  }
+  return 'table';
+}
 
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardSummary | null>(null);
@@ -128,6 +143,8 @@ export default function DashboardPage() {
     }
     return items.map(renderItem);
   };
+
+  const actionRequiredView = resolveActionRequiredView(detailsLoading, data?.actionRequired);
 
   return (
     <div>
@@ -253,11 +270,13 @@ export default function DashboardPage() {
 
       <div className="card mt-4">
         <h3>آخر المعاملات التي تحتاج إجراء</h3>
-        {detailsLoading && !data?.actionRequired ? (
+        {actionRequiredView === 'loading' && (
           <TableSkeleton rows={4} cols={6} />
-        ) : data?.actionRequired !== undefined && data.actionRequired.length === 0 ? (
+        )}
+        {actionRequiredView === 'empty' && (
           <EmptyState title="لا توجد معاملات تحتاج إجراء" icon="✅" />
-        ) : (
+        )}
+        {actionRequiredView === 'table' && (
           <div className="table-wrapper table-wrapper-spaced">
             <table className="data-table">
               <thead>

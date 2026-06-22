@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import type { FormEvent } from 'react';
+import {
+  useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode,
+} from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { transactionsApi, departmentsApi } from '../api/services';
 import type {
@@ -54,6 +55,52 @@ function responseStatusLabel(completed: boolean, completedDate?: string | null):
       {completedDate && <> بتاريخ <DateDisplay date={completedDate} /></>}
     </>
   );
+}
+
+type InitialLazyTabHandlers = Readonly<{
+  loadAttachmentsData: (isMounted: () => boolean) => Promise<void>;
+  loadAuditData: (isMounted: () => boolean) => Promise<void>;
+  onAttachmentsError: () => void;
+  onAuditError: () => void;
+  onTabLoadingComplete: () => void;
+}>;
+
+async function loadInitialLazyTab(
+  tab: DetailTab,
+  isMounted: () => boolean,
+  handlers: InitialLazyTabHandlers,
+): Promise<void> {
+  if (tab === 'attachments') {
+    try {
+      await handlers.loadAttachmentsData(isMounted);
+    } catch {
+      if (isMounted()) handlers.onAttachmentsError();
+    } finally {
+      if (isMounted()) handlers.onTabLoadingComplete();
+    }
+    return;
+  }
+
+  if (tab === 'audit' || tab === 'timeline') {
+    try {
+      await handlers.loadAuditData(isMounted);
+    } catch {
+      if (isMounted()) handlers.onAuditError();
+    } finally {
+      if (isMounted()) handlers.onTabLoadingComplete();
+    }
+  }
+}
+
+function handleLazyTabLoadFailure(
+  tab: LazyTab,
+  isMounted: () => boolean,
+  onAttachmentsFailure: () => void,
+  onAuditFailure: () => void,
+): void {
+  if (!isMounted()) return;
+  if (tab === 'attachments') onAttachmentsFailure();
+  else onAuditFailure();
 }
 
 export default function TransactionDetailPage() {
@@ -200,15 +247,19 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
         await loadAuditData(isMounted);
       }
     } catch {
-      if (!isMounted()) return;
-      if (tab === 'attachments') {
-        setAttachmentsTabError('تعذر تحميل المرفقات');
-        setAttachments([]);
-      } else {
-        setAuditTabError('تعذر تحميل سجل التدقيق');
-        setAuditLogs([]);
-        setAuditHasMore(false);
-      }
+      handleLazyTabLoadFailure(
+        tab,
+        isMounted,
+        () => {
+          setAttachmentsTabError('تعذر تحميل المرفقات');
+          setAttachments([]);
+        },
+        () => {
+          setAuditTabError('تعذر تحميل سجل التدقيق');
+          setAuditLogs([]);
+          setAuditHasMore(false);
+        },
+      );
     } finally {
       if (isMounted()) setTabLoading(false);
     }
@@ -251,32 +302,20 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
 
     departmentsApi.getAll().then((r) => { if (isMounted()) setDepartments(r.data); });
 
-    void (async () => {
-      if (initialTabFromUrl === 'attachments') {
-        try {
-          await loadAttachmentsData(isMounted);
-        } catch {
-          if (isMounted()) {
-            setAttachmentsTabError('تعذر تحميل المرفقات');
-            setAttachments([]);
-          }
-        } finally {
-          if (isMounted()) setTabLoading(false);
-        }
-      } else if (initialTabFromUrl === 'audit' || initialTabFromUrl === 'timeline') {
-        try {
-          await loadAuditData(isMounted);
-        } catch {
-          if (isMounted()) {
-            setAuditTabError('تعذر تحميل سجل التدقيق');
-            setAuditLogs([]);
-            setAuditHasMore(false);
-          }
-        } finally {
-          if (isMounted()) setTabLoading(false);
-        }
-      }
-    })();
+    void loadInitialLazyTab(initialTabFromUrl, isMounted, {
+      loadAttachmentsData,
+      loadAuditData,
+      onAttachmentsError: () => {
+        setAttachmentsTabError('تعذر تحميل المرفقات');
+        setAttachments([]);
+      },
+      onAuditError: () => {
+        setAuditTabError('تعذر تحميل سجل التدقيق');
+        setAuditLogs([]);
+        setAuditHasMore(false);
+      },
+      onTabLoadingComplete: () => setTabLoading(false),
+    });
 
     return () => { active = false; };
   }, [id, initialTabFromUrl, loadBasic, loadAttachmentsData, loadAuditData]);
