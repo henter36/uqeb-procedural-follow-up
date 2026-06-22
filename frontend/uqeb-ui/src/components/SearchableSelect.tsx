@@ -21,6 +21,8 @@ type SearchableSelectProps = {
   debounceMs?: number;
 };
 
+const MAX_VISIBLE_OPTIONS = 6;
+
 function getDisplayValue(open: boolean, query: string, selected: SelectOption | null): string {
   if (open) return query;
   if (!selected) return '';
@@ -28,8 +30,10 @@ function getDisplayValue(open: boolean, query: string, selected: SelectOption | 
   return `${selected.name}${inactiveSuffix}`;
 }
 
-function optionId(listboxId: string, optionId: number) {
-  return `${listboxId}-option-${optionId}`;
+function formatOptionLabel(option: SelectOption): string {
+  const inactiveSuffix = option.isActive === false ? ' (غير نشط)' : '';
+  const subLabelSuffix = option.subLabel ? ` — ${option.subLabel}` : '';
+  return `${option.name}${inactiveSuffix}${subLabelSuffix}`;
 }
 
 export default function SearchableSelect({
@@ -46,8 +50,9 @@ export default function SearchableSelect({
   debounceMs = 300,
 }: Readonly<SearchableSelectProps>) {
   const inputId = useId();
-  const listboxId = useId();
+  const selectListId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
+  const selectRef = useRef<HTMLSelectElement>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [highlightIndex, setHighlightIndex] = useState(0);
@@ -74,7 +79,11 @@ export default function SearchableSelect({
 
   const clampedHighlight = Math.min(highlightIndex, Math.max(filtered.length - 1, 0));
   const activeOption = filtered[clampedHighlight] ?? null;
-  const activeDescendantId = activeOption ? optionId(listboxId, activeOption.id) : undefined;
+
+  useEffect(() => {
+    if (!open || !selectRef.current || filtered.length === 0) return;
+    selectRef.current.selectedIndex = clampedHighlight;
+  }, [open, clampedHighlight, filtered.length]);
 
   useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
@@ -93,7 +102,7 @@ export default function SearchableSelect({
     setOpen(false);
   }, [onChange]);
 
-  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const onInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) {
       e.preventDefault();
       setHighlightIndex(0);
@@ -119,6 +128,26 @@ export default function SearchableSelect({
     }
   };
 
+  const onSelectKeyDown = (e: React.KeyboardEvent<HTMLSelectElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setOpen(false);
+      setQuery('');
+      setHighlightIndex(0);
+      return;
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      const nextIndex = e.currentTarget.selectedIndex;
+      setHighlightIndex(nextIndex);
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const option = filtered[e.currentTarget.selectedIndex];
+      if (option) selectOption(option);
+    }
+  };
+
   return (
     <div className={`searchable-select${disabled ? ' is-disabled' : ''}`} ref={rootRef}>
       <label htmlFor={inputId}>{label}{required ? ' *' : ''}</label>
@@ -128,9 +157,8 @@ export default function SearchableSelect({
           type="text"
           role="combobox"
           aria-expanded={open}
-          aria-controls={listboxId}
+          aria-controls={open ? selectListId : undefined}
           aria-autocomplete="list"
-          aria-activedescendant={open ? activeDescendantId : undefined}
           autoComplete="off"
           disabled={disabled}
           placeholder={placeholder}
@@ -144,7 +172,7 @@ export default function SearchableSelect({
             setHighlightIndex(0);
             setOpen(true);
           }}
-          onKeyDown={onKeyDown}
+          onKeyDown={onInputKeyDown}
         />
         {allowClear && value !== '' && !disabled && (
           <button
@@ -158,28 +186,43 @@ export default function SearchableSelect({
         )}
       </div>
       {open && (
-        <div id={listboxId} className="searchable-select-list" role="listbox" aria-label={label}>
+        <div className="searchable-select-results">
           {loading && <div className="searchable-select-empty">جاري التحميل...</div>}
           {!loading && filtered.length === 0 && (
             <div className="searchable-select-empty">لا توجد نتائج</div>
           )}
-          {!loading && filtered.map((option, index) => (
-            <button
-              key={option.id}
-              id={optionId(listboxId, option.id)}
-              type="button"
-              role="option"
-              aria-selected={value === option.id}
-              className={`searchable-select-option${index === clampedHighlight ? ' is-highlighted' : ''}${value === option.id ? ' is-selected' : ''}${option.isActive === false ? ' is-inactive' : ''}`}
-              onMouseEnter={() => setHighlightIndex(index)}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => selectOption(option)}
+          {!loading && filtered.length > 0 && (
+            <select
+              id={selectListId}
+              ref={selectRef}
+              className="searchable-select-list"
+              size={Math.min(filtered.length, MAX_VISIBLE_OPTIONS)}
+              aria-label={label}
+              value={activeOption ? String(activeOption.id) : ''}
+              onChange={(e) => {
+                const id = Number(e.target.value);
+                const option = filtered.find((o) => o.id === id);
+                if (option) selectOption(option);
+              }}
+              onKeyDown={onSelectKeyDown}
+              onMouseMove={(e) => {
+                const target = e.target;
+                if (!(target instanceof HTMLOptionElement)) return;
+                const index = filtered.findIndex((o) => o.id === Number(target.value));
+                if (index >= 0) setHighlightIndex(index);
+              }}
             >
-              <span>{option.name}</span>
-              {option.isActive === false && <span className="inactive-tag">غير نشط</span>}
-              {option.subLabel && <span className="searchable-select-sublabel">{option.subLabel}</span>}
-            </button>
-          ))}
+              {filtered.map((option) => (
+                <option
+                  key={option.id}
+                  value={option.id}
+                  className={`searchable-select-option${value === option.id ? ' is-selected' : ''}${option.isActive === false ? ' is-inactive' : ''}`}
+                >
+                  {formatOptionLabel(option)}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       )}
     </div>

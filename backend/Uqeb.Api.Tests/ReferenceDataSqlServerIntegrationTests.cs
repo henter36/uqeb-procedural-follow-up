@@ -1,3 +1,4 @@
+using System.Data;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Uqeb.Api.Data;
@@ -44,8 +45,9 @@ public class ReferenceDataSqlServerIntegrationTests
         await using (var connection = new SqlConnection(masterBuilder.ConnectionString))
         {
             await connection.OpenAsync();
+            var quotedDatabaseName = SqlTestDatabaseNameHelper.ValidateAndQuoteDatabaseName(connection, databaseName);
             await using var command = connection.CreateCommand();
-            command.CommandText = $"CREATE DATABASE [{databaseName}]";
+            command.CommandText = $"CREATE DATABASE {quotedDatabaseName}";
             await command.ExecuteNonQueryAsync();
         }
 
@@ -171,14 +173,19 @@ public class ReferenceDataSqlServerIntegrationTests
 
         await using var connection = new SqlConnection(builder.ConnectionString);
         await connection.OpenAsync();
+        var quotedDatabaseName = SqlTestDatabaseNameHelper.ValidateAndQuoteDatabaseName(connection, databaseName);
         await using var command = connection.CreateCommand();
         command.CommandText = $"""
-            IF DB_ID(N'{databaseName}') IS NOT NULL
+            IF DB_ID(@databaseName) IS NOT NULL
             BEGIN
-                ALTER DATABASE [{databaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
-                DROP DATABASE [{databaseName}];
+                ALTER DATABASE {quotedDatabaseName} SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+                DROP DATABASE {quotedDatabaseName};
             END
             """;
+        command.Parameters.Add(new SqlParameter("@databaseName", SqlDbType.NVarChar, 128)
+        {
+            Value = databaseName
+        });
         await command.ExecuteNonQueryAsync();
     }
 }
