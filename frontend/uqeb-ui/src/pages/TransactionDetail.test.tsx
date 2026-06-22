@@ -17,6 +17,17 @@ vi.mock('../context/AuthContext', () => ({
   }),
 }));
 
+vi.mock('../context/ReferenceDataContext', () => ({
+  useReferenceData: () => ({
+    departments: [{ id: 1, name: 'إدارة اختبار', isActive: true }],
+    categories: [],
+    parties: [],
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+  }),
+}));
+
 vi.mock('../features/scanner/ScanAttachmentButton', () => ({
   default: () => null,
 }));
@@ -52,8 +63,17 @@ vi.mock('../api/services', () => ({
     getFollowUps: vi.fn(),
     getAttachments: vi.fn(),
     getAuditLog: vi.fn(),
+    addAssignment: vi.fn(),
+    addFollowUp: vi.fn(),
+    uploadAttachment: vi.fn(),
+    replyAssignment: vi.fn(),
+    replyFollowUp: vi.fn(),
+    completeResponse: vi.fn(),
+    getFollowUpDepartments: vi.fn(),
   },
   departmentsApi: { getAll: vi.fn() },
+  categoriesApi: { getAll: vi.fn() },
+  externalPartiesApi: { getAll: vi.fn() },
 }));
 
 function renderDetail(path = '/transactions/1') {
@@ -72,7 +92,6 @@ describe('TransactionDetailPage tab loading', () => {
     vi.mocked(services.transactionsApi.getBasic).mockResolvedValue({ data: baseTx } as never);
     vi.mocked(services.transactionsApi.getAssignments).mockResolvedValue({ data: [] } as never);
     vi.mocked(services.transactionsApi.getFollowUps).mockResolvedValue({ data: [] } as never);
-    vi.mocked(services.departmentsApi.getAll).mockResolvedValue({ data: [] } as never);
   });
 
   afterEach(() => {
@@ -126,6 +145,70 @@ describe('TransactionDetailPage tab loading', () => {
 
     await waitFor(() => {
       expect(screen.getByText('لا توجد مرفقات')).toBeInTheDocument();
+    });
+  });
+});
+
+describe('TransactionDetailPage operational workspace', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(services.transactionsApi.getBasic).mockResolvedValue({ data: baseTx } as never);
+    vi.mocked(services.transactionsApi.getAssignments).mockResolvedValue({ data: [] } as never);
+    vi.mocked(services.transactionsApi.getFollowUps).mockResolvedValue({ data: [] } as never);
+    vi.mocked(services.transactionsApi.getAttachments).mockResolvedValue({ data: [] } as never);
+    vi.mocked(services.transactionsApi.getAuditLog).mockResolvedValue({
+      data: { items: [], hasNextPage: false },
+    } as never);
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('loads transaction data automatically and shows workspace header', async () => {
+    renderDetail();
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 2, name: 'IN-1' })).toBeInTheDocument();
+    });
+    expect(screen.getByRole('navigation', { name: 'إجراءات المعاملة' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'إضافة تحويل' })).toBeInTheDocument();
+    expect(services.transactionsApi.getBasic).toHaveBeenCalled();
+    expect(services.transactionsApi.getAssignments).toHaveBeenCalled();
+    expect(services.transactionsApi.getFollowUps).toHaveBeenCalled();
+  });
+
+  it('opens inline assignment form from action bar', async () => {
+    const user = userEvent.setup();
+    renderDetail();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'إضافة تحويل' })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'إضافة تحويل' }));
+
+    expect(screen.getByRole('region', { name: 'إضافة تحويل' })).toBeInTheDocument();
+    expect(screen.getByLabelText('الإدارة *')).toBeInTheDocument();
+  });
+
+  it('submits assignment without full page reload', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.addAssignment).mockResolvedValue({ data: { id: 9 } } as never);
+
+    renderDetail();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'إضافة تحويل' })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'إضافة تحويل' }));
+    await user.selectOptions(screen.getByLabelText('الإدارة *'), '1');
+    await user.click(screen.getByRole('button', { name: 'حفظ التحويل' }));
+
+    await waitFor(() => {
+      expect(services.transactionsApi.addAssignment).toHaveBeenCalled();
+      expect(screen.getByRole('status')).toHaveTextContent('تم إضافة التحويل بنجاح');
     });
   });
 });

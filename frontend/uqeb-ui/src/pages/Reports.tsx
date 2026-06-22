@@ -79,9 +79,9 @@ function buildFetchKey(tabKey: ReportTab, page: number, pageSize: number, filter
   return `${tabKey}|${page}|${pageSize}|${JSON.stringify(filters)}`;
 }
 
-function parseReportTab(value: string | null): ReportTab | null {
-  if (!value) return null;
-  return tabConfig.some((t) => t.key === value) ? (value as ReportTab) : null;
+function parseReportTab(value: string | null): ReportTab {
+  if (!value) return 'open';
+  return tabConfig.some((t) => t.key === value) ? (value as ReportTab) : 'open';
 }
 
 function TableSkeleton({ rows = 5 }: { rows?: number }) {
@@ -105,7 +105,7 @@ function TableSkeleton({ rows = 5 }: { rows?: number }) {
 
 export default function ReportsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [tab, setTab] = useState<ReportTab | null>(() => parseReportTab(searchParams.get('tab')));
+  const [tab, setTab] = useState<ReportTab>(() => parseReportTab(searchParams.get('tab')));
   const [tabStates, setTabStates] = useState<Record<ReportTab, TabState>>(() =>
     Object.fromEntries(tabConfig.map((t) => [t.key, defaultTabState()])) as Record<ReportTab, TabState>
   );
@@ -122,22 +122,44 @@ export default function ReportsPage() {
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsLoaded, setAnalyticsLoaded] = useState(false);
+  const [analyticsUpdatedAt, setAnalyticsUpdatedAt] = useState<Date | null>(null);
   const [monthly, setMonthly] = useState<{ month: number; incomingCount: number; outgoingCount: number }[]>([]);
   const [monthlyLoaded, setMonthlyLoaded] = useState(false);
   const [year, setYear] = useState(new Date().getFullYear());
   const [draftFilters, setDraftFilters] = useState({
     dateFrom: '', dateTo: '', categoryId: '', departmentId: '', status: '', incomingSourceType: '', search: '',
   });
-  const [appliedFilters, setAppliedFilters] = useState({
-    dateFrom: '', dateTo: '', categoryId: '', departmentId: '', status: '', incomingSourceType: '',
-  });
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const appliedFilters = useMemo(() => ({
+    dateFrom: draftFilters.dateFrom,
+    dateTo: draftFilters.dateTo,
+    categoryId: draftFilters.categoryId,
+    departmentId: draftFilters.departmentId,
+    status: draftFilters.status,
+    incomingSourceType: draftFilters.incomingSourceType,
+  }), [
+    draftFilters.dateFrom,
+    draftFilters.dateTo,
+    draftFilters.categoryId,
+    draftFilters.departmentId,
+    draftFilters.status,
+    draftFilters.incomingSourceType,
+  ]);
   const abortRef = useRef<AbortController | null>(null);
   const summaryAbortRef = useRef<AbortController | null>(null);
   const monthlyRef = useRef<HTMLDivElement>(null);
   const tabStatesRef = useRef(tabStates);
   tabStatesRef.current = tabStates;
-  const initialUrlTabRef = useRef(parseReportTab(searchParams.get('tab')));
+  const initialTabLoadPendingRef = useRef(true);
+
+  useEffect(() => {
+    if (searchParams.get('tab')) return;
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('tab', 'open');
+      return next;
+    }, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const filterParams = useCallback((): Record<string, unknown> => {
     const f = appliedFilters;
@@ -214,15 +236,14 @@ export default function ReportsPage() {
   }, [filterParams]);
 
   useEffect(() => {
-    if (!initialUrlTabRef.current) return;
-    const urlTab = initialUrlTabRef.current;
-    initialUrlTabRef.current = null;
-    loadTabDetails(urlTab, 1, DEFAULT_PAGE_SIZE);
-  }, [loadTabDetails]);
+    if (!initialTabLoadPendingRef.current) return;
+    initialTabLoadPendingRef.current = false;
+    loadTabDetails(tab, 1, DEFAULT_PAGE_SIZE);
+  }, [loadTabDetails, tab]);
 
   useEffect(() => {
     const urlTab = parseReportTab(searchParams.get('tab'));
-    if (!urlTab || urlTab === tab) return;
+    if (urlTab === tab) return;
     setTab(urlTab);
     const state = tabStatesRef.current[urlTab];
     loadTabDetails(urlTab, state.page, state.pageSize);
@@ -279,11 +300,17 @@ export default function ReportsPage() {
   analyticsLoadedRef.current = analyticsLoaded;
 
   const loadAnalytics = useCallback((force = false) => {
-    if (analyticsLoadingRef.current) return;
+    if (analyticsLoadingRef.current && !force) return;
     if (!force && analyticsLoadedRef.current) return;
     analyticsLoadingRef.current = true;
     setAnalyticsLoading(true);
     setAnalyticsError(null);
+    if (force) {
+      setCategoryReport([]);
+      setIncomingReport([]);
+      setOutgoingDeptReport([]);
+      setDeptSummary([]);
+    }
     const p = filterParams();
     Promise.all([
       reportsApi.byCategory(p),
@@ -298,6 +325,7 @@ export default function ReportsPage() {
         setDeptSummary(dept.data);
         analyticsLoadedRef.current = true;
         setAnalyticsLoaded(true);
+        setAnalyticsUpdatedAt(new Date());
         setAnalyticsError(null);
       })
       .catch(() => {
@@ -327,26 +355,20 @@ export default function ReportsPage() {
     reportsApi.monthly(year).then((r) => setMonthly(r.data as typeof monthly)).catch(() => {});
   }, [year, monthlyLoaded]);
 
-  const resetAnalytics = useCallback(() => {
-    analyticsLoadedRef.current = false;
-    setAnalyticsLoaded(false);
-    setCategoryReport([]);
-    setIncomingReport([]);
-    setOutgoingDeptReport([]);
-    setDeptSummary([]);
-    setAnalyticsError(null);
-  }, []);
+  useEffect(() => {
+    loadAnalytics(true);
+  }, [filterKey, loadAnalytics]);
 
-  const applyFilters = () => {
-    setAppliedFilters({
-      dateFrom: draftFilters.dateFrom,
-      dateTo: draftFilters.dateTo,
-      categoryId: draftFilters.categoryId,
-      departmentId: draftFilters.departmentId,
-      status: draftFilters.status,
-      incomingSourceType: draftFilters.incomingSourceType,
-    });
-    setDebouncedSearch(draftFilters.search);
+  useEffect(() => {
+    loadTabDetails(tab, 1, tabStatesRef.current[tab].pageSize, true);
+  }, [filterKey, tab, loadTabDetails]);
+
+  const resetFilters = () => {
+    const empty = {
+      dateFrom: '', dateTo: '', categoryId: '', departmentId: '', status: '', incomingSourceType: '', search: '',
+    };
+    setDraftFilters(empty);
+    setDebouncedSearch('');
     setTabStates((prev) => {
       const next = { ...prev };
       for (const t of tabConfig) {
@@ -354,10 +376,6 @@ export default function ReportsPage() {
       }
       return next;
     });
-    const wasAnalyticsLoaded = analyticsLoadedRef.current;
-    resetAnalytics();
-    if (wasAnalyticsLoaded) loadAnalytics(true);
-    if (tab) loadTabDetails(tab, 1, tabStates[tab].pageSize, true);
   };
 
   const selectTab = (tabKey: ReportTab) => {
@@ -387,8 +405,8 @@ export default function ReportsPage() {
   };
 
   const exportExcel = async (currentPageOnly: boolean) => {
-    if (!tab) return;
     const state = tabStates[tab];
+    if (state.loading) return;
     const params: Record<string, unknown> = {
       ...filterParams(),
       currentPageOnly,
@@ -404,8 +422,8 @@ export default function ReportsPage() {
     window.URL.revokeObjectURL(url);
   };
 
-  const currentState = tab ? tabStates[tab] : null;
-  const showTimingColumns = tab ? TIMING_REPORT_TABS.includes(tab) : false;
+  const currentState = tabStates[tab];
+  const showTimingColumns = TIMING_REPORT_TABS.includes(tab);
   const tableColSpan = showTimingColumns ? 11 : 8;
   const monthNames = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
 
@@ -413,12 +431,24 @@ export default function ReportsPage() {
     <div>
       <div className="page-header">
         <h2 className="page-title">التقارير</h2>
-        {tab && (
-          <div className="btn-group">
-            <button className="btn btn-outline" onClick={() => exportExcel(true)}>تصدير الصفحة الحالية</button>
-            <button className="btn btn-primary" onClick={() => exportExcel(false)}>تصدير جميع النتائج</button>
-          </div>
-        )}
+        <div className="btn-group">
+          <button
+            type="button"
+            className="btn btn-outline"
+            onClick={() => exportExcel(true)}
+            disabled={!currentState || currentState.loading}
+          >
+            تصدير الصفحة الحالية
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => exportExcel(false)}
+            disabled={!currentState || currentState.loading}
+          >
+            تصدير جميع النتائج
+          </button>
+        </div>
       </div>
 
       <div className="card filter-card mb-4">
@@ -441,9 +471,24 @@ export default function ReportsPage() {
             <option value="">كل الإدارات</option>
             {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
-          <button className="btn btn-primary" onClick={applyFilters}>تطبيق الفلتر</button>
+          <button type="button" className="btn btn-outline" onClick={resetFilters}>إعادة تعيين الفلاتر</button>
+          <button type="button" className="btn btn-secondary" onClick={() => loadTabDetails(tab, tabStates[tab].page, tabStates[tab].pageSize, true)}>
+            تحديث التقرير
+          </button>
         </div>
       </div>
+
+      {(appliedFilters.dateFrom || appliedFilters.dateTo || appliedFilters.categoryId || appliedFilters.departmentId || appliedFilters.incomingSourceType || debouncedSearch.trim()) && (
+        <p className="text-muted mb-2" role="status">
+          فلاتر مطبقة:
+          {appliedFilters.dateFrom && ` من ${appliedFilters.dateFrom}`}
+          {appliedFilters.dateTo && ` إلى ${appliedFilters.dateTo}`}
+          {appliedFilters.categoryId && ` | تصنيف: ${categories.find((c) => String(c.id) === appliedFilters.categoryId)?.name ?? appliedFilters.categoryId}`}
+          {appliedFilters.departmentId && ` | إدارة: ${departments.find((d) => String(d.id) === appliedFilters.departmentId)?.name ?? appliedFilters.departmentId}`}
+          {appliedFilters.incomingSourceType && ` | نوع الوارد: ${appliedFilters.incomingSourceType === 'Internal' ? 'داخلي' : 'خارجي'}`}
+          {debouncedSearch.trim() && ` | بحث: ${debouncedSearch.trim()}`}
+        </p>
+      )}
 
       {summaryError && (
         <div className="alert alert-error">
@@ -474,15 +519,9 @@ export default function ReportsPage() {
         ))}
       </div>
 
-      {!tab && (
-        <div className="card mt-2 text-center text-muted" style={{ padding: '2rem' }}>
-          اختر قسمًا من الأعلى لعرض المعاملات
-        </div>
-      )}
+      {currentState?.error && <div className="alert alert-error">{currentState.error}</div>}
 
-      {tab && currentState?.error && <div className="alert alert-error">{currentState.error}</div>}
-
-      {tab && currentState && (
+      {currentState && (
         <>
           <table className="data-table">
             <thead>
@@ -563,29 +602,48 @@ export default function ReportsPage() {
           <div className="btn-group">
             <button
               type="button"
-              className="btn btn-primary"
+              className="btn btn-secondary"
               onClick={() => loadAnalytics(true)}
               disabled={analyticsLoading}
             >
-              {analyticsLoading ? 'جاري التحميل...' : analyticsLoaded ? 'إعادة تحميل التحليلات' : 'تحميل التحليلات'}
+              {analyticsLoading ? 'جاري التحديث...' : 'تحديث التحليلات'}
             </button>
-            <button className="btn btn-outline" onClick={async () => {
-              const res = await reportsApi.exportDepartmentIncomingClosedExcel(filterParams());
-              const url = window.URL.createObjectURL(res.data);
-              const a = document.createElement('a'); a.href = url; a.download = 'department-incoming-closed.xlsx'; a.click();
-            }}>تصدير Excel</button>
-            <button className="btn btn-outline" onClick={async () => {
-              const res = await reportsApi.exportDepartmentIncomingClosedPdf(filterParams());
-              const url = window.URL.createObjectURL(res.data);
-              const a = document.createElement('a'); a.href = url; a.download = 'department-incoming-closed.pdf'; a.click();
-            }}>تصدير PDF</button>
+            <button
+              type="button"
+              className="btn btn-outline"
+              disabled={analyticsLoading}
+              onClick={async () => {
+                const res = await reportsApi.exportDepartmentIncomingClosedExcel(filterParams());
+                const url = window.URL.createObjectURL(res.data);
+                const a = document.createElement('a'); a.href = url; a.download = 'department-incoming-closed.xlsx'; a.click();
+              }}
+            >
+              تصدير Excel
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline"
+              disabled={analyticsLoading}
+              onClick={async () => {
+                const res = await reportsApi.exportDepartmentIncomingClosedPdf(filterParams());
+                const url = window.URL.createObjectURL(res.data);
+                const a = document.createElement('a'); a.href = url; a.download = 'department-incoming-closed.pdf'; a.click();
+              }}
+            >
+              تصدير PDF
+            </button>
           </div>
         </div>
-        <p className="text-muted mb-2">اضغط «تحميل التحليلات» لعرض الجداول أدناه. يُحسب الوارد حسب تاريخ الوارد (الإدارات الصادر لها)، والمغلق حسب تاريخ الإغلاق ضمن الفترة المحددة.</p>
+        {analyticsUpdatedAt && (
+          <p className="text-muted mb-2" role="status">
+            آخر تحديث للتحليلات: {analyticsUpdatedAt.toLocaleString('ar-SA')}
+          </p>
+        )}
+        <p className="text-muted mb-2">يُحسب الوارد حسب تاريخ الوارد (الإدارات الصادر لها)، والمغلق حسب تاريخ الإغلاق ضمن الفترة المحددة. تتحدث التحليلات تلقائيًا عند تغيير الفلاتر.</p>
         {analyticsError && <div className="alert alert-error mb-2">{analyticsError}</div>}
-        {!analyticsLoaded ? (
-          <div className="text-center text-muted" style={{ padding: '1.5rem' }}>لم يتم تحميل التحليلات بعد.</div>
-        ) : analyticsLoading ? <div className="loading">جاري التحميل...</div> : (
+        {analyticsLoading && !analyticsLoaded ? <div className="loading">جاري تحميل التحليلات...</div> : analyticsLoading ? <div className="loading">جاري التحديث...</div> : !analyticsLoaded ? (
+          <div className="text-center text-muted" style={{ padding: '1.5rem' }}>لا توجد بيانات تحليلات للفلاتر الحالية.</div>
+        ) : (
           <>
           <h4 className="mb-2">تقرير الوارد والمغلق لكل إدارة</h4>
           <table className="data-table">

@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
+import { ReferenceDataProvider } from './context/ReferenceDataContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
 import Login from './pages/Login';
@@ -19,7 +20,13 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+          <Route element={(
+            <ProtectedRoute>
+              <ReferenceDataProvider>
+                <Layout />
+              </ReferenceDataProvider>
+            </ProtectedRoute>
+          )}>
             <Route index element={<Dashboard />} />
             <Route path="transactions" element={<TransactionsList />} />
             <Route

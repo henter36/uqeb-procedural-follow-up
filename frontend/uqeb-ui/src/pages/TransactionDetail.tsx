@@ -1,35 +1,34 @@
 import {
-  useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode,
+  useCallback, useEffect, useRef, useState, type ReactNode,
 } from 'react';
-import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { transactionsApi, departmentsApi } from '../api/services';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { transactionsApi } from '../api/services';
 import type {
-  TransactionDetail, Department, FollowUpDepartmentOption,
-  Assignment, FollowUp, Attachment, AuditLog,
+  TransactionDetail, Assignment, FollowUp, Attachment, AuditLog,
 } from '../api/types';
 import { useAuth } from '../context/AuthContext';
+import { useReferenceData } from '../context/ReferenceDataContext';
 import {
   statusBadgeClass, responseTypeLabels,
   auditActionLabels, replyStatusLabels,
 } from '../utils/labels';
-import {
-  buildCompleteResponsePayload,
-  buildCreateAssignmentPayload,
-  buildCreateFollowUpPayload,
-  buildReplyPayload,
-  getApiErrorMessage,
-} from '../utils/apiHelpers';
-import {
-  resolveFollowUpLetterRecipient,
-} from '../utils/followUpLetter';
+import { getApiErrorMessage } from '../utils/apiHelpers';
 import DateDisplay from '../components/DateDisplay';
-import MultiSelect from '../components/MultiSelect';
 import { responseTimingBadgeClass, formatDaysSince } from '../utils/responseTiming';
-import ScanAttachmentButton from '../features/scanner/ScanAttachmentButton';
 import {
   PageHeader, Alert, StatusBadge, PriorityBadge, ActivityTimeline, LoadingInline, ErrorState,
 } from '../components/ui';
 import type { TimelineEvent } from '../components/ui';
+import TransactionWorkspaceHeader from '../components/transaction-workspace/TransactionWorkspaceHeader';
+import TransactionActionBar from '../components/transaction-workspace/TransactionActionBar';
+import TransactionActionPanel from '../components/transaction-workspace/TransactionActionPanel';
+import AssignmentFormPanel from '../components/transaction-workspace/AssignmentFormPanel';
+import FollowUpFormPanel from '../components/transaction-workspace/FollowUpFormPanel';
+import AttachmentFormPanel from '../components/transaction-workspace/AttachmentFormPanel';
+import ReplyFormPanel from '../components/transaction-workspace/ReplyFormPanel';
+import CompleteResponseFormPanel from '../components/transaction-workspace/CompleteResponseFormPanel';
+import FollowUpLetterFormPanel from '../components/transaction-workspace/FollowUpLetterFormPanel';
+import type { WorkspaceAction, WorkspaceActionContext } from '../components/transaction-workspace/types';
 
 type DetailTab = 'overview' | 'assignments' | 'followups' | 'attachments' | 'audit' | 'timeline';
 type LazyTab = 'attachments' | 'audit';
@@ -136,6 +135,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const tabFromUrl = searchParams.get('tab');
   const initialTabFromUrl = parseDetailTab(tabFromUrl);
   const { canEdit, canClose, isDepartmentUser } = useAuth();
+  const { departments } = useReferenceData();
   const [tx, setTx] = useState<TransactionDetail | null>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
@@ -162,13 +162,9 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const [followUpsLoading, setFollowUpsLoading] = useState(true);
   const [assignmentsError, setAssignmentsError] = useState('');
   const [followUpsError, setFollowUpsError] = useState('');
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [showFollowUp, setShowFollowUp] = useState(false);
-  const [showAssignment, setShowAssignment] = useState(false);
-  const [replyAssignmentId, setReplyAssignmentId] = useState<number | null>(null);
-  const [replyFollowUpId, setReplyFollowUpId] = useState<number | null>(null);
-  const [showCompleteResponse, setShowCompleteResponse] = useState(false);
-  const [showFollowUpLetter, setShowFollowUpLetter] = useState(false);
+  const [activeAction, setActiveAction] = useState<WorkspaceAction | null>(null);
+  const [actionContext, setActionContext] = useState<WorkspaceActionContext>({});
+  const [actionDirty, setActionDirty] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -314,8 +310,6 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
       }
     })();
 
-    departmentsApi.getAll().then((r) => { if (isMounted()) setDepartments(r.data); });
-
     void loadInitialLazyTab(initialTabFromUrl, isMounted, {
       loadAttachmentsData,
       loadAuditData,
@@ -333,6 +327,48 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
 
     return () => { active = false; };
   }, [id, initialTabFromUrl, loadBasic, loadAttachmentsData, loadAuditData]);
+
+  const refreshTimelineIfLoaded = useCallback(() => {
+    if (loadedTabsRef.current.audit) {
+      void loadTab('audit', true);
+    }
+  }, [loadTab]);
+
+  const closeAction = useCallback(() => {
+    if (actionDirty && !globalThis.confirm('يوجد بيانات غير محفوظة. هل تريد إغلاق النموذج؟')) {
+      return;
+    }
+    setActiveAction(null);
+    setActionContext({});
+    setActionDirty(false);
+  }, [actionDirty]);
+
+  const openAction = useCallback((action: WorkspaceAction, ctx: WorkspaceActionContext = {}) => {
+    if (activeAction && activeAction !== action && actionDirty) {
+      if (!globalThis.confirm('يوجد بيانات غير محفوظة. هل تريد التبديل بين النماذج؟')) {
+        return;
+      }
+    }
+    setActiveAction(action);
+    setActionContext(ctx);
+    setActionDirty(false);
+  }, [activeAction, actionDirty]);
+
+  const toggleAction = useCallback((action: WorkspaceAction) => {
+    if (activeAction === action) {
+      closeAction();
+    } else {
+      openAction(action);
+    }
+  }, [activeAction, closeAction, openAction]);
+
+  const handleActionSuccess = useCallback((successMessage: string, refreshers: Array<() => void | Promise<void>>) => {
+    setMessage(successMessage);
+    setError('');
+    closeAction();
+    refreshers.forEach((fn) => { void fn(); });
+    refreshTimelineIfLoaded();
+  }, [closeAction, refreshTimelineIfLoaded]);
 
   const handleClose = async () => {
     if (!tx) return;
@@ -355,13 +391,6 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
 
   const refreshAttachments = () => {
     loadTab('attachments', true);
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    await transactionsApi.uploadAttachment(+id!, file);
-    refreshAttachments();
   };
 
   const downloadAttachment = async (attachmentId: number, fileName: string) => {
@@ -464,8 +493,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const assignmentsContent = (
     <div className="card">
       <div className="card-header">
-        <h3>التحويلات</h3>
-        {canEdit && !isDepartmentUser && <button type="button" className="btn btn-sm btn-primary" onClick={() => setShowAssignment(true)}>إضافة تحويل</button>}
+        <h3>التحويلات والردود</h3>
       </div>
       {assignmentsLoading && <LoadingInline label="جاري تحميل التحويلات..." />}
       {assignmentsError && <Alert variant="error">{assignmentsError}</Alert>}
@@ -486,7 +514,13 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                   </td>
                   <td>
                     {a.requiresReply && a.replyStatus !== 'Replied' && a.status !== 'Cancelled' && (isDepartmentUser || canEdit) && (
-                      <button type="button" className="btn btn-sm btn-outline" onClick={() => setReplyAssignmentId(a.id)}>تسجيل رد</button>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline"
+                        onClick={() => openAction('reply-assignment', { replyAssignmentId: a.id })}
+                      >
+                        تسجيل رد
+                      </button>
                     )}
                     {a.replySummary && <div className="text-muted reply-summary">{a.replySummary}</div>}
                   </td>
@@ -504,7 +538,6 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     <div className="card">
       <div className="card-header">
         <h3>التعقيبات</h3>
-        {canEdit && !isDepartmentUser && <button type="button" className="btn btn-sm btn-primary" onClick={() => setShowFollowUp(true)}>إضافة تعقيب</button>}
       </div>
       {followUpsLoading && <LoadingInline label="جاري تحميل التعقيبات..." />}
       {followUpsError && <Alert variant="error">{followUpsError}</Alert>}
@@ -526,7 +559,13 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                   </td>
                   <td>
                     {f.requiresReply && f.replyStatus !== 'Replied' && (isDepartmentUser || canEdit) && (
-                      <button type="button" className="btn btn-sm btn-outline" onClick={() => setReplyFollowUpId(f.id)}>تسجيل رد</button>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline"
+                        onClick={() => openAction('reply-followup', { replyFollowUpId: f.id })}
+                      >
+                        تسجيل رد
+                      </button>
                     )}
                     {f.replySummary && <div className="text-muted reply-summary">{f.replySummary}</div>}
                   </td>
@@ -540,37 +579,113 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     </div>
   );
 
+  const existingDepartmentIds = assignments.map((a) => a.departmentId);
+
+  const actionPanelTitle: Record<WorkspaceAction, string> = {
+    assignment: 'إضافة تحويل',
+    followup: 'إضافة تعقيب',
+    attachment: 'إضافة مرفق',
+    'reply-assignment': 'تسجيل رد على التحويل',
+    'reply-followup': 'تسجيل رد على التعقيب',
+    'complete-response': 'تسجيل الإفادة',
+    'follow-up-letter': 'خطاب تعقيب PDF',
+  };
+
   return (
-    <div>
-      <PageHeader
-        title={`معاملة ${tx.incomingNumber}`}
-        subtitle={tx.subject}
-        actions={(
-          <div className="btn-group">
-            {canEdit && !isDepartmentUser && (
-              <button type="button" className="btn btn-secondary" onClick={() => setShowFollowUpLetter(true)}>
-                إنشاء خطاب تعقيب PDF
-              </button>
-            )}
-            {canEdit && !isDepartmentUser && <Link to={`/transactions/${id}/edit`} className="btn btn-primary">تعديل</Link>}
-            {canRegisterResponse && (
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={hasPendingDepts}
-                title={hasPendingDepts ? 'لا يمكن تسجيل الإفادة قبل اكتمال رد جميع الإدارات.' : undefined}
-                onClick={() => setShowCompleteResponse(true)}
-              >
-                تسجيل الإفادة
-              </button>
-            )}
-            {canShowClose && <button type="button" onClick={handleClose} className="btn btn-danger">إغلاق المعاملة</button>}
-          </div>
-        )}
-      />
+    <div className="transaction-workspace">
+      <PageHeader title="مساحة عمل المعاملة" subtitle={`${tx.incomingNumber} — ${tx.subject}`} />
 
       {message && <Alert variant="success">{message}</Alert>}
       {error && <Alert variant="error">{error}</Alert>}
+
+      <TransactionWorkspaceHeader tx={tx} />
+
+      <TransactionActionBar
+        transactionId={id}
+        canEdit={canEdit}
+        canClose={canClose}
+        isDepartmentUser={isDepartmentUser}
+        canRegisterResponse={canRegisterResponse}
+        canShowClose={canShowClose}
+        hasPendingDepts={hasPendingDepts}
+        activeAction={activeAction}
+        onAction={toggleAction}
+        onCloseTransaction={handleClose}
+      />
+
+      {activeAction && (
+        <TransactionActionPanel
+          title={actionPanelTitle[activeAction]}
+          open
+          dirty={actionDirty}
+          onClose={closeAction}
+        >
+          {activeAction === 'assignment' && (
+            <AssignmentFormPanel
+              transactionId={+id}
+              departments={departments}
+              existingDepartmentIds={existingDepartmentIds}
+              onDirtyChange={setActionDirty}
+              onCancel={closeAction}
+              onSuccess={() => handleActionSuccess('تم إضافة التحويل بنجاح.', [loadAssignments, loadBasic])}
+            />
+          )}
+          {activeAction === 'followup' && (
+            <FollowUpFormPanel
+              transactionId={+id}
+              daysSinceLastFollowUp={tx.daysSinceLastFollowUp}
+              onDirtyChange={setActionDirty}
+              onCancel={closeAction}
+              onSuccess={() => handleActionSuccess('تم إضافة التعقيب بنجاح.', [loadFollowUps, loadBasic])}
+            />
+          )}
+          {activeAction === 'attachment' && (
+            <AttachmentFormPanel
+              transactionId={+id}
+              onDirtyChange={setActionDirty}
+              onCancel={closeAction}
+              onSuccess={() => handleActionSuccess('تم رفع المرفق بنجاح.', [refreshAttachments])}
+            />
+          )}
+          {activeAction === 'reply-assignment' && actionContext.replyAssignmentId && (
+            <ReplyFormPanel
+              title="تسجيل رد على التحويل"
+              onDirtyChange={setActionDirty}
+              onCancel={closeAction}
+              onSubmit={(payload) => transactionsApi.replyAssignment(+id, actionContext.replyAssignmentId!, payload)}
+              onSuccess={() => handleActionSuccess('تم تسجيل الرد بنجاح.', [loadAssignments, loadBasic])}
+            />
+          )}
+          {activeAction === 'reply-followup' && actionContext.replyFollowUpId && (
+            <ReplyFormPanel
+              title="تسجيل رد على التعقيب"
+              onDirtyChange={setActionDirty}
+              onCancel={closeAction}
+              onSubmit={(payload) => transactionsApi.replyFollowUp(+id, actionContext.replyFollowUpId!, payload)}
+              onSuccess={() => handleActionSuccess('تم تسجيل الرد بنجاح.', [loadFollowUps])}
+            />
+          )}
+          {activeAction === 'complete-response' && (
+            <CompleteResponseFormPanel
+              transactionId={+id}
+              responseType={tx.responseType}
+              onDirtyChange={setActionDirty}
+              onCancel={closeAction}
+              onSuccess={() => handleActionSuccess('تم تسجيل الإفادة بنجاح.', [loadBasic, loadAssignments])}
+            />
+          )}
+          {activeAction === 'follow-up-letter' && (
+            <FollowUpLetterFormPanel
+              transactionId={+id}
+              tx={tx}
+              assignments={assignments}
+              onDirtyChange={setActionDirty}
+              onCancel={closeAction}
+              onDownloaded={() => setMessage('تم تحميل خطاب التعقيب بنجاح.')}
+            />
+          )}
+        </TransactionActionPanel>
+      )}
 
       <div className="tabs" role="tablist" aria-label="تبويبات تفاصيل المعاملة">
         <button type="button" role="tab" aria-selected={activeTab === 'overview'} className={activeTab === 'overview' ? 'active' : ''} onClick={() => selectTab('overview')}>نظرة عامة</button>
@@ -609,15 +724,6 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
         <div className="card mt-2">
           <div className="card-header">
             <h3>المرفقات</h3>
-            {canEdit && (
-              <div className="btn-group">
-                <label className="btn btn-sm btn-primary">
-                  رفع ملف
-                  <input type="file" hidden onChange={handleFileUpload} />
-                </label>
-                <ScanAttachmentButton transactionId={+id!} onSaved={refreshAttachments} />
-              </div>
-            )}
           </div>
           <div className="table-wrapper">
             <table className="data-table">
@@ -715,467 +821,6 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
           )}
         </div>
       )}
-
-      {showFollowUp && (
-        <FollowUpModal
-          transactionId={+id!}
-          onClose={() => {
-            setShowFollowUp(false);
-            loadFollowUps();
-          }}
-        />
-      )}
-      {showAssignment && (
-        <AssignmentModal
-          transactionId={+id!}
-          departments={departments}
-          onClose={() => {
-            setShowAssignment(false);
-            loadAssignments();
-            loadBasic();
-          }}
-        />
-      )}
-      {replyAssignmentId && (
-        <ReplyModal
-          title="تسجيل رد على التحويل"
-          onClose={() => {
-            setReplyAssignmentId(null);
-            loadAssignments();
-            loadBasic();
-          }}
-          onSubmit={(payload) => transactionsApi.replyAssignment(+id!, replyAssignmentId, payload)}
-        />
-      )}
-      {replyFollowUpId && (
-        <ReplyModal
-          title="تسجيل رد على التعقيب"
-          onClose={() => {
-            setReplyFollowUpId(null);
-            loadFollowUps();
-          }}
-          onSubmit={(payload) => transactionsApi.replyFollowUp(+id!, replyFollowUpId, payload)}
-        />
-      )}
-      {showCompleteResponse && (
-        <CompleteResponseModal
-          transactionId={+id!}
-          responseType={tx.responseType}
-          onClose={() => {
-            setShowCompleteResponse(false);
-            loadBasic();
-            loadAssignments();
-          }}
-          onSuccess={() => setMessage('تم تسجيل الإفادة بنجاح.')}
-        />
-      )}
-      {showFollowUpLetter && (
-        <FollowUpLetterModal
-          transactionId={+id!}
-          tx={tx}
-          assignments={assignments}
-          onClose={() => setShowFollowUpLetter(false)}
-          onDownloaded={() => setMessage('تم تحميل خطاب التعقيب بنجاح.')}
-        />
-      )}
-    </div>
-  );
-}
-
-function CompleteResponseModal({
-  transactionId,
-  responseType,
-  onClose,
-  onSuccess,
-}: {
-  transactionId: number;
-  responseType: string;
-  onClose: () => void;
-  onSuccess: () => void;
-}) {
-  const requiresOutgoing = responseType === 'External' || responseType === 'Both';
-  const [form, setForm] = useState({
-    responseDate: new Date().toISOString().split('T')[0],
-    responseSummary: '',
-    outgoingNumber: '',
-    outgoingDate: new Date().toISOString().split('T')[0],
-  });
-  const [attachment, setAttachment] = useState<File | null>(null);
-  const [error, setError] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (isSubmitting) return;
-    if (!form.responseSummary.trim()) {
-      setError('ملخص الإفادة مطلوب');
-      return;
-    }
-    if (requiresOutgoing && (!form.outgoingNumber.trim() || !form.outgoingDate)) {
-      setError('رقم الصادر وتاريخ الصادر مطلوبان لنوع الإفادة المحدد');
-      return;
-    }
-    setError('');
-    setIsSubmitting(true);
-    try {
-      await transactionsApi.completeResponse(
-        transactionId,
-        buildCompleteResponsePayload({ ...form, requiresOutgoing }),
-      );
-      if (attachment) {
-        await transactionsApi.uploadAttachment(transactionId, attachment, 'Response');
-      }
-      onSuccess();
-      onClose();
-    } catch (err: unknown) {
-      setError(getApiErrorMessage(err));
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="modal-overlay"><div className="modal">
-      <h3>تسجيل الإفادة</h3>
-      {error && <div className="alert alert-error">{error}</div>}
-      <form onSubmit={submit}>
-        <div className="form-group">
-          <label>تاريخ الإفادة *</label>
-          <input type="date" required value={form.responseDate}
-            onChange={(e) => setForm({ ...form, responseDate: e.target.value })} />
-        </div>
-        <div className="form-group">
-          <label>ملخص الإفادة *</label>
-          <textarea required rows={4} value={form.responseSummary}
-            onChange={(e) => setForm({ ...form, responseSummary: e.target.value })} />
-        </div>
-        {requiresOutgoing && (
-          <>
-            <div className="form-group">
-              <label>رقم الصادر *</label>
-              <input required value={form.outgoingNumber}
-                onChange={(e) => setForm({ ...form, outgoingNumber: e.target.value })} />
-            </div>
-            <div className="form-group">
-              <label>تاريخ الصادر *</label>
-              <input type="date" required value={form.outgoingDate}
-                onChange={(e) => setForm({ ...form, outgoingDate: e.target.value })} />
-            </div>
-          </>
-        )}
-        <div className="form-group">
-          <label>مرفق (اختياري)</label>
-          <input type="file" onChange={(e) => setAttachment(e.target.files?.[0] ?? null)} />
-        </div>
-        <div className="form-actions">
-          <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
-            {isSubmitting ? 'جاري الحفظ...' : 'تسجيل الإفادة'}
-          </button>
-          <button type="button" className="btn btn-outline" onClick={onClose}>إلغاء</button>
-        </div>
-      </form>
-    </div></div>
-  );
-}
-
-function FollowUpModal({ transactionId, onClose }: { transactionId: number; onClose: () => void }) {
-  const [options, setOptions] = useState<FollowUpDepartmentOption[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({
-    followUpDate: new Date().toISOString().split('T')[0],
-    notes: '', followUpNumber: '', departmentIds: [] as number[],
-  });
-  const [error, setError] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  useEffect(() => {
-    transactionsApi.getFollowUpDepartments(transactionId)
-      .then((r) => {
-        setOptions(r.data);
-        setForm((f) => ({
-          ...f,
-          departmentIds: r.data.filter((d) => d.isDefaultSelected).map((d) => d.departmentId),
-        }));
-      })
-      .catch(() => setError('تعذر تحميل الإدارات المتاحة'))
-      .finally(() => setLoading(false));
-  }, [transactionId]);
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (isSubmitting) return;
-    if (form.departmentIds.length === 0) {
-      setError('يجب اختيار إدارة واحدة على الأقل لإرسال التعقيب.');
-      return;
-    }
-    setError('');
-    setIsSubmitting(true);
-    try {
-      await transactionsApi.addFollowUp(transactionId, buildCreateFollowUpPayload(form));
-      onClose();
-    } catch (err: unknown) {
-      setError(getApiErrorMessage(err));
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  if (loading) return <div className="modal-overlay"><div className="modal"><div className="loading">جاري التحميل...</div></div></div>;
-
-  return (
-    <div className="modal-overlay"><div className="modal">
-      <h3>إضافة تعقيب</h3>
-      {error && <div className="alert alert-error">{error}</div>}
-      {options.length === 0 ? (
-        <p className="alert alert-error">لا توجد إدارات مرتبطة بهذه المعاملة. أضف جهة صادر لها أو تحويلًا قبل إضافة التعقيب.</p>
-      ) : (
-        <form onSubmit={submit}>
-          <div className="form-group"><label>رقم التعقيب</label><input value={form.followUpNumber} onChange={(e) => setForm({ ...form, followUpNumber: e.target.value })} /></div>
-          <div className="form-group"><label>التاريخ (ميلادي)</label><input type="date" required value={form.followUpDate} onChange={(e) => setForm({ ...form, followUpDate: e.target.value })} /></div>
-          <MultiSelect
-            label="مرسل إلى (إدارات)"
-            options={options.map((d) => ({ id: d.departmentId, name: d.departmentName }))}
-            selected={form.departmentIds}
-            onChange={(ids) => setForm({ ...form, departmentIds: ids })}
-          />
-          <div className="form-group"><label>ملاحظات</label><textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
-          <div className="form-actions">
-            <button type="submit" className="btn btn-primary" disabled={isSubmitting}>{isSubmitting ? 'جاري الحفظ...' : 'حفظ'}</button>
-            <button type="button" className="btn btn-outline" onClick={onClose}>إلغاء</button>
-          </div>
-        </form>
-      )}
-      {options.length === 0 && (
-        <div className="form-actions"><button type="button" className="btn btn-outline" onClick={onClose}>إغلاق</button></div>
-      )}
-    </div></div>
-  );
-}
-
-function AssignmentModal({ transactionId, departments, onClose }: { transactionId: number; departments: Department[]; onClose: () => void }) {
-  const [form, setForm] = useState({
-    departmentId: '', assignedDate: new Date().toISOString().split('T')[0],
-    requiredAction: '', replyDueDays: '' as string | number, dueDate: '',
-  });
-  const [error, setError] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (isSubmitting) return;
-    setError('');
-    setIsSubmitting(true);
-    try {
-      await transactionsApi.addAssignment(transactionId, buildCreateAssignmentPayload(form));
-      onClose();
-    } catch (err: unknown) {
-      setError(getApiErrorMessage(err));
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="modal-overlay"><div className="modal">
-      <h3>إضافة تحويل</h3>
-      {error && <div className="alert alert-error">{error}</div>}
-      <form onSubmit={submit}>
-        <div className="form-group"><label>الإدارة *</label>
-          <select required value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })}>
-            <option value="">اختر الإدارة</option>
-            {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
-        </div>
-        <div className="form-group"><label>تاريخ التحويل</label><input type="date" required value={form.assignedDate} onChange={(e) => setForm({ ...form, assignedDate: e.target.value })} /></div>
-        <div className="form-group"><label>الإجراء المطلوب</label><input value={form.requiredAction} onChange={(e) => setForm({ ...form, requiredAction: e.target.value })} /></div>
-        <div className="form-group"><label>عدد أيام الرد</label><input type="number" min="1" value={form.replyDueDays} onChange={(e) => setForm({ ...form, replyDueDays: e.target.value })} /></div>
-        <div className="form-group"><label>أو تاريخ استحقاق محدد</label><input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></div>
-        <div className="form-actions">
-          <button type="submit" className="btn btn-primary" disabled={isSubmitting}>{isSubmitting ? 'جاري الحفظ...' : 'حفظ'}</button>
-          <button type="button" className="btn btn-outline" onClick={onClose}>إلغاء</button>
-        </div>
-      </form>
-    </div></div>
-  );
-}
-
-function ReplyModal({
-  title,
-  onClose,
-  onSubmit,
-}: {
-  title: string;
-  onClose: () => void;
-  onSubmit: (payload: ReturnType<typeof buildReplyPayload>) => Promise<unknown>;
-}) {
-  const [form, setForm] = useState({ replyDate: new Date().toISOString().split('T')[0], replySummary: '' });
-  const [error, setError] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (isSubmitting) return;
-    setError('');
-    setIsSubmitting(true);
-    try {
-      await onSubmit(buildReplyPayload(form));
-      onClose();
-    } catch (err: unknown) {
-      setError(getApiErrorMessage(err));
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="modal-overlay"><div className="modal">
-      <h3>{title}</h3>
-      {error && <div className="alert alert-error">{error}</div>}
-      <form onSubmit={submit}>
-        <div className="form-group"><label>تاريخ الرد</label><input type="date" required value={form.replyDate} onChange={(e) => setForm({ ...form, replyDate: e.target.value })} /></div>
-        <div className="form-group"><label>ملخص الرد *</label><textarea required rows={4} value={form.replySummary} onChange={(e) => setForm({ ...form, replySummary: e.target.value })} /></div>
-        <div className="form-actions">
-          <button type="submit" className="btn btn-primary" disabled={isSubmitting}>{isSubmitting ? 'جاري الحفظ...' : 'حفظ'}</button>
-          <button type="button" className="btn btn-outline" onClick={onClose}>إلغاء</button>
-        </div>
-      </form>
-    </div></div>
-  );
-}
-
-function FollowUpLetterModal({
-  transactionId,
-  tx,
-  assignments,
-  onClose,
-  onDownloaded,
-}: {
-  transactionId: number;
-  tx: TransactionDetail;
-  assignments: Assignment[];
-  onClose: () => void;
-  onDownloaded: () => void;
-}) {
-  const defaultRecipient = resolveFollowUpLetterRecipient(
-    tx.outgoingDepartments,
-    assignments,
-    tx.incomingFrom,
-  );
-  const [recipient, setRecipient] = useState(defaultRecipient);
-  const [letterBody, setLetterBody] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [previewing, setPreviewing] = useState(false);
-  const [downloading, setDownloading] = useState(false);
-  const [error, setError] = useState('');
-
-  const loadPreview = useCallback(async (targetEntity?: string, keepEditedContent = false) => {
-    setError('');
-    setPreviewing(true);
-    try {
-      const res = await transactionsApi.previewFollowUpLetter(transactionId, {
-        targetEntity: targetEntity ?? recipient,
-        ...(keepEditedContent && letterBody.trim() ? { content: letterBody } : {}),
-      });
-      setLetterBody(res.data.content);
-      if (res.data.targetEntity) setRecipient(res.data.targetEntity);
-    } catch (err: unknown) {
-      setError(getApiErrorMessage(err));
-    } finally {
-      setPreviewing(false);
-      setLoading(false);
-    }
-  }, [transactionId, recipient, letterBody]);
-
-  useEffect(() => {
-    let cancelled = false;
-    transactionsApi.previewFollowUpLetter(transactionId, { targetEntity: defaultRecipient })
-      .then((res) => {
-        if (cancelled) return;
-        setLetterBody(res.data.content);
-        if (res.data.targetEntity) setRecipient(res.data.targetEntity);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(getApiErrorMessage(err));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [transactionId, defaultRecipient]);
-
-  const handlePreview = () => loadPreview(recipient, false);
-
-  const handleDownload = async () => {
-    setError('');
-    setDownloading(true);
-    try {
-      const res = await transactionsApi.downloadFollowUpLetterPdf(transactionId, {
-        targetEntity: recipient,
-        content: letterBody,
-      });
-      const url = window.URL.createObjectURL(res.data);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `follow-up-letter-${transactionId}.pdf`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-      onDownloaded();
-    } catch (err: unknown) {
-      setError(getApiErrorMessage(err));
-    } finally {
-      setDownloading(false);
-    }
-  };
-
-  return (
-    <div className="modal-overlay">
-      <div className="modal follow-up-letter-modal" dir="rtl">
-        <h3>خطاب تعقيب</h3>
-        {loading ? (
-          <div className="loading">جاري التحميل...</div>
-        ) : (
-          <>
-            <div className="form-group">
-              <label>الجهة</label>
-              <input
-                type="text"
-                value={recipient}
-                onChange={(e) => setRecipient(e.target.value)}
-                placeholder="اسم الإدارة أو الجهة"
-              />
-            </div>
-            <div className="form-group">
-              <label>نص الخطاب</label>
-              <textarea
-                className="follow-up-letter-body"
-                rows={14}
-                value={letterBody}
-                onChange={(e) => setLetterBody(e.target.value)}
-              />
-            </div>
-            {error && <div className="alert alert-error">{error}</div>}
-            <div className="form-actions">
-              <button
-                type="button"
-                className="btn btn-secondary"
-                disabled={previewing}
-                onClick={handlePreview}
-              >
-                {previewing ? 'جاري المعاينة...' : 'معاينة'}
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={downloading || !letterBody.trim()}
-                onClick={handleDownload}
-              >
-                {downloading ? 'جاري التحميل...' : 'تحميل PDF'}
-              </button>
-              <button type="button" className="btn btn-outline" onClick={onClose}>إغلاق</button>
-            </div>
-          </>
-        )}
-      </div>
     </div>
   );
 }
