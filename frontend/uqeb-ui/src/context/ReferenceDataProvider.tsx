@@ -73,8 +73,17 @@ export function ReferenceDataProvider({ children }: Readonly<{ children: ReactNo
     cacheRef.current = null;
     requestRef.current = null;
     setData((prev) => ({ ...prev, loading: true, error: null }));
-    void loadData(generationRef.current);
-  }, [loadData]);
+    const generation = generationRef.current;
+    loadData(generation).catch(() => {
+      if (mountedRef.current && generation === generationRef.current) {
+        applyData(generation, {
+          ...EMPTY_STATE,
+          loading: false,
+          error: 'تعذر تحميل البيانات المرجعية',
+        });
+      }
+    });
+  }, [loadData, applyData]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -89,13 +98,21 @@ export function ReferenceDataProvider({ children }: Readonly<{ children: ReactNo
       };
     }
 
-    void loadData(generation);
+    loadData(generation).catch(() => {
+      if (mountedRef.current && generation === generationRef.current) {
+        applyData(generation, {
+          ...EMPTY_STATE,
+          loading: false,
+          error: 'تعذر تحميل البيانات المرجعية',
+        });
+      }
+    });
     return () => {
       mountedRef.current = false;
       generationRef.current += 1;
       requestRef.current = null;
     };
-  }, [loadData]);
+  }, [loadData, applyData]);
 
   const value = useMemo<ReferenceDataContextValue>(() => ({
     ...data,

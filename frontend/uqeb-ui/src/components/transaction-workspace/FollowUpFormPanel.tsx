@@ -64,7 +64,9 @@ export default function FollowUpFormPanel({
       }
     };
 
-    void load();
+    load().catch(() => {
+      if (active) setError('تعذر تحميل الإدارات المتاحة');
+    });
     return () => { active = false; };
   }, [transactionId, onDirtyChange]);
 

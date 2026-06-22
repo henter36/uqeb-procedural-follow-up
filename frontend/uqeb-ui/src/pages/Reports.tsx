@@ -277,38 +277,39 @@ export default function ReportsPage() {
     return () => controller.abort();
   }, [filterKey, summaryRetryKey, filterParams, summaryToken]);
 
-  const runAnalyticsFetch = useCallback((targetKey: string) => {
+  const loadAnalyticsFetch = useCallback(async (targetKey: string) => {
     const requestId = ++analyticsRequestIdRef.current;
     const p = filterParams();
-    return Promise.all([
-      reportsApi.byCategory(p),
-      reportsApi.byIncomingParty(p),
-      reportsApi.byOutgoingDepartment(p),
-      reportsApi.departmentSummary(p),
-    ])
-      .then(([cat, inc, out, dept]) => {
-        if (requestId !== analyticsRequestIdRef.current) return;
-        setCategoryReport(cat.data as typeof categoryReport);
-        setIncomingReport(inc.data as typeof incomingReport);
-        setOutgoingDeptReport(out.data);
-        setDeptSummary(dept.data);
-        setAnalyticsHasData(true);
-        setAnalyticsUpdatedAt(new Date());
-        setAnalyticsError(null);
-        setAnalyticsReadyKey(targetKey);
-      })
-      .catch(() => {
-        if (requestId !== analyticsRequestIdRef.current) return;
-        setAnalyticsHasData(false);
-        setAnalyticsError('تعذر تحميل التحليلات. حاول مرة أخرى.');
-        setAnalyticsReadyKey(targetKey);
-      });
+    try {
+      const [cat, inc, out, dept] = await Promise.all([
+        reportsApi.byCategory(p),
+        reportsApi.byIncomingParty(p),
+        reportsApi.byOutgoingDepartment(p),
+        reportsApi.departmentSummary(p),
+      ]);
+      if (requestId !== analyticsRequestIdRef.current) return;
+      setCategoryReport(cat.data as typeof categoryReport);
+      setIncomingReport(inc.data as typeof incomingReport);
+      setOutgoingDeptReport(out.data);
+      setDeptSummary(dept.data);
+      setAnalyticsHasData(true);
+      setAnalyticsUpdatedAt(new Date());
+      setAnalyticsError(null);
+      setAnalyticsReadyKey(targetKey);
+    } catch {
+      if (requestId !== analyticsRequestIdRef.current) return;
+      setAnalyticsHasData(false);
+      setAnalyticsError('تعذر تحميل التحليلات. حاول مرة أخرى.');
+      setAnalyticsReadyKey(targetKey);
+    }
   }, [filterParams]);
 
   const loadAnalytics = useCallback(() => {
     setAnalyticsReadyKey(null);
-    void runAnalyticsFetch(filterKey);
-  }, [filterKey, runAnalyticsFetch]);
+    loadAnalyticsFetch(filterKey).catch(() => {
+      setAnalyticsError('تعذر تحميل التحليلات. حاول مرة أخرى.');
+    });
+  }, [filterKey, loadAnalyticsFetch]);
 
   useEffect(() => {
     const el = monthlyRef.current;
@@ -329,8 +330,10 @@ export default function ReportsPage() {
   }, [year, monthlyLoaded]);
 
   useEffect(() => {
-    void runAnalyticsFetch(filterKey);
-  }, [filterKey, runAnalyticsFetch]);
+    loadAnalyticsFetch(filterKey).catch(() => {
+      setAnalyticsError('تعذر تحميل التحليلات. حاول مرة أخرى.');
+    });
+  }, [filterKey, loadAnalyticsFetch]);
 
   useEffect(() => {
     loadTabDetails(tab, 1, tabStatesRef.current[tab].pageSize, true);

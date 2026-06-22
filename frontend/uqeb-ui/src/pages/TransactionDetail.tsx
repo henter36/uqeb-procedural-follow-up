@@ -9,20 +9,20 @@ import type {
 import { useAuth } from '../context/AuthContext';
 import { useReferenceData } from '../hooks/useReferenceData';
 import {
-  statusBadgeClass, responseTypeLabels,
+  responseTypeLabels,
   auditActionLabels, replyStatusLabels,
 } from '../utils/labels';
 import { getApiErrorMessage } from '../utils/apiHelpers';
 import DateDisplay from '../components/DateDisplay';
+import DepartmentBadges from '../components/DepartmentBadges';
 import { responseTimingBadgeClass, formatDaysSince } from '../utils/responseTiming';
 import {
   PageHeader, Alert, StatusBadge, PriorityBadge, ActivityTimeline, LoadingInline, ErrorState,
 } from '../components/ui';
 import type { TimelineEvent } from '../components/ui';
-import ScanAttachmentButton from '../features/scanner/ScanAttachmentButton';
-import TransactionWorkspaceHeader from '../components/transaction-workspace/TransactionWorkspaceHeader';
 import TransactionActionBar from '../components/transaction-workspace/TransactionActionBar';
 import TransactionActionPanel from '../components/transaction-workspace/TransactionActionPanel';
+import CardActionPanel from '../components/transaction-workspace/CardActionPanel';
 import AssignmentFormPanel from '../components/transaction-workspace/AssignmentFormPanel';
 import FollowUpFormPanel from '../components/transaction-workspace/FollowUpFormPanel';
 import AttachmentFormPanel from '../components/transaction-workspace/AttachmentFormPanel';
@@ -31,6 +31,8 @@ import CompleteResponseFormPanel from '../components/transaction-workspace/Compl
 import FollowUpLetterFormPanel from '../components/transaction-workspace/FollowUpLetterFormPanel';
 import type { WorkspaceAction, WorkspaceActionContext } from '../components/transaction-workspace/types';
 import { parseDetailTab, type DetailTab } from './transactionDetailTabs';
+
+const GLOBAL_ACTIONS = new Set<WorkspaceAction>(['complete-response', 'follow-up-letter']);
 
 function assignmentReplyBadgeClass(replyStatus: string, isOverdue: boolean): string {
   if (replyStatus === 'Replied') return 'badge-green';
@@ -52,6 +54,29 @@ function isPreviewableAttachment(contentType?: string): boolean {
   if (!contentType) return false;
   return contentType.startsWith('image/') || contentType === 'application/pdf';
 }
+
+function formatDaysRemaining(days?: number | null): string {
+  if (days === undefined || days === null) return '—';
+  if (days < 0) return `متأخر ${Math.abs(days)} يوم`;
+  if (days === 0) return 'اليوم';
+  return `${days} يوم`;
+}
+
+function countOpenAssignments(items: Assignment[]): number {
+  return items.filter(
+    (item) => item.requiresReply && item.replyStatus !== 'Replied' && item.status !== 'Cancelled',
+  ).length;
+}
+
+const ACTION_TITLES: Record<WorkspaceAction, string> = {
+  assignment: 'إضافة تحويل',
+  followup: 'إضافة تعقيب',
+  attachment: 'إضافة مرفق',
+  'reply-assignment': 'تسجيل رد على التحويل',
+  'reply-followup': 'تسجيل رد على التعقيب',
+  'complete-response': 'تسجيل الإفادة',
+  'follow-up-letter': 'خطاب تعقيب PDF',
+};
 
 export default function TransactionDetailPage() {
   const { id } = useParams();
@@ -101,9 +126,14 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  const loadBasic = useCallback(() => {
+  const loadBasic = useCallback(async () => {
     if (!id) return;
-    transactionsApi.getBasic(+id).then((r) => setTx(r.data)).catch(() => navigate('/transactions'));
+    try {
+      const res = await transactionsApi.getBasic(+id);
+      setTx(res.data);
+    } catch {
+      navigate('/transactions');
+    }
   }, [id, navigate]);
 
   const loadAssignments = useCallback(async () => {
@@ -192,53 +222,57 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     }
   }, [id]);
 
-  const selectTab = (tab: DetailTab) => {
+  const handleSelectTab = async (tab: DetailTab) => {
     setActiveTab(tab);
     if (tab === 'timeline' || tab === 'audit') {
-      void loadAuditTabData();
+      try {
+        await loadAuditTabData();
+      } catch {
+        setAuditTabError('تعذر تحميل سجل التدقيق');
+      }
     }
   };
 
   useEffect(() => {
     let active = true;
 
-    loadBasic();
+    const loadInitialData = async () => {
+      await loadBasic();
 
-    void transactionsApi.getAssignments(+id)
-      .then((res) => {
-        if (active) setAssignments(res.data ?? []);
-      })
-      .catch(() => {
-        if (active) setAssignmentsError('تعذر تحميل التحويلات');
-      })
-      .finally(() => {
-        if (active) setAssignmentsLoading(false);
-      });
+      const [assignmentsResult, followUpsResult, attachmentsResult] = await Promise.allSettled([
+        transactionsApi.getAssignments(+id),
+        transactionsApi.getFollowUps(+id),
+        transactionsApi.getAttachments(+id),
+      ]);
 
-    void transactionsApi.getFollowUps(+id)
-      .then((res) => {
-        if (active) setFollowUps(res.data ?? []);
-      })
-      .catch(() => {
-        if (active) setFollowUpsError('تعذر تحميل التعقيبات');
-      })
-      .finally(() => {
-        if (active) setFollowUpsLoading(false);
-      });
+      if (!active) return;
 
-    void transactionsApi.getAttachments(+id)
-      .then((res) => {
-        if (active) setAttachments(res.data ?? []);
-      })
-      .catch(() => {
-        if (active) {
-          setAttachmentsError('تعذر تحميل المرفقات');
-          setAttachments([]);
-        }
-      })
-      .finally(() => {
-        if (active) setAttachmentsLoading(false);
-      });
+      if (assignmentsResult.status === 'fulfilled') {
+        setAssignments(assignmentsResult.value.data ?? []);
+      } else {
+        setAssignmentsError('تعذر تحميل التحويلات');
+      }
+      setAssignmentsLoading(false);
+
+      if (followUpsResult.status === 'fulfilled') {
+        setFollowUps(followUpsResult.value.data ?? []);
+      } else {
+        setFollowUpsError('تعذر تحميل التعقيبات');
+      }
+      setFollowUpsLoading(false);
+
+      if (attachmentsResult.status === 'fulfilled') {
+        setAttachments(attachmentsResult.value.data ?? []);
+      } else {
+        setAttachmentsError('تعذر تحميل المرفقات');
+        setAttachments([]);
+      }
+      setAttachmentsLoading(false);
+    };
+
+    loadInitialData().catch(() => {
+      if (active) setError('تعذر تحميل بيانات المعاملة');
+    });
 
     return () => { active = false; };
   }, [id, loadBasic]);
@@ -249,32 +283,35 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
 
     let active = true;
 
-    void transactionsApi.getAuditLog(+id, 1)
-      .then((res) => {
+    const loadAuditFromUrl = async () => {
+      try {
+        const res = await transactionsApi.getAuditLog(+id, 1);
         if (!active) return;
         setAuditLogs(res.data.items);
         setAuditPage(1);
         setAuditHasMore(res.data.hasNextPage);
         auditDataLoadedRef.current = true;
-      })
-      .catch(() => {
+      } catch {
         if (!active) return;
         setAuditTabError('تعذر تحميل سجل التدقيق');
         setAuditLogs([]);
         setAuditHasMore(false);
-      })
-      .finally(() => {
+      } finally {
         if (active) setAuditTabLoading(false);
-      });
+      }
+    };
+
+    loadAuditFromUrl().catch(() => {
+      if (active) setAuditTabError('تعذر تحميل سجل التدقيق');
+    });
 
     return () => { active = false; };
   }, [id, tabFromUrl]);
 
-  const refreshAuditIfLoaded = useCallback(() => {
-    if (auditDataLoadedRef.current) {
-      return loadAuditTabData();
-    }
-    return Promise.resolve();
+  const refreshAuditIfLoaded = useCallback(async () => {
+    if (!auditDataLoadedRef.current) return;
+    auditDataLoadedRef.current = false;
+    await loadAuditTabData();
   }, [loadAuditTabData]);
 
   const resetAndCloseAction = useCallback(() => {
@@ -301,12 +338,12 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     setActionDirty(false);
   }, [activeAction, actionDirty]);
 
-  const toggleAction = useCallback((action: WorkspaceAction) => {
-    if (activeAction === action) {
+  const toggleAction = useCallback((action: WorkspaceAction, ctx: WorkspaceActionContext = {}) => {
+    if (activeAction === action && !ctx.replyAssignmentId && !ctx.replyFollowUpId) {
       closeAction();
-    } else {
-      openAction(action);
+      return;
     }
+    openAction(action, ctx);
   }, [activeAction, closeAction, openAction]);
 
   const handleActionSuccess = useCallback(async (
@@ -326,46 +363,65 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     }
   }, [resetAndCloseAction, refreshAuditIfLoaded]);
 
-  const handleClose = async () => {
+  const handleAssignmentSuccess = async () => {
+    await handleActionSuccess('تم إضافة التحويل بنجاح.', [loadAssignments, loadBasic]);
+  };
+
+  const handleFollowUpSuccess = async () => {
+    await handleActionSuccess('تم إضافة التعقيب بنجاح.', [loadFollowUps, loadBasic]);
+  };
+
+  const handleAttachmentSuccess = async () => {
+    await handleActionSuccess('تم رفع المرفق بنجاح.', [loadAttachments]);
+  };
+
+  const handleReplyAssignmentSuccess = async () => {
+    await handleActionSuccess('تم تسجيل الرد بنجاح.', [loadAssignments, loadBasic]);
+  };
+
+  const handleReplyFollowUpSuccess = async () => {
+    await handleActionSuccess('تم تسجيل الرد بنجاح.', [loadFollowUps, loadBasic]);
+  };
+
+  const handleCompleteResponseSuccess = async (result?: { attachmentWarning?: string }) => {
+    const successMessage = result?.attachmentWarning ?? 'تم تسجيل الإفادة بنجاح.';
+    await handleActionSuccess(successMessage, [loadBasic, loadAssignments]);
+  };
+
+  const handleCloseTransaction = async () => {
     if (!tx) return;
     const needsResponse = tx.requiresResponse || tx.responseType !== 'None';
     if (needsResponse && !tx.responseCompleted) {
       setError('لا يمكن إغلاق المعاملة قبل تسجيل الإفادة.');
       return;
     }
-    if (!confirm('هل تريد إغلاق المعاملة؟')) return;
+    if (!globalThis.confirm('هل تريد إغلاق المعاملة؟')) return;
     setError('');
     try {
-      await transactionsApi.close(+id!);
-      loadBasic();
-      loadAssignments();
+      await transactionsApi.close(+id);
+      await Promise.all([loadBasic(), loadAssignments()]);
       setMessage('تم إغلاق المعاملة');
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
     }
   };
 
-  const handleScannedAttachmentSaved = async () => {
-    setMessage('تم رفع المرفق بنجاح.');
-    await loadAttachments();
-  };
-
   const downloadAttachment = async (attachmentId: number, fileName: string) => {
-    const res = await transactionsApi.downloadAttachment(+id!, attachmentId);
-    const url = window.URL.createObjectURL(res.data);
+    const res = await transactionsApi.downloadAttachment(+id, attachmentId);
+    const url = globalThis.URL.createObjectURL(res.data);
     const a = document.createElement('a');
     a.href = url;
     a.download = fileName;
     a.click();
-    window.URL.revokeObjectURL(url);
+    globalThis.URL.revokeObjectURL(url);
   };
 
   const previewAttachment = async (attachmentId: number, contentType?: string) => {
     if (!isPreviewableAttachment(contentType)) return;
-    const res = await transactionsApi.downloadAttachment(+id!, attachmentId);
-    const url = window.URL.createObjectURL(res.data);
-    window.open(url, '_blank', 'noopener,noreferrer');
-    window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+    const res = await transactionsApi.downloadAttachment(+id, attachmentId);
+    const url = globalThis.URL.createObjectURL(res.data);
+    globalThis.open(url, '_blank', 'noopener,noreferrer');
+    globalThis.setTimeout(() => globalThis.URL.revokeObjectURL(url), 60_000);
   };
 
   if (!tx) return <div className="loading"><LoadingInline /></div>;
@@ -377,6 +433,11 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const canShowClose = canClose && !isTerminal && (!needsResponse || tx.responseCompleted);
   const showMutationActions = canEdit && !isDepartmentUser;
   const canReply = isDepartmentUser || canEdit;
+  const openAssignmentsCount = countOpenAssignments(assignments);
+  const replyAssignmentId = actionContext.replyAssignmentId;
+  const replyFollowUpId = actionContext.replyFollowUpId;
+  const existingDepartmentIds = assignments.map((a) => a.departmentId);
+  const isGlobalActionOpen = activeAction !== null && GLOBAL_ACTIONS.has(activeAction);
 
   const timelineEvents: TimelineEvent[] = auditLogs.map((log) => ({
     id: log.id,
@@ -390,329 +451,112 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     ? 'تعذر تحميل الخط الزمني'
     : 'تعذر تحميل سجل التدقيق';
 
-  const existingDepartmentIds = assignments.map((a) => a.departmentId);
-
-  const actionPanelTitle: Record<WorkspaceAction, string> = {
-    assignment: 'إضافة تحويل',
-    followup: 'إضافة تعقيب',
-    attachment: 'إضافة مرفق',
-    'reply-assignment': 'تسجيل رد على التحويل',
-    'reply-followup': 'تسجيل رد على التعقيب',
-    'complete-response': 'تسجيل الإفادة',
-    'follow-up-letter': 'خطاب تعقيب PDF',
-  };
-
   const detailsTabContent = (
     <div className="transaction-details-stack">
-      <section className="card" aria-label="معلومات المعاملة">
-        <div className={`status-bar badge ${statusBadgeClass(tx.status, tx.isOverdue)}`}>
-          <strong>الحالة:</strong> <StatusBadge status={tx.status} isOverdue={tx.isOverdue} />
-          {tx.isOverdue && <span className="status-extra"> — متأخرة</span>}
-          {tx.hasPendingAssignments && <span className="status-extra"> — باقي إجراء</span>}
-          {tx.responseTimingLabel && tx.requiresResponse && (
-            <span className={`status-extra badge badge-spaced ${responseTimingBadgeClass(tx.responseTimingStatus)}`}>
-              {tx.responseTimingLabel}
-            </span>
-          )}
+      <section className="card transaction-hero-card" aria-label="معلومات المعاملة">
+        <div className="transaction-hero-top">
+          <div className="transaction-hero-title-block">
+            <div className="transaction-hero-title-row">
+              <h2 className="transaction-hero-number">{tx.incomingNumber}</h2>
+              <StatusBadge status={tx.status} isOverdue={tx.isOverdue} />
+              <PriorityBadge priority={tx.priority} />
+              {tx.isOverdue && <span className="badge badge-red">متأخرة</span>}
+              {tx.hasPendingAssignments && <span className="badge badge-orange">باقي إجراء</span>}
+              {tx.responseTimingLabel && tx.requiresResponse && (
+                <span className={`badge badge-spaced ${responseTimingBadgeClass(tx.responseTimingStatus)}`}>
+                  {tx.responseTimingLabel}
+                </span>
+              )}
+            </div>
+            <p className="transaction-hero-subject">{tx.subject}</p>
+            <div className="transaction-hero-meta">
+              <span>{tx.incomingFrom || '—'}</span>
+              <span className="transaction-hero-meta-sep">•</span>
+              <span>{tx.categoryName || '—'}</span>
+              <span className="transaction-hero-meta-sep">•</span>
+              <DepartmentBadges names={tx.outgoingDepartmentNames} />
+            </div>
+          </div>
+          <div className="transaction-hero-actions">
+            <TransactionActionBar
+              transactionId={id}
+              canEdit={canEdit}
+              canClose={canClose}
+              isDepartmentUser={isDepartmentUser}
+              canRegisterResponse={canRegisterResponse}
+              canShowClose={canShowClose}
+              hasPendingDepts={hasPendingDepts}
+              activeAction={activeAction}
+              onAction={toggleAction}
+              onCloseTransaction={handleCloseTransaction}
+            />
+          </div>
         </div>
 
-        <div className="timeline-stats mt-4">
-          <div className="timeline-stat">
-            <span className="timeline-stat-label">منذ ورود المعاملة</span>
-            <span className="timeline-stat-value">{formatDaysSince(tx.daysSinceIncoming, '0')}</span>
+        <div className="transaction-metric-grid">
+          <div className="transaction-metric-tile">
+            <span className="transaction-metric-label">منذ ورود المعاملة</span>
+            <span className="transaction-metric-value">{formatDaysSince(tx.daysSinceIncoming, '0')}</span>
           </div>
-          <div className="timeline-stat">
-            <span className="timeline-stat-label">منذ آخر تعقيب</span>
-            <span className="timeline-stat-value">{formatDaysSince(tx.daysSinceLastFollowUp)}</span>
+          <div className="transaction-metric-tile">
+            <span className="transaction-metric-label">الأيام المتبقية</span>
+            <span className={`transaction-metric-value${tx.isResponseOverdue ? ' text-danger' : ''}`}>
+              {formatDaysRemaining(tx.daysRemainingForResponse)}
+            </span>
           </div>
-          <div className="timeline-stat">
-            <span className="timeline-stat-label">تاريخ الرد المطلوب</span>
-            <span className="timeline-stat-value">
+          <div className="transaction-metric-tile">
+            <span className="transaction-metric-label">تاريخ الرد المطلوب</span>
+            <span className="transaction-metric-value">
               {tx.responseDueDate ? <DateDisplay date={tx.responseDueDate} /> : '—'}
             </span>
           </div>
-          <div className="timeline-stat">
-            <span className="timeline-stat-label">الأولوية</span>
-            <span className="timeline-stat-value"><PriorityBadge priority={tx.priority} /></span>
+          <div className="transaction-metric-tile">
+            <span className="transaction-metric-label">منذ آخر تعقيب</span>
+            <span className="transaction-metric-value">{formatDaysSince(tx.daysSinceLastFollowUp)}</span>
+          </div>
+          <div className="transaction-metric-tile">
+            <span className="transaction-metric-label">تحويلات مفتوحة</span>
+            <span className="transaction-metric-value">{openAssignmentsCount}</span>
+          </div>
+          <div className="transaction-metric-tile">
+            <span className="transaction-metric-label">المرفقات</span>
+            <span className="transaction-metric-value">{attachments.length}</span>
           </div>
         </div>
 
-        <div className="detail-grid mt-4">
-          <div><strong>رقم التتبع:</strong> {tx.internalTrackingNumber}</div>
-          <div><strong>رقم الوارد:</strong> {tx.incomingNumber}</div>
-          <div><strong>تاريخ الوارد:</strong> <DateDisplay date={tx.incomingDate} /></div>
-          <div><strong>التصنيف:</strong> {tx.categoryName || '-'}</div>
-          <div><strong>نوع الجهة الوارد منها:</strong> {tx.incomingSourceType === 'Internal' ? 'داخلية' : 'خارجية'}</div>
-          <div><strong>الجهة الوارد منها:</strong> {tx.incomingFrom || '-'}</div>
-          <div className="full-width"><strong>الموضوع:</strong> {tx.subject}</div>
-          {tx.outgoingNumber && <div><strong>رقم الصادر:</strong> {tx.outgoingNumber}</div>}
-          {tx.outgoingDate && <div><strong>تاريخ الصادر:</strong> <DateDisplay date={tx.outgoingDate} /></div>}
-          <div className="full-width">
-            <strong>الإدارات الصادر لها:</strong>{' '}
-            {tx.outgoingDepartments.length > 0 ? tx.outgoingDepartments.map((o) => o.departmentName).join('، ') : '-'}
+        <details className="transaction-hero-details">
+          <summary>تفاصيل إضافية</summary>
+          <div className="detail-grid mt-3">
+            <div><strong>رقم التتبع:</strong> {tx.internalTrackingNumber}</div>
+            <div><strong>تاريخ الوارد:</strong> <DateDisplay date={tx.incomingDate} /></div>
+            <div><strong>نوع الجهة:</strong> {tx.incomingSourceType === 'Internal' ? 'داخلية' : 'خارجية'}</div>
+            {tx.outgoingNumber && <div><strong>رقم الصادر:</strong> {tx.outgoingNumber}</div>}
+            {tx.outgoingDate && <div><strong>تاريخ الصادر:</strong> <DateDisplay date={tx.outgoingDate} /></div>}
+            {needsResponse && (
+              <>
+                <div><strong>مطلوب إفادة:</strong> نعم ({responseTypeLabels[tx.responseType] || tx.responseType})</div>
+                <div><strong>حالة الإفادة:</strong> {responseStatusLabel(tx.responseCompleted, tx.responseCompletedDate)}</div>
+                {tx.responseSummary && <div className="full-width"><strong>ملخص الإفادة:</strong> {tx.responseSummary}</div>}
+              </>
+            )}
+            {tx.notes && <div className="full-width"><strong>ملاحظات:</strong> {tx.notes}</div>}
           </div>
-          {needsResponse && (
-            <>
-              <div><strong>مطلوب إفادة:</strong> نعم ({responseTypeLabels[tx.responseType] || tx.responseType})</div>
-              {tx.responseDueDate && <div><strong>تاريخ استحقاق الإفادة:</strong> <DateDisplay date={tx.responseDueDate} /></div>}
-              <div>
-                <strong>حالة الإفادة:</strong> {responseStatusLabel(tx.responseCompleted, tx.responseCompletedDate)}
-              </div>
-              {tx.responseSummary && <div className="full-width"><strong>ملخص الإفادة:</strong> {tx.responseSummary}</div>}
-              {hasPendingDepts && !tx.responseCompleted && (
-                <div className="full-width overdue-text">لا يمكن تسجيل الإفادة قبل اكتمال رد جميع الإدارات.</div>
-              )}
-            </>
-          )}
-          {tx.repliedDepartmentNames.length > 0 && (
-            <div className="full-width"><strong>الإدارات التي ردت:</strong> {tx.repliedDepartmentNames.join('، ')}</div>
-          )}
-          {tx.pendingDepartmentNames.length > 0 && (
-            <div className="full-width overdue-text"><strong>الإدارات التي لم ترد:</strong> {tx.pendingDepartmentNames.join('، ')}</div>
-          )}
-          {tx.notes && <div className="full-width"><strong>ملاحظات:</strong> {tx.notes}</div>}
-        </div>
+        </details>
       </section>
 
-      <section className="card" aria-label="التحويلات والردود">
-        <div className="card-header">
-          <h3>التحويلات والردود</h3>
-          {showMutationActions && (
-            <div className="card-header-actions">
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => openAction('assignment')}>
-                إضافة تحويل
-              </button>
-            </div>
-          )}
-        </div>
-        {assignmentsLoading && <LoadingInline label="جاري تحميل التحويلات..." />}
-        {assignmentsError && <Alert variant="error">{assignmentsError}</Alert>}
-        {!assignmentsLoading && !assignmentsError && (
-          <div className="table-wrapper">
-            <table className="data-table">
-              <thead><tr><th>الإدارة</th><th>الإجراء</th><th>تاريخ الاستحقاق</th><th>حالة الرد</th><th>إجراء</th></tr></thead>
-              <tbody>
-                {assignments.map((a) => (
-                  <tr key={a.id} className={a.isOverdue ? 'row-overdue' : ''}>
-                    <td>{a.departmentName}</td>
-                    <td>{a.requiredAction || '-'}</td>
-                    <td>{a.dueDate ? <DateDisplay date={a.dueDate} /> : '-'}</td>
-                    <td>
-                      <span className={`badge ${assignmentReplyBadgeClass(a.replyStatus, a.isOverdue)}`}>
-                        {replyStatusLabels[a.replyStatus] || a.replyStatus}
-                      </span>
-                    </td>
-                    <td>
-                      {a.requiresReply && a.replyStatus !== 'Replied' && a.status !== 'Cancelled' && canReply && (
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline"
-                          onClick={() => openAction('reply-assignment', { replyAssignmentId: a.id })}
-                        >
-                          تسجيل رد
-                        </button>
-                      )}
-                      {a.replySummary && <div className="text-muted reply-summary">{a.replySummary}</div>}
-                    </td>
-                  </tr>
-                ))}
-                {assignments.length === 0 && <tr><td colSpan={5} className="text-center">لا توجد تحويلات</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      <section className="card" aria-label="التعقيبات والردود">
-        <div className="card-header">
-          <h3>التعقيبات والردود</h3>
-          {showMutationActions && (
-            <div className="card-header-actions">
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => openAction('followup')}>
-                إضافة تعقيب
-              </button>
-            </div>
-          )}
-        </div>
-        {followUpsLoading && <LoadingInline label="جاري تحميل التعقيبات..." />}
-        {followUpsError && <Alert variant="error">{followUpsError}</Alert>}
-        {!followUpsLoading && !followUpsError && (
-          <div className="table-wrapper">
-            <table className="data-table">
-              <thead><tr><th>الرقم</th><th>التاريخ</th><th>مرسل إلى</th><th>ملاحظات</th><th>حالة الرد</th><th>إجراء</th></tr></thead>
-              <tbody>
-                {followUps.map((f) => (
-                  <tr key={f.id}>
-                    <td>{f.followUpNumber || '-'}</td>
-                    <td><DateDisplay date={f.followUpDate} /></td>
-                    <td>{f.departments?.length > 0 ? f.departments.map((d) => d.departmentName).join('، ') : f.sentTo || '-'}</td>
-                    <td>{f.notes || '-'}</td>
-                    <td>
-                      <span className={`badge ${f.replyStatus === 'Replied' ? 'badge-green' : 'badge-orange'}`}>
-                        {replyStatusLabels[f.replyStatus] || f.replyStatus}
-                      </span>
-                    </td>
-                    <td>
-                      {f.requiresReply && f.replyStatus !== 'Replied' && canReply && (
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline"
-                          onClick={() => openAction('reply-followup', { replyFollowUpId: f.id })}
-                        >
-                          تسجيل رد
-                        </button>
-                      )}
-                      {f.replySummary && <div className="text-muted reply-summary">{f.replySummary}</div>}
-                    </td>
-                  </tr>
-                ))}
-                {followUps.length === 0 && <tr><td colSpan={6} className="text-center">لا توجد تعقيبات</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      <section className="card" aria-label="المرفقات">
-        <div className="card-header">
-          <h3>المرفقات</h3>
-          {showMutationActions && (
-            <div className="card-header-actions">
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => openAction('attachment')}>
-                رفع ملف
-              </button>
-              <ScanAttachmentButton transactionId={+id} onSaved={handleScannedAttachmentSaved} />
-            </div>
-          )}
-        </div>
-        {attachmentsLoading && <LoadingInline label="جاري تحميل المرفقات..." />}
-        {attachmentsError && (
-          <Alert variant="error">
-            {attachmentsError}
-            <button type="button" className="btn btn-sm btn-outline ms-2" onClick={() => { void loadAttachments(); }}>
-              إعادة المحاولة
-            </button>
-          </Alert>
-        )}
-        {!attachmentsLoading && !attachmentsError && (
-          <div className="table-wrapper">
-            <table className="data-table">
-              <thead><tr><th>الملف</th><th>الحجم</th><th>رفع بواسطة</th><th>التاريخ</th><th>إجراءات</th></tr></thead>
-              <tbody>
-                {attachments.map((a) => (
-                  <tr key={a.id}>
-                    <td>{a.originalFileName}</td>
-                    <td>{(a.fileSize / 1024).toFixed(1)} KB</td>
-                    <td>{a.uploadedByName}</td>
-                    <td><DateDisplay date={a.uploadedAt} /></td>
-                    <td>
-                      <button type="button" className="btn btn-sm btn-outline" onClick={() => { void downloadAttachment(a.id, a.originalFileName); }}>
-                        تحميل
-                      </button>
-                      {isPreviewableAttachment(a.contentType) && (
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline ms-1"
-                          onClick={() => { void previewAttachment(a.id, a.contentType); }}
-                        >
-                          معاينة
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {attachments.length === 0 && <tr><td colSpan={5} className="text-center">لا توجد مرفقات</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-    </div>
-  );
-
-  return (
-    <div className="transaction-workspace">
-      <PageHeader title="مساحة عمل المعاملة" subtitle={`${tx.incomingNumber} — ${tx.subject}`} />
-
-      {message && <Alert variant="success">{message}</Alert>}
-      {error && <Alert variant="error">{error}</Alert>}
-
-      <TransactionWorkspaceHeader tx={tx} />
-
-      <TransactionActionBar
-        transactionId={id}
-        canEdit={canEdit}
-        canClose={canClose}
-        isDepartmentUser={isDepartmentUser}
-        canRegisterResponse={canRegisterResponse}
-        canShowClose={canShowClose}
-        hasPendingDepts={hasPendingDepts}
-        activeAction={activeAction}
-        onAction={toggleAction}
-        onCloseTransaction={handleClose}
-      />
-
-      {activeAction && (
+      {isGlobalActionOpen && activeAction && (
         <TransactionActionPanel
-          title={actionPanelTitle[activeAction]}
+          title={ACTION_TITLES[activeAction]}
           open
           onClose={closeAction}
         >
-          {activeAction === 'assignment' && (
-            <AssignmentFormPanel
-              transactionId={+id}
-              departments={departments}
-              existingDepartmentIds={existingDepartmentIds}
-              onDirtyChange={setActionDirty}
-              onCancel={closeAction}
-              onSuccess={() => handleActionSuccess('تم إضافة التحويل بنجاح.', [loadAssignments, loadBasic])}
-            />
-          )}
-          {activeAction === 'followup' && (
-            <FollowUpFormPanel
-              transactionId={+id}
-              daysSinceLastFollowUp={tx.daysSinceLastFollowUp}
-              onDirtyChange={setActionDirty}
-              onCancel={closeAction}
-              onSuccess={() => handleActionSuccess('تم إضافة التعقيب بنجاح.', [loadFollowUps, loadBasic])}
-            />
-          )}
-          {activeAction === 'attachment' && (
-            <AttachmentFormPanel
-              transactionId={+id}
-              onDirtyChange={setActionDirty}
-              onCancel={closeAction}
-              onSuccess={() => handleActionSuccess('تم رفع المرفق بنجاح.', [loadAttachments])}
-            />
-          )}
-          {activeAction === 'reply-assignment' && actionContext.replyAssignmentId && (
-            <ReplyFormPanel
-              title="تسجيل رد على التحويل"
-              onDirtyChange={setActionDirty}
-              onCancel={closeAction}
-              onSubmit={(payload) => transactionsApi.replyAssignment(+id, actionContext.replyAssignmentId!, payload)}
-              onSuccess={() => handleActionSuccess('تم تسجيل الرد بنجاح.', [loadAssignments, loadBasic])}
-            />
-          )}
-          {activeAction === 'reply-followup' && actionContext.replyFollowUpId && (
-            <ReplyFormPanel
-              title="تسجيل رد على التعقيب"
-              onDirtyChange={setActionDirty}
-              onCancel={closeAction}
-              onSubmit={(payload) => transactionsApi.replyFollowUp(+id, actionContext.replyFollowUpId!, payload)}
-              onSuccess={() => handleActionSuccess('تم تسجيل الرد بنجاح.', [loadFollowUps, loadBasic])}
-            />
-          )}
           {activeAction === 'complete-response' && (
             <CompleteResponseFormPanel
               transactionId={+id}
               responseType={tx.responseType}
               onDirtyChange={setActionDirty}
               onCancel={closeAction}
-              onSuccess={(result) => {
-                const successMessage = result?.attachmentWarning ?? 'تم تسجيل الإفادة بنجاح.';
-                void handleActionSuccess(successMessage, [loadBasic, loadAssignments]);
-              }}
+              onSuccess={handleCompleteResponseSuccess}
             />
           )}
           {activeAction === 'follow-up-letter' && (
@@ -728,13 +572,315 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
         </TransactionActionPanel>
       )}
 
+      <div className="transaction-sections-grid">
+        <section className="card transaction-section-card" aria-label="التحويلات والردود">
+          <div className="section-card-header">
+            <div className="section-card-title">
+              <span className="section-card-icon" aria-hidden>↪</span>
+              <h3>التحويلات والردود</h3>
+              <span className="section-card-count">{assignments.length} تحويل</span>
+            </div>
+            {showMutationActions && (
+              <button
+                type="button"
+                className={`btn btn-secondary btn-sm${activeAction === 'assignment' ? ' active' : ''}`}
+                aria-pressed={activeAction === 'assignment'}
+                onClick={() => toggleAction('assignment')}
+              >
+                + إضافة تحويل
+              </button>
+            )}
+          </div>
+
+          {activeAction === 'assignment' && (
+            <CardActionPanel
+              title={ACTION_TITLES.assignment}
+              onClose={closeAction}
+              testId="assignment-form-panel"
+            >
+              <AssignmentFormPanel
+                transactionId={+id}
+                departments={departments}
+                existingDepartmentIds={existingDepartmentIds}
+                onDirtyChange={setActionDirty}
+                onCancel={closeAction}
+                onSuccess={handleAssignmentSuccess}
+              />
+            </CardActionPanel>
+          )}
+
+          {activeAction === 'reply-assignment' && replyAssignmentId && (
+            <CardActionPanel
+              title={ACTION_TITLES['reply-assignment']}
+              onClose={closeAction}
+              testId="reply-assignment-form-panel"
+            >
+              <ReplyFormPanel
+                title="تسجيل رد على التحويل"
+                onDirtyChange={setActionDirty}
+                onCancel={closeAction}
+                onSubmit={(payload) => transactionsApi.replyAssignment(+id, replyAssignmentId, payload)}
+                onSuccess={handleReplyAssignmentSuccess}
+              />
+            </CardActionPanel>
+          )}
+
+          {assignmentsLoading && <LoadingInline label="جاري تحميل التحويلات..." />}
+          {assignmentsError && (
+            <Alert variant="error">
+              {assignmentsError}
+              <button type="button" className="btn btn-sm btn-outline ms-2" onClick={loadAssignments}>
+                إعادة المحاولة
+              </button>
+            </Alert>
+          )}
+          {!assignmentsLoading && !assignmentsError && assignments.length === 0 && (
+            <div className="section-empty-state">
+              <p>لا توجد تحويلات مسجلة لهذه المعاملة.</p>
+              {showMutationActions && (
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => toggleAction('assignment')}>
+                  إضافة أول تحويل
+                </button>
+              )}
+            </div>
+          )}
+          {!assignmentsLoading && !assignmentsError && assignments.length > 0 && (
+            <div className="table-wrapper section-data-list">
+              <table className="data-table data-table-compact">
+                <thead><tr><th>الإدارة</th><th>الإجراء</th><th>الاستحقاق</th><th>الرد</th><th>إجراء</th></tr></thead>
+                <tbody>
+                  {assignments.map((a) => (
+                    <tr key={a.id} className={a.isOverdue ? 'row-overdue' : ''}>
+                      <td>{a.departmentName}</td>
+                      <td>{a.requiredAction || '—'}</td>
+                      <td>{a.dueDate ? <DateDisplay date={a.dueDate} /> : '—'}</td>
+                      <td>
+                        <span className={`badge ${assignmentReplyBadgeClass(a.replyStatus, a.isOverdue)}`}>
+                          {replyStatusLabels[a.replyStatus] || a.replyStatus}
+                        </span>
+                      </td>
+                      <td>
+                        {a.requiresReply && a.replyStatus !== 'Replied' && a.status !== 'Cancelled' && canReply && (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline"
+                            onClick={() => openAction('reply-assignment', { replyAssignmentId: a.id })}
+                          >
+                            تسجيل رد
+                          </button>
+                        )}
+                        {a.replySummary && <div className="text-muted reply-summary">{a.replySummary}</div>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        <section className="card transaction-section-card" aria-label="التعقيبات والردود">
+          <div className="section-card-header">
+            <div className="section-card-title">
+              <span className="section-card-icon" aria-hidden>✉</span>
+              <h3>التعقيبات والردود</h3>
+              <span className="section-card-count">{followUps.length} تعقيب</span>
+            </div>
+            {showMutationActions && (
+              <button
+                type="button"
+                className={`btn btn-secondary btn-sm${activeAction === 'followup' ? ' active' : ''}`}
+                aria-pressed={activeAction === 'followup'}
+                onClick={() => toggleAction('followup')}
+              >
+                + إضافة تعقيب
+              </button>
+            )}
+          </div>
+
+          {activeAction === 'followup' && (
+            <CardActionPanel
+              title={ACTION_TITLES.followup}
+              onClose={closeAction}
+              testId="followup-form-panel"
+            >
+              <FollowUpFormPanel
+                transactionId={+id}
+                daysSinceLastFollowUp={tx.daysSinceLastFollowUp}
+                onDirtyChange={setActionDirty}
+                onCancel={closeAction}
+                onSuccess={handleFollowUpSuccess}
+              />
+            </CardActionPanel>
+          )}
+
+          {activeAction === 'reply-followup' && replyFollowUpId && (
+            <CardActionPanel
+              title={ACTION_TITLES['reply-followup']}
+              onClose={closeAction}
+              testId="reply-followup-form-panel"
+            >
+              <ReplyFormPanel
+                title="تسجيل رد على التعقيب"
+                onDirtyChange={setActionDirty}
+                onCancel={closeAction}
+                onSubmit={(payload) => transactionsApi.replyFollowUp(+id, replyFollowUpId, payload)}
+                onSuccess={handleReplyFollowUpSuccess}
+              />
+            </CardActionPanel>
+          )}
+
+          {followUpsLoading && <LoadingInline label="جاري تحميل التعقيبات..." />}
+          {followUpsError && (
+            <Alert variant="error">
+              {followUpsError}
+              <button type="button" className="btn btn-sm btn-outline ms-2" onClick={loadFollowUps}>
+                إعادة المحاولة
+              </button>
+            </Alert>
+          )}
+          {!followUpsLoading && !followUpsError && followUps.length === 0 && (
+            <div className="section-empty-state">
+              <p>لا توجد تعقيبات مسجلة لهذه المعاملة.</p>
+              {showMutationActions && (
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => toggleAction('followup')}>
+                  إضافة أول تعقيب
+                </button>
+              )}
+            </div>
+          )}
+          {!followUpsLoading && !followUpsError && followUps.length > 0 && (
+            <div className="table-wrapper section-data-list">
+              <table className="data-table data-table-compact">
+                <thead><tr><th>الرقم</th><th>التاريخ</th><th>مرسل إلى</th><th>الرد</th><th>إجراء</th></tr></thead>
+                <tbody>
+                  {followUps.map((f) => (
+                    <tr key={f.id}>
+                      <td>{f.followUpNumber || '—'}</td>
+                      <td><DateDisplay date={f.followUpDate} /></td>
+                      <td>{f.departments?.length > 0 ? f.departments.map((d) => d.departmentName).join('، ') : f.sentTo || '—'}</td>
+                      <td>
+                        <span className={`badge ${f.replyStatus === 'Replied' ? 'badge-green' : 'badge-orange'}`}>
+                          {replyStatusLabels[f.replyStatus] || f.replyStatus}
+                        </span>
+                      </td>
+                      <td>
+                        {f.requiresReply && f.replyStatus !== 'Replied' && canReply && (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline"
+                            onClick={() => openAction('reply-followup', { replyFollowUpId: f.id })}
+                          >
+                            تسجيل رد
+                          </button>
+                        )}
+                        {f.replySummary && <div className="text-muted reply-summary">{f.replySummary}</div>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      </div>
+
+      <section className="card transaction-section-card transaction-section-card-full" aria-label="المرفقات">
+        <div className="section-card-header">
+          <div className="section-card-title">
+            <span className="section-card-icon" aria-hidden>📎</span>
+            <h3>المرفقات</h3>
+            <span className="section-card-count">{attachments.length} مرفق</span>
+          </div>
+          {showMutationActions && (
+            <button
+              type="button"
+              className={`btn btn-secondary btn-sm${activeAction === 'attachment' ? ' active' : ''}`}
+              aria-pressed={activeAction === 'attachment'}
+              onClick={() => toggleAction('attachment')}
+            >
+              + إضافة مرفق
+            </button>
+          )}
+        </div>
+
+        {activeAction === 'attachment' && (
+          <CardActionPanel
+            title={ACTION_TITLES.attachment}
+            onClose={closeAction}
+            testId="attachment-form-panel"
+          >
+            <AttachmentFormPanel
+              transactionId={+id}
+              onDirtyChange={setActionDirty}
+              onCancel={closeAction}
+              onSuccess={handleAttachmentSuccess}
+            />
+          </CardActionPanel>
+        )}
+
+        {attachmentsLoading && <LoadingInline label="جاري تحميل المرفقات..." />}
+        {attachmentsError && (
+          <Alert variant="error">
+            {attachmentsError}
+            <button type="button" className="btn btn-sm btn-outline ms-2" onClick={loadAttachments}>
+              إعادة المحاولة
+            </button>
+          </Alert>
+        )}
+        {!attachmentsLoading && !attachmentsError && attachments.length === 0 && (
+          <div className="section-empty-state">
+            <p>لا توجد مرفقات لهذه المعاملة.</p>
+            {showMutationActions && (
+              <button type="button" className="btn btn-primary btn-sm" onClick={() => toggleAction('attachment')}>
+                إضافة أول مرفق
+              </button>
+            )}
+          </div>
+        )}
+        {!attachmentsLoading && !attachmentsError && attachments.length > 0 && (
+          <div className="attachment-list section-data-list">
+            {attachments.map((a) => (
+              <article key={a.id} className="attachment-row-card">
+                <div className="attachment-row-main">
+                  <strong>{a.originalFileName}</strong>
+                  <span className="text-muted">{(a.fileSize / 1024).toFixed(1)} KB</span>
+                </div>
+                <div className="attachment-row-meta text-muted">
+                  {a.uploadedByName} • <DateDisplay date={a.uploadedAt} />
+                </div>
+                <div className="attachment-row-actions">
+                  <button type="button" className="btn btn-sm btn-outline" onClick={() => downloadAttachment(a.id, a.originalFileName)}>
+                    تحميل
+                  </button>
+                  {isPreviewableAttachment(a.contentType) && (
+                    <button type="button" className="btn btn-sm btn-outline" onClick={() => previewAttachment(a.id, a.contentType)}>
+                      معاينة
+                    </button>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+
+  return (
+    <div className="transaction-workspace">
+      <PageHeader title="مساحة عمل المعاملة" subtitle={`${tx.incomingNumber} — ${tx.subject}`} />
+
+      {message && <Alert variant="success">{message}</Alert>}
+      {error && <Alert variant="error">{error}</Alert>}
+
       <div className="tabs" role="tablist" aria-label="تبويبات تفاصيل المعاملة">
         <button
           type="button"
           role="tab"
           aria-selected={activeTab === 'details'}
           className={activeTab === 'details' ? 'active' : ''}
-          onClick={() => selectTab('details')}
+          onClick={() => handleSelectTab('details')}
         >
           تفاصيل المعاملة
         </button>
@@ -743,7 +889,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
           role="tab"
           aria-selected={activeTab === 'timeline'}
           className={activeTab === 'timeline' ? 'active' : ''}
-          onClick={() => selectTab('timeline')}
+          onClick={() => handleSelectTab('timeline')}
         >
           الخط الزمني
         </button>
@@ -752,7 +898,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
           role="tab"
           aria-selected={activeTab === 'audit'}
           className={activeTab === 'audit' ? 'active' : ''}
-          onClick={() => selectTab('audit')}
+          onClick={() => handleSelectTab('audit')}
         >
           سجل التدقيق
         </button>
@@ -767,7 +913,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
           title={auditErrorTitle}
           description={auditTabError}
           action={(
-            <button type="button" className="btn btn-primary" onClick={() => { void loadAuditTabData(); }}>
+            <button type="button" className="btn btn-primary" onClick={loadAuditTabData}>
               إعادة المحاولة
             </button>
           )}
@@ -784,7 +930,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                 type="button"
                 className="btn btn-secondary btn-sm"
                 disabled={auditLoadingMore}
-                onClick={() => { void loadAuditLog(auditPage + 1, true); }}
+                onClick={() => loadAuditLog(auditPage + 1, true)}
               >
                 {auditLoadingMore ? 'جاري التحميل...' : 'تحميل المزيد'}
               </button>
@@ -800,7 +946,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
           title={auditErrorTitle}
           description={auditTabError}
           action={(
-            <button type="button" className="btn btn-primary" onClick={() => { void loadAuditTabData(); }}>
+            <button type="button" className="btn btn-primary" onClick={loadAuditTabData}>
               إعادة المحاولة
             </button>
           )}
@@ -819,7 +965,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                     <td>{auditActionLabels[log.action] || log.action}</td>
                     <td>{log.userName}</td>
                     <td><DateDisplay date={log.createdAt} /></td>
-                    <td>{log.newValue || log.oldValue || '-'}</td>
+                    <td>{log.newValue || log.oldValue || '—'}</td>
                   </tr>
                 ))}
                 {auditLogs.length === 0 && <tr><td colSpan={4} className="text-center">لا توجد سجلات</td></tr>}
@@ -832,7 +978,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                 type="button"
                 className="btn btn-secondary"
                 disabled={auditLoadingMore}
-                onClick={() => { void loadAuditLog(auditPage + 1, true); }}
+                onClick={() => loadAuditLog(auditPage + 1, true)}
               >
                 {auditLoadingMore ? 'جاري التحميل...' : 'تحميل المزيد'}
               </button>

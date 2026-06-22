@@ -100,7 +100,9 @@ export default function FollowUpLetterFormPanel({
       }
     };
 
-    void loadInitial();
+    loadInitial().catch((err: unknown) => {
+      if (!cancelled) setError(getApiErrorMessage(err));
+    });
     return () => { cancelled = true; };
   }, [transactionId, defaultRecipient, onDirtyChange]);
 

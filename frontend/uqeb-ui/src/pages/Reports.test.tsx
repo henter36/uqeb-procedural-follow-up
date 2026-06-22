@@ -107,7 +107,7 @@ describe('ReportsPage auto loading', () => {
 
     const callsBefore = vi.mocked(services.reportsApi.openDetails).mock.calls.length;
     await user.type(screen.getByPlaceholderText(/بحث/), 'abc');
-    expect(vi.mocked(services.reportsApi.openDetails).mock.calls.length).toBe(callsBefore);
+    expect(vi.mocked(services.reportsApi.openDetails).mock.calls).toHaveLength(callsBefore);
 
     await waitFor(
       () => expect(vi.mocked(services.reportsApi.openDetails).mock.calls.length).toBeGreaterThan(callsBefore),

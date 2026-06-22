@@ -21,7 +21,10 @@ vi.mock('../context/AuthContext', () => ({
 
 vi.mock('../hooks/useReferenceData', () => ({
   useReferenceData: () => ({
-    departments: [{ id: 1, name: 'إدارة اختبار', isActive: true }],
+    departments: [
+      { id: 1, name: 'إدارة اختبار', isActive: true },
+      { id: 2, name: 'إدارة ثانية', isActive: true },
+    ],
     categories: [],
     parties: [],
     loading: false,
@@ -77,7 +80,7 @@ const sampleFollowUp = {
   notes: 'ملاحظة',
   departments: [{ departmentId: 1, departmentName: 'إدارة اختبار' }],
   replyStatus: 'Pending',
-  requiresReply: false,
+  requiresReply: true,
 };
 
 const sampleAttachment = {
@@ -118,6 +121,25 @@ function getActionBarButton(name: string) {
   return within(getActionBar()).getByRole('button', { name });
 }
 
+function getAssignmentsCard() {
+  return screen.getByRole('region', { name: 'التحويلات والردود' });
+}
+
+function getFollowUpsCard() {
+  return screen.getByRole('region', { name: 'التعقيبات والردود' });
+}
+
+function getAttachmentsCard() {
+  return screen.getByRole('region', { name: 'المرفقات' });
+}
+
+async function waitForDetailsReady() {
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'معلومات المعاملة' })).toBeInTheDocument();
+    expect(getAssignmentsCard()).toBeInTheDocument();
+  });
+}
+
 function renderDetail(path = '/transactions/1') {
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -135,6 +157,9 @@ function setupDefaultMocks() {
   vi.mocked(services.transactionsApi.getAttachments).mockResolvedValue({ data: [sampleAttachment] } as never);
   vi.mocked(services.transactionsApi.getAuditLog).mockResolvedValue({
     data: { items: [{ id: 1, action: 'Create', userName: 'مختبر', createdAt: '2026-01-01' }], hasNextPage: false },
+  } as never);
+  vi.mocked(services.transactionsApi.getFollowUpDepartments).mockResolvedValue({
+    data: [{ departmentId: 2, departmentName: 'إدارة ثانية', isDefaultSelected: true }],
   } as never);
 }
 
@@ -170,9 +195,9 @@ describe('TransactionDetailPage three-tab layout', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('region', { name: 'معلومات المعاملة' })).toBeInTheDocument();
-      expect(screen.getByRole('region', { name: 'التحويلات والردود' })).toBeInTheDocument();
-      expect(screen.getByRole('region', { name: 'التعقيبات والردود' })).toBeInTheDocument();
-      expect(screen.getByRole('region', { name: 'المرفقات' })).toBeInTheDocument();
+      expect(getAssignmentsCard()).toBeInTheDocument();
+      expect(getFollowUpsCard()).toBeInTheDocument();
+      expect(getAttachmentsCard()).toBeInTheDocument();
     });
 
     expect(screen.getByText('TRK-1')).toBeInTheDocument();
@@ -249,7 +274,7 @@ describe('TransactionDetailPage three-tab layout', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: 'تفاصيل المعاملة' })).toHaveAttribute('aria-selected', 'true');
-      expect(screen.getByRole('region', { name: 'التحويلات والردود' })).toBeInTheDocument();
+      expect(getAssignmentsCard()).toBeInTheDocument();
     });
     expect(services.transactionsApi.getAttachments).toHaveBeenCalled();
     expect(services.transactionsApi.getAuditLog).not.toHaveBeenCalled();
@@ -264,7 +289,7 @@ describe('TransactionDetailPage three-tab layout', () => {
     });
   });
 
-  it('refreshes only assignments card after adding assignment', async () => {
+  it('refreshes only assignments card after adding assignment from card button', async () => {
     const user = userEvent.setup();
     vi.mocked(services.transactionsApi.addAssignment).mockResolvedValue({ data: { id: 99 } } as never);
     vi.mocked(services.transactionsApi.getAssignments)
@@ -272,19 +297,26 @@ describe('TransactionDetailPage three-tab layout', () => {
       .mockResolvedValueOnce({ data: [sampleAssignment] } as never);
 
     renderDetail();
-    await waitFor(() => expect(getActionBarButton('إضافة تحويل')).toBeInTheDocument());
+    await waitForDetailsReady();
+    const card = getAssignmentsCard();
+    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة تحويل' })).toBeInTheDocument());
 
     const callsBefore = vi.mocked(services.transactionsApi.getFollowUps).mock.calls.length;
-    await user.click(getActionBarButton('إضافة تحويل'));
-    await user.selectOptions(screen.getByLabelText('الإدارة *'), '1');
+    await user.click(within(card).getByRole('button', { name: '+ إضافة تحويل' }));
+    expect(within(card).getByTestId('assignment-form-panel')).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('الإدارة *'), '2');
+    await user.type(screen.getByLabelText('الإجراء المطلوب'), 'مراجعة');
     await user.click(screen.getByRole('button', { name: 'حفظ التحويل' }));
 
     await waitFor(() => {
       expect(screen.getByRole('status')).toHaveTextContent('تم إضافة التحويل بنجاح');
       expect(screen.getByText('مراجعة')).toBeInTheDocument();
+      expect(within(card).queryByTestId('assignment-form-panel')).not.toBeInTheDocument();
     });
+    expect(services.transactionsApi.addAssignment).toHaveBeenCalledTimes(1);
     expect(vi.mocked(services.transactionsApi.getAssignments).mock.calls.length).toBeGreaterThan(1);
-    expect(vi.mocked(services.transactionsApi.getFollowUps).mock.calls.length).toBe(callsBefore);
+    expect(vi.mocked(services.transactionsApi.getFollowUps).mock.calls).toHaveLength(callsBefore);
     expect(screen.getByRole('heading', { level: 2, name: 'IN-1' })).toBeInTheDocument();
   });
 
@@ -300,12 +332,286 @@ describe('TransactionDetailPage three-tab layout', () => {
       expect(screen.getByRole('alert')).toHaveTextContent('تعذر تحميل المرفقات');
     });
 
-    const attachmentsCard = screen.getByRole('region', { name: 'المرفقات' });
+    const attachmentsCard = getAttachmentsCard();
     await user.click(within(attachmentsCard).getByRole('button', { name: 'إعادة المحاولة' }));
 
     await waitFor(() => {
-      expect(screen.getByText('لا توجد مرفقات')).toBeInTheDocument();
+      expect(screen.getByText('لا توجد مرفقات لهذه المعاملة.')).toBeInTheDocument();
     });
+  });
+});
+
+describe('TransactionDetailPage card interaction flows', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseAuth.mockReturnValue({
+      canEdit: true,
+      canClose: true,
+      isDepartmentUser: false,
+      user: { fullName: 'مختبر', role: 'Admin' },
+      logout: vi.fn(),
+      login: vi.fn(),
+      isAdmin: true,
+    });
+    setupDefaultMocks();
+    vi.mocked(services.transactionsApi.getAssignments).mockResolvedValue({ data: [] } as never);
+    vi.mocked(services.transactionsApi.getFollowUps).mockResolvedValue({ data: [] } as never);
+    vi.mocked(services.transactionsApi.getAttachments).mockResolvedValue({ data: [] } as never);
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('opens assignment form inside assignments card from card header button', async () => {
+    const user = userEvent.setup();
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getAssignmentsCard();
+    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة تحويل' })).toBeInTheDocument());
+
+    const addButton = within(card).getByRole('button', { name: '+ إضافة تحويل' });
+    expect(addButton).toHaveAttribute('type', 'button');
+
+    await user.click(addButton);
+
+    const panel = within(card).getByTestId('assignment-form-panel');
+    expect(panel).toBeInTheDocument();
+    expect(within(panel).getByLabelText('الإدارة *')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'حفظ التحويل' })).toBeInTheDocument();
+    expect(screen.queryByTestId('followup-form-panel')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('attachment-form-panel')).not.toBeInTheDocument();
+  });
+
+  it('saves assignment from card form and refreshes data', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.addAssignment).mockResolvedValue({ data: { id: 9 } } as never);
+    vi.mocked(services.transactionsApi.getAssignments)
+      .mockResolvedValueOnce({ data: [] } as never)
+      .mockResolvedValue({ data: [sampleAssignment] } as never);
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getAssignmentsCard();
+    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة تحويل' })).toBeInTheDocument());
+
+    await user.click(within(card).getByRole('button', { name: '+ إضافة تحويل' }));
+    await user.selectOptions(screen.getByLabelText('الإدارة *'), '2');
+    await user.type(screen.getByLabelText('الإجراء المطلوب'), 'مراجعة');
+    await user.click(screen.getByRole('button', { name: 'حفظ التحويل' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent('تم إضافة التحويل بنجاح');
+      expect(within(card).queryByTestId('assignment-form-panel')).not.toBeInTheDocument();
+    });
+    expect(services.transactionsApi.addAssignment).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(services.transactionsApi.getAssignments).mock.calls.length).toBeGreaterThan(1);
+    expect(vi.mocked(services.transactionsApi.getBasic).mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it('keeps assignment form open when save fails', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.addAssignment).mockRejectedValue(new Error('save failed'));
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getAssignmentsCard();
+    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة تحويل' })).toBeInTheDocument());
+
+    await user.click(within(card).getByRole('button', { name: '+ إضافة تحويل' }));
+    await user.selectOptions(screen.getByLabelText('الإدارة *'), '2');
+    await user.click(screen.getByRole('button', { name: 'حفظ التحويل' }));
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(within(card).getByTestId('assignment-form-panel')).toBeInTheDocument();
+    expect(services.transactionsApi.addAssignment).toHaveBeenCalledTimes(1);
+  });
+
+  it('toggles assignment form open and closed without confirm when clean', async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(globalThis, 'confirm');
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getAssignmentsCard();
+    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة تحويل' })).toBeInTheDocument());
+
+    const toggle = within(card).getByRole('button', { name: '+ إضافة تحويل' });
+    await user.click(toggle);
+    expect(within(card).getByTestId('assignment-form-panel')).toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(within(card).queryByTestId('assignment-form-panel')).not.toBeInTheDocument();
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it('confirms once when closing dirty assignment form via toggle', async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(globalThis, 'confirm').mockReturnValue(true);
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getAssignmentsCard();
+    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة تحويل' })).toBeInTheDocument());
+
+    await user.click(within(card).getByRole('button', { name: '+ إضافة تحويل' }));
+    await user.type(screen.getByLabelText('الإجراء المطلوب'), 'تعديل');
+    await user.click(within(card).getByRole('button', { name: '+ إضافة تحويل' }));
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(within(card).queryByTestId('assignment-form-panel')).not.toBeInTheDocument();
+  });
+
+  it('closes assignment form from panel header without confirm after successful save', async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(globalThis, 'confirm');
+    vi.mocked(services.transactionsApi.addAssignment).mockResolvedValue({ data: { id: 9 } } as never);
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getAssignmentsCard();
+    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة تحويل' })).toBeInTheDocument());
+
+    await user.click(within(card).getByRole('button', { name: '+ إضافة تحويل' }));
+    await user.selectOptions(screen.getByLabelText('الإدارة *'), '2');
+    await user.click(screen.getByRole('button', { name: 'حفظ التحويل' }));
+
+    await waitFor(() => expect(within(card).queryByTestId('assignment-form-panel')).not.toBeInTheDocument());
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it('closes assignment form via panel close button with dirty confirm', async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(globalThis, 'confirm').mockReturnValue(true);
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getAssignmentsCard();
+    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة تحويل' })).toBeInTheDocument());
+
+    await user.click(within(card).getByRole('button', { name: '+ إضافة تحويل' }));
+    const panel = within(card).getByTestId('assignment-form-panel');
+    await user.type(screen.getByLabelText('الإجراء المطلوب'), 'مسودة');
+    await user.click(within(panel).getByRole('button', { name: 'إغلاق النموذج' }));
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(within(card).queryByTestId('assignment-form-panel')).not.toBeInTheDocument();
+  });
+
+  it('opens follow-up form inside follow-ups card and saves', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.addFollowUp).mockResolvedValue({ data: { id: 21 } } as never);
+    vi.mocked(services.transactionsApi.getFollowUps)
+      .mockResolvedValueOnce({ data: [] } as never)
+      .mockResolvedValue({ data: [sampleFollowUp] } as never);
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getFollowUpsCard();
+    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة تعقيب' })).toBeInTheDocument());
+
+    await user.click(within(card).getByRole('button', { name: '+ إضافة تعقيب' }));
+    const panel = within(card).getByTestId('followup-form-panel');
+    expect(panel).toBeInTheDocument();
+
+    await waitFor(() => expect(screen.getByLabelText('رقم التعقيب')).toBeInTheDocument());
+    await user.type(screen.getByLabelText('رقم التعقيب'), 'F-NEW');
+    await user.click(screen.getByRole('button', { name: 'حفظ التعقيب' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent('تم إضافة التعقيب بنجاح');
+      expect(within(card).queryByTestId('followup-form-panel')).not.toBeInTheDocument();
+    });
+    expect(services.transactionsApi.addFollowUp).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(services.transactionsApi.getFollowUps).mock.calls.length).toBeGreaterThan(1);
+    expect(vi.mocked(services.transactionsApi.getBasic).mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it('opens attachment form inside attachments card and uploads file', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.uploadAttachment).mockResolvedValue({ data: sampleAttachment } as never);
+    vi.mocked(services.transactionsApi.getAttachments)
+      .mockResolvedValueOnce({ data: [] } as never)
+      .mockResolvedValue({ data: [sampleAttachment] } as never);
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getAttachmentsCard();
+    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة مرفق' })).toBeInTheDocument());
+
+    await user.click(within(card).getByRole('button', { name: '+ إضافة مرفق' }));
+    const panel = within(card).getByTestId('attachment-form-panel');
+    expect(panel).toBeInTheDocument();
+    expect(within(panel).getByText('اختيار ملف من الجهاز')).toBeInTheDocument();
+    expect(within(panel).getByRole('button', { name: 'إلغاء' })).toBeInTheDocument();
+
+    const fileInput = panel.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['pdf'], 'scan.pdf', { type: 'application/pdf' });
+    await user.upload(fileInput, file);
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent('تم رفع المرفق بنجاح');
+      expect(within(card).queryByTestId('attachment-form-panel')).not.toBeInTheDocument();
+      expect(screen.getByText('file.pdf')).toBeInTheDocument();
+    });
+    expect(services.transactionsApi.uploadAttachment).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(services.transactionsApi.getAttachments).mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it('shows only one inline add form at a time when switching cards', async () => {
+    const user = userEvent.setup();
+    renderDetail();
+    await waitForDetailsReady();
+
+    await user.click(within(getAssignmentsCard()).getByRole('button', { name: '+ إضافة تحويل' }));
+    expect(screen.getByTestId('assignment-form-panel')).toBeInTheDocument();
+
+    await user.click(within(getFollowUpsCard()).getByRole('button', { name: '+ إضافة تعقيب' }));
+    expect(screen.queryByTestId('assignment-form-panel')).not.toBeInTheDocument();
+    expect(within(getFollowUpsCard()).getByTestId('followup-form-panel')).toBeInTheDocument();
+  });
+
+  it('keeps open assignment form after assignments list finishes loading', async () => {
+    const user = userEvent.setup();
+    let resolveAssignments: ((value: never) => void) | undefined;
+    vi.mocked(services.transactionsApi.getAssignments).mockImplementation(
+      () => new Promise((resolve) => { resolveAssignments = resolve; }),
+    );
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getAssignmentsCard();
+    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة تحويل' })).toBeInTheDocument());
+
+    await user.click(within(card).getByRole('button', { name: '+ إضافة تحويل' }));
+    expect(within(card).getByTestId('assignment-form-panel')).toBeInTheDocument();
+
+    resolveAssignments!({ data: [] } as never);
+    await waitFor(() => expect(screen.getByText('لا توجد تحويلات مسجلة لهذه المعاملة.')).toBeInTheDocument());
+    expect(within(card).getByTestId('assignment-form-panel')).toBeInTheDocument();
+  });
+
+  it('opens reply form inside assignments card for pending assignment', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.getAssignments).mockResolvedValue({ data: [sampleAssignment] } as never);
+    vi.mocked(services.transactionsApi.replyAssignment).mockResolvedValue({ data: {} } as never);
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getAssignmentsCard();
+    await waitFor(() => expect(within(card).getByRole('button', { name: 'تسجيل رد' })).toBeInTheDocument());
+
+    await user.click(within(card).getByRole('button', { name: 'تسجيل رد' }));
+    expect(within(card).getByTestId('reply-assignment-form-panel')).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText(/ملخص الرد/), 'تم الرد');
+    await user.click(screen.getByRole('button', { name: 'حفظ الرد' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent('تم تسجيل الرد بنجاح');
+      expect(within(card).queryByTestId('reply-assignment-form-panel')).not.toBeInTheDocument();
+    });
+    expect(services.transactionsApi.replyAssignment).toHaveBeenCalledWith(1, 10, expect.any(Object));
   });
 });
 
@@ -329,7 +635,7 @@ describe('TransactionDetailPage operational workspace', () => {
     cleanup();
   });
 
-  it('loads transaction data automatically and shows workspace header', async () => {
+  it('loads transaction data automatically and shows hero summary', async () => {
     renderDetail();
 
     await waitFor(() => {
@@ -337,9 +643,10 @@ describe('TransactionDetailPage operational workspace', () => {
     });
     expect(screen.getByRole('navigation', { name: 'إجراءات المعاملة' })).toBeInTheDocument();
     expect(getActionBarButton('إضافة تحويل')).toBeInTheDocument();
+    expect(screen.getByText('منذ ورود المعاملة')).toBeInTheDocument();
   });
 
-  it('opens inline assignment form from action bar', async () => {
+  it('opens inline assignment form from action bar in hero area', async () => {
     const user = userEvent.setup();
     renderDetail();
 
@@ -349,11 +656,11 @@ describe('TransactionDetailPage operational workspace', () => {
 
     await user.click(getActionBarButton('إضافة تحويل'));
 
-    expect(screen.getByRole('region', { name: 'إضافة تحويل' })).toBeInTheDocument();
+    expect(within(getAssignmentsCard()).getByTestId('assignment-form-panel')).toBeInTheDocument();
     expect(screen.getByLabelText('الإدارة *')).toBeInTheDocument();
   });
 
-  it('does not confirm after successful assignment save', async () => {
+  it('does not confirm after successful assignment save from action bar', async () => {
     const user = userEvent.setup();
     const confirmSpy = vi.spyOn(globalThis, 'confirm');
     vi.mocked(services.transactionsApi.addAssignment).mockResolvedValue({ data: { id: 9 } } as never);
@@ -362,13 +669,13 @@ describe('TransactionDetailPage operational workspace', () => {
     await waitFor(() => expect(getActionBarButton('إضافة تحويل')).toBeInTheDocument());
 
     await user.click(getActionBarButton('إضافة تحويل'));
-    await user.selectOptions(screen.getByLabelText('الإدارة *'), '1');
+    await user.selectOptions(screen.getByLabelText('الإدارة *'), '2');
     await user.type(screen.getByLabelText('الإجراء المطلوب'), 'مراجعة');
     await user.click(screen.getByRole('button', { name: 'حفظ التحويل' }));
 
     await waitFor(() => {
       expect(screen.getByRole('status')).toHaveTextContent('تم إضافة التحويل بنجاح');
-      expect(screen.queryByRole('region', { name: 'إضافة تحويل' })).not.toBeInTheDocument();
+      expect(screen.queryByTestId('assignment-form-panel')).not.toBeInTheDocument();
     });
     expect(confirmSpy).not.toHaveBeenCalled();
     expect(services.transactionsApi.addAssignment).toHaveBeenCalledTimes(1);
@@ -399,11 +706,13 @@ describe('TransactionDetailPage permissions', () => {
 
     await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'IN-1' })).toBeInTheDocument());
     expect(screen.queryByRole('button', { name: 'إضافة تحويل' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '+ إضافة تحويل' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'إضافة تعقيب' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'رفع ملف' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '+ إضافة مرفق' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'إضافة أول تحويل' })).not.toBeInTheDocument();
   });
 
-  it('hides admin mutation actions for department user', async () => {
+  it('hides admin mutation actions for department user but allows reply', async () => {
     mockUseAuth.mockReturnValue({
       canEdit: true,
       canClose: false,
@@ -417,7 +726,30 @@ describe('TransactionDetailPage permissions', () => {
     renderDetail();
 
     await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'IN-1' })).toBeInTheDocument());
-    expect(screen.queryByRole('button', { name: 'إضافة تحويل' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '+ إضافة تحويل' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '+ إضافة تعقيب' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'تعديل' })).not.toBeInTheDocument();
+    expect(within(getAssignmentsCard()).getByRole('button', { name: 'تسجيل رد' })).toBeInTheDocument();
+  });
+
+  it('shows mutation buttons for supervisor with edit permission', async () => {
+    mockUseAuth.mockReturnValue({
+      canEdit: true,
+      canClose: false,
+      isDepartmentUser: false,
+      user: { fullName: 'مشرف', role: 'Supervisor' },
+      logout: vi.fn(),
+      login: vi.fn(),
+      isAdmin: false,
+    });
+    vi.mocked(services.transactionsApi.getAssignments).mockResolvedValue({ data: [] } as never);
+
+    renderDetail();
+
+    await waitFor(() => {
+      expect(within(getAssignmentsCard()).getByRole('button', { name: '+ إضافة تحويل' })).toBeInTheDocument();
+      expect(within(getFollowUpsCard()).getByRole('button', { name: '+ إضافة تعقيب' })).toBeInTheDocument();
+      expect(within(getAttachmentsCard()).getByRole('button', { name: '+ إضافة مرفق' })).toBeInTheDocument();
+    });
   });
 });
