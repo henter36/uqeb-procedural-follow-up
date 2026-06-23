@@ -220,8 +220,18 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
         var legacyFilter = MapLegacyFilter(request.Filters);
         var query = ApplyInstitutionalFilter(db.Transactions.AsNoTracking(), request.Filters, legacyFilter);
 
-        if (request.ReportType == InstitutionalReportType.SingleTransaction && request.SingleTransactionId.HasValue)
+        if (request.ReportType == InstitutionalReportType.SingleTransaction)
+        {
+            if (!request.SingleTransactionId.HasValue)
+            {
+                throw new FieldValidationException(new Dictionary<string, string>
+                {
+                    ["singleTransactionId"] = "يجب تحديد معاملة واحدة لتقرير المعاملة الواحدة."
+                });
+            }
+
             query = query.Where(t => t.Id == request.SingleTransactionId.Value);
+        }
 
         if (request.ReportType == InstitutionalReportType.OverdueTransactions)
             query = query.Where(t => t.Status != TransactionStatus.Closed && t.Status != TransactionStatus.Cancelled && t.Status != TransactionStatus.Archived);
@@ -688,7 +698,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
 
     private static List<int> ResolveSelectedPages(ReportExportRequestDto request, RenderedReportManifestDto manifest)
     {
-        return request.ExportMode switch
+        var pages = request.ExportMode switch
         {
             ExportMode.CurrentPage when request.CurrentPageNumber.HasValue => [request.CurrentPageNumber.Value],
             ExportMode.SelectedPages when !string.IsNullOrWhiteSpace(request.PageRangeExpression)
@@ -706,6 +716,27 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
                 .ToList(),
             _ => manifest.Pages.Select(p => p.OriginalPageNumber).ToList()
         };
+
+        return NormalizeSelectedPages(pages, manifest.TotalPages);
+    }
+
+    private static List<int> NormalizeSelectedPages(List<int> pages, int totalPages)
+    {
+        var normalized = pages
+            .Where(p => p >= 1 && p <= totalPages)
+            .Distinct()
+            .OrderBy(p => p)
+            .ToList();
+
+        if (normalized.Count == 0)
+        {
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                ["selectedPages"] = "لا توجد صفحات صالحة ضمن الاختيار الحالي."
+            });
+        }
+
+        return normalized;
     }
 
     private static List<int> ParsePageRangeOrThrow(string expression, int totalPages)
@@ -738,7 +769,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
             ExportMode.SelectedSections => $"{baseName}-SECTIONS.{extension}",
             ExportMode.SelectedPages or ExportMode.CurrentPage => pages.Count <= 6
                 ? $"{baseName}-PAGES-{string.Join('-', pages)}.{extension}"
-                : $"{baseName}-PAGES-{Guid.NewGuid():N[..8]}.{extension}",
+                : $"{baseName}-PAGES-{Guid.NewGuid().ToString("N")[..8]}.{extension}",
             _ => $"{baseName}-FULL.{extension}"
         };
     }
