@@ -63,6 +63,27 @@ BeforeAll {
         [System.IO.Compression.ZipFile]::CreateFromDirectory($Source, $ZipPath)
     }
 
+    function New-TestRestoreHeaderTable {
+        param([string]$DatabaseName = 'UqebDb')
+        $table = New-Object System.Data.DataTable
+        [void]$table.Columns.Add('DatabaseName', [string])
+        $row = $table.NewRow()
+        $row['DatabaseName'] = $DatabaseName
+        [void]$table.Rows.Add($row)
+        return $table
+    }
+
+    function New-TestSqlHeaderHandlerBody {
+        $table = New-Object System.Data.DataTable
+        [void]$table.Columns.Add('DatabaseName', [string])
+        $row = $table.NewRow()
+        $row['DatabaseName'] = 'UqebDb'
+        [void]$table.Rows.Add($row)
+        return $table
+    }
+
+    $global:NewTestSqlHeaderHandlerBody = ${function:New-TestSqlHeaderHandlerBody}
+
     function New-TestProductionSettingsJson {
         return (@{
             ConnectionStrings = @{ DefaultConnection = 'Server=.;Database=UqebDb;Integrated Security=True' }
@@ -245,8 +266,49 @@ Describe 'install-production-package.ps1 scenarios' {
         Mock Test-RecentLogErrors { return @() }
         Mock Invoke-RobocopyWithoutMirror {}
         Mock Copy-ApplicationPayload {}
+        Mock Invoke-DatabaseBackupRetentionPolicy { return @() }
         Mock Get-SqlConnectionInfoFromSettings {
             return [pscustomobject]@{ Server = '.'; Database = 'UqebDb' }
+        }
+        Mock Invoke-ProductionDatabaseBackup {
+            $backupFile = Join-Path $TestDrive ("UqebDb-before-mock.bak")
+            Set-Content -LiteralPath $backupFile -Value ('x' * 64) -Encoding ASCII
+            return [pscustomobject]@{
+                Path = $backupFile
+                SizeBytes = (Get-Item -LiteralPath $backupFile).Length
+                CreatedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+                Sha256 = ('a' * 64)
+                DatabaseName = 'UqebDb'
+            }
+        }
+    }
+
+    It 'does not expose SkipDatabaseBackup parameter' {
+        $errors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            $script:InstallScript,
+            [ref]$null,
+            [ref]$errors)
+        $errors | Should -BeNullOrEmpty
+        $paramBlock = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.ParamBlockAst] }, $true)[0]
+        $names = @($paramBlock.Parameters | ForEach-Object { $_.Name.Extent.Text })
+        $names | Should -Not -Contain 'SkipDatabaseBackup'
+    }
+
+    It 'blocks database backup bypass environment variables' {
+        { Assert-DatabaseBackupNotBypassed } | Should -Not -Throw
+        $previous = $env:UQEB_SKIP_DATABASE_BACKUP
+        try {
+            $env:UQEB_SKIP_DATABASE_BACKUP = '1'
+            { Assert-DatabaseBackupNotBypassed } | Should -Throw
+        }
+        finally {
+            if ($null -eq $previous) {
+                Remove-Item Env:UQEB_SKIP_DATABASE_BACKUP -ErrorAction SilentlyContinue
+            }
+            else {
+                $env:UQEB_SKIP_DATABASE_BACKUP = $previous
+            }
         }
     }
 
@@ -388,5 +450,368 @@ Describe 'install-production-package.ps1 scenarios' {
             -WebPath (Join-Path $installRoot 'publish\web') `
             -ConfigPath (Join-Path $installRoot 'config\appsettings.Production.json') } |
             Should -Throw '*API*'
+    }
+
+    It 'stops deployment when database backup fails before stopping API' {
+        Mock Invoke-ProductionDatabaseBackup { throw 'backup failed' }
+        $global:deployOrder = @()
+        Mock Stop-ScheduledTask { $global:deployOrder += 'stop-api' }
+
+        $root = New-TempDirectory
+        $installRoot = Join-Path $root 'install'
+        $tools = Join-Path $root 'tools'
+        $incoming = Join-Path $installRoot 'incoming'
+        Ensure-Directory $incoming
+        Ensure-Directory $tools
+        Ensure-Directory (Join-Path $tools 'deployment')
+        Copy-Item $script:CommonPath (Join-Path $tools 'deployment\Common.ps1') -Force
+
+        $pkgRoot = New-TempDirectory
+        New-TestPackage -Root $pkgRoot
+        $zip = Join-Path $incoming 'Uqeb-test.zip'
+        New-ZipFromDirectory -Source $pkgRoot -ZipPath $zip
+        $hash = Get-FileSha256Hex -Path $zip
+        Set-Content (Join-Path $incoming 'Uqeb-test.sha256.txt') "$hash  Uqeb-test.zip" -Encoding ASCII
+        Ensure-Directory (Join-Path $installRoot 'config')
+        New-TestProductionSettingsJson | Set-Content (Join-Path $installRoot 'config\appsettings.Production.json') -Encoding UTF8
+
+        { & $script:InstallScript `
+            -PackagePath $zip `
+            -InstallRoot $installRoot `
+            -ToolsRoot $tools `
+            -ApiPath (Join-Path $installRoot 'publish\api') `
+            -WebPath (Join-Path $installRoot 'publish\web') `
+            -ConfigPath (Join-Path $installRoot 'config\appsettings.Production.json') } |
+            Should -Throw
+
+        $global:deployOrder | Should -Not -Contain 'stop-api'
+        Assert-MockCalled Copy-ApplicationPayload -Times 0 -Exactly
+    }
+
+    It 'runs database backup before API stop and migrations' {
+        $global:deployOrder = @()
+        Mock Invoke-ProductionDatabaseBackup {
+            $global:deployOrder += 'db-backup'
+            $backupFile = Join-Path $TestDrive ("UqebDb-before-order.bak")
+            Set-Content -LiteralPath $backupFile -Value ('x' * 64) -Encoding ASCII
+            return [pscustomobject]@{
+                Path = $backupFile
+                SizeBytes = 64
+                CreatedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+                Sha256 = ('b' * 64)
+                DatabaseName = 'UqebDb'
+            }
+        }
+        Mock Stop-ScheduledTask { $global:deployOrder += 'stop-api' }
+
+        $root = New-TempDirectory
+        $installRoot = Join-Path $root 'install'
+        $tools = Join-Path $root 'tools'
+        $incoming = Join-Path $installRoot 'incoming'
+        Ensure-Directory $incoming
+        Ensure-Directory $tools
+        Ensure-Directory (Join-Path $tools 'deployment')
+        Copy-Item $script:CommonPath (Join-Path $tools 'deployment\Common.ps1') -Force
+
+        $pkgRoot = New-TempDirectory
+        New-TestPackage -Root $pkgRoot
+        $zip = Join-Path $incoming 'Uqeb-test.zip'
+        New-ZipFromDirectory -Source $pkgRoot -ZipPath $zip
+        $hash = Get-FileSha256Hex -Path $zip
+        Set-Content (Join-Path $incoming 'Uqeb-test.sha256.txt') "$hash  Uqeb-test.zip" -Encoding ASCII
+        Ensure-Directory (Join-Path $installRoot 'config')
+        $configPath = Join-Path $installRoot 'config\appsettings.Production.json'
+        New-TestProductionSettingsJson | Set-Content $configPath -Encoding UTF8
+
+        $health = Join-Path $tools 'verify-deployment-health.ps1'
+        'exit 0' | Set-Content $health -Encoding ASCII
+
+        & $script:InstallScript `
+            -PackagePath $zip `
+            -InstallRoot $installRoot `
+            -ToolsRoot $tools `
+            -ApiPath (Join-Path $installRoot 'publish\api') `
+            -WebPath (Join-Path $installRoot 'publish\web') `
+            -ConfigPath $configPath | Out-Null
+
+        $global:deployOrder[0] | Should -Be 'db-backup'
+        ($global:deployOrder.IndexOf('db-backup') -lt $global:deployOrder.IndexOf('stop-api')) | Should -BeTrue
+    }
+
+    It 'shows manual restore command when a later deployment step fails' {
+        $backupFile = Join-Path $TestDrive 'UqebDb-before-restore.bak'
+        Set-Content -LiteralPath $backupFile -Value ('x' * 64) -Encoding ASCII
+        Mock Invoke-ProductionDatabaseBackup {
+            return [pscustomobject]@{
+                Path = $backupFile
+                SizeBytes = 64
+                CreatedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+                Sha256 = ('c' * 64)
+                DatabaseName = 'UqebDb'
+            }
+        }
+
+        $root = New-TempDirectory
+        $installRoot = Join-Path $root 'install'
+        $tools = Join-Path $root 'tools'
+        $incoming = Join-Path $installRoot 'incoming'
+        Ensure-Directory $incoming
+        Ensure-Directory $tools
+        Ensure-Directory (Join-Path $tools 'deployment')
+        Copy-Item $script:CommonPath (Join-Path $tools 'deployment\Common.ps1') -Force
+
+        $pkgRoot = New-TempDirectory
+        New-TestPackage -Root $pkgRoot
+        $zip = Join-Path $incoming 'Uqeb-test.zip'
+        New-ZipFromDirectory -Source $pkgRoot -ZipPath $zip
+        $hash = Get-FileSha256Hex -Path $zip
+        Set-Content (Join-Path $incoming 'Uqeb-test.sha256.txt') "$hash  Uqeb-test.zip" -Encoding ASCII
+        Ensure-Directory (Join-Path $installRoot 'config')
+        New-TestProductionSettingsJson | Set-Content (Join-Path $installRoot 'config\appsettings.Production.json') -Encoding UTF8
+
+        $health = Join-Path $tools 'verify-deployment-health.ps1'
+        'throw "health failed"' | Set-Content $health -Encoding ASCII
+
+        $output = @()
+        try {
+            & $script:InstallScript `
+                -PackagePath $zip `
+                -InstallRoot $installRoot `
+                -ToolsRoot $tools `
+                -ApiPath (Join-Path $installRoot 'publish\api') `
+                -WebPath (Join-Path $installRoot 'publish\web') `
+                -ConfigPath (Join-Path $installRoot 'config\appsettings.Production.json') *>&1 |
+                ForEach-Object { $output += $_.ToString() }
+        }
+        catch {
+            $output += $_.Exception.Message
+        }
+
+        ($output -join [Environment]::NewLine) | Should -Match 'RESTORE DATABASE'
+    }
+}
+
+Describe 'Production database backup functions' {
+    AfterEach {
+        $global:SqlDeploymentCommandHandler = $null
+    }
+
+    It 'invokes global SQL handler' {
+        $global:SqlDeploymentCommandHandler = {
+            param(
+                [string]$Server,
+                [string]$Database,
+                [string]$CommandText,
+                [bool]$Scalar,
+                [bool]$DataTable
+            )
+            return "handled:$CommandText"
+        }
+
+        Invoke-SqlDeploymentCommand -Server '.' -Database 'master' -CommandText 'PING' | Should -Be 'handled:PING'
+    }
+
+    It 'returns DataTable from SQL test handler' {
+        $global:SqlDeploymentCommandHandler = {
+            param(
+                [string]$Server,
+                [string]$Database,
+                [string]$CommandText,
+                [bool]$Scalar,
+                [bool]$DataTable
+            )
+            $table = New-Object System.Data.DataTable
+            [void]$table.Columns.Add('DatabaseName', [string])
+            $row = $table.NewRow()
+            $row['DatabaseName'] = 'UqebDb'
+            [void]$table.Rows.Add($row)
+            return $table
+        }
+
+        $header = Invoke-SqlDeploymentCommand -Server '.' -Database 'master' -CommandText 'RESTORE HEADERONLY FROM DISK = N''x'';' -DataTable
+        if ($header -is [System.Data.DataRow]) {
+            $header = $header.Table
+        }
+        ($header -is [System.Data.DataTable]) | Should -BeTrue
+        $header.Rows.Count | Should -Be 1
+        [string]$header.Rows[0]['DatabaseName'] | Should -Be 'UqebDb'
+    }
+
+    It 'executes BACKUP DATABASE WITH CHECKSUM and verifies backup' {
+        $backupDir = New-TempDirectory
+        $backupPath = Join-Path $backupDir 'UqebDb-before-sql-test.bak'
+
+        $global:SqlDeploymentCommandHandler = {
+            param(
+                [string]$Server,
+                [string]$Database,
+                [string]$CommandText,
+                [bool]$Scalar,
+                [bool]$DataTable
+            )
+
+            if ($CommandText -like 'BACKUP DATABASE*WITH CHECKSUM*') {
+                Set-Content -LiteralPath $backupPath -Value ('x' * 128) -Encoding ASCII
+                return $null
+            }
+            if ($CommandText -like 'RESTORE VERIFYONLY*WITH CHECKSUM*') {
+                return $null
+            }
+            if ($CommandText -like 'RESTORE HEADERONLY*') {
+                $table = New-Object System.Data.DataTable
+                [void]$table.Columns.Add('DatabaseName', [string])
+                $row = $table.NewRow()
+                $row['DatabaseName'] = 'UqebDb'
+                [void]$table.Rows.Add($row)
+                return $table
+            }
+
+            throw "Unexpected SQL: $CommandText"
+        }
+
+        $result = Invoke-ProductionDatabaseBackup `
+            -Server '.' `
+            -Database 'UqebDb' `
+            -BackupDirectory $backupDir `
+            -Timestamp 'sql-test'
+
+        $result.Path | Should -Be $backupPath
+        $result.SizeBytes | Should -BeGreaterThan 0
+        $result.Sha256 | Should -Not -BeNullOrEmpty
+    }
+
+    It 'fails when BACKUP DATABASE command fails' {
+        $global:SqlDeploymentCommandHandler = { throw 'backup error' }
+
+        { Invoke-ProductionDatabaseBackup -Server '.' -Database 'UqebDb' -BackupDirectory (New-TempDirectory) -Timestamp 'fail' } |
+            Should -Throw '*BACKUP DATABASE*'
+    }
+
+    It 'fails when RESTORE VERIFYONLY fails' {
+        $backupDir = New-TempDirectory
+        $backupPath = Join-Path $backupDir 'UqebDb-before-verifyfail.bak'
+
+        $global:SqlDeploymentCommandHandler = {
+            param(
+                [string]$Server,
+                [string]$Database,
+                [string]$CommandText,
+                [bool]$Scalar,
+                [bool]$DataTable
+            )
+            if ($CommandText -like 'BACKUP DATABASE*') {
+                Set-Content -LiteralPath $backupPath -Value ('x' * 64) -Encoding ASCII
+                return $null
+            }
+            if ($CommandText -like 'RESTORE VERIFYONLY*') { throw 'verify failed' }
+            return $null
+        }
+
+        { Invoke-ProductionDatabaseBackup -Server '.' -Database 'UqebDb' -BackupDirectory $backupDir -Timestamp 'verifyfail' } |
+            Should -Throw '*RESTORE VERIFYONLY*'
+    }
+
+    It 'fails when backup file size is zero' {
+        $backupDir = New-TempDirectory
+        $backupPath = Join-Path $backupDir 'UqebDb-before-zero.bak'
+        Set-Content -LiteralPath $backupPath -Value '' -Encoding ASCII
+
+        { Confirm-ProductionDatabaseBackupFile -Server '.' -Database 'UqebDb' -BackupPath $backupPath } |
+            Should -Throw
+    }
+
+    It 'creates backup directory when missing' {
+        $backupRoot = New-TempDirectory
+        $backupDir = Join-Path $backupRoot 'db'
+        Test-Path -LiteralPath $backupDir | Should -BeFalse
+
+        $global:SqlDeploymentCommandHandler = {
+            param(
+                [string]$Server,
+                [string]$Database,
+                [string]$CommandText,
+                [bool]$Scalar,
+                [bool]$DataTable
+            )
+            if ($CommandText -like 'BACKUP DATABASE*') {
+                if ($CommandText -match "DISK = N'([^']+)'") {
+                    Set-Content -LiteralPath $Matches[1] -Value ('x' * 32) -Encoding ASCII
+                }
+                return $null
+            }
+            if ($CommandText -like 'RESTORE VERIFYONLY*') { return $null }
+            if ($CommandText -like 'RESTORE HEADERONLY*') {
+                $table = New-Object System.Data.DataTable
+                [void]$table.Columns.Add('DatabaseName', [string])
+                $row = $table.NewRow()
+                $row['DatabaseName'] = 'UqebDb'
+                [void]$table.Rows.Add($row)
+                return $table
+            }
+            throw "Unexpected SQL: $CommandText"
+        }
+
+        Invoke-ProductionDatabaseBackup -Server '.' -Database 'UqebDb' -BackupDirectory $backupDir -Timestamp 'mkdir' | Out-Null
+        Test-Path -LiteralPath $backupDir | Should -BeTrue
+    }
+
+    It 'uses WITH CHECKSUM in backup and verify commands' {
+        $backupDir = New-TempDirectory
+        $commands = New-Object System.Collections.Generic.List[string]
+
+        $global:SqlDeploymentCommandHandler = {
+            param(
+                [string]$Server,
+                [string]$Database,
+                [string]$CommandText,
+                [bool]$Scalar,
+                [bool]$DataTable
+            )
+            $commands.Add([string]$CommandText) | Out-Null
+            if ($CommandText -like 'BACKUP DATABASE*') {
+                if ($CommandText -match "DISK = N'([^']+)'") {
+                    Set-Content -LiteralPath $Matches[1] -Value ('x' * 32) -Encoding ASCII
+                }
+                return $null
+            }
+            if ($CommandText -like 'RESTORE VERIFYONLY*') { return $null }
+            if ($CommandText -like 'RESTORE HEADERONLY*') {
+                $table = New-Object System.Data.DataTable
+                [void]$table.Columns.Add('DatabaseName', [string])
+                $row = $table.NewRow()
+                $row['DatabaseName'] = 'UqebDb'
+                [void]$table.Rows.Add($row)
+                return $table
+            }
+            return $null
+        }
+
+        Invoke-ProductionDatabaseBackup -Server '.' -Database 'UqebDb' -BackupDirectory $backupDir -Timestamp 'checksum' | Out-Null
+        ($commands | Where-Object { $_ -like 'BACKUP DATABASE*' } | Select-Object -First 1) | Should -Match 'WITH CHECKSUM'
+        ($commands | Where-Object { $_ -like 'RESTORE VERIFYONLY*' } | Select-Object -First 1) | Should -Match 'WITH CHECKSUM'
+    }
+
+    It 'applies retention policy without deleting the newest successful backup' {
+        $installRoot = New-TempDirectory
+        $backupDir = Join-Path $installRoot 'backup\db'
+        Ensure-Directory $backupDir
+
+        $files = @()
+        for ($i = 0; $i -lt 12; $i++) {
+            $path = Join-Path $backupDir ("UqebDb-before-20260101-12000$i.bak")
+            Set-Content -LiteralPath $path -Value ('x' * 10) -Encoding ASCII
+            (Get-Item -LiteralPath $path).LastWriteTime = (Get-Date).AddHours(-$i)
+            $files += $path
+        }
+
+        $deleted = Invoke-DatabaseBackupRetentionPolicy `
+            -BackupDirectory $backupDir `
+            -InstallRoot $installRoot `
+            -MinimumKeepCount 10 `
+            -LatestSuccessfulBackupPath $files[0]
+
+        $deleted.Count | Should -Be 2
+        Test-Path -LiteralPath $files[0] | Should -BeTrue
+        (Get-ChildItem -LiteralPath $backupDir -Filter '*.bak').Count | Should -Be 10
     }
 }

@@ -393,3 +393,288 @@ function Find-Sha256SidecarPath {
 
     throw "لم يتم العثور على ملف SHA256 بجانب الحزمة: $candidate"
 }
+
+function Assert-DatabaseBackupNotBypassed {
+  if (-not [string]::IsNullOrWhiteSpace($env:UQEB_SKIP_DATABASE_BACKUP)) {
+        throw "تجاوز النسخة الاحتياطية لقاعدة البيانات غير مسموح عبر متغير البيئة UQEB_SKIP_DATABASE_BACKUP."
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:SKIP_DATABASE_BACKUP)) {
+        throw "تجاوز النسخة الاحتياطية لقاعدة البيانات غير مسموح عبر متغير البيئة SKIP_DATABASE_BACKUP."
+    }
+}
+
+function Get-SqlBracketedIdentifier {
+    param([string]$Name)
+    if ([string]::IsNullOrWhiteSpace($Name)) {
+        throw "اسم SQL فارغ."
+    }
+    if ($Name -match '[^\w\.]') {
+        throw "اسم SQL غير صالح: $Name"
+    }
+    $parts = $Name -split '\.'
+    return (($parts | ForEach-Object { "[$_]" }) -join '.')
+}
+
+function Get-SqlLiteralPath {
+    param([string]$Path)
+    return ("N'" + ($Path -replace "'", "''") + "'")
+}
+
+function New-SqlDeploymentConnection {
+    param(
+        [string]$Server,
+        [string]$Database = 'master'
+    )
+
+    $connectionString = "Server=$Server;Database=$Database;Integrated Security=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
+    return New-Object System.Data.SqlClient.SqlConnection $connectionString
+}
+
+function Invoke-SqlDeploymentCommand {
+    param(
+        [string]$Server,
+        [string]$Database = 'master',
+        [string]$CommandText,
+        [switch]$Scalar,
+        [switch]$DataTable
+    )
+
+    if ($null -ne $global:SqlDeploymentCommandHandler) {
+        return ,(& $global:SqlDeploymentCommandHandler `
+            -Server $Server `
+            -Database $Database `
+            -CommandText $CommandText `
+            -Scalar:([bool]$Scalar) `
+            -DataTable:([bool]$DataTable))
+    }
+
+    if ([string]::IsNullOrWhiteSpace($CommandText)) {
+        throw "أمر SQL فارغ."
+    }
+
+    $connection = New-SqlDeploymentConnection -Server $Server -Database $Database
+    try {
+        $connection.Open()
+        $command = $connection.CreateCommand()
+        $command.CommandText = $CommandText
+        $command.CommandTimeout = 0
+
+        if ($Scalar) {
+            return $command.ExecuteScalar()
+        }
+        if ($DataTable) {
+            $adapter = New-Object System.Data.SqlClient.SqlDataAdapter $command
+            $table = New-Object System.Data.DataTable
+            [void]$adapter.Fill($table)
+            return ,$table
+        }
+
+        [void]$command.ExecuteNonQuery()
+        return $null
+    }
+    finally {
+        if ($connection.State -eq 'Open') {
+            $connection.Close()
+        }
+        $connection.Dispose()
+    }
+}
+
+function Get-ProductionDatabaseBackupPath {
+    param(
+        [string]$BackupDirectory,
+        [string]$Database,
+        [string]$Timestamp
+    )
+
+    $fileName = "{0}-before-{1}.bak" -f $Database, $Timestamp
+    return Join-Path $BackupDirectory $fileName
+}
+
+function Get-ManualDatabaseRestoreCommand {
+    param(
+        [string]$Server,
+        [string]$Database,
+        [string]$BackupPath
+    )
+
+    $databaseId = Get-SqlBracketedIdentifier -Name $Database
+    $diskLiteral = Get-SqlLiteralPath -Path $BackupPath
+    return @(
+        "-- استعادة يدوية لقاعدة البيانات (نفّذ بحذر على خادم: $Server)"
+        "ALTER DATABASE $databaseId SET SINGLE_USER WITH ROLLBACK IMMEDIATE;"
+        "RESTORE DATABASE $databaseId FROM DISK = $diskLiteral WITH REPLACE, CHECKSUM;"
+        "ALTER DATABASE $databaseId SET MULTI_USER;"
+    ) -join [Environment]::NewLine
+}
+
+function Confirm-ProductionDatabaseBackupFile {
+    param(
+        [string]$Server,
+        [string]$Database,
+        [string]$BackupPath
+    )
+
+    if (-not (Test-Path -LiteralPath $BackupPath)) {
+        throw "ملف النسخة الاحتياطية غير موجود: $BackupPath"
+    }
+
+    $fileInfo = Get-Item -LiteralPath $BackupPath
+    if ($fileInfo.Length -le 0) {
+        throw "ملف النسخة الاحتياطية بحجم صفر: $BackupPath"
+    }
+
+    $diskLiteral = Get-SqlLiteralPath -Path $BackupPath
+    $verifySql = "RESTORE VERIFYONLY FROM DISK = $diskLiteral WITH CHECKSUM;"
+    try {
+        [void](Invoke-SqlDeploymentCommand -Server $Server -Database 'master' -CommandText $verifySql)
+    }
+    catch {
+        throw "فشل RESTORE VERIFYONLY للنسخة الاحتياطية. التفاصيل: $($_.Exception.Message)"
+    }
+
+    $headerSql = "RESTORE HEADERONLY FROM DISK = $diskLiteral;"
+    $header = Invoke-SqlDeploymentCommand -Server $Server -Database 'master' -CommandText $headerSql -DataTable
+    if ($header -is [System.Data.DataRow]) {
+        $header = $header.Table
+    }
+    if (-not ($header -is [System.Data.DataTable]) -or $header.Rows.Count -eq 0) {
+        throw "تعذر قراءة RESTORE HEADERONLY للنسخة الاحتياطية."
+    }
+
+    $backupDatabaseName = [string]$header.Rows[0]['DatabaseName']
+    if ([string]::IsNullOrWhiteSpace($backupDatabaseName)) {
+        throw "تعذر تحديد اسم قاعدة البيانات من النسخة الاحتياطية."
+    }
+    if ($backupDatabaseName -ne $Database) {
+        throw "النسخة الاحتياطية تخص قاعدة '$backupDatabaseName' وليست '$Database'."
+    }
+
+    try {
+        $sha256 = Get-FileSha256Hex -Path $BackupPath
+    }
+    catch {
+        throw "تعذر حساب تجزئة SHA256 للنسخة الاحتياطية: $($_.Exception.Message)"
+    }
+    if ([string]::IsNullOrWhiteSpace($sha256)) {
+        throw "تجزئة SHA256 للنسخة الاحتياطية فارغة."
+    }
+
+    return [pscustomobject]@{
+        Path = $BackupPath
+        SizeBytes = $fileInfo.Length
+        CreatedAtUtc = $fileInfo.LastWriteTimeUtc.ToString('o')
+        Sha256 = $sha256
+        DatabaseName = $backupDatabaseName
+    }
+}
+
+function Invoke-ProductionDatabaseBackup {
+    param(
+        [string]$Server,
+        [string]$Database,
+        [string]$BackupDirectory,
+        [string]$Timestamp
+    )
+
+    Assert-DatabaseBackupNotBypassed
+    Ensure-Directory $BackupDirectory
+
+    $backupPath = Get-ProductionDatabaseBackupPath `
+        -BackupDirectory $BackupDirectory `
+        -Database $Database `
+        -Timestamp $Timestamp
+
+    $databaseId = Get-SqlBracketedIdentifier -Name $Database
+    $diskLiteral = Get-SqlLiteralPath -Path $backupPath
+    $backupSql = "BACKUP DATABASE $databaseId TO DISK = $diskLiteral WITH CHECKSUM, INIT, STATS = 5;"
+
+    if ($backupSql -notmatch 'WITH CHECKSUM') {
+        throw "أمر BACKUP DATABASE لا يستخدم WITH CHECKSUM."
+    }
+
+    try {
+        [void](Invoke-SqlDeploymentCommand -Server $Server -Database 'master' -CommandText $backupSql)
+    }
+    catch {
+        throw "فشل BACKUP DATABASE. التفاصيل: $($_.Exception.Message)"
+    }
+
+    return Confirm-ProductionDatabaseBackupFile `
+        -Server $Server `
+        -Database $Database `
+        -BackupPath $backupPath
+}
+
+function Get-ProtectedDatabaseBackupPaths {
+    param([string]$InstallRoot)
+
+    $protected = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    $candidates = @(
+        Join-Path $InstallRoot 'publish\release-manifest.json'
+    )
+
+    $backupRoot = Join-Path $InstallRoot 'backup'
+    if (Test-Path -LiteralPath $backupRoot) {
+        $candidates += Get-ChildItem -LiteralPath $backupRoot -Directory -Filter 'before-*' -ErrorAction SilentlyContinue |
+            ForEach-Object { Join-Path $_.FullName 'release-manifest.json' }
+    }
+
+    foreach ($manifestPath in $candidates) {
+        if (-not (Test-Path -LiteralPath $manifestPath)) {
+            continue
+        }
+        try {
+            $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+            if ($manifest.databaseBackup -and $manifest.databaseBackup.path) {
+                [void]$protected.Add([string]$manifest.databaseBackup.path)
+            }
+        }
+        catch {
+            continue
+        }
+    }
+
+    return ,@($protected)
+}
+
+function Invoke-DatabaseBackupRetentionPolicy {
+    param(
+        [string]$BackupDirectory,
+        [string]$InstallRoot,
+        [int]$MinimumKeepCount = 10,
+        [string]$LatestSuccessfulBackupPath
+    )
+
+    if (-not (Test-Path -LiteralPath $BackupDirectory)) {
+        return @()
+    }
+
+    $allBackups = Get-ChildItem -LiteralPath $BackupDirectory -Filter '*.bak' -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTimeUtc -Descending
+
+    if (-not $allBackups) {
+        return @()
+    }
+
+    $protectedPaths = Get-ProtectedDatabaseBackupPaths -InstallRoot $InstallRoot
+    if ($LatestSuccessfulBackupPath) {
+        $protectedPaths = @($protectedPaths + $LatestSuccessfulBackupPath) | Select-Object -Unique
+    }
+
+    $deleted = New-Object System.Collections.Generic.List[string]
+    for ($i = 0; $i -lt $allBackups.Count; $i++) {
+        $candidate = $allBackups[$i]
+        if ($i -lt $MinimumKeepCount) {
+            continue
+        }
+        if ($protectedPaths -contains $candidate.FullName) {
+            continue
+        }
+
+        Remove-Item -LiteralPath $candidate.FullName -Force
+        $deleted.Add($candidate.FullName) | Out-Null
+    }
+
+    return ,@($deleted)
+}

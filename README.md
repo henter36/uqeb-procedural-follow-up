@@ -175,6 +175,10 @@ C:\UqebTools\install-production-package.ps1 -PackagePath C:\Uqeb\incoming\Uqeb-<
 
 إعداد أولي: `.\scripts\setup-production-tools.ps1` على جهاز الإنتاج.
 
+> **لا يمكن تنفيذ نشر إنتاج أو migrations دون نسخة قاعدة بيانات مكتملة ومتحقق منها. لا يوجد خيار تجاوز لهذه الخطوة.**
+
+قبل أي migrations، يُنشأ تلقائيًا نسخ احتياطي كامل في `C:\Uqeb\backup\db\` مع `WITH CHECKSUM` و`RESTORE VERIFYONLY`.
+
 ---
 
 ## 7. النشر على IIS (بديل)

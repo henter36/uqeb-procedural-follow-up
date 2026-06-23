@@ -110,6 +110,21 @@ $staging = "C:\Uqeb\staging\<TIMESTAMP>"
 
 إعداد أولي لمرة واحدة على الإنتاج: `.\scripts\setup-production-tools.ps1`
 
+> **لا يمكن تنفيذ نشر إنتاج أو migrations دون نسخة قاعدة بيانات مكتملة ومتحقق منها. لا يوجد خيار تجاوز لهذه الخطوة.**
+
+#### نسخة قاعدة البيانات الإلزامية
+
+قبل إيقاف API أو تطبيق migrations، ينفّذ `install-production-package.ps1` تلقائيًا:
+
+1. `BACKUP DATABASE ... WITH CHECKSUM` إلى `C:\Uqeb\backup\db\<Database>-before-<timestamp>.bak`
+2. `RESTORE VERIFYONLY ... WITH CHECKSUM`
+3. التحقق من الحجم وSHA256 واسم القاعدة
+4. تسجيل المسار والحجم والوقت في تقرير النشر و`release-manifest.json`
+
+عند فشل أي خطوة: يتوقف النشر فورًا دون migrations أو استبدال ملفات. عند فشل مرحلة لاحقة: يُعرض أمر `RESTORE DATABASE` اليدوي دون استعادة تلقائية.
+
+سياسة الاحتفاظ: آخر 10 نسخ ناجحة كحد أدنى؛ لا حذف النسخ المرتبطة بإصدار منشور.
+
 ### طريقة بديلة (مجلد staging مفكوك)
 
 المدخل الرسمي القديم:
@@ -142,6 +157,7 @@ scripts/deploy-production.ps1
 | health فقط دون migrations | تحقق من `database=pass` والسجل |
 | `robocopy /MIR` على API | استخدم النسخ بدون `/MIR` |
 | طباعة كلمات المرور أو JWT | السكربتات تعرض Server/Database فقط |
+| نشر دون نسخة قاعدة بيانات | النسخة الاحتياطية إلزامية قبل migrations — لا `-SkipDatabaseBackup` |
 
 لا تستخدم `robocopy /MIR` على مجلد API؛ قد يحذف إعدادات أو ملفات تشغيلية محفوظة على الخادم.
 

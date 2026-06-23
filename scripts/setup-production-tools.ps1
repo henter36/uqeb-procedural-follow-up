@@ -27,6 +27,7 @@ $directories = @(
     (Join-Path $InstallRoot "incoming\deployed"),
     (Join-Path $InstallRoot "staging"),
     (Join-Path $InstallRoot "backup"),
+    (Join-Path $InstallRoot "backup\db"),
     (Join-Path $InstallRoot "logs"),
     (Join-Path $InstallRoot "publish\api"),
     (Join-Path $InstallRoot "publish\web"),

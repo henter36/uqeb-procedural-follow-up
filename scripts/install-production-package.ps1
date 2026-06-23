@@ -35,6 +35,12 @@ if (-not (Test-Path -LiteralPath $commonPath)) {
 
 $deploymentResult = "فشل"
 $backupPath = ""
+$databaseBackupPath = ""
+$databaseBackupSizeBytes = 0
+$databaseBackupCreatedAtUtc = ""
+$databaseBackupSha256 = ""
+$databaseBackupStatus = "لم يُنفَّذ"
+$databaseRetentionDeleted = @()
 $databaseStatus = "لم يُنفَّذ"
 $apiHealth = "فشل"
 $packageVersion = ""
@@ -42,11 +48,15 @@ $packageCommit = ""
 $stagingPath = ""
 $rollbackPerformed = $false
 $configTarget = ""
+$manualRestoreCommand = ""
+$sqlInfo = $null
 
 try {
     if (-not (Test-IsAdministrator)) {
         throw "يجب تشغيل السكربت كمسؤول (Administrator)."
     }
+
+    Assert-DatabaseBackupNotBypassed
 
     if (-not (Test-Path -LiteralPath $PackagePath)) {
         throw "ملف الحزمة غير موجود: $PackagePath"
@@ -95,6 +105,35 @@ try {
         throw "مهمة الجدولة '$TaskName' غير موجودة."
     }
 
+    $backupRoot = Join-Path $InstallRoot "backup"
+    $databaseBackupDirectory = Join-Path $backupRoot "db"
+    $releaseManifestPath = Join-Path (Split-Path $ApiPath -Parent) "release-manifest.json"
+    $configTarget = Join-Path $ApiPath "appsettings.Production.json"
+    $logsPath = Join-Path $InstallRoot "logs\api-runtime.log"
+    $deployStartedAt = Get-Date
+
+    Write-DeployStep "إنشاء نسخة احتياطية إلزامية لقاعدة البيانات"
+    $databaseBackup = Invoke-ProductionDatabaseBackup `
+        -Server $sqlInfo.Server `
+        -Database $sqlInfo.Database `
+        -BackupDirectory $databaseBackupDirectory `
+        -Timestamp $stamp
+
+    $databaseBackupPath = $databaseBackup.Path
+    $databaseBackupSizeBytes = [long]$databaseBackup.SizeBytes
+    $databaseBackupCreatedAtUtc = [string]$databaseBackup.CreatedAtUtc
+    $databaseBackupSha256 = [string]$databaseBackup.Sha256
+    $databaseBackupStatus = "نجح"
+    $manualRestoreCommand = Get-ManualDatabaseRestoreCommand `
+        -Server $sqlInfo.Server `
+        -Database $sqlInfo.Database `
+        -BackupPath $databaseBackupPath
+
+    Write-DeployInfo ("مسار نسخة قاعدة البيانات: " + $databaseBackupPath)
+    Write-DeployInfo ("حجم النسخة (بايت): " + $databaseBackupSizeBytes)
+    Write-DeployInfo ("وقت إنشاء النسخة (UTC): " + $databaseBackupCreatedAtUtc)
+    Write-DeployInfo ("تجزئة SHA256 للنسخة: " + $databaseBackupSha256)
+
     Write-DeployStep "إيقاف API"
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     Stop-ApiListenersOnPort -Port $ApiPort
@@ -102,15 +141,10 @@ try {
         throw "المنفذ $ApiPort ما زال مستخدماً بعد إيقاف API."
     }
 
-    $backupRoot = Join-Path $InstallRoot "backup"
-  $backupPath = Join-Path $backupRoot ("before-" + $stamp)
+    $backupPath = Join-Path $backupRoot ("before-" + $stamp)
     $backupApi = Join-Path $backupPath "api"
     $backupWeb = Join-Path $backupPath "web"
     $backupManifest = Join-Path $backupPath "release-manifest.json"
-    $releaseManifestPath = Join-Path (Split-Path $ApiPath -Parent) "release-manifest.json"
-    $configTarget = Join-Path $ApiPath "appsettings.Production.json"
-    $logsPath = Join-Path $InstallRoot "logs\api-runtime.log"
-    $deployStartedAt = Get-Date
 
     if (-not $SkipFileBackup) {
         Write-DeployStep "إنشاء نسخة احتياطية للملفات"
@@ -130,7 +164,7 @@ try {
         }
     }
     else {
-        Write-DeployInfo "تم تخطي النسخة الاحتياطية للملفات (-SkipFileBackup)."
+        Write-DeployInfo "تم تخطي النسخة الاحتياطية للملفات (-SkipFileBackup). نسخة قاعدة البيانات ما زالت إلزامية."
         $backupPath = "(متخطى)"
     }
 
@@ -156,7 +190,7 @@ try {
         $databaseStatus = "نجح"
     }
     else {
-        Write-DeployInfo "تم تخطي migrations (-SkipDatabaseMigration)."
+        Write-DeployInfo "تم تخطي migrations (-SkipDatabaseMigration). نسخة قاعدة البيانات نُفِّذت قبل ذلك."
         $databaseStatus = "متخطى"
     }
 
@@ -184,8 +218,14 @@ try {
         minimumDatabaseMigration = [string]$manifest.minimumDatabaseMigration
         apiPath = $ApiPath
         webPath = $WebPath
+        databaseBackup = [ordered]@{
+            path = $databaseBackupPath
+            sizeBytes = $databaseBackupSizeBytes
+            createdAtUtc = $databaseBackupCreatedAtUtc
+            sha256 = $databaseBackupSha256
+        }
     }
-    $releaseInfo | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $releaseManifestPath -Encoding UTF8
+    $releaseInfo | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $releaseManifestPath -Encoding UTF8
 
     Write-DeployStep "تشغيل API"
     Start-ScheduledTask -TaskName $TaskName
@@ -213,6 +253,12 @@ try {
         throw ("تم العثور على أخطاء جديدة في السجل: " + ($logErrors -join " | "))
     }
 
+    $databaseRetentionDeleted = Invoke-DatabaseBackupRetentionPolicy `
+        -BackupDirectory $databaseBackupDirectory `
+        -InstallRoot $InstallRoot `
+        -MinimumKeepCount 10 `
+        -LatestSuccessfulBackupPath $databaseBackupPath
+
     $deployedDir = Join-Path $InstallRoot "incoming\deployed"
     Ensure-Directory $deployedDir
     Move-Item -LiteralPath $PackagePath -Destination (Join-Path $deployedDir (Split-Path -Leaf $PackagePath)) -Force
@@ -228,6 +274,18 @@ try {
 }
 catch {
     Write-DeployError ("فشل النشر: " + $_.Exception.Message)
+
+    if ($databaseBackupPath -and $sqlInfo) {
+        if (-not $manualRestoreCommand) {
+            $manualRestoreCommand = Get-ManualDatabaseRestoreCommand `
+                -Server $sqlInfo.Server `
+                -Database $sqlInfo.Database `
+                -BackupPath $databaseBackupPath
+        }
+        Write-DeployInfo "أمر الاستعادة اليدوي لقاعدة البيانات:"
+        Write-DeployInfo $manualRestoreCommand
+        Write-DeployInfo "لا يوجد استعادة تلقائية لقاعدة البيانات."
+    }
 
     if (-not $SkipFileBackup -and $backupPath -and $backupPath -ne "(متخطى)") {
         $rollbackPerformed = Invoke-DeploymentFileRollback `
@@ -252,13 +310,27 @@ finally {
     Write-DeployInfo ("الحزمة: " + $PackagePath)
     Write-DeployInfo ("الإصدار: " + $(if ($packageVersion) { $packageVersion } else { "غير معروف" }))
     Write-DeployInfo ("Commit SHA: " + $(if ($packageCommit) { $packageCommit } else { "غير متوفر" }))
-    Write-DeployInfo ("حالة قاعدة البيانات: " + $databaseStatus)
+    Write-DeployInfo ("حالة نسخة قاعدة البيانات: " + $databaseBackupStatus)
+    Write-DeployInfo ("مسار نسخة قاعدة البيانات: " + $(if ($databaseBackupPath) { $databaseBackupPath } else { "غير متوفر" }))
+    if ($databaseBackupPath) {
+        Write-DeployInfo ("حجم نسخة قاعدة البيانات (بايت): " + $databaseBackupSizeBytes)
+        Write-DeployInfo ("وقت نسخة قاعدة البيانات (UTC): " + $databaseBackupCreatedAtUtc)
+        Write-DeployInfo ("SHA256 لنسخة قاعدة البيانات: " + $databaseBackupSha256)
+    }
+    Write-DeployInfo ("حالة migrations: " + $databaseStatus)
     Write-DeployInfo ("صحة API: " + $apiHealth)
     Write-DeployInfo ("مسار الواجهة: " + $WebPath)
-    Write-DeployInfo ("مسار النسخة الاحتياطية: " + $backupPath)
+    Write-DeployInfo ("مسار النسخة الاحتياطية للملفات: " + $backupPath)
+    if (@($databaseRetentionDeleted).Count -gt 0) {
+        Write-DeployInfo ("نسخ قاعدة بيانات محذوفة بسياسة الاحتفاظ: " + ($databaseRetentionDeleted -join " | "))
+    }
     Write-DeployInfo ("نتيجة النشر: " + $deploymentResult)
     if ($rollbackPerformed) {
         Write-DeployInfo "تم تنفيذ rollback للملفات فقط."
+    }
+    if ($manualRestoreCommand -and $deploymentResult -ne "نجح") {
+        Write-DeployInfo "أمر الاستعادة اليدوي لقاعدة البيانات:"
+        Write-DeployInfo $manualRestoreCommand
     }
 }
 
