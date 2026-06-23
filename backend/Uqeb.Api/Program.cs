@@ -10,7 +10,9 @@ using Uqeb.Api.Authorization;
 using Uqeb.Api.Configuration;
 using Uqeb.Api.Data;
 using Uqeb.Api.Models.Enums;
+using Uqeb.Api.Middleware;
 using Uqeb.Api.Services;
+using Uqeb.Api.Services.Health;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -37,6 +39,7 @@ builder.Services.AddScoped<IExternalPartyService, ExternalPartyService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddScoped<ILetterTemplateService, LetterTemplateService>();
 builder.Services.AddScoped<ISecurityAuditService, SecurityAuditService>();
+builder.Services.AddScoped<IHealthDatabaseProbe, DbContextHealthDatabaseProbe>();
 
 var jwtSettings = builder.Configuration.GetSection("Jwt").Get<JwtSettings>() ?? new JwtSettings();
 if (string.IsNullOrWhiteSpace(jwtSettings.Key))
@@ -143,6 +146,8 @@ catch (Exception ex)
     logger.LogWarning(ex, "تعذر الاتصال بقاعدة البيانات أو تنفيذ Seed. تأكد من تشغيل SQL Server وتطبيق Migrations.");
 }
 
+app.UseMiddleware<CorrelationIdMiddleware>();
+app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseCors();
 app.UseResponseCompression();
 app.UseRateLimiter();
@@ -152,3 +157,10 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+public partial class Program
+{
+    protected Program()
+    {
+    }
+}

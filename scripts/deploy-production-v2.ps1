@@ -159,6 +159,31 @@ do {
 if (-not $listener) { throw ("API did not start. Review " + $apiLog) }
 if (-not ($listener | Where-Object { $_.LocalAddress -in @($ApiBindAddress,"0.0.0.0","::") })) { throw "API binding is not LAN-capable." }
 
+try {
+    $healthScript = Join-Path $PSScriptRoot "verify-deployment-health.ps1"
+    $baseUrl = "http://localhost:$ApiPort"
+
+    if (-not (Test-Path -LiteralPath $healthScript)) {
+        throw "Health verification script not found: $healthScript"
+    }
+
+    & $healthScript `
+        -ApiBaseUrl $baseUrl `
+        -TimeoutSec 20 `
+        -RetryCount 5 `
+        -RetryDelaySec 2
+
+    Write-Info "Post-deploy health verification passed."
+}
+catch {
+    throw (
+        "Post-deploy health verification failed. Review " +
+        $apiLog +
+        ". Details: " +
+        $_.Exception.Message
+    )
+}
+
 $buildInfo = "DeployedAt=$(Get-Date -Format s)`r`nApiTarget=$apiTarget`r`nWebTarget=$webTarget`r`nApiBinding=http://$ApiBindAddress`:$ApiPort`r`nBackup=$backup"
 Set-Content (Join-Path $InstallRoot "BUILD_INFO.txt") $buildInfo -Encoding UTF8
 Write-Step "Deployment completed successfully"
