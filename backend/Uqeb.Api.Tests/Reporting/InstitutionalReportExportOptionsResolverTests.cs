@@ -16,6 +16,7 @@ public class InstitutionalReportExportOptionsResolverTests
         Assert.Equal(ExportMode.FullReport, options.Mode);
         Assert.False(options.IncludePartialCover);
         Assert.False(options.IncludePartialManifest);
+        Assert.Equal(DetailOverflowAction.None, options.DetailOverflowAction);
         Assert.Equal(PageNumberingMode.Restart, options.NumberingMode);
     }
 

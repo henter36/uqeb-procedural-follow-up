@@ -8,7 +8,8 @@ internal sealed record ResolvedReportExportOptions(
     ExportMode Mode,
     bool IncludePartialCover,
     bool IncludePartialManifest,
-    PageNumberingMode NumberingMode);
+    PageNumberingMode NumberingMode,
+    DetailOverflowAction DetailOverflowAction);
 
 internal sealed record ResolvedSaveTemplateOptions(
     InstitutionalReportType ReportType,
@@ -24,7 +25,15 @@ internal static class InstitutionalReportExportOptionsResolver
         request.ExportMode ?? ExportMode.FullReport,
         request.IncludePartialCover ?? false,
         request.IncludePartialManifest ?? false,
-        request.PageNumberingMode ?? PageNumberingMode.Restart);
+        request.PageNumberingMode ?? PageNumberingMode.Restart,
+        request.DetailOverflowAction ?? DetailOverflowAction.None);
+
+    internal static ResolvedSaveTemplateOptions Resolve(SaveReportTemplateRequestDto request) => new(
+        request.ReportType!.Value,
+        request.DefaultFormat ?? ExportFormat.Pdf,
+        request.PageNumberingMode ?? PageNumberingMode.Restart,
+        request.IncludePartialCover ?? false,
+        request.IncludePartialManifest ?? false);
 
     internal static ReportExportRequestDto WithResolvedValues(ReportExportRequestDto request)
     {
@@ -50,13 +59,6 @@ internal static class InstitutionalReportExportOptionsResolver
             PageNumberingMode = options.NumberingMode,
             TemplateId = request.TemplateId,
             Reason = request.Reason,
-            DetailOverflowAction = request.DetailOverflowAction,
+            DetailOverflowAction = options.DetailOverflowAction,
         };
-
-    internal static ResolvedSaveTemplateOptions Resolve(SaveReportTemplateRequestDto request) => new(
-        request.ReportType!.Value,
-        request.DefaultFormat ?? ExportFormat.Pdf,
-        request.PageNumberingMode ?? PageNumberingMode.Restart,
-        request.IncludePartialCover ?? false,
-        request.IncludePartialManifest ?? false);
 }

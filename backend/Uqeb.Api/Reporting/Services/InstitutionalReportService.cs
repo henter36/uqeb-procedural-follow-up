@@ -39,8 +39,6 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
     private readonly DepartmentRatingCriteria _ratingCriteria = new();
     private readonly InstitutionalReportRenderer _renderer = new();
     private readonly IInstitutionalReportPdfExporter _pdfExporter;
-    private readonly InstitutionalReportXlsxExporter _xlsxExporter = new();
-    private readonly InstitutionalReportDocxExporter _docxExporter = new();
 
     public InstitutionalReportService(
         IDbContextFactory<AppDbContext> dbFactory,
@@ -175,12 +173,12 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
         switch (context.Options.Format)
         {
             case ExportFormat.Docx:
-                content = _docxExporter.Export(context.Model, exportManifest, context.Request);
+                content = InstitutionalReportDocxExporter.Export(context.Model, exportManifest, context.Request);
                 contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
                 extension = "docx";
                 break;
             case ExportFormat.Xlsx:
-                content = _xlsxExporter.Export(context.Model, exportManifest, context.Request);
+                content = InstitutionalReportXlsxExporter.Export(context.Model, exportManifest, context.Request);
                 contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
                 extension = "xlsx";
                 break;
@@ -285,12 +283,12 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
         bool includesDetails)
     {
         if (!overflow || !includesDetails)
-            return request.DetailOverflowAction;
+            return request.DetailOverflowAction ?? DetailOverflowAction.None;
 
         if (request.ExportFormat == ExportFormat.Xlsx)
             return DetailOverflowAction.FullDetailsXlsx;
 
-        return request.DetailOverflowAction;
+        return request.DetailOverflowAction ?? DetailOverflowAction.None;
     }
 
     private static void ValidateOverflowAction(

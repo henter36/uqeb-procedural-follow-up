@@ -241,8 +241,8 @@ public sealed class ReportExportRequestDto
     public PageNumberingMode? PageNumberingMode { get; set; }
     public int? TemplateId { get; set; }
     public string? Reason { get; set; }
-    /// <summary>Required when matching transactions exceed configured detail row limit.</summary>
-    public DetailOverflowAction DetailOverflowAction { get; set; }
+    /// <summary>Defaults to none when omitted from JSON.</summary>
+    public DetailOverflowAction? DetailOverflowAction { get; set; }
 }
 
 public sealed class ReportExportResultDto

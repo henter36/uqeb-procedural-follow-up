@@ -49,7 +49,7 @@ public class InstitutionalReportDocxExporterTests
             ],
         };
 
-        var bytes = new InstitutionalReportDocxExporter().Export(model, manifest, new ReportExportRequestDto());
+        var bytes = InstitutionalReportDocxExporter.Export(model, manifest, new ReportExportRequestDto());
         Assert.NotEmpty(bytes);
 
         using var zip = new System.IO.Compression.ZipArchive(new MemoryStream(bytes));
@@ -101,7 +101,7 @@ public class InstitutionalReportDocxExporterTests
             ],
         };
 
-        var bytes = new InstitutionalReportDocxExporter().Export(model, manifest, new ReportExportRequestDto());
+        var bytes = InstitutionalReportDocxExporter.Export(model, manifest, new ReportExportRequestDto());
 
         using var stream = new MemoryStream(bytes);
         using var document = WordprocessingDocument.Open(stream, false);
