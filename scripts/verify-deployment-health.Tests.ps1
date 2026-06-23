@@ -17,12 +17,18 @@ BeforeAll {
         param(
             [string]$Status,
             [string]$HealthStatus,
-            [hashtable]$Headers = @{ 'X-Correlation-ID' = 'abc123' }
+            [hashtable]$Headers = @{ 'X-Correlation-ID' = 'abc123' },
+            [string]$DatabaseCheck = 'pass'
         )
+
+        $body = @{ status = $HealthStatus }
+        if ($HealthStatus -eq 'healthy') {
+            $body.checks = @{ database = $DatabaseCheck }
+        }
 
         return [pscustomobject]@{
             StatusCode = $Status
-            Content = (@{ status = $HealthStatus } | ConvertTo-Json -Compress)
+            Content = ($body | ConvertTo-Json -Compress)
             Headers = $Headers
         }
     }
@@ -294,6 +300,21 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
             } `
             -Times 1 `
             -Exactly
+    }
+    It 'FAIL: summary database check is not pass' {
+        Mock Invoke-WebRequest {
+            param($Uri)
+            $path = ([uri]$Uri).AbsolutePath
+            switch ($path) {
+                '/health/live' { return (New-HealthResponse -Status 200 -HealthStatus 'live') }
+                '/health/ready' { return (New-HealthResponse -Status 200 -HealthStatus 'ready') }
+                '/health' { return (New-HealthResponse -Status 200 -HealthStatus 'healthy' -DatabaseCheck 'fail') }
+                default { throw "Unexpected path $path" }
+            }
+        }
+
+        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
+            Should -Throw "*database check 'fail' instead of 'pass'*"
     }
 }
 

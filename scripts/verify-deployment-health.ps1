@@ -72,6 +72,29 @@ function Get-ValidCorrelationId {
     return $value
 }
 
+function Assert-SummaryDatabasePass {
+    param(
+        [string]$Content,
+        [string]$Label
+    )
+
+    try {
+        $payload = $Content | ConvertFrom-Json
+    }
+    catch {
+        throw "$Label returned invalid JSON."
+    }
+
+    if (-not $payload.checks) {
+        throw "$Label did not return checks object."
+    }
+
+    $databaseCheck = [string]$payload.checks.database
+    if ($databaseCheck -ne 'pass') {
+        throw "$Label reported database check '$databaseCheck' instead of 'pass'."
+    }
+}
+
 function Assert-ExpectedHealthStatus {
     param(
         [string]$Content,
@@ -116,6 +139,12 @@ function Assert-HealthResponse {
         -Content $Response.Content `
         -ExpectedStatus $ExpectedStatus `
         -Label $Label
+
+    if ($Label -eq 'summary') {
+        Assert-SummaryDatabasePass `
+            -Content $Response.Content `
+            -Label $Label
+    }
 }
 
 function Invoke-HealthEndpoint {
@@ -174,3 +203,4 @@ Invoke-HealthEndpoint `
     -ExpectedStatus 'healthy' | Out-Null
 
 Write-Output 'Health verification passed.'
+exit 0
