@@ -209,8 +209,10 @@ export default function SearchableSelect({
                     else optionRefs.current.delete(option.id);
                   }}
                   className={`searchable-select-option${clampedHighlight === index ? ' is-highlighted' : ''}${value === option.id ? ' is-selected' : ''}${option.isActive === false ? ' is-inactive' : ''}`}
-                  onMouseDown={(event) => {
+                  onPointerDown={(event) => {
                     event.preventDefault();
+                  }}
+                  onClick={() => {
                     selectOption(option);
                   }}
                   onMouseEnter={() => setHighlightIndex(index)}

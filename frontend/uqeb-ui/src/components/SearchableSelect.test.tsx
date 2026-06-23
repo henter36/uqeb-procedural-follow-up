@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
@@ -114,6 +114,38 @@ describe('SearchableSelect accessibility', () => {
 });
 
 describe('SearchableSelect interaction', () => {
+  it('selects option on click and fires onChange once', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+
+    renderSelect(onChange);
+
+    await user.click(screen.getByRole('combobox', { name: 'اختيار القائمة' }));
+    await user.click(screen.getByRole('option', { name: 'Beta' }));
+
+    expect(onChange).toHaveBeenCalledWith(2);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
+  it('commits selection on pointer up/click, not pointer down', async () => {
+    const onChange = vi.fn();
+
+    renderSelect(onChange);
+
+    const input = screen.getByRole('combobox', { name: 'اختيار القائمة' });
+    await userEvent.click(input);
+
+    const option = screen.getByRole('option', { name: 'Beta' });
+
+    fireEvent.pointerDown(option, { pointerType: 'touch' });
+    expect(onChange).not.toHaveBeenCalled();
+
+    fireEvent.click(option);
+    expect(onChange).toHaveBeenCalledWith(2);
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
   it('selects option immediately on mouse click without Enter', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
