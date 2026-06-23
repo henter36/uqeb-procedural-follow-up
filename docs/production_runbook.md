@@ -96,7 +96,38 @@ $staging = "C:\Uqeb\staging\<TIMESTAMP>"
 
 ## 4. نشر إصدار جديد
 
-المدخل الرسمي:
+### الطريقة المفضلة (offline — دون GitHub)
+
+للنشر من جهاز تطوير إلى إنتاج غير متصل بـGitHub، استخدم **حزمة ZIP + سكربت تثبيت**:
+
+📄 **[simple_offline_deployment.md](simple_offline_deployment.md)**
+
+| الخطوة | الجهاز | الأمر |
+|--------|--------|--------|
+| 1 | التطوير | `.\scripts\build-production-package.ps1` |
+| 2 | — | انقل `Uqeb-*.zip` و`Uqeb-*.sha256.txt` إلى `C:\Uqeb\incoming` |
+| 3 | الإنتاج | `C:\UqebTools\install-production-package.ps1 -PackagePath ...` |
+
+إعداد أولي لمرة واحدة على الإنتاج: `.\scripts\setup-production-tools.ps1`
+
+> **لا يمكن تنفيذ نشر إنتاج أو migrations دون نسخة قاعدة بيانات مكتملة ومتحقق منها. لا يوجد خيار تجاوز لهذه الخطوة.**
+
+#### نسخة قاعدة البيانات الإلزامية
+
+قبل إيقاف API أو تطبيق migrations، ينفّذ `install-production-package.ps1` تلقائيًا:
+
+1. `BACKUP DATABASE ... WITH CHECKSUM` إلى `C:\Uqeb\backup\db\<Database>-before-<timestamp>.bak`
+2. `RESTORE VERIFYONLY ... WITH CHECKSUM`
+3. التحقق من الحجم وSHA256 واسم القاعدة
+4. تسجيل المسار والحجم والوقت في تقرير النشر و`release-manifest.json`
+
+عند فشل أي خطوة: يتوقف النشر فورًا دون migrations أو استبدال ملفات. عند فشل مرحلة لاحقة: يُعرض أمر `RESTORE DATABASE` اليدوي دون استعادة تلقائية.
+
+سياسة الاحتفاظ: آخر 10 نسخ ناجحة كحد أدنى؛ لا حذف النسخ المرتبطة بإصدار منشور.
+
+### طريقة بديلة (مجلد staging مفكوك)
+
+المدخل الرسمي القديم:
 
 ```text
 scripts/deploy-production.ps1
@@ -112,6 +143,21 @@ scripts/deploy-production.ps1
 5. تشغيل سكربت النشر كمسؤول مع **مسار مجلد staging المفكوك**.
 6. السكربت يوقف المهمة، ينسخ API وWeb، يحافظ على إعدادات الإنتاج، ثم يعيد تشغيل API.
 7. تنفيذ فحوص الصحة وتسجيل الدخول يدويًا.
+
+### أخطاء شائعة يجب تجنبها
+
+| خطأ | البديل |
+|-----|--------|
+| تمرير ZIP إلى سكربت يتوقع مجلدًا | استخدم `install-production-package.ps1` للـZIP |
+| كتابة مسار SQL دون تنفيذ | شغّل `apply-migrations.ps1` |
+| الاعتماد على `sqlcmd` | `apply-migrations.ps1` يستخدم `System.Data.SqlClient` |
+| نسخ `appsettings` من التطوير | الإعداد في `C:\Uqeb\config` فقط |
+| `localhost` في بناء الواجهة للشبكة | البناء يستخدم `10.0.177.17:5000/api` |
+| إعلان النجاح لمجرد بدء المهمة | انتظر المنفذ + health + السجل |
+| health فقط دون migrations | تحقق من `database=pass` والسجل |
+| `robocopy /MIR` على API | استخدم النسخ بدون `/MIR` |
+| طباعة كلمات المرور أو JWT | السكربتات تعرض Server/Database فقط |
+| نشر دون نسخة قاعدة بيانات | النسخة الاحتياطية إلزامية قبل migrations — لا `-SkipDatabaseBackup` |
 
 لا تستخدم `robocopy /MIR` على مجلد API؛ قد يحذف إعدادات أو ملفات تشغيلية محفوظة على الخادم.
 

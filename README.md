@@ -159,7 +159,29 @@ npm run build         # ✅ نجح
 
 ---
 
-## 6. النشر على IIS
+## 6. النشر على الإنتاج (Windows — الطريقة المفضلة)
+
+للنشر **دون GitHub** من جهاز التطوير إلى إنتاج offline:
+
+📄 **[docs/simple_offline_deployment.md](docs/simple_offline_deployment.md)**
+
+```powershell
+# جهاز التطوير
+.\scripts\build-production-package.ps1
+
+# جهاز الإنتاج (بعد نقل ZIP + SHA256 إلى C:\Uqeb\incoming)
+C:\UqebTools\install-production-package.ps1 -PackagePath C:\Uqeb\incoming\Uqeb-<version>.zip
+```
+
+إعداد أولي: `.\scripts\setup-production-tools.ps1` على جهاز الإنتاج.
+
+> **لا يمكن تنفيذ نشر إنتاج أو migrations دون نسخة قاعدة بيانات مكتملة ومتحقق منها. لا يوجد خيار تجاوز لهذه الخطوة.**
+
+قبل أي migrations، يُنشأ تلقائيًا نسخ احتياطي كامل في `C:\Uqeb\backup\db\` مع `WITH CHECKSUM` و`RESTORE VERIFYONLY`.
+
+---
+
+## 7. النشر على IIS (بديل)
 
 ### Backend (API)
 
@@ -207,7 +229,7 @@ npm run build         # ✅ نجح
 
 ---
 
-## 7. قواعد العمل المطبّقة
+## 8. قواعد العمل المطبّقة
 
 - رقم الوارد فريد (لا يتكرر)
 - لا حذف نهائي — الإلغاء/الأرشفة فقط
@@ -223,7 +245,7 @@ npm run build         # ✅ نجح
 
 ---
 
-## 8. المرحلة الثانية — سير العمل والتقارير
+## 9. المرحلة الثانية — سير العمل والتقارير
 
 ### Migration
 
@@ -267,7 +289,7 @@ dotnet ef database update
 
 ---
 
-## 9. حالة التنفيذ
+## 10. حالة التنفيذ
 
 - [x] المرحلة 1: بنية المشروع + نماذج + DbContext + Migrations
 - [x] المرحلة 2: JWT + Roles + Seed
@@ -286,7 +308,7 @@ dotnet ef database update
 
 ---
 
-## 10. اختبارات التحمل (k6)
+## 11. اختبارات التحمل (k6)
 
 راجع `performance-tests/README.md` للتفاصيل.
 
