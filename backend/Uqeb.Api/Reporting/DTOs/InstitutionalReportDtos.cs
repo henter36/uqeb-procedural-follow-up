@@ -18,6 +18,9 @@ public sealed class ReportMetadataDto
     public string? FileFingerprint { get; set; }
     public int TotalPages { get; set; }
     public DateTime GeneratedAt { get; set; }
+    public int TotalMatchingTransactions { get; set; }
+    public int IncludedTransactionCount { get; set; }
+    public int DetailRowLimit { get; set; }
 }
 
 public sealed class ReportFiltersDto
@@ -156,6 +159,10 @@ public sealed class InstitutionalReportModel
     public RiskSummaryCountersDto RiskCounters { get; set; } = new();
     public List<TransactionDetailRowDto> Transactions { get; set; } = [];
     public List<IntegrityWarningDto> IntegrityWarnings { get; set; } = [];
+    public int TotalMatchedRows { get; set; }
+    public int ExportedDetailRows { get; set; }
+    public bool DetailRowsTruncated { get; set; }
+    public int DetailPartsCount { get; set; }
 }
 
 public sealed record RenderedReportPageDto
@@ -176,6 +183,14 @@ public sealed class RenderedReportManifestDto
     public List<RenderedReportPageDto> Pages { get; set; } = [];
     public bool IsPartialExport { get; set; }
     public string? PartialExportNote { get; set; }
+    public int TotalMatchingTransactions { get; set; }
+    public int IncludedTransactionCount { get; set; }
+    public int DetailRowLimit { get; set; }
+    public bool RequiresDetailOverflowAction { get; set; }
+    public int TotalMatchedRows { get; set; }
+    public int ExportedDetailRows { get; set; }
+    public bool DetailRowsTruncated { get; set; }
+    public int DetailPartsCount { get; set; }
 
     public RenderedReportManifestDto CloneWithoutHtml() => new()
     {
@@ -183,6 +198,14 @@ public sealed class RenderedReportManifestDto
         TotalPages = TotalPages,
         IsPartialExport = IsPartialExport,
         PartialExportNote = PartialExportNote,
+        TotalMatchingTransactions = TotalMatchingTransactions,
+        IncludedTransactionCount = IncludedTransactionCount,
+        DetailRowLimit = DetailRowLimit,
+        RequiresDetailOverflowAction = RequiresDetailOverflowAction,
+        TotalMatchedRows = TotalMatchedRows,
+        ExportedDetailRows = ExportedDetailRows,
+        DetailRowsTruncated = DetailRowsTruncated,
+        DetailPartsCount = DetailPartsCount,
         Pages = Pages.Select(p => p with { HtmlContent = string.Empty }).ToList()
     };
 }
@@ -218,6 +241,8 @@ public sealed class ReportExportRequestDto
     public PageNumberingMode PageNumberingMode { get; set; } = PageNumberingMode.Restart;
     public int? TemplateId { get; set; }
     public string? Reason { get; set; }
+    /// <summary>Required when matching transactions exceed configured detail row limit.</summary>
+    public DetailOverflowAction DetailOverflowAction { get; set; }
 }
 
 public sealed class ReportExportResultDto

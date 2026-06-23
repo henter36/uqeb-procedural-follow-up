@@ -1,6 +1,8 @@
 import { useCallback, useMemo, useState } from 'react';
+import axios from 'axios';
 import { institutionalReportsApi, type InstitutionalReportManifest, type ReportBuildRequest, type ReportExportRequest } from '../api/services';
 import {
+  DetailOverflowAction,
   ExportFormat,
   ExportMode,
   InstitutionalReportType,
@@ -92,6 +94,16 @@ export default function ReportBuilderPage() {
   );
   const [includePartialCover, setIncludePartialCover] = useState(true);
   const [includePartialManifest, setIncludePartialManifest] = useState(true);
+  const [detailOverflowAction, setDetailOverflowAction] = useState<typeof DetailOverflowAction[keyof typeof DetailOverflowAction]>(
+    DetailOverflowAction.None,
+  );
+
+  const includesTransactionDetails = sectionIds.includes(ReportSectionId.TransactionDetails);
+  const requiresOverflowChoice = Boolean(
+    manifest?.requiresDetailOverflowAction
+    && includesTransactionDetails
+    && (exportFormat === ExportFormat.Pdf || exportFormat === ExportFormat.Docx || exportFormat === ExportFormat.Html),
+  );
 
   const buildRequest = useCallback((): ReportBuildRequest => ({
     reportType,
@@ -152,6 +164,16 @@ export default function ReportBuilderPage() {
     setLoading(true);
     setError('');
     try {
+      if (requiresOverflowChoice && detailOverflowAction === DetailOverflowAction.None) {
+        setError('يتجاوز التقرير حد صفوف التفاصيل. اختر كيفية التعامل مع التفاصيل قبل التصدير.');
+        return;
+      }
+
+      if (requiresOverflowChoice && detailOverflowAction === DetailOverflowAction.SplitPdf && exportFormat !== ExportFormat.Pdf) {
+        setError('تقسيم التفاصيل إلى عدة ملفات PDF متاح فقط عند اختيار صيغة PDF.');
+        return;
+      }
+
       const pageSelection = buildReportExportPageSelection(
         exportMode,
         pageSelectionMode,
@@ -159,6 +181,12 @@ export default function ReportBuilderPage() {
         pageRange,
         currentPage,
       );
+
+      const effectiveOverflowAction = requiresOverflowChoice
+        ? detailOverflowAction
+        : (exportFormat === ExportFormat.Xlsx && manifest?.requiresDetailOverflowAction
+          ? DetailOverflowAction.FullDetailsXlsx
+          : DetailOverflowAction.None);
 
       const response = await institutionalReportsApi.export({
         buildRequest: buildRequest(),
@@ -168,19 +196,38 @@ export default function ReportBuilderPage() {
         includePartialCover,
         includePartialManifest,
         pageNumberingMode,
+        detailOverflowAction: effectiveOverflowAction,
         ...pageSelection,
       });
-      const ext = exportFormat === ExportFormat.Docx ? 'docx'
-        : exportFormat === ExportFormat.Xlsx ? 'xlsx'
-          : exportFormat === ExportFormat.Html ? 'html'
-            : 'pdf';
       const contentType = typeof response.headers['content-type'] === 'string'
         ? response.headers['content-type']
         : 'application/octet-stream';
+      const ext = contentType.includes('zip')
+        ? 'zip'
+        : contentType.includes('spreadsheetml')
+          ? 'xlsx'
+          : exportFormat === ExportFormat.Docx
+            ? 'docx'
+            : exportFormat === ExportFormat.Html
+              ? 'html'
+              : 'pdf';
       const blob = new Blob([response.data], { type: contentType });
       downloadBlob(blob, `institutional-report.${ext}`);
       setExportOpen(false);
-    } catch {
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.data instanceof Blob) {
+        try {
+          const text = await err.response.data.text();
+          const body = JSON.parse(text) as { errors?: Record<string, string[]> };
+          const overflowMessage = body.errors?.detailOverflowAction?.[0];
+          if (overflowMessage) {
+            setError(overflowMessage);
+            return;
+          }
+        } catch {
+          // fall through to generic message
+        }
+      }
       setError('تعذر تصدير التقرير.');
     } finally {
       setLoading(false);
@@ -205,6 +252,17 @@ export default function ReportBuilderPage() {
       </div>
 
       {error && <div className="alert alert-error">{error}</div>}
+
+      {manifest?.requiresDetailOverflowAction && includesTransactionDetails && (
+        <div className="alert alert-warning">
+          يتجاوز عدد المعاملات المطابقة ({manifest.totalMatchedRows?.toLocaleString('ar-SA') ?? manifest.totalMatchingTransactions?.toLocaleString('ar-SA') ?? '—'})
+          {' '}حد صفوف التفاصيل التشغيلي ({manifest.detailRowLimit?.toLocaleString('ar-SA') ?? '—'}).
+          {' '}بطاقات KPI والرسوم محسوبة من كامل النتائج؛ جدول التفاصيل يعرض {manifest.exportedDetailRows?.toLocaleString('ar-SA') ?? manifest.includedTransactionCount?.toLocaleString('ar-SA') ?? '—'} صفًا
+          {manifest.detailPartsCount && manifest.detailPartsCount > 1
+            ? ` (التصدير الكامل يتطلب ${manifest.detailPartsCount} ملفات PDF)`
+            : ''}.
+        </div>
+      )}
 
       <div className="report-builder-grid">
         <aside className="report-builder-panel">
@@ -381,6 +439,46 @@ export default function ReportBuilderPage() {
             </label>
             {(exportFormat === ExportFormat.Docx || exportFormat === ExportFormat.Xlsx) && exportMode === ExportMode.SelectedPages && (
               <p className="text-muted">اختيار الصفحات الفعلية يطبق بدقة على PDF. في Word/Excel سيتم تصدير الأقسام المقابلة لأن توزيع الصفحات قد يختلف.</p>
+            )}
+            {requiresOverflowChoice && (
+              <fieldset className="report-overflow-options">
+                <legend>تجاوز حد صفوف التفاصيل</legend>
+                <p className="text-muted">
+                  المطلوب: {manifest?.totalMatchingTransactions?.toLocaleString('ar-SA')} معاملة —
+                  الحد: {manifest?.detailRowLimit?.toLocaleString('ar-SA')} صف لكل ملف PDF/DOCX.
+                </p>
+                <label htmlFor="overflow-summary-only">
+                  <input
+                    id="overflow-summary-only"
+                    type="radio"
+                    name="detailOverflowAction"
+                    checked={detailOverflowAction === DetailOverflowAction.SummaryOnly}
+                    onChange={() => setDetailOverflowAction(DetailOverflowAction.SummaryOnly)}
+                  />
+                  {' '}ملخص كامل بدون تفاصيل مضمّنة (PDF/DOCX/HTML)
+                </label>
+                <label htmlFor="overflow-split-pdf">
+                  <input
+                    id="overflow-split-pdf"
+                    type="radio"
+                    name="detailOverflowAction"
+                    checked={detailOverflowAction === DetailOverflowAction.SplitPdf}
+                    onChange={() => setDetailOverflowAction(DetailOverflowAction.SplitPdf)}
+                    disabled={exportFormat !== ExportFormat.Pdf}
+                  />
+                  {' '}تقسيم التفاصيل إلى عدة ملفات PDF (ملف ZIP)
+                </label>
+                <label htmlFor="overflow-xlsx">
+                  <input
+                    id="overflow-xlsx"
+                    type="radio"
+                    name="detailOverflowAction"
+                    checked={detailOverflowAction === DetailOverflowAction.FullDetailsXlsx}
+                    onChange={() => setDetailOverflowAction(DetailOverflowAction.FullDetailsXlsx)}
+                  />
+                  {' '}تصدير التفاصيل كاملة إلى Excel (XLSX)
+                </label>
+              </fieldset>
             )}
             <div className="report-export-actions">
               <button type="button" className="btn btn-primary" onClick={runExport} disabled={loading}>تنفيذ التصدير</button>

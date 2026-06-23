@@ -75,3 +75,15 @@ public enum RecommendationSource
     Automated = 1,
     Manual = 2
 }
+
+/// <summary>How to handle exports when matching transactions exceed <see cref="Configuration.ReportingOptions.MaxPdfDetailRows"/>.</summary>
+public enum DetailOverflowAction
+{
+    None = 0,
+    /// <summary>Summary PDF/DOCX without embedded detail rows; overflow documented in report body.</summary>
+    SummaryOnly = 1,
+    /// <summary>ZIP containing a full summary PDF plus multiple detail PDF parts.</summary>
+    SplitPdf = 2,
+    /// <summary>Export all transaction details to XLSX (full row set).</summary>
+    FullDetailsXlsx = 3
+}

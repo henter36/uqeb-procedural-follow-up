@@ -11,7 +11,9 @@ using Uqeb.Api.Configuration;
 using Uqeb.Api.Data;
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Middleware;
+using Uqeb.Api.Configuration;
 using Uqeb.Api.Reporting.Exporters;
+using Uqeb.Api.Reporting.Configuration;
 using Uqeb.Api.Reporting.Services;
 using Uqeb.Api.Services;
 using Uqeb.Api.Services.Health;
@@ -20,6 +22,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));
 builder.Services.Configure<FeatureFlagsSettings>(builder.Configuration.GetSection(FeatureFlagsSettings.SectionName));
+builder.Services.Configure<ReportingOptions>(builder.Configuration.GetSection(ReportingOptions.SectionName));
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 builder.Services.AddDbContextFactory<AppDbContext>(options =>

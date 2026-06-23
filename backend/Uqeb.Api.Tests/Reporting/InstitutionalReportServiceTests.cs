@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Uqeb.Api.Data;
 using Uqeb.Api.Helpers;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
+using Uqeb.Api.Reporting.Configuration;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
 using Uqeb.Api.Reporting.Exporters;
@@ -93,7 +95,10 @@ public class InstitutionalReportServiceExportValidationTests
 
 internal static class InstitutionalReportServiceTestHelpers
 {
-    internal static InstitutionalReportService CreateService(IDbContextFactory<AppDbContext>? dbFactory = null)
+    internal static InstitutionalReportService CreateService(
+        IDbContextFactory<AppDbContext>? dbFactory = null,
+        ReportingOptions? reportingOptions = null,
+        IAuditService? audit = null)
     {
         dbFactory ??= new TestDbContextFactory(new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"export-validation-{Guid.NewGuid():N}")
@@ -102,9 +107,10 @@ internal static class InstitutionalReportServiceTestHelpers
         return new InstitutionalReportService(
             dbFactory,
             new TestCurrentUserService(),
-            new NoOpAuditService(),
+            audit ?? new NoOpAuditService(),
             new FixedReportNumberAllocator(),
-            new StubPdfExporter());
+            new StubPdfExporter(),
+            Options.Create(reportingOptions ?? new ReportingOptions { MaxPdfDetailRows = 10_000 }));
     }
 
     private sealed class TestCurrentUserService : ICurrentUserService

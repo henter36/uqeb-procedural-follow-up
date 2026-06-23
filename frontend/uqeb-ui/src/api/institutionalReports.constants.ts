@@ -38,3 +38,10 @@ export const PageNumberingMode = {
   PreserveOriginal: 1,
   Restart: 2,
 } as const;
+
+export const DetailOverflowAction = {
+  None: 0,
+  SummaryOnly: 1,
+  SplitPdf: 2,
+  FullDetailsXlsx: 3,
+} as const;

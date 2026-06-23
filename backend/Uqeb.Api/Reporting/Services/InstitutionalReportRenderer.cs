@@ -55,7 +55,10 @@ public sealed class InstitutionalReportRenderer
         .qr-box { width: 88px; height: 88px; border: 1px dashed #C5A253; display: grid; place-items: center; font-size: 10px; color: #2F6B58; }
         """;
 
-    public RenderedReportManifestDto RenderManifest(InstitutionalReportModel model, IReadOnlyList<ReportSectionId> sections)
+    public RenderedReportManifestDto RenderManifest(
+        InstitutionalReportModel model,
+        IReadOnlyList<ReportSectionId> sections,
+        bool includeTransactionDetails = true)
     {
         var pages = new List<RenderedReportPageDto>();
         var pageNo = 1;
@@ -83,6 +86,10 @@ public sealed class InstitutionalReportRenderer
                     pages.Add(MakePage(pageNo++, section, "التوصيات التنفيذية", RenderRecommendations(model)));
                     break;
                 case ReportSectionId.TransactionDetails:
+                    if (!includeTransactionDetails)
+                        break;
+                    if (model.DetailRowsTruncated)
+                        pages.Add(MakePage(pageNo++, section, "تنبيه صفوف التفاصيل", RenderDetailTruncationNotice(model)));
                     foreach (var chunk in model.Transactions.Chunk(18))
                         pages.Add(MakePage(pageNo++, section, "المعاملات التفصيلية", RenderTransactions(model, chunk.ToList())));
                     if (model.Transactions.Count == 0)
@@ -94,6 +101,11 @@ public sealed class InstitutionalReportRenderer
             }
         }
 
+        if (!includeTransactionDetails && model.DetailRowsTruncated)
+        {
+            pages.Add(MakePage(pageNo++, ReportSectionId.ReportMetadata, "تنبيه حد صفوف التفاصيل", RenderDetailOverflowNotice(model)));
+        }
+
         var reportId = model.Metadata.ReportNumber;
         model.Metadata.TotalPages = pages.Count;
 
@@ -101,12 +113,95 @@ public sealed class InstitutionalReportRenderer
         {
             ReportId = reportId,
             TotalPages = pages.Count,
+            TotalMatchingTransactions = model.TotalMatchedRows,
+            IncludedTransactionCount = model.ExportedDetailRows,
+            DetailRowLimit = model.Metadata.DetailRowLimit,
+            RequiresDetailOverflowAction = model.TotalMatchedRows > model.Metadata.DetailRowLimit,
+            TotalMatchedRows = model.TotalMatchedRows,
+            ExportedDetailRows = model.ExportedDetailRows,
+            DetailRowsTruncated = model.DetailRowsTruncated,
+            DetailPartsCount = model.DetailPartsCount,
             Pages = pages.Select((p, i) => p with
             {
                 OriginalPageNumber = i + 1,
                 RenderedPageNumber = i + 1
             }).ToList()
         };
+    }
+
+    public RenderedReportManifestDto RenderTransactionDetailsManifest(
+        InstitutionalReportModel model,
+        IReadOnlyList<TransactionDetailRowDto> rows,
+        string partLabel)
+    {
+        var scoped = new InstitutionalReportModel
+        {
+            TotalMatchedRows = model.TotalMatchedRows,
+            ExportedDetailRows = rows.Count,
+            DetailRowsTruncated = model.DetailRowsTruncated,
+            DetailPartsCount = model.DetailPartsCount,
+            Metadata = new ReportMetadataDto
+            {
+                ReportNumber = $"{model.Metadata.ReportNumber}-{partLabel}",
+                ReportType = model.Metadata.ReportType,
+                ReportTypeName = model.Metadata.ReportTypeName,
+                IssueDate = model.Metadata.IssueDate,
+                PeriodFrom = model.Metadata.PeriodFrom,
+                PeriodTo = model.Metadata.PeriodTo,
+                Title = $"{model.Metadata.Title} — {partLabel}",
+                Introduction = model.Metadata.Introduction,
+                VerificationId = model.Metadata.VerificationId,
+                GeneratedAt = model.Metadata.GeneratedAt,
+                TotalMatchingTransactions = model.TotalMatchedRows,
+                IncludedTransactionCount = rows.Count,
+                DetailRowLimit = model.Metadata.DetailRowLimit,
+            },
+            Filters = model.Filters,
+            Transactions = rows.ToList(),
+        };
+
+        return RenderManifest(scoped, [ReportSectionId.TransactionDetails]);
+    }
+
+    private static string RenderDetailOverflowNotice(InstitutionalReportModel model)
+    {
+        var partsNote = model.DetailPartsCount > 1
+            ? $" سيتطلب التصدير الكامل للتفاصيل {model.DetailPartsCount:N0} ملفات PDF."
+            : string.Empty;
+        return $"""
+        <h2 class="section-title">تنبيه حد صفوف التفاصيل</h2>
+        <div class="partial-note">
+          يتجاوز عدد المعاملات المطابقة للفلاتر الحد التشغيلي لصفوف التفاصيل في ملف PDF/DOCX واحد.
+          تم إنشاء التقرير الملخص كاملاً من كامل النتائج ({model.TotalMatchedRows:N0} معاملة) دون تضمين جدول التفاصيل الكامل داخل هذا الملف.{partsNote}
+        </div>
+        <dl class="info-card">
+          <dt>إجمالي المعاملات المطابقة</dt><dd>{model.TotalMatchedRows:N0}</dd>
+          <dt>الحد التشغيلي لصفوف التفاصيل</dt><dd>{model.Metadata.DetailRowLimit:N0}</dd>
+          <dt>صفوف التفاصيل المصدرة في هذا الملف</dt><dd>{model.ExportedDetailRows:N0}</dd>
+        </dl>
+        <p style="font-size:12px;color:#2F6B58;line-height:1.8;">
+          لتصدير التفاصيل الكاملة: اختر تقسيم التفاصيل إلى عدة ملفات PDF، أو تصدير التفاصيل كاملة إلى Excel (XLSX).
+        </p>
+        """;
+    }
+
+    private static string RenderDetailTruncationNotice(InstitutionalReportModel model)
+    {
+        var partsNote = model.DetailPartsCount > 1
+            ? $" عند التصدير الكامل ستُقسَّم التفاصيل إلى {model.DetailPartsCount:N0} ملفات PDF."
+            : string.Empty;
+        return $"""
+        <h2 class="section-title">تنبيه صفوف التفاصيل</h2>
+        <div class="partial-note">
+          بطاقات KPI والرسوم والمؤشرات محسوبة من كامل النتائج ({model.TotalMatchedRows:N0} معاملة).
+          جدول التفاصيل في هذا العرض يقتصر على {model.ExportedDetailRows:N0} صفًا فقط.{partsNote}
+        </div>
+        <dl class="info-card">
+          <dt>إجمالي النتائج المطابقة</dt><dd>{model.TotalMatchedRows:N0}</dd>
+          <dt>صفوف التفاصيل المعروضة/المصدرة هنا</dt><dd>{model.ExportedDetailRows:N0}</dd>
+          <dt>الحد التشغيلي لكل ملف</dt><dd>{model.Metadata.DetailRowLimit:N0}</dd>
+        </dl>
+        """;
     }
 
     public RenderedReportManifestDto BuildExportManifest(
@@ -133,6 +228,14 @@ public sealed class InstitutionalReportRenderer
         {
             ReportId = source.ReportId,
             TotalPages = pages.Count,
+            TotalMatchingTransactions = source.TotalMatchingTransactions,
+            IncludedTransactionCount = source.IncludedTransactionCount,
+            DetailRowLimit = source.DetailRowLimit,
+            RequiresDetailOverflowAction = source.RequiresDetailOverflowAction,
+            TotalMatchedRows = source.TotalMatchedRows,
+            ExportedDetailRows = source.ExportedDetailRows,
+            DetailRowsTruncated = source.DetailRowsTruncated,
+            DetailPartsCount = source.DetailPartsCount,
             Pages = pages,
             IsPartialExport = isPartial,
             PartialExportNote = isPartial ? "هذه نسخة جزئية من التقرير الأصلي." : null
@@ -377,9 +480,17 @@ public sealed class InstitutionalReportRenderer
     {
         var body = string.Join(string.Empty, rows.Select(r =>
             $"<tr><td>{r.Sequence}</td><td>{Esc(r.TrackingNumber)}</td><td>{Esc(r.IncomingNumber)}</td><td>{r.IncomingDate:yyyy-MM-dd}</td><td>{Esc(r.Subject)}</td><td>{Esc(r.IncomingParty)}</td><td>{Esc(r.ResponsibleDepartment)}</td><td>{Esc(r.JointDepartments)}</td><td>{Esc(r.Priority)}</td><td>{Esc(r.Status)}</td><td>{Esc(r.FollowUpStage)}</td><td>{r.ElapsedDays}</td><td>{Esc(r.DueDate ?? "—")}</td><td>{Esc(r.LastActionDate ?? "—")}</td><td>{Esc(r.ResponseState)}</td></tr>"));
+        var totalResults = model.TotalMatchedRows > 0 ? model.TotalMatchedRows : model.Transactions.Count;
+        var pageNote = rows.Count < totalResults
+            ? $" — عرض {rows.Count:N0} صف في هذه الصفحة من {model.ExportedDetailRows:N0} صفًا مصدَّرًا"
+            : string.Empty;
+        var truncationNote = model.DetailRowsTruncated
+            ? $"""<div class="partial-note">إجمالي النتائج المطابقة: {totalResults:N0} — صفوف التفاصيل في هذا الملف: {model.ExportedDetailRows:N0}</div>"""
+            : string.Empty;
         return $"""
         <h2 class="section-title">المعاملات التفصيلية</h2>
-        <p style="font-size:12px;color:#2F6B58;">إجمالي النتائج: {model.Transactions.Count:N0} معاملة — الفترة {model.Metadata.PeriodFrom:yyyy-MM-dd} إلى {model.Metadata.PeriodTo:yyyy-MM-dd}</p>
+        {truncationNote}
+        <p style="font-size:12px;color:#2F6B58;">إجمالي النتائج: {totalResults:N0} معاملة{pageNote} — الفترة {model.Metadata.PeriodFrom:yyyy-MM-dd} إلى {model.Metadata.PeriodTo:yyyy-MM-dd}</p>
         <table class="report-table"><thead><tr>
           <th>م</th><th>رقم المعاملة</th><th>رقم الوارد</th><th>تاريخ الوارد</th><th>الموضوع</th><th>الجهة</th>
           <th>الإدارة المختصة</th><th>الإدارات المشتركة</th><th>الأولوية</th><th>الحالة</th><th>مرحلة المتابعة</th>

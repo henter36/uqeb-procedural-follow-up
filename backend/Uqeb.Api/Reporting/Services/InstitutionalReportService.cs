@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.Reports;
 using Uqeb.Api.Helpers;
@@ -26,12 +27,11 @@ public interface IInstitutionalReportService
 
 public sealed class InstitutionalReportService : IInstitutionalReportService
 {
-    private const int MaxDetailRows = 5000;
-
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly ICurrentUserService _currentUser;
     private readonly IAuditService _audit;
     private readonly IInstitutionalReportNumberAllocator _reportNumberAllocator;
+    private readonly ReportingOptions _reportingOptions;
     private readonly DepartmentRatingCriteria _ratingCriteria = new();
     private readonly InstitutionalReportRenderer _renderer = new();
     private readonly IInstitutionalReportPdfExporter _pdfExporter;
@@ -43,30 +43,108 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
         ICurrentUserService currentUser,
         IAuditService audit,
         IInstitutionalReportNumberAllocator reportNumberAllocator,
-        IInstitutionalReportPdfExporter pdfExporter)
+        IInstitutionalReportPdfExporter pdfExporter,
+        IOptions<ReportingOptions> reportingOptions)
     {
         _dbFactory = dbFactory;
         _currentUser = currentUser;
         _audit = audit;
         _reportNumberAllocator = reportNumberAllocator;
         _pdfExporter = pdfExporter;
+        _reportingOptions = reportingOptions.Value;
     }
 
     public Task<InstitutionalReportModel> BuildReportModelAsync(ReportBuildRequestDto request, CancellationToken ct = default) =>
-        BuildInternalAsync(request, ct);
+        BuildForApiAsync(request, ct);
+
+    private async Task<InstitutionalReportModel> BuildForApiAsync(ReportBuildRequestDto request, CancellationToken ct)
+    {
+        var detailLimit = _reportingOptions.MaxPdfDetailRows;
+        var totalMatching = await CountMatchingTransactionsAsync(request, ct);
+        return await BuildInternalAsync(request, ct, ReportAssemblyOptions.ForPreview(totalMatching, detailLimit));
+    }
 
     public async Task<RenderedReportManifestDto> RenderPreviewAsync(ReportBuildRequestDto request, CancellationToken ct = default)
     {
-        var model = await BuildInternalAsync(request, ct);
+        var detailLimit = _reportingOptions.MaxPdfDetailRows;
+        var totalMatching = await CountMatchingTransactionsAsync(request, ct);
+        var model = await BuildInternalAsync(
+            request,
+            ct,
+            ReportAssemblyOptions.ForPreview(totalMatching, detailLimit));
         var sections = ResolveSections(request);
         return _renderer.RenderManifest(model, sections);
     }
 
     public async Task<ReportExportResultDto> ExportAsync(ReportExportRequestDto request, CancellationToken ct = default)
     {
-        var model = await BuildInternalAsync(request.BuildRequest, ct);
-        var allSections = ResolveSections(request.BuildRequest);
-        var manifest = _renderer.RenderManifest(model, allSections);
+        var detailLimit = _reportingOptions.MaxPdfDetailRows;
+        var totalMatching = await CountMatchingTransactionsAsync(request.BuildRequest, ct);
+        var overflow = totalMatching > detailLimit;
+        var sections = ResolveSections(request.BuildRequest);
+        var includesDetails = sections.Contains(ReportSectionId.TransactionDetails);
+        var overflowAction = ResolveOverflowAction(request, overflow, includesDetails);
+
+        ValidateOverflowAction(request, overflow, includesDetails, overflowAction, totalMatching, detailLimit);
+
+        var assemblyOptions = ResolveAssemblyOptions(
+            totalMatching,
+            detailLimit,
+            overflow,
+            overflowAction,
+            includesDetails);
+
+        var model = await BuildInternalAsync(request.BuildRequest, ct, assemblyOptions);
+
+        if (overflow && overflowAction == DetailOverflowAction.FullDetailsXlsx)
+        {
+            var xlsxRequest = CloneExportRequest(request);
+            xlsxRequest.ExportFormat = ExportFormat.Xlsx;
+            return await ExportDocumentAsync(
+                model,
+                xlsxRequest,
+                sections,
+                includesDetails,
+                includeDetailsInDocument: true,
+                overflowAction,
+                totalMatching,
+                detailLimit,
+                ct);
+        }
+
+        if (overflow && overflowAction == DetailOverflowAction.SplitPdf)
+        {
+            return await ExportSplitPdfZipAsync(model, request, sections, overflowAction, totalMatching, detailLimit, ct);
+        }
+
+        var includeDetailsInDocument = !overflow || overflowAction != DetailOverflowAction.SummaryOnly;
+        return await ExportDocumentAsync(
+            model,
+            request,
+            sections,
+            includesDetails,
+            includeDetailsInDocument,
+            overflowAction,
+            totalMatching,
+            detailLimit,
+            ct);
+    }
+
+    private async Task<ReportExportResultDto> ExportDocumentAsync(
+        InstitutionalReportModel model,
+        ReportExportRequestDto request,
+        IReadOnlyList<ReportSectionId> sections,
+        bool includesDetails,
+        bool includeDetailsInDocument,
+        DetailOverflowAction overflowAction,
+        int totalMatching,
+        int detailLimit,
+        CancellationToken ct)
+    {
+        var manifest = _renderer.RenderManifest(
+            model,
+            sections,
+            includeTransactionDetails: includesDetails && includeDetailsInDocument);
         var selectedPages = ResolveSelectedPages(request, manifest);
 
         if (selectedPages.Count == 0)
@@ -125,7 +203,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
             null,
             null,
             null,
-            $"format={request.ExportFormat};mode={request.ExportMode};pages={string.Join(',', selectedPages)}");
+            InstitutionalReportAuditFormatter.FormatExportAudit(request, totalMatching, detailLimit, overflowAction));
 
         return new ReportExportResultDto
         {
@@ -136,6 +214,132 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
             Manifest = exportManifest.CloneWithoutHtml()
         };
     }
+
+    private async Task<ReportExportResultDto> ExportSplitPdfZipAsync(
+        InstitutionalReportModel model,
+        ReportExportRequestDto request,
+        IReadOnlyList<ReportSectionId> sections,
+        DetailOverflowAction overflowAction,
+        int totalMatching,
+        int detailLimit,
+        CancellationToken ct)
+    {
+        var summaryManifest = _renderer.RenderManifest(model, sections, includeTransactionDetails: false);
+        var summaryHtml = _renderer.RenderHtmlDocument(summaryManifest);
+        var summaryPdf = await _pdfExporter.ExportAsync(summaryManifest, summaryHtml, ct);
+
+        var zipEntries = new Dictionary<string, byte[]>
+        {
+            [$"{SanitizeFileStem(model.Metadata.ReportNumber)}-summary.pdf"] = summaryPdf
+        };
+
+        var chunks = model.Transactions.Chunk(detailLimit).ToList();
+        for (var i = 0; i < chunks.Count; i++)
+        {
+            var partLabel = $"details-{i + 1:D2}";
+            var partManifest = _renderer.RenderTransactionDetailsManifest(model, chunks[i], partLabel);
+            var partHtml = _renderer.RenderHtmlDocument(partManifest);
+            var partPdf = await _pdfExporter.ExportAsync(partManifest, partHtml, ct);
+            zipEntries[$"{SanitizeFileStem(model.Metadata.ReportNumber)}-{partLabel}.pdf"] = partPdf;
+        }
+
+        var content = InstitutionalReportZipExporter.CreateArchive(zipEntries);
+        var fingerprint = InstitutionalReportFingerprint.Compute(content);
+        model.Metadata.FileFingerprint = fingerprint;
+
+        await _audit.LogAsync(
+            _currentUser.UserId,
+            AuditAction.ExportReport,
+            "InstitutionalReport",
+            null,
+            null,
+            null,
+            InstitutionalReportAuditFormatter.FormatExportAudit(
+                request,
+                totalMatching,
+                detailLimit,
+                overflowAction,
+                $"detailParts={chunks.Count}"));
+
+        return new ReportExportResultDto
+        {
+            Content = content,
+            ContentType = "application/zip",
+            FileName = $"{SanitizeFileStem(model.Metadata.ReportNumber)}-SPLIT.zip",
+            FileFingerprint = fingerprint,
+            Manifest = summaryManifest.CloneWithoutHtml()
+        };
+    }
+
+    private static DetailOverflowAction ResolveOverflowAction(
+        ReportExportRequestDto request,
+        bool overflow,
+        bool includesDetails)
+    {
+        if (!overflow || !includesDetails)
+            return request.DetailOverflowAction;
+
+        if (request.ExportFormat == ExportFormat.Xlsx)
+            return DetailOverflowAction.FullDetailsXlsx;
+
+        return request.DetailOverflowAction;
+    }
+
+    private void ValidateOverflowAction(
+        ReportExportRequestDto request,
+        bool overflow,
+        bool includesDetails,
+        DetailOverflowAction overflowAction,
+        int totalMatching,
+        int detailLimit)
+    {
+        if (!overflow || !includesDetails)
+            return;
+
+        var needsEmbeddedChoice = request.ExportFormat is ExportFormat.Pdf or ExportFormat.Docx or ExportFormat.Html;
+        if (!needsEmbeddedChoice)
+            return;
+
+        if (overflowAction == DetailOverflowAction.None)
+        {
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                ["detailOverflowAction"] =
+                    $"يتجاوز التقرير حد صفوف التفاصيل ({detailLimit:N0}). المطلوب: {totalMatching:N0}. اختر ملخصًا كاملًا، أو تقسيم PDF، أو تصدير XLSX.",
+                ["totalMatchingTransactions"] = totalMatching.ToString(),
+                ["detailRowLimit"] = detailLimit.ToString(),
+            });
+        }
+
+        if (overflowAction == DetailOverflowAction.SplitPdf && request.ExportFormat != ExportFormat.Pdf)
+        {
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                ["detailOverflowAction"] = "تقسيم التفاصيل إلى عدة ملفات PDF متاح فقط عند اختيار صيغة PDF."
+            });
+        }
+    }
+
+    private static string SanitizeFileStem(string reportNumber) =>
+        reportNumber.Replace('/', '-').Replace('\\', '-');
+
+    private static ReportExportRequestDto CloneExportRequest(ReportExportRequestDto request) => new()
+    {
+        ReportId = request.ReportId,
+        BuildRequest = request.BuildRequest,
+        ExportFormat = request.ExportFormat,
+        ExportMode = request.ExportMode,
+        SelectedSectionIds = request.SelectedSectionIds.ToList(),
+        SelectedPageNumbers = request.SelectedPageNumbers.ToList(),
+        PageRangeExpression = request.PageRangeExpression,
+        CurrentPageNumber = request.CurrentPageNumber,
+        IncludePartialCover = request.IncludePartialCover,
+        IncludePartialManifest = request.IncludePartialManifest,
+        PageNumberingMode = request.PageNumberingMode,
+        TemplateId = request.TemplateId,
+        Reason = request.Reason,
+        DetailOverflowAction = request.DetailOverflowAction,
+    };
 
     public async Task<List<ReportTemplateDto>> GetTemplatesAsync(CancellationToken ct = default)
     {
@@ -194,59 +398,146 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
         await db.SaveChangesAsync(ct);
     }
 
-    private async Task<InstitutionalReportModel> BuildInternalAsync(ReportBuildRequestDto request, CancellationToken ct)
+    private static ReportAssemblyOptions ResolveAssemblyOptions(
+        int totalMatching,
+        int detailLimit,
+        bool overflow,
+        DetailOverflowAction overflowAction,
+        bool includesDetails)
     {
+        if (!includesDetails)
+            return ReportAssemblyOptions.ForFullDetailExport(totalMatching, detailLimit) with { OmitDetailRows = true, ExportedDetailRowsOverride = 0 };
+
+        if (!overflow)
+            return ReportAssemblyOptions.ForFullDetailExport(totalMatching, detailLimit);
+
+        return overflowAction switch
+        {
+            DetailOverflowAction.SummaryOnly => ReportAssemblyOptions.ForSummaryOnlyExport(totalMatching, detailLimit),
+            DetailOverflowAction.SplitPdf => ReportAssemblyOptions.ForSplitPdfExport(totalMatching, detailLimit),
+            DetailOverflowAction.FullDetailsXlsx => ReportAssemblyOptions.ForFullDetailExport(totalMatching, detailLimit),
+            _ => ReportAssemblyOptions.ForPreview(totalMatching, detailLimit),
+        };
+    }
+
+    private async Task<InstitutionalReportModel> BuildInternalAsync(
+        ReportBuildRequestDto request,
+        CancellationToken ct,
+        ReportAssemblyOptions options)
+    {
+        var detailLimit = options.DetailRowLimit > 0 ? options.DetailRowLimit : _reportingOptions.MaxPdfDetailRows;
+        var totalMatched = options.TotalMatchedOverride ?? await CountMatchingTransactionsAsync(request, ct);
+
+        var metricSnapshots = await LoadSnapshotsAsync(request, ct, takeLimit: null);
         var today = DateTime.UtcNow.Date;
-        var snapshots = await LoadSnapshotsAsync(request, ct);
-        var metrics = InstitutionalReportMetricsCalculator.Calculate(snapshots, today);
+        var metrics = InstitutionalReportMetricsCalculator.Calculate(metricSnapshots, today);
+
+        List<TransactionReportSnapshot> detailSnapshots;
+        int exportedDetailRows;
+
+        if (options.OmitDetailRows)
+        {
+            detailSnapshots = [];
+            exportedDetailRows = options.ExportedDetailRowsOverride ?? 0;
+        }
+        else if (options.DetailRowsToLoad.HasValue)
+        {
+            exportedDetailRows = options.ExportedDetailRowsOverride ?? Math.Min(totalMatched, options.DetailRowsToLoad.Value);
+            detailSnapshots = exportedDetailRows >= metricSnapshots.Count
+                ? metricSnapshots
+                : await LoadSnapshotsAsync(request, ct, takeLimit: exportedDetailRows);
+        }
+        else
+        {
+            exportedDetailRows = options.ExportedDetailRowsOverride ?? totalMatched;
+            detailSnapshots = metricSnapshots;
+        }
+
+        var detailRowsTruncated = options.DetailRowsTruncated || totalMatched > exportedDetailRows || options.DetailPartsCount > 1;
         var reportNumber = await _reportNumberAllocator.AllocateAsync(ct);
         var verificationId = Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
 
         var model = new InstitutionalReportModel
         {
+            TotalMatchedRows = totalMatched,
+            ExportedDetailRows = exportedDetailRows,
+            DetailRowsTruncated = detailRowsTruncated,
+            DetailPartsCount = options.DetailPartsCount,
             Metadata = new ReportMetadataDto
             {
                 ReportNumber = reportNumber,
                 ReportType = request.ReportType,
                 ReportTypeName = ReportTypeLabel(request.ReportType),
                 IssueDate = today,
-                PeriodFrom = request.Filters.DateFrom ?? snapshots.MinBy(s => s.IncomingDate)?.IncomingDate ?? today,
-                PeriodTo = request.Filters.DateTo ?? snapshots.MaxBy(s => s.IncomingDate)?.IncomingDate ?? today,
+                PeriodFrom = request.Filters.DateFrom ?? metricSnapshots.MinBy(s => s.IncomingDate)?.IncomingDate ?? today,
+                PeriodTo = request.Filters.DateTo ?? metricSnapshots.MaxBy(s => s.IncomingDate)?.IncomingDate ?? today,
                 Title = string.IsNullOrWhiteSpace(request.Title)
                     ? "تقرير المتابعة الإجرائية للمعاملات"
                     : request.Title.Trim(),
                 Introduction = request.Introduction,
                 VerificationId = verificationId,
-                GeneratedAt = DateTime.UtcNow
+                GeneratedAt = DateTime.UtcNow,
+                TotalMatchingTransactions = totalMatched,
+                IncludedTransactionCount = detailSnapshots.Count,
+                DetailRowLimit = detailLimit,
             },
             Filters = request.Filters,
-            Summary = BuildExecutiveSummary(metrics, snapshots, today),
-            Charts = BuildCharts(metrics, snapshots, today),
+            Summary = BuildExecutiveSummary(metrics, metricSnapshots, today),
+            Charts = BuildCharts(metrics, metricSnapshots, today),
             DepartmentPerformance = BuildDepartmentPerformance(metrics.Snapshots, today),
             Risks = BuildRisks(metrics.Snapshots, today),
             Recommendations = BuildRecommendations(metrics.Snapshots, today),
             RiskCounters = BuildRiskCounters(metrics.Snapshots, today),
-            Transactions = BuildTransactionDetails(metrics.Snapshots),
+            Transactions = BuildTransactionDetails(detailSnapshots),
             IntegrityWarnings = ValidateIntegrity(metrics)
         };
+
+        if (detailRowsTruncated && totalMatched > detailSnapshots.Count)
+        {
+            model.IntegrityWarnings.Add(new IntegrityWarningDto
+            {
+                Code = "DETAIL_ROWS_TRUNCATED",
+                Message = $"جدول التفاصيل يعرض {exportedDetailRows:N0} صفًا من إجمالي {totalMatched:N0} معاملة مطابقة للفلاتر.",
+                Severity = "warning"
+            });
+        }
 
         return model;
     }
 
-    private async Task<List<TransactionReportSnapshot>> LoadSnapshotsAsync(ReportBuildRequestDto request, CancellationToken ct)
+    private async Task<int> CountMatchingTransactionsAsync(ReportBuildRequestDto request, CancellationToken ct)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var legacyFilter = MapLegacyFilter(request.Filters);
-        var query = db.Transactions.AsNoTracking();
-        query = InstitutionalReportSnapshotQuery.ApplyInstitutionalFilter(query, request.Filters, legacyFilter);
-        query = InstitutionalReportSnapshotQuery.ApplyReportTypeFilter(query, request.ReportType, request.SingleTransactionId);
-        query = InstitutionalReportSnapshotQuery.ApplyAccessScopeFilter(query, _currentUser.Role, _currentUser.DepartmentId);
+        var query = InstitutionalReportQueryBuilder.BuildFilteredQuery(
+            db,
+            request,
+            _currentUser.UserId,
+            _currentUser.Role,
+            _currentUser.DepartmentId);
+        return await query.CountAsync(ct);
+    }
 
-        var rows = await query
+    private async Task<List<TransactionReportSnapshot>> LoadSnapshotsAsync(
+        ReportBuildRequestDto request,
+        CancellationToken ct,
+        int? takeLimit = null)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var query = InstitutionalReportQueryBuilder.BuildFilteredQuery(
+            db,
+            request,
+            _currentUser.UserId,
+            _currentUser.Role,
+            _currentUser.DepartmentId);
+
+        query = query
             .OrderByDescending(t => t.IncomingDate)
-            .ThenByDescending(t => t.Id)
-            .Take(MaxDetailRows)
-            .Select(t => new InstitutionalReportSnapshotQuery.SnapshotRow
+            .ThenByDescending(t => t.Id);
+
+        if (takeLimit.HasValue)
+            query = query.Take(takeLimit.Value);
+
+        var rows = await query.Select(t => new InstitutionalReportSnapshotQuery.SnapshotRow
             {
                 Id = t.Id,
                 InternalTrackingNumber = t.InternalTrackingNumber,
@@ -290,16 +581,6 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
         var today = DateTime.UtcNow.Date;
         return rows.Select(row => InstitutionalReportSnapshotQuery.MapRowToSnapshot(row, today)).ToList();
     }
-
-    private static ReportFilterRequest MapLegacyFilter(ReportFiltersDto filters) => new()
-    {
-        DateFrom = filters.DateFrom,
-        DateTo = filters.DateTo,
-        CategoryId = filters.CategoryIds.FirstOrDefault(),
-        DepartmentId = filters.DepartmentIds.FirstOrDefault(),
-        IncomingPartyId = filters.PartyIds.FirstOrDefault(),
-        Search = filters.Search
-    };
 
     private ExecutiveSummaryDto BuildExecutiveSummary(
         InstitutionalMetricsResult metrics,
@@ -412,7 +693,8 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
             foreach (var (deptId, deptName) in pairs)
             {
                 if (!deptMap.TryGetValue(deptId, out var bucket))
-                    deptMap[deptId] = (deptName, []);
+                    bucket = (deptName, []);
+
                 bucket.Items.Add(snapshot);
                 deptMap[deptId] = bucket;
             }

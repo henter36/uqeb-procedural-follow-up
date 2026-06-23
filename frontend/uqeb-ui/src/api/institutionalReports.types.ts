@@ -14,6 +14,14 @@ export type InstitutionalReportManifest = {
   pages: InstitutionalReportPage[];
   isPartialExport?: boolean;
   partialExportNote?: string;
+  totalMatchingTransactions?: number;
+  includedTransactionCount?: number;
+  detailRowLimit?: number;
+  requiresDetailOverflowAction?: boolean;
+  totalMatchedRows?: number;
+  exportedDetailRows?: number;
+  detailRowsTruncated?: boolean;
+  detailPartsCount?: number;
 };
 
 export type InstitutionalReportType = 1 | 2 | 3 | 4 | 5;
@@ -25,6 +33,8 @@ export type ExportFormat = 1 | 2 | 3 | 4;
 export type ExportMode = 1 | 2 | 3 | 4;
 
 export type PageNumberingMode = 1 | 2;
+
+export type DetailOverflowAction = 0 | 1 | 2 | 3;
 
 export type ReportFilters = {
   dateFrom?: string | null;
@@ -65,6 +75,7 @@ export type ReportExportRequest = {
   pageNumberingMode: PageNumberingMode;
   templateId?: number | null;
   reason?: string | null;
+  detailOverflowAction?: DetailOverflowAction;
 };
 
 export type ReportTemplate = {
