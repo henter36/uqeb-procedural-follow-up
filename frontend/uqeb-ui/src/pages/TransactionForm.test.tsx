@@ -289,9 +289,56 @@ describe('TransactionForm searchable selects', () => {
     renderCreateForm();
     await waitForFormReady();
 
-    const grid = getIncomingSection().querySelector('.form-grid');
+    const grid = getIncomingSection().querySelector('.transaction-incoming-grid');
 
     expect(grid).toBeTruthy();
+    expect(grid?.classList.contains('form-grid')).toBe(true);
     expect(grid?.querySelectorAll('.form-group').length).toBeGreaterThan(4);
+  });
+
+  it('renders subject field across full grid width', async () => {
+    renderCreateForm();
+    await waitForFormReady();
+
+    const subjectGroup = getIncomingSection().querySelector('.transaction-subject-field');
+    expect(subjectGroup).toBeTruthy();
+    expect(subjectGroup?.querySelector('input')).toBeTruthy();
+  });
+
+  it('does not render hidden source wrapper when switching to internal source', async () => {
+    const user = userEvent.setup();
+    renderCreateForm();
+    await waitForFormReady();
+
+    const incomingSection = getIncomingSection();
+    expect(within(incomingSection).getByRole('combobox', { name: /الجهة الوارد منها/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('radio', { name: 'داخلية' }));
+
+    expect(within(incomingSection).queryAllByRole('combobox', { name: /الجهة الوارد منها/ })).toHaveLength(1);
+    expect(within(incomingSection).queryByText(/جهة خارجية أ/)).not.toBeInTheDocument();
+  });
+
+  it('does not fire duplicate onChange when selecting with mouse', async () => {
+    const user = userEvent.setup();
+    renderCreateForm();
+    await waitForFormReady();
+
+    await user.click(screen.getByRole('combobox', { name: /التصنيف/ }));
+    await user.click(screen.getByRole('option', { name: /تصنيف عام/ }));
+
+    expect(screen.getByRole('combobox', { name: /التصنيف/ })).toHaveValue('تصنيف عام');
+  });
+
+  it('preserves selected value after combobox blur', async () => {
+    const user = userEvent.setup();
+    renderCreateForm();
+    await waitForFormReady();
+
+    await user.click(screen.getByRole('combobox', { name: /التصنيف/ }));
+    await user.click(screen.getByRole('option', { name: /تصنيف عام/ }));
+    await user.click(screen.getByRole('button', { name: 'حفظ' }));
+
+    expect(screen.getByRole('combobox', { name: /التصنيف/ })).toHaveValue('تصنيف عام');
   });
 });

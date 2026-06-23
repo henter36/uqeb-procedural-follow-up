@@ -210,7 +210,7 @@ export default function TransactionForm({ mode }: Props) {
         {error && <Alert variant="error">{error}</Alert>}
 
         <FormSection title="بيانات الوارد">
-          <div className="form-grid">
+          <div className="form-grid transaction-incoming-grid">
             <div className="form-group">
               <label>رقم الوارد *</label>
               <input value={form.incomingNumber} onChange={(e) => setForm({ ...form, incomingNumber: e.target.value })} />
@@ -224,7 +224,7 @@ export default function TransactionForm({ mode }: Props) {
               )}
               {fieldError('incomingDate') && <span className="field-error">{fieldError('incomingDate')}</span>}
             </div>
-            <div className="form-group full-width">
+            <div className="form-group">
               <label>نوع الجهة الوارد منها *</label>
               <div className="radio-group">
                 <label className="radio-label">
@@ -242,7 +242,7 @@ export default function TransactionForm({ mode }: Props) {
               </div>
               {fieldError('incomingSourceType') && <span className="field-error">{fieldError('incomingSourceType')}</span>}
             </div>
-            <div className="form-group full-width">
+            <div className="form-group">
               {form.incomingSourceType === 'External' ? (
                 <SearchableSelect
                   label="الجهة الوارد منها"
@@ -282,7 +282,7 @@ export default function TransactionForm({ mode }: Props) {
               </select>
               {fieldError('priority') && <span className="field-error">{fieldError('priority')}</span>}
             </div>
-            <div className="form-group full-width">
+            <div className="form-group transaction-subject-field">
               <label>الموضوع *</label>
               <input value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
               {fieldError('subject') && <span className="field-error">{fieldError('subject')}</span>}
@@ -312,7 +312,7 @@ export default function TransactionForm({ mode }: Props) {
               )}
             </div>
             {mode === 'edit' && (
-              <p className="text-muted full-width">لتسجيل الإفادة استخدم إجراء «تسجيل الإفادة» من صفحة تفاصيل المعاملة.</p>
+              <p className="text-muted transaction-edit-response-hint">لتسجيل الإفادة استخدم إجراء «تسجيل الإفادة» من صفحة تفاصيل المعاملة.</p>
             )}
           </div>
         </FormSection>
