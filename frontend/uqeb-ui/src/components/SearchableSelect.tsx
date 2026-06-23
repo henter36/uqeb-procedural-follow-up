@@ -21,8 +21,6 @@ type SearchableSelectProps = {
   debounceMs?: number;
 };
 
-const MAX_VISIBLE_OPTIONS = 6;
-
 function getDisplayValue(open: boolean, query: string, selected: SelectOption | null): string {
   if (open) return query;
   if (!selected) return '';
@@ -50,9 +48,11 @@ export default function SearchableSelect({
   debounceMs = 300,
 }: Readonly<SearchableSelectProps>) {
   const inputId = useId();
-  const selectListId = useId();
+  const listboxId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const selectRef = useRef<HTMLSelectElement>(null);
+  const lastCommittedIdRef = useRef<number | null>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [highlightIndex, setHighlightIndex] = useState(0);
@@ -79,28 +79,57 @@ export default function SearchableSelect({
 
   const clampedHighlight = Math.min(highlightIndex, Math.max(filtered.length - 1, 0));
   const activeOption = filtered[clampedHighlight] ?? null;
+  const visibleOptionCount = Math.min(Math.max(filtered.length, 1), 6);
 
   useEffect(() => {
-    if (!open || !selectRef.current || filtered.length === 0) return;
-    selectRef.current.selectedIndex = clampedHighlight;
-  }, [open, clampedHighlight, filtered.length]);
+    if (!open || !activeOption || !selectRef.current) return;
+    const optionEl = selectRef.current.querySelector(`option[value="${activeOption.id}"]`);
+    optionEl?.scrollIntoView?.({ block: 'nearest' });
+  }, [open, activeOption]);
 
   useEffect(() => {
-    const onDocClick = (e: MouseEvent) => {
+    const onDocPointerDown = (e: PointerEvent) => {
       const target = e.target;
-      if (target instanceof Node && !rootRef.current?.contains(target)) setOpen(false);
+      if (target instanceof Node && !rootRef.current?.contains(target)) {
+        setOpen(false);
+        setQuery('');
+        setHighlightIndex(0);
+      }
     };
-    document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
+    document.addEventListener('pointerdown', onDocPointerDown);
+    return () => document.removeEventListener('pointerdown', onDocPointerDown);
   }, []);
 
   const displayValue = getDisplayValue(open, query, selected);
 
   const selectOption = useCallback((option: SelectOption) => {
-    onChange(option.id);
+    if (value !== option.id) {
+      onChange(option.id);
+    }
     setQuery('');
     setOpen(false);
-  }, [onChange]);
+    setHighlightIndex(0);
+  }, [onChange, value]);
+
+  const closeList = useCallback(() => {
+    setOpen(false);
+    setQuery('');
+    setHighlightIndex(0);
+  }, []);
+
+  const commitNativeSelection = useCallback((selectedId: number) => {
+    if (!Number.isFinite(selectedId)) return;
+    if (lastCommittedIdRef.current === selectedId) return;
+
+    const option = filtered.find((item) => item.id === selectedId);
+    if (!option) return;
+
+    lastCommittedIdRef.current = selectedId;
+    selectOption(option);
+    globalThis.queueMicrotask(() => {
+      lastCommittedIdRef.current = null;
+    });
+  }, [filtered, selectOption]);
 
   const onInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) {
@@ -110,9 +139,8 @@ export default function SearchableSelect({
       return;
     }
     if (e.key === 'Escape') {
-      setOpen(false);
-      setQuery('');
-      setHighlightIndex(0);
+      e.preventDefault();
+      closeList();
       return;
     }
     if (!open) return;
@@ -128,36 +156,17 @@ export default function SearchableSelect({
     }
   };
 
-  const onSelectKeyDown = (e: React.KeyboardEvent<HTMLSelectElement>) => {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      setOpen(false);
-      setQuery('');
-      setHighlightIndex(0);
-      return;
-    }
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      const nextIndex = e.currentTarget.selectedIndex;
-      setHighlightIndex(nextIndex);
-      return;
-    }
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      const option = filtered[e.currentTarget.selectedIndex];
-      if (option) selectOption(option);
-    }
-  };
-
   return (
     <div className={`searchable-select${disabled ? ' is-disabled' : ''}`} ref={rootRef}>
       <label htmlFor={inputId}>{label}{required ? ' *' : ''}</label>
       <div className="searchable-select-control">
         <input
+          ref={inputRef}
           id={inputId}
           type="text"
           role="combobox"
           aria-expanded={open}
-          aria-controls={open ? selectListId : undefined}
+          aria-controls={open ? listboxId : undefined}
           aria-autocomplete="list"
           autoComplete="off"
           disabled={disabled}
@@ -172,6 +181,18 @@ export default function SearchableSelect({
             setHighlightIndex(0);
             setOpen(true);
           }}
+          onBlur={(event) => {
+            const related = event.relatedTarget;
+            if (related instanceof Node && rootRef.current?.contains(related)) {
+              return;
+            }
+
+            globalThis.setTimeout(() => {
+              if (!rootRef.current?.contains(document.activeElement)) {
+                closeList();
+              }
+            }, 0);
+          }}
           onKeyDown={onInputKeyDown}
         />
         {allowClear && value !== '' && !disabled && (
@@ -179,6 +200,7 @@ export default function SearchableSelect({
             type="button"
             className="searchable-select-clear"
             aria-label="مسح الاختيار"
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => { onChange(''); setQuery(''); setHighlightIndex(0); }}
           >
             ×
@@ -193,30 +215,55 @@ export default function SearchableSelect({
           )}
           {!loading && filtered.length > 0 && (
             <select
-              id={selectListId}
+              id={listboxId}
               ref={selectRef}
+              tabIndex={-1}
               className="searchable-select-list"
-              size={Math.min(filtered.length, MAX_VISIBLE_OPTIONS)}
-              aria-label={label}
+              size={visibleOptionCount}
+              aria-label={`${label} - النتائج`}
               value={activeOption ? String(activeOption.id) : ''}
-              onChange={(e) => {
-                const id = Number(e.target.value);
-                const option = filtered.find((o) => o.id === id);
-                if (option) selectOption(option);
+              onChange={(event) => {
+                commitNativeSelection(Number(event.currentTarget.value));
               }}
-              onKeyDown={onSelectKeyDown}
-              onMouseMove={(e) => {
-                const target = e.target;
+              onClick={(event) => {
+                const target = event.target;
+                if (target instanceof HTMLOptionElement) {
+                  commitNativeSelection(Number(target.value));
+                }
+              }}
+              onMouseMove={(event) => {
+                const target = event.target;
                 if (!(target instanceof HTMLOptionElement)) return;
-                const index = filtered.findIndex((o) => o.id === Number(target.value));
-                if (index >= 0) setHighlightIndex(index);
+
+                const index = filtered.findIndex((item) => item.id === Number(target.value));
+                if (index >= 0) {
+                  setHighlightIndex(index);
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  closeList();
+                  inputRef.current?.focus();
+                  return;
+                }
+
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  commitNativeSelection(Number(event.currentTarget.value));
+                  inputRef.current?.focus();
+                }
               }}
             >
               {filtered.map((option) => (
                 <option
                   key={option.id}
                   value={option.id}
-                  className={`searchable-select-option${value === option.id ? ' is-selected' : ''}${option.isActive === false ? ' is-inactive' : ''}`}
+                  className={
+                    option.isActive === false
+                      ? 'searchable-select-option is-inactive'
+                      : 'searchable-select-option'
+                  }
                 >
                   {formatOptionLabel(option)}
                 </option>

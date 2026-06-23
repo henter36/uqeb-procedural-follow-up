@@ -1,11 +1,21 @@
-.searchable-select { position: relative; margin-bottom: 0.75rem; }
+.searchable-select { position: relative; margin-bottom: 0; width: 100%; }
 .searchable-select label { display: block; margin-bottom: 0.35rem; font-weight: 600; }
-.searchable-select-control { display: flex; align-items: center; gap: 0.25rem; }
+.searchable-select-control { display: flex; align-items: center; gap: 0.25rem; width: 100%; }
 .searchable-select input[type="text"] {
   width: 100%;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--gray-300);
-  border-radius: 6px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  background: var(--color-surface);
+  color: var(--color-text);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.searchable-select input[type="text"]:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: var(--focus-ring);
 }
 .searchable-select-clear {
   border: none;
@@ -20,32 +30,24 @@
   z-index: 20;
   inset-inline: 0;
   top: calc(100% + 2px);
-  max-height: 240px;
-  overflow: auto;
-  background: #fff;
-  border: 1px solid var(--gray-200);
-  border-radius: 6px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.08);
-  list-style: none;
-  margin: 0;
-  padding: 0.25rem 0;
-}
-.searchable-select-option {
   width: 100%;
-  border: none;
-  background: transparent;
-  text-align: start;
+  max-height: 15rem;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
   font: inherit;
-  padding: 0.5rem 0.75rem;
-  cursor: pointer;
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  justify-content: space-between;
+  padding: var(--space-1);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
 }
-.searchable-select-option.is-highlighted,
-.searchable-select-option:hover { background: var(--gray-50); }
-.searchable-select-option.is-selected { background: #eff6ff; }
+.searchable-select-list option {
+  padding: var(--space-2) var(--space-3);
+  min-height: 2.25rem;
+}
+.searchable-select-list option:checked {
+  background: #eff6ff;
+}
 .searchable-select-empty { padding: 0.75rem; color: var(--gray-500); }
 .searchable-select-sublabel { font-size: 0.8rem; color: var(--gray-500); }
 .inactive-tag { font-size: 0.75rem; color: #991b1b; }
