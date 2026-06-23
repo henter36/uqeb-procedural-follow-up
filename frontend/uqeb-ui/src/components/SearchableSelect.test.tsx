@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
@@ -27,6 +27,12 @@ function renderSelect(onChange = vi.fn(), value: number | '' = '') {
 
 function getResultsSelect() {
   return screen.getByRole('listbox', { name: 'اختيار القائمة - النتائج' });
+}
+
+function createPointerDownEvent(target: Element) {
+  const event = new PointerEvent('pointerdown', { bubbles: true, cancelable: true });
+  Object.defineProperty(event, 'target', { value: target });
+  return event;
 }
 
 describe('SearchableSelect accessibility', () => {
@@ -204,6 +210,18 @@ describe('SearchableSelect interaction', () => {
     await user.click(screen.getByRole('option', { name: 'Beta' }));
 
     expect(onChange).toHaveBeenCalledWith(2);
+  });
+
+  it('does not block native pointer behavior on the results select', async () => {
+    const user = userEvent.setup();
+    renderSelect();
+
+    await user.click(screen.getByRole('combobox', { name: 'اختيار القائمة' }));
+
+    const select = getResultsSelect();
+    const pointerDown = createPointerDownEvent(select);
+    fireEvent(select, pointerDown);
+    expect(pointerDown.defaultPrevented).toBe(false);
   });
 
   it('does not use custom listbox markup', async () => {

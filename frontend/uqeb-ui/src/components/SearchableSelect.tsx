@@ -181,7 +181,12 @@ export default function SearchableSelect({
             setHighlightIndex(0);
             setOpen(true);
           }}
-          onBlur={() => {
+          onBlur={(event) => {
+            const related = event.relatedTarget;
+            if (related instanceof Node && rootRef.current?.contains(related)) {
+              return;
+            }
+
             globalThis.setTimeout(() => {
               if (!rootRef.current?.contains(document.activeElement)) {
                 closeList();
@@ -217,9 +222,6 @@ export default function SearchableSelect({
               size={visibleOptionCount}
               aria-label={`${label} - النتائج`}
               value={activeOption ? String(activeOption.id) : ''}
-              onPointerDown={(event) => {
-                event.preventDefault();
-              }}
               onChange={(event) => {
                 commitNativeSelection(Number(event.currentTarget.value));
               }}
