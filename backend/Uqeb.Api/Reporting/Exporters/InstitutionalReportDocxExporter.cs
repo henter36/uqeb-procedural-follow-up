@@ -6,7 +6,7 @@ using Uqeb.Api.Reporting.Enums;
 
 namespace Uqeb.Api.Reporting.Exporters;
 
-public sealed class InstitutionalReportDocxExporter
+public static class InstitutionalReportDocxExporter
 {
     public static byte[] Export(
         InstitutionalReportModel model,
