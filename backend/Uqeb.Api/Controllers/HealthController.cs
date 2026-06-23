@@ -75,13 +75,14 @@ public class HealthController : ControllerBase
         {
             return await _databaseProbe.CheckAsync(cancellationToken);
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
         {
             _logger.LogWarning(
+                exception,
                 "{LogContext} timed out while verifying database connectivity.",
                 logContext);
 
-            return new HealthDatabaseCheckResult(HealthDatabaseStatus.Timeout);
+            return new HealthDatabaseCheckResult(HealthDatabaseStatus.Timeout, exception);
         }
         catch (OperationCanceledException)
         {
