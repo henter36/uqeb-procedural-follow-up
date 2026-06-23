@@ -125,6 +125,77 @@ BeforeAll {
         return New-Object System.Data.SqlClient.SqlConnectionStringBuilder $ConnectionString
     }
 
+    function New-InstallTestEnvironment {
+        param(
+            [scriptblock]$PackageMutator,
+            [string]$PackageMigrationContent = 'exit 0'
+        )
+
+        $root = New-TempDirectory
+        $installRoot = Join-Path $root 'install'
+        $tools = Join-Path $root 'tools'
+        $incoming = Join-Path $installRoot 'incoming'
+        Ensure-Directory $incoming
+        Ensure-Directory $tools
+        Ensure-Directory (Join-Path $tools 'deployment')
+        Copy-Item $script:CommonPath (Join-Path $tools 'deployment\Common.ps1') -Force
+
+        $pkgRoot = New-TempDirectory
+        New-TestPackage -Root $pkgRoot
+        if ($PackageMutator) {
+            & $PackageMutator $pkgRoot
+        }
+        $PackageMigrationContent | Set-Content (Join-Path $pkgRoot 'scripts\apply-migrations.ps1') -Encoding ASCII
+
+        $zip = Join-Path $incoming 'Uqeb-test.zip'
+        New-ZipFromDirectory -Source $pkgRoot -ZipPath $zip
+        $hash = Get-FileSha256Hex -Path $zip
+        Set-Content (Join-Path $incoming 'Uqeb-test.sha256.txt') "$hash  Uqeb-test.zip" -Encoding ASCII
+
+        $configPath = Join-Path $installRoot 'config\appsettings.Production.json'
+        Ensure-Directory (Join-Path $installRoot 'config')
+        New-TestProductionSettingsJson | Set-Content $configPath -Encoding UTF8
+
+        return [pscustomobject]@{
+            InstallRoot = $installRoot
+            ToolsRoot = $tools
+            ZipPath = $zip
+            ConfigPath = $configPath
+            ApiPath = Join-Path $installRoot 'publish\api'
+            WebPath = Join-Path $installRoot 'publish\web'
+        }
+    }
+
+    function Write-TestReleaseManifestWithBackup {
+        param(
+            [string]$InstallRoot,
+            [string]$BackupPath
+        )
+
+        $manifest = [ordered]@{
+            databaseBackup = [ordered]@{ path = $BackupPath }
+        }
+        Ensure-Directory (Join-Path $InstallRoot 'publish')
+        $manifest | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $InstallRoot 'publish\release-manifest.json') -Encoding UTF8
+    }
+
+    function New-TestBackupFileSet {
+        param(
+            [string]$BackupDir,
+            [int]$Count = 12
+        )
+
+        $files = @()
+        for ($i = 0; $i -lt $Count; $i++) {
+            $path = Join-Path $BackupDir ("UqebDb-before-20260101-12000$i.bak")
+            Set-Content -LiteralPath $path -Value ('x' * 10) -Encoding ASCII
+            (Get-Item -LiteralPath $path).LastWriteTime = (Get-Date).AddHours(-$i)
+            $files += $path
+        }
+
+        return ,@($files)
+    }
+
     function New-TestProductionSettingsJson {
         return (@{
             ConnectionStrings = @{ DefaultConnection = 'Server=.;Database=UqebDb;Integrated Security=True' }
@@ -403,6 +474,60 @@ Describe 'Recent log error scanning' {
     }
 }
 
+Describe 'Recent log scan helpers' {
+    It 'Update-RecentLogState resets continuation on a new timestamp' {
+        $state = [pscustomobject]@{
+            CurrentEventUtc = $null
+            CaptureContinuation = $true
+        }
+        $line = '2026-06-11T10:00:00Z info'
+        $timestamp = Update-RecentLogState -State $state -Line $line -UseFileWriteTimeFallback $false
+        $timestamp | Should -Not -BeNullOrEmpty
+        $state.CaptureContinuation | Should -BeFalse
+    }
+
+    It 'Test-LogEventIsRecent returns false before SinceUtc' {
+        $state = [pscustomobject]@{
+            CurrentEventUtc = [datetime]'2026-06-11T08:00:00Z'
+            CaptureContinuation = $false
+        }
+        Test-LogEventIsRecent `
+            -State $state `
+            -SinceUtc ([datetime]'2026-06-11T09:00:00Z') `
+            -UseFileWriteTimeFallback $false | Should -BeFalse
+    }
+
+    It 'Add-RecentLogLineIfApplicable captures continuation lines' {
+        $state = [pscustomobject]@{
+            CurrentEventUtc = [datetime]'2026-06-11T10:00:00Z'
+            CaptureContinuation = $false
+        }
+        $matchedLines = New-Object System.Collections.Generic.List[string]
+        $patterns = @('Unhandled exception')
+        $sinceUtc = [datetime]'2026-06-11T09:00:00Z'
+
+        Add-RecentLogLineIfApplicable `
+            -Line '2026-06-11T10:00:00Z fail: Unhandled exception' `
+            -LineTimestamp $state.CurrentEventUtc `
+            -State $state `
+            -SinceUtc $sinceUtc `
+            -Patterns $patterns `
+            -UseFileWriteTimeFallback $false `
+            -MatchedLines $matchedLines
+
+        Add-RecentLogLineIfApplicable `
+            -Line '   at Contoso.Service.Worker()' `
+            -LineTimestamp $null `
+            -State $state `
+            -SinceUtc $sinceUtc `
+            -Patterns $patterns `
+            -UseFileWriteTimeFallback $false `
+            -MatchedLines $matchedLines
+
+        $matchedLines.Count | Should -Be 2
+    }
+}
+
 Describe 'Application file copy policy' {
     It 'rejects robocopy /MIR for API targets' {
         { Invoke-RobocopySafe -Source 'C:\src' -Destination 'C:\dst' -TargetType Api -ExtraArguments @('/MIR') } |
@@ -560,137 +685,59 @@ Describe 'install-production-package.ps1 scenarios' {
     }
 
     It 'stops on migration failure' {
-        $root = New-TempDirectory
-        $installRoot = Join-Path $root 'install'
-        $tools = Join-Path $root 'tools'
-        $incoming = Join-Path $installRoot 'incoming'
-        Ensure-Directory $incoming
-        Ensure-Directory $tools
-        Ensure-Directory (Join-Path $tools 'deployment')
-        Copy-Item $script:CommonPath (Join-Path $tools 'deployment\Common.ps1') -Force
-
-        $pkgRoot = New-TempDirectory
-        New-TestPackage -Root $pkgRoot
-        'throw "migration failed"' | Set-Content (Join-Path $pkgRoot 'scripts\apply-migrations.ps1') -Encoding ASCII
-        $zip = Join-Path $incoming 'Uqeb-test.zip'
-        New-ZipFromDirectory -Source $pkgRoot -ZipPath $zip
-        $hash = Get-FileSha256Hex -Path $zip
-        Set-Content (Join-Path $incoming 'Uqeb-test.sha256.txt') "$hash  Uqeb-test.zip" -Encoding ASCII
-        Ensure-Directory (Join-Path $installRoot 'config')
-        New-TestProductionSettingsJson | Set-Content (Join-Path $installRoot 'config\appsettings.Production.json') -Encoding UTF8
-
-        $apply = Join-Path $tools 'apply-migrations.ps1'
-        'throw "migration failed"' | Set-Content $apply -Encoding ASCII
+        $env = New-InstallTestEnvironment -PackageMigrationContent 'throw "migration failed"'
+        'throw "migration failed"' | Set-Content (Join-Path $env.ToolsRoot 'apply-migrations.ps1') -Encoding ASCII
 
         { & $script:InstallScript `
-            -PackagePath $zip `
-            -InstallRoot $installRoot `
-            -ToolsRoot $tools `
-            -ApiPath (Join-Path $installRoot 'publish\api') `
-            -WebPath (Join-Path $installRoot 'publish\web') `
-            -ConfigPath (Join-Path $installRoot 'config\appsettings.Production.json') } |
+            -PackagePath $env.ZipPath `
+            -InstallRoot $env.InstallRoot `
+            -ToolsRoot $env.ToolsRoot `
+            -ApiPath $env.ApiPath `
+            -WebPath $env.WebPath `
+            -ConfigPath $env.ConfigPath } |
             Should -Throw
     }
 
     It 'fails deployment when health verification fails' {
-        $root = New-TempDirectory
-        $installRoot = Join-Path $root 'install'
-        $tools = Join-Path $root 'tools'
-        $incoming = Join-Path $installRoot 'incoming'
-        Ensure-Directory $incoming
-        Ensure-Directory $tools
-        Ensure-Directory (Join-Path $tools 'deployment')
-        Copy-Item $script:CommonPath (Join-Path $tools 'deployment\Common.ps1') -Force
-
-        $pkgRoot = New-TempDirectory
-        New-TestPackage -Root $pkgRoot
-        $zip = Join-Path $incoming 'Uqeb-test.zip'
-        New-ZipFromDirectory -Source $pkgRoot -ZipPath $zip
-        $hash = Get-FileSha256Hex -Path $zip
-        Set-Content (Join-Path $incoming 'Uqeb-test.sha256.txt') "$hash  Uqeb-test.zip" -Encoding ASCII
-        Ensure-Directory (Join-Path $installRoot 'config')
-        New-TestProductionSettingsJson | Set-Content (Join-Path $installRoot 'config\appsettings.Production.json') -Encoding UTF8
-
-        $apply = Join-Path $tools 'apply-migrations.ps1'
-        'exit 0' | Set-Content $apply -Encoding ASCII
-        $health = Join-Path $tools 'verify-deployment-health.ps1'
-        'throw "health failed"' | Set-Content $health -Encoding ASCII
+        $env = New-InstallTestEnvironment
+        'throw "health failed"' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
         { & $script:InstallScript `
-            -PackagePath $zip `
-            -InstallRoot $installRoot `
-            -ToolsRoot $tools `
-            -ApiPath (Join-Path $installRoot 'publish\api') `
-            -WebPath (Join-Path $installRoot 'publish\web') `
-            -ConfigPath (Join-Path $installRoot 'config\appsettings.Production.json') } |
+            -PackagePath $env.ZipPath `
+            -InstallRoot $env.InstallRoot `
+            -ToolsRoot $env.ToolsRoot `
+            -ApiPath $env.ApiPath `
+            -WebPath $env.WebPath `
+            -ConfigPath $env.ConfigPath } |
             Should -Throw
     }
 
     It 'succeeds on full mocked deployment path' {
-        $root = New-TempDirectory
-        $installRoot = Join-Path $root 'install'
-        $tools = Join-Path $root 'tools'
-        $incoming = Join-Path $installRoot 'incoming'
-        Ensure-Directory $incoming
-        Ensure-Directory $tools
-        Ensure-Directory (Join-Path $tools 'deployment')
-        Copy-Item $script:CommonPath (Join-Path $tools 'deployment\Common.ps1') -Force
-
-        $pkgRoot = New-TempDirectory
-        New-TestPackage -Root $pkgRoot
-        $zip = Join-Path $incoming 'Uqeb-test.zip'
-        New-ZipFromDirectory -Source $pkgRoot -ZipPath $zip
-        $hash = Get-FileSha256Hex -Path $zip
-        Set-Content (Join-Path $incoming 'Uqeb-test.sha256.txt') "$hash  Uqeb-test.zip" -Encoding ASCII
-        Ensure-Directory (Join-Path $installRoot 'config')
-        $configPath = Join-Path $installRoot 'config\appsettings.Production.json'
-        New-TestProductionSettingsJson | Set-Content $configPath -Encoding UTF8
-
-        $apply = Join-Path $tools 'apply-migrations.ps1'
-        'exit 0' | Set-Content $apply -Encoding ASCII
-        $health = Join-Path $tools 'verify-deployment-health.ps1'
-        'exit 0' | Set-Content $health -Encoding ASCII
+        $env = New-InstallTestEnvironment
+        'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'apply-migrations.ps1') -Encoding ASCII
+        'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
         { & $script:InstallScript `
-            -PackagePath $zip `
-            -InstallRoot $installRoot `
-            -ToolsRoot $tools `
-            -ApiPath (Join-Path $installRoot 'publish\api') `
-            -WebPath (Join-Path $installRoot 'publish\web') `
-            -ConfigPath $configPath } | Should -Not -Throw
+            -PackagePath $env.ZipPath `
+            -InstallRoot $env.InstallRoot `
+            -ToolsRoot $env.ToolsRoot `
+            -ApiPath $env.ApiPath `
+            -WebPath $env.WebPath `
+            -ConfigPath $env.ConfigPath } | Should -Not -Throw
     }
 
     It 'does not declare success when API port never opens' {
         Mock Test-PortListener { $false }
-
-        $root = New-TempDirectory
-        $installRoot = Join-Path $root 'install'
-        $tools = Join-Path $root 'tools'
-        $incoming = Join-Path $installRoot 'incoming'
-        Ensure-Directory $incoming
-        Ensure-Directory $tools
-        Ensure-Directory (Join-Path $tools 'deployment')
-        Copy-Item $script:CommonPath (Join-Path $tools 'deployment\Common.ps1') -Force
-
-        $pkgRoot = New-TempDirectory
-        New-TestPackage -Root $pkgRoot
-        $zip = Join-Path $incoming 'Uqeb-test.zip'
-        New-ZipFromDirectory -Source $pkgRoot -ZipPath $zip
-        $hash = Get-FileSha256Hex -Path $zip
-        Set-Content (Join-Path $incoming 'Uqeb-test.sha256.txt') "$hash  Uqeb-test.zip" -Encoding ASCII
-        Ensure-Directory (Join-Path $installRoot 'config')
-        New-TestProductionSettingsJson | Set-Content (Join-Path $installRoot 'config\appsettings.Production.json') -Encoding UTF8
-
-        $apply = Join-Path $tools 'apply-migrations.ps1'
-        'exit 0' | Set-Content $apply -Encoding ASCII
+        $env = New-InstallTestEnvironment
+        'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'apply-migrations.ps1') -Encoding ASCII
 
         { & $script:InstallScript `
-            -PackagePath $zip `
-            -InstallRoot $installRoot `
-            -ToolsRoot $tools `
-            -ApiPath (Join-Path $installRoot 'publish\api') `
-            -WebPath (Join-Path $installRoot 'publish\web') `
-            -ConfigPath (Join-Path $installRoot 'config\appsettings.Production.json') } |
+            -PackagePath $env.ZipPath `
+            -InstallRoot $env.InstallRoot `
+            -ToolsRoot $env.ToolsRoot `
+            -ApiPath $env.ApiPath `
+            -WebPath $env.WebPath `
+            -ConfigPath $env.ConfigPath } |
             Should -Throw '*API*'
     }
 
@@ -699,31 +746,15 @@ Describe 'install-production-package.ps1 scenarios' {
         $global:deployOrder = @()
         Mock Stop-ScheduledTask { $global:deployOrder += 'stop-api' }
 
-        $root = New-TempDirectory
-        $installRoot = Join-Path $root 'install'
-        $tools = Join-Path $root 'tools'
-        $incoming = Join-Path $installRoot 'incoming'
-        Ensure-Directory $incoming
-        Ensure-Directory $tools
-        Ensure-Directory (Join-Path $tools 'deployment')
-        Copy-Item $script:CommonPath (Join-Path $tools 'deployment\Common.ps1') -Force
-
-        $pkgRoot = New-TempDirectory
-        New-TestPackage -Root $pkgRoot
-        $zip = Join-Path $incoming 'Uqeb-test.zip'
-        New-ZipFromDirectory -Source $pkgRoot -ZipPath $zip
-        $hash = Get-FileSha256Hex -Path $zip
-        Set-Content (Join-Path $incoming 'Uqeb-test.sha256.txt') "$hash  Uqeb-test.zip" -Encoding ASCII
-        Ensure-Directory (Join-Path $installRoot 'config')
-        New-TestProductionSettingsJson | Set-Content (Join-Path $installRoot 'config\appsettings.Production.json') -Encoding UTF8
+        $env = New-InstallTestEnvironment
 
         { & $script:InstallScript `
-            -PackagePath $zip `
-            -InstallRoot $installRoot `
-            -ToolsRoot $tools `
-            -ApiPath (Join-Path $installRoot 'publish\api') `
-            -WebPath (Join-Path $installRoot 'publish\web') `
-            -ConfigPath (Join-Path $installRoot 'config\appsettings.Production.json') } |
+            -PackagePath $env.ZipPath `
+            -InstallRoot $env.InstallRoot `
+            -ToolsRoot $env.ToolsRoot `
+            -ApiPath $env.ApiPath `
+            -WebPath $env.WebPath `
+            -ConfigPath $env.ConfigPath } |
             Should -Throw
 
         $global:deployOrder | Should -Not -Contain 'stop-api'
@@ -746,35 +777,16 @@ Describe 'install-production-package.ps1 scenarios' {
         }
         Mock Stop-ScheduledTask { $global:deployOrder += 'stop-api' }
 
-        $root = New-TempDirectory
-        $installRoot = Join-Path $root 'install'
-        $tools = Join-Path $root 'tools'
-        $incoming = Join-Path $installRoot 'incoming'
-        Ensure-Directory $incoming
-        Ensure-Directory $tools
-        Ensure-Directory (Join-Path $tools 'deployment')
-        Copy-Item $script:CommonPath (Join-Path $tools 'deployment\Common.ps1') -Force
-
-        $pkgRoot = New-TempDirectory
-        New-TestPackage -Root $pkgRoot
-        $zip = Join-Path $incoming 'Uqeb-test.zip'
-        New-ZipFromDirectory -Source $pkgRoot -ZipPath $zip
-        $hash = Get-FileSha256Hex -Path $zip
-        Set-Content (Join-Path $incoming 'Uqeb-test.sha256.txt') "$hash  Uqeb-test.zip" -Encoding ASCII
-        Ensure-Directory (Join-Path $installRoot 'config')
-        $configPath = Join-Path $installRoot 'config\appsettings.Production.json'
-        New-TestProductionSettingsJson | Set-Content $configPath -Encoding UTF8
-
-        $health = Join-Path $tools 'verify-deployment-health.ps1'
-        'exit 0' | Set-Content $health -Encoding ASCII
+        $env = New-InstallTestEnvironment
+        'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
         & $script:InstallScript `
-            -PackagePath $zip `
-            -InstallRoot $installRoot `
-            -ToolsRoot $tools `
-            -ApiPath (Join-Path $installRoot 'publish\api') `
-            -WebPath (Join-Path $installRoot 'publish\web') `
-            -ConfigPath $configPath | Out-Null
+            -PackagePath $env.ZipPath `
+            -InstallRoot $env.InstallRoot `
+            -ToolsRoot $env.ToolsRoot `
+            -ApiPath $env.ApiPath `
+            -WebPath $env.WebPath `
+            -ConfigPath $env.ConfigPath | Out-Null
 
         $global:deployOrder[0] | Should -Be 'db-backup'
         ($global:deployOrder.IndexOf('db-backup') -lt $global:deployOrder.IndexOf('stop-api')) | Should -BeTrue
@@ -793,36 +805,18 @@ Describe 'install-production-package.ps1 scenarios' {
             }
         }
 
-        $root = New-TempDirectory
-        $installRoot = Join-Path $root 'install'
-        $tools = Join-Path $root 'tools'
-        $incoming = Join-Path $installRoot 'incoming'
-        Ensure-Directory $incoming
-        Ensure-Directory $tools
-        Ensure-Directory (Join-Path $tools 'deployment')
-        Copy-Item $script:CommonPath (Join-Path $tools 'deployment\Common.ps1') -Force
-
-        $pkgRoot = New-TempDirectory
-        New-TestPackage -Root $pkgRoot
-        $zip = Join-Path $incoming 'Uqeb-test.zip'
-        New-ZipFromDirectory -Source $pkgRoot -ZipPath $zip
-        $hash = Get-FileSha256Hex -Path $zip
-        Set-Content (Join-Path $incoming 'Uqeb-test.sha256.txt') "$hash  Uqeb-test.zip" -Encoding ASCII
-        Ensure-Directory (Join-Path $installRoot 'config')
-        New-TestProductionSettingsJson | Set-Content (Join-Path $installRoot 'config\appsettings.Production.json') -Encoding UTF8
-
-        $health = Join-Path $tools 'verify-deployment-health.ps1'
-        'throw "health failed"' | Set-Content $health -Encoding ASCII
+        $env = New-InstallTestEnvironment
+        'throw "health failed"' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
         $output = @()
         try {
             & $script:InstallScript `
-                -PackagePath $zip `
-                -InstallRoot $installRoot `
-                -ToolsRoot $tools `
-                -ApiPath (Join-Path $installRoot 'publish\api') `
-                -WebPath (Join-Path $installRoot 'publish\web') `
-                -ConfigPath (Join-Path $installRoot 'config\appsettings.Production.json') *>&1 |
+                -PackagePath $env.ZipPath `
+                -InstallRoot $env.InstallRoot `
+                -ToolsRoot $env.ToolsRoot `
+                -ApiPath $env.ApiPath `
+                -WebPath $env.WebPath `
+                -ConfigPath $env.ConfigPath *>&1 |
                 ForEach-Object { $output += $_.ToString() }
         }
         catch {
@@ -835,38 +829,18 @@ Describe 'install-production-package.ps1 scenarios' {
     It 'succeeds when stale LASTEXITCODE is set before migration' {
         $global:LASTEXITCODE = 1
 
-        $root = New-TempDirectory
-        $installRoot = Join-Path $root 'install'
-        $tools = Join-Path $root 'tools'
-        $incoming = Join-Path $installRoot 'incoming'
-        Ensure-Directory $incoming
-        Ensure-Directory $tools
-        Ensure-Directory (Join-Path $tools 'deployment')
-        Copy-Item $script:CommonPath (Join-Path $tools 'deployment\Common.ps1') -Force
-
-        $pkgRoot = New-TempDirectory
-        New-TestPackage -Root $pkgRoot
-        $zip = Join-Path $incoming 'Uqeb-test.zip'
-        New-ZipFromDirectory -Source $pkgRoot -ZipPath $zip
-        $hash = Get-FileSha256Hex -Path $zip
-        Set-Content (Join-Path $incoming 'Uqeb-test.sha256.txt') "$hash  Uqeb-test.zip" -Encoding ASCII
-        Ensure-Directory (Join-Path $installRoot 'config')
-        $configPath = Join-Path $installRoot 'config\appsettings.Production.json'
-        New-TestProductionSettingsJson | Set-Content $configPath -Encoding UTF8
-
-        $apply = Join-Path $tools 'apply-migrations.ps1'
-        'exit 0' | Set-Content $apply -Encoding ASCII
-        $health = Join-Path $tools 'verify-deployment-health.ps1'
-        'exit 0' | Set-Content $health -Encoding ASCII
+        $env = New-InstallTestEnvironment
+        'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'apply-migrations.ps1') -Encoding ASCII
+        'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
         { & $script:InstallScript `
-            -PackagePath $zip `
-            -InstallRoot $installRoot `
-            -ToolsRoot $tools `
+            -PackagePath $env.ZipPath `
+            -InstallRoot $env.InstallRoot `
+            -ToolsRoot $env.ToolsRoot `
             -ApiPort 5001 `
-            -ApiPath (Join-Path $installRoot 'publish\api') `
-            -WebPath (Join-Path $installRoot 'publish\web') `
-            -ConfigPath $configPath } | Should -Not -Throw
+            -ApiPath $env.ApiPath `
+            -WebPath $env.WebPath `
+            -ConfigPath $env.ConfigPath } | Should -Not -Throw
     }
 
     It 'derives ApiBaseUrl from ApiPort when URL is omitted' {
@@ -1091,14 +1065,7 @@ Describe 'Production database backup functions' {
         $installRoot = New-TempDirectory
         $backupDir = Join-Path $installRoot 'backup\db'
         Ensure-Directory $backupDir
-
-        $files = @()
-        for ($i = 0; $i -lt 12; $i++) {
-            $path = Join-Path $backupDir ("UqebDb-before-20260101-12000$i.bak")
-            Set-Content -LiteralPath $path -Value ('x' * 10) -Encoding ASCII
-            (Get-Item -LiteralPath $path).LastWriteTime = (Get-Date).AddHours(-$i)
-            $files += $path
-        }
+        $files = New-TestBackupFileSet -BackupDir $backupDir -Count 12
 
         $deleted = Invoke-DatabaseBackupRetentionPolicy `
             -BackupDirectory $backupDir `
@@ -1116,11 +1083,7 @@ Describe 'Protected database backup paths' {
     It 'returns flat string paths from release manifests' {
         $installRoot = New-TempDirectory
         $protectedPath = 'C:\Uqeb\backup\db\UqebDb-before-protected.bak'
-        $manifest = [ordered]@{
-            databaseBackup = [ordered]@{ path = $protectedPath }
-        }
-        Ensure-Directory (Join-Path $installRoot 'publish')
-        $manifest | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $installRoot 'publish\release-manifest.json') -Encoding UTF8
+        Write-TestReleaseManifestWithBackup -InstallRoot $installRoot -BackupPath $protectedPath
 
         $paths = @(Get-ProtectedDatabaseBackupPaths -InstallRoot $installRoot)
         @($paths).Count | Should -Be 1
@@ -1133,21 +1096,11 @@ Describe 'Protected database backup paths' {
         Ensure-Directory $backupDir
 
         $protectedPath = Join-Path $backupDir 'UqebDb-before-protected.bak'
-        $files = @()
-        for ($i = 0; $i -lt 12; $i++) {
-            $path = Join-Path $backupDir ("UqebDb-before-20260101-12000$i.bak")
-            Set-Content -LiteralPath $path -Value ('x' * 10) -Encoding ASCII
-            (Get-Item -LiteralPath $path).LastWriteTime = (Get-Date).AddHours(-$i)
-            $files += $path
-        }
+        $files = New-TestBackupFileSet -BackupDir $backupDir -Count 12
         Set-Content -LiteralPath $protectedPath -Value ('x' * 10) -Encoding ASCII
         (Get-Item -LiteralPath $protectedPath).LastWriteTime = (Get-Date).AddHours(-20)
 
-        $manifest = [ordered]@{
-            databaseBackup = [ordered]@{ path = $protectedPath }
-        }
-        Ensure-Directory (Join-Path $installRoot 'publish')
-        $manifest | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $installRoot 'publish\release-manifest.json') -Encoding UTF8
+        Write-TestReleaseManifestWithBackup -InstallRoot $installRoot -BackupPath $protectedPath
 
         $deleted = Invoke-DatabaseBackupRetentionPolicy `
             -BackupDirectory $backupDir `

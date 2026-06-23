@@ -441,6 +441,71 @@ function Add-RecentLogMatchedLine {
     $MatchedLines.Add($Line.Trim()) | Out-Null
 }
 
+function Update-RecentLogState {
+    param(
+        [pscustomobject]$State,
+        [string]$Line,
+        [bool]$UseFileWriteTimeFallback
+    )
+
+    $timestamp = $null
+    if (-not $UseFileWriteTimeFallback) {
+        $timestamp = Get-LogLineTimestampUtc -Line $Line
+        if ($timestamp) {
+            $State.CurrentEventUtc = $timestamp
+            $State.CaptureContinuation = $false
+        }
+    }
+
+    return $timestamp
+}
+
+function Test-LogEventIsRecent {
+    param(
+        [pscustomobject]$State,
+        [datetime]$SinceUtc,
+        [bool]$UseFileWriteTimeFallback
+    )
+
+    if ($UseFileWriteTimeFallback) {
+        return $true
+    }
+
+    return ($null -ne $State.CurrentEventUtc -and $State.CurrentEventUtc -ge $SinceUtc)
+}
+
+function Add-RecentLogLineIfApplicable {
+    param(
+        [string]$Line,
+        $LineTimestamp,
+        [pscustomobject]$State,
+        [datetime]$SinceUtc,
+        [string[]]$Patterns,
+        [bool]$UseFileWriteTimeFallback,
+        [System.Collections.Generic.List[string]]$MatchedLines
+    )
+
+    if (-not (Test-LogEventIsRecent -State $State -SinceUtc $SinceUtc -UseFileWriteTimeFallback $UseFileWriteTimeFallback)) {
+        $State.CaptureContinuation = $false
+        return
+    }
+
+    if (Test-LogLineMatchesPattern -Line $Line -Patterns $Patterns) {
+        Add-RecentLogMatchedLine -MatchedLines $MatchedLines -Line $Line
+        $State.CaptureContinuation = $true
+        return
+    }
+
+    if ($State.CaptureContinuation -and -not $LineTimestamp) {
+        if ([string]::IsNullOrWhiteSpace($Line)) {
+            $State.CaptureContinuation = $false
+        }
+        else {
+            Add-RecentLogMatchedLine -MatchedLines $MatchedLines -Line $Line
+        }
+    }
+}
+
 function Find-RecentLogErrors {
     param(
         [string[]]$Lines,
@@ -450,43 +515,25 @@ function Find-RecentLogErrors {
     )
 
     $matchedLines = New-Object System.Collections.Generic.List[string]
-    $currentEventUtc = $null
-    $captureContinuation = $false
+    $state = [pscustomobject]@{
+        CurrentEventUtc = $null
+        CaptureContinuation = $false
+    }
 
     foreach ($line in $Lines) {
-        $lineTimestamp = $null
-        if (-not $UseFileWriteTimeFallback) {
-            $lineTimestamp = Get-LogLineTimestampUtc -Line $line
-            if ($lineTimestamp) {
-                $currentEventUtc = $lineTimestamp
-                $captureContinuation = $false
-            }
+        $lineTimestamp = Update-RecentLogState `
+            -State $state `
+            -Line $line `
+            -UseFileWriteTimeFallback $UseFileWriteTimeFallback
 
-            if ($null -eq $currentEventUtc -or $currentEventUtc -lt $SinceUtc) {
-                $captureContinuation = $false
-                continue
-            }
-        }
-
-        $isRecent = $UseFileWriteTimeFallback
-        if (-not $UseFileWriteTimeFallback) {
-            $isRecent = $true
-        }
-
-        if (Test-LogLineMatchesPattern -Line $line -Patterns $Patterns) {
-            Add-RecentLogMatchedLine -MatchedLines $matchedLines -Line $line
-            $captureContinuation = $true
-            continue
-        }
-
-        if ($captureContinuation -and $isRecent -and -not $lineTimestamp) {
-            if ([string]::IsNullOrWhiteSpace($line)) {
-                $captureContinuation = $false
-            }
-            else {
-                Add-RecentLogMatchedLine -MatchedLines $matchedLines -Line $line
-            }
-        }
+        Add-RecentLogLineIfApplicable `
+            -Line $line `
+            -LineTimestamp $lineTimestamp `
+            -State $state `
+            -SinceUtc $SinceUtc `
+            -Patterns $Patterns `
+            -UseFileWriteTimeFallback $UseFileWriteTimeFallback `
+            -MatchedLines $matchedLines
     }
 
     return ,@($matchedLines | Select-Object -Unique)
