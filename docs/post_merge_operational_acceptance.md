@@ -180,7 +180,7 @@ No **Blocker** or **Critical** defects confirmed in automated scope.
 - `scripts/verify-deployment-health.ps1`
 - Deploy script invokes live + ready checks after service start
 - k6 smoke scripts under `tests/performance/`
-- Runbooks: production readiness, runbook, backup/restore, rollback
+- Runbooks: production readiness checklist, production runbook, backup/restore runbook, and rollback runbook.
 
 ---
 

@@ -24,7 +24,7 @@ Operational procedures for the on-prem Windows deployment (`10.0.177.17` per `AG
 1. Confirm `UqebApi` task is **Running**.
 2. `GET http://10.0.177.17:5000/health/live` → 200
 3. `GET http://10.0.177.17:5000/health/ready` → 200
-4. Open UI → login as smoke user → open one transaction.
+4. Open UI → log in as smoke user → open one transaction.
 5. Review `api-runtime.log` for errors in last 24h.
 
 ```powershell

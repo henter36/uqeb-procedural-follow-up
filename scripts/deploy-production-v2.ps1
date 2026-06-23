@@ -160,14 +160,32 @@ if (-not $listener) { throw ("API did not start. Review " + $apiLog) }
 if (-not ($listener | Where-Object { $_.LocalAddress -in @($ApiBindAddress,"0.0.0.0","::") })) { throw "API binding is not LAN-capable." }
 
 try {
-    $live = Invoke-WebRequest -UseBasicParsing -Uri ("http://localhost:" + $ApiPort + "/health/live") -TimeoutSec 15
-    if ($live.StatusCode -ne 200) { throw "Health live check failed." }
-    $ready = Invoke-WebRequest -UseBasicParsing -Uri ("http://localhost:" + $ApiPort + "/health/ready") -TimeoutSec 20
-    if ($ready.StatusCode -ne 200) { throw "Health ready check failed." }
-    Write-Info "Health checks passed (live + ready)."
+    $healthScript = Join-Path $PSScriptRoot "verify-deployment-health.ps1"
+    $baseUrl = "http://localhost:$ApiPort"
+
+    if (-not (Test-Path -LiteralPath $healthScript)) {
+        throw "Health verification script not found: $healthScript"
+    }
+
+    & $healthScript `
+        -ApiBaseUrl $baseUrl `
+        -TimeoutSec 20 `
+        -RetryCount 5 `
+        -RetryDelaySec 2
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "Health verification script returned exit code $LASTEXITCODE."
+    }
+
+    Write-Info "Post-deploy health verification passed."
 }
 catch {
-    throw ("Post-deploy health verification failed. Review " + $apiLog + ". Details: " + $_.Exception.Message)
+    throw (
+        "Post-deploy health verification failed. Review " +
+        $apiLog +
+        ". Details: " +
+        $_.Exception.Message
+    )
 }
 
 $buildInfo = "DeployedAt=$(Get-Date -Format s)`r`nApiTarget=$apiTarget`r`nWebTarget=$webTarget`r`nApiBinding=http://$ApiBindAddress`:$ApiPort`r`nBackup=$backup"

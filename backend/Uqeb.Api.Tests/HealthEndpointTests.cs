@@ -1,11 +1,8 @@
 using System.Net;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Uqeb.Api.Data;
+using Uqeb.Api.Middleware;
+using Xunit;
 
 namespace Uqeb.Api.Tests;
 
@@ -25,7 +22,7 @@ public class HealthEndpointTests : IClassFixture<HealthEndpointWebApplicationFac
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("live", await response.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
-        Assert.True(response.Headers.Contains("X-Correlation-ID"));
+        Assert.True(response.Headers.Contains(CorrelationIdMiddleware.HeaderName));
     }
 
     [Fact]
@@ -52,29 +49,6 @@ public sealed class HealthEndpointWebApplicationFactory : WebApplicationFactory<
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.UseEnvironment("Development");
-
-        builder.ConfigureAppConfiguration((_, config) =>
-        {
-            config.AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Jwt:Key"] = "integration-test-jwt-key-32-chars-min",
-                ["Jwt:Issuer"] = "UqebApiTests",
-                ["Jwt:Audience"] = "UqebClientTests",
-                ["ConnectionStrings:DefaultConnection"] = "Server=(localdb)\\mssqllocaldb;Database=unused;Trusted_Connection=True;",
-            });
-        });
-
-        builder.ConfigureServices(services =>
-        {
-            services.RemoveAll(typeof(DbContextOptions<AppDbContext>));
-            services.RemoveAll(typeof(IDbContextFactory<AppDbContext>));
-            services.RemoveAll(typeof(AppDbContext));
-
-            services.AddDbContextFactory<AppDbContext>(options =>
-                options.UseInMemoryDatabase($"health-tests-{Guid.NewGuid():N}"));
-            services.AddScoped(sp =>
-                sp.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
-        });
+        HealthTestHostBuilder.Configure(builder);
     }
 }
