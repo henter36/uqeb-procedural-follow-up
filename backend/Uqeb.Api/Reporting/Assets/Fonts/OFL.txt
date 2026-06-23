@@ -1,0 +1,3 @@
+Noto Sans Arabic — SIL Open Font License 1.1
+Source: @fontsource/noto-sans-arabic (Google Fonts)
+Files: NotoSansArabic-Regular.woff2, NotoSansArabic-Bold.woff2

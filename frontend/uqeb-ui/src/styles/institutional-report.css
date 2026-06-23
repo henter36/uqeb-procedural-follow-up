@@ -6,7 +6,8 @@
 .report-section-list label { display: flex; gap: 0.5rem; align-items: center; font-size: 0.92rem; }
 .report-preview-shell { display: grid; grid-template-columns: 180px 1fr; gap: 0.75rem; min-height: 70vh; }
 .report-thumbs { display: flex; flex-direction: column; gap: 0.5rem; max-height: 75vh; overflow: auto; }
-.report-thumb { border: 1px solid #D9E1DD; border-radius: 8px; padding: 0.5rem; cursor: pointer; background: #F4F6F5; font-size: 0.8rem; }
+.report-thumb { border: 1px solid #D9E1DD; border-radius: 8px; padding: 0.5rem; background: #F4F6F5; font-size: 0.8rem; display: flex; gap: 0.35rem; align-items: center; }
+.report-thumb-open { border: 0; background: transparent; cursor: pointer; text-align: right; flex: 1; font: inherit; color: inherit; padding: 0; }
 .report-thumb.is-active { border-color: #123F32; box-shadow: 0 0 0 2px #EAF2EE; }
 .report-thumb.is-selected { background: #F4EBD7; }
 .report-preview-stage { border: 1px solid #D9E1DD; border-radius: 10px; background: #eef1f0; padding: 1rem; overflow: auto; }

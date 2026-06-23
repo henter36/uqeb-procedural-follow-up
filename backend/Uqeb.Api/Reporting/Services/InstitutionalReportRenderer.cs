@@ -1,4 +1,5 @@
 using System.Text;
+using Uqeb.Api.Reporting.Assets;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
 
@@ -9,7 +10,7 @@ public sealed class InstitutionalReportRenderer
     private const string Css = """
         @page { size: A4 portrait; margin: 18mm 14mm 20mm 14mm; }
         * { box-sizing: border-box; }
-        body { margin: 0; font-family: 'IBM Plex Sans Arabic', 'Noto Sans Arabic', 'Cairo', Tahoma, sans-serif; color: #17211D; background: #fff; direction: rtl; }
+        body { margin: 0; font-family: 'Uqeb Report Arabic', 'IBM Plex Sans Arabic', 'Noto Sans Arabic', 'Cairo', Tahoma, sans-serif; color: #17211D; background: #fff; direction: rtl; }
         .report-page { width: 210mm; min-height: 297mm; padding: 14mm; page-break-after: always; position: relative; background: #fff; }
         .report-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #123F32; padding-bottom: 8px; margin-bottom: 16px; }
         .report-header .org { color: #123F32; font-weight: 700; font-size: 13px; }
@@ -180,6 +181,7 @@ public sealed class InstitutionalReportRenderer
     {
         var sb = new StringBuilder();
         sb.Append("<!DOCTYPE html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><style>")
+            .Append(InstitutionalReportFontAssets.BuildFontFaceCss())
             .Append(Css)
             .Append("</style></head><body>");
         foreach (var page in manifest.Pages)

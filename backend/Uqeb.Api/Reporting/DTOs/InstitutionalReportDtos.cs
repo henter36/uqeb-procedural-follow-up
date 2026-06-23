@@ -197,18 +197,24 @@ public sealed class ReportBuildRequestDto
     public int? SingleTransactionId { get; set; }
 }
 
+/// <summary>Export request. Boolean and enum fields default intentionally when omitted (under-posting is valid).</summary>
 public sealed class ReportExportRequestDto
 {
     public string? ReportId { get; set; }
     public ReportBuildRequestDto BuildRequest { get; set; } = new();
+    /// <summary>Defaults to PDF when omitted.</summary>
     public ExportFormat ExportFormat { get; set; } = ExportFormat.Pdf;
+    /// <summary>Defaults to full report when omitted.</summary>
     public ExportMode ExportMode { get; set; } = ExportMode.FullReport;
     public List<ReportSectionId> SelectedSectionIds { get; set; } = [];
     public List<int> SelectedPageNumbers { get; set; } = [];
     public string? PageRangeExpression { get; set; }
     public int? CurrentPageNumber { get; set; }
+    /// <summary>Defaults to false when omitted.</summary>
     public bool IncludePartialCover { get; set; }
+    /// <summary>Defaults to false when omitted.</summary>
     public bool IncludePartialManifest { get; set; }
+    /// <summary>Defaults to restart numbering when omitted.</summary>
     public PageNumberingMode PageNumberingMode { get; set; } = PageNumberingMode.Restart;
     public int? TemplateId { get; set; }
     public string? Reason { get; set; }

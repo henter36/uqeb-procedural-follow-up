@@ -5,6 +5,7 @@ using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
+using Uqeb.Api.Reporting.Exporters;
 using Uqeb.Api.Reporting.Services;
 using Uqeb.Api.Services;
 using Xunit;
@@ -102,7 +103,8 @@ internal static class InstitutionalReportServiceTestHelpers
             dbFactory,
             new TestCurrentUserService(),
             new NoOpAuditService(),
-            new FixedReportNumberAllocator());
+            new FixedReportNumberAllocator(),
+            new StubPdfExporter());
     }
 
     private sealed class TestCurrentUserService : ICurrentUserService
@@ -124,5 +126,11 @@ internal static class InstitutionalReportServiceTestHelpers
     {
         public Task<string> AllocateAsync(CancellationToken ct = default) =>
             Task.FromResult("REP-2026-000001");
+    }
+
+    private sealed class StubPdfExporter : IInstitutionalReportPdfExporter
+    {
+        public Task<byte[]> ExportAsync(RenderedReportManifestDto manifest, string htmlDocument, CancellationToken ct = default) =>
+            Task.FromResult("%PDF-1.4"u8.ToArray());
     }
 }

@@ -170,6 +170,12 @@ public class AppDbContext : DbContext
             e.HasIndex(a => new { a.Severity, a.CreatedAt });
         });
 
+        modelBuilder.Entity<ReportExportTemplate>(e =>
+        {
+            e.HasIndex(t => t.CreatedById);
+            e.HasOne(t => t.CreatedBy).WithMany().HasForeignKey(t => t.CreatedById).OnDelete(DeleteBehavior.NoAction);
+        });
+
         modelBuilder.Entity<ReportNumberSequence>(e =>
         {
             e.HasKey(s => s.Year);

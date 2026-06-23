@@ -34,7 +34,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
     private readonly IInstitutionalReportNumberAllocator _reportNumberAllocator;
     private readonly DepartmentRatingCriteria _ratingCriteria = new();
     private readonly InstitutionalReportRenderer _renderer = new();
-    private readonly InstitutionalReportPdfExporter _pdfExporter = new();
+    private readonly IInstitutionalReportPdfExporter _pdfExporter;
     private readonly InstitutionalReportXlsxExporter _xlsxExporter = new();
     private readonly InstitutionalReportDocxExporter _docxExporter = new();
 
@@ -42,12 +42,14 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
         IDbContextFactory<AppDbContext> dbFactory,
         ICurrentUserService currentUser,
         IAuditService audit,
-        IInstitutionalReportNumberAllocator reportNumberAllocator)
+        IInstitutionalReportNumberAllocator reportNumberAllocator,
+        IInstitutionalReportPdfExporter pdfExporter)
     {
         _dbFactory = dbFactory;
         _currentUser = currentUser;
         _audit = audit;
         _reportNumberAllocator = reportNumberAllocator;
+        _pdfExporter = pdfExporter;
     }
 
     public Task<InstitutionalReportModel> BuildReportModelAsync(ReportBuildRequestDto request, CancellationToken ct = default) =>
@@ -107,7 +109,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
                 extension = "html";
                 break;
             default:
-                content = _pdfExporter.Export(exportManifest, request);
+                content = await _pdfExporter.ExportAsync(exportManifest, _renderer.RenderHtmlDocument(exportManifest), ct);
                 contentType = "application/pdf";
                 extension = "pdf";
                 break;
@@ -147,7 +149,24 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
 
     public async Task<ReportTemplateDto> SaveTemplateAsync(SaveReportTemplateRequestDto request, CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(request.Name))
+        {
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                ["name"] = "اسم القالب مطلوب."
+            });
+        }
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var userExists = await db.Users.AsNoTracking().AnyAsync(u => u.Id == _currentUser.UserId, ct);
+        if (!userExists)
+        {
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                ["createdById"] = "المستخدم الحالي غير موجود."
+            });
+        }
+
         var entity = new ReportExportTemplate
         {
             Name = request.Name.Trim(),
@@ -218,74 +237,48 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var legacyFilter = MapLegacyFilter(request.Filters);
-        var query = ApplyInstitutionalFilter(db.Transactions.AsNoTracking(), request.Filters, legacyFilter);
-
-        if (request.ReportType == InstitutionalReportType.SingleTransaction)
-        {
-            if (!request.SingleTransactionId.HasValue)
-            {
-                throw new FieldValidationException(new Dictionary<string, string>
-                {
-                    ["singleTransactionId"] = "يجب تحديد معاملة واحدة لتقرير المعاملة الواحدة."
-                });
-            }
-
-            query = query.Where(t => t.Id == request.SingleTransactionId.Value);
-        }
-
-        if (request.ReportType == InstitutionalReportType.OverdueTransactions)
-            query = query.Where(t => t.Status != TransactionStatus.Closed && t.Status != TransactionStatus.Cancelled && t.Status != TransactionStatus.Archived);
-
-        if (request.ReportType == InstitutionalReportType.JointDepartmentTransactions)
-            query = query.Where(t => t.Assignments.Count(a => a.Status == AssignmentStatus.Active) > 1
-                || t.OutgoingDepartments.Count > 1);
-
-        if (request.ReportType == InstitutionalReportType.PartialResponses)
-            query = query.Where(t => t.Status == TransactionStatus.PartiallyReplied
-                || (t.Assignments.Any(a => a.ReplyStatus == ReplyStatus.Replied)
-                    && t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied && a.Status == AssignmentStatus.Active)));
-
-        if (_currentUser.DepartmentId is int deptId && _currentUser.Role != UserRole.Admin)
-            query = query.Where(t => t.Assignments.Any(a => a.DepartmentId == deptId)
-                || t.OutgoingDepartments.Any(o => o.DepartmentId == deptId));
+        var query = db.Transactions.AsNoTracking();
+        query = InstitutionalReportSnapshotQuery.ApplyInstitutionalFilter(query, request.Filters, legacyFilter);
+        query = InstitutionalReportSnapshotQuery.ApplyReportTypeFilter(query, request.ReportType, request.SingleTransactionId);
+        query = InstitutionalReportSnapshotQuery.ApplyAccessScopeFilter(query, _currentUser.Role, _currentUser.DepartmentId);
 
         var rows = await query
             .OrderByDescending(t => t.IncomingDate)
             .ThenByDescending(t => t.Id)
             .Take(MaxDetailRows)
-            .Select(t => new
+            .Select(t => new InstitutionalReportSnapshotQuery.SnapshotRow
             {
-                t.Id,
-                t.InternalTrackingNumber,
-                t.IncomingNumber,
-                t.IncomingDate,
-                t.Subject,
+                Id = t.Id,
+                InternalTrackingNumber = t.InternalTrackingNumber,
+                IncomingNumber = t.IncomingNumber,
+                IncomingDate = t.IncomingDate,
+                Subject = t.Subject,
                 IncomingParty = t.IncomingSourceType == IncomingSourceType.Internal
                     ? (t.IncomingFromDepartment != null ? t.IncomingFromDepartment.Name : t.IncomingFrom)
                     : (t.IncomingFromParty != null ? t.IncomingFromParty.Name : t.IncomingFrom),
                 CategoryName = t.CategoryEntity != null ? t.CategoryEntity.Name : t.Category,
-                t.Priority,
-                t.Status,
-                t.RequiresResponse,
-                t.ResponseCompleted,
-                t.ResponseDueDate,
-                t.ClosedAt,
-                t.UpdatedAt,
-                t.CreatedAt,
-                t.OutgoingNumber,
-                t.OutgoingDate,
-                Assignments = t.Assignments.Select(a => new
+                Priority = t.Priority,
+                Status = t.Status,
+                RequiresResponse = t.RequiresResponse,
+                ResponseCompleted = t.ResponseCompleted,
+                ResponseDueDate = t.ResponseDueDate,
+                ClosedAt = t.ClosedAt,
+                UpdatedAt = t.UpdatedAt,
+                CreatedAt = t.CreatedAt,
+                OutgoingNumber = t.OutgoingNumber,
+                OutgoingDate = t.OutgoingDate,
+                Assignments = t.Assignments.Select(a => new InstitutionalReportSnapshotQuery.AssignmentRow
                 {
-                    a.DepartmentId,
+                    DepartmentId = a.DepartmentId,
                     DepartmentName = a.Department.Name,
-                    a.RequiresReply,
-                    a.ReplyStatus,
-                    a.Status,
-                    a.DueDate
+                    RequiresReply = a.RequiresReply,
+                    ReplyStatus = a.ReplyStatus,
+                    Status = a.Status,
+                    DueDate = a.DueDate
                 }).ToList(),
-                OutgoingDepartments = t.OutgoingDepartments.Select(o => new
+                OutgoingDepartments = t.OutgoingDepartments.Select(o => new InstitutionalReportSnapshotQuery.DepartmentRow
                 {
-                    o.DepartmentId,
+                    DepartmentId = o.DepartmentId,
                     DepartmentName = o.Department.Name
                 }).ToList(),
                 LastFollowUpDate = t.FollowUps.Any()
@@ -295,66 +288,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
             .ToListAsync(ct);
 
         var today = DateTime.UtcNow.Date;
-        return rows.Select(row =>
-        {
-            var activeAssignments = row.Assignments.Where(a => a.Status == AssignmentStatus.Active).ToList();
-            var uniqueDepartments = activeAssignments
-                .Select(a => new { a.DepartmentId, a.DepartmentName })
-                .GroupBy(x => x.DepartmentId)
-                .Select(g => g.First())
-                .ToList();
-            var assignmentDeptIds = uniqueDepartments.Select(x => x.DepartmentId).ToList();
-            var assignmentDeptNames = uniqueDepartments.Select(x => x.DepartmentName).ToList();
-            var responsible = assignmentDeptNames.FirstOrDefault() ?? "—";
-
-            var uniqueOutgoingDepartments = row.OutgoingDepartments
-                .GroupBy(o => o.DepartmentId)
-                .Select(g => g.First())
-                .ToList();
-
-            var snapshot = new TransactionReportSnapshot
-            {
-                TransactionId = row.Id,
-                TrackingNumber = row.InternalTrackingNumber,
-                IncomingNumber = row.IncomingNumber,
-                IncomingDate = row.IncomingDate.Date,
-                Subject = row.Subject,
-                IncomingParty = row.IncomingParty ?? "—",
-                CategoryName = row.CategoryName,
-                Priority = row.Priority,
-                Status = row.Status,
-                RequiresResponse = row.RequiresResponse,
-                ResponseCompleted = row.ResponseCompleted,
-                ResponseDueDate = row.ResponseDueDate?.Date,
-                ClosedAt = row.ClosedAt?.Date,
-                UpdatedAt = row.UpdatedAt?.Date,
-                CreatedAt = row.CreatedAt,
-                OutgoingNumber = row.OutgoingNumber,
-                OutgoingDate = row.OutgoingDate?.Date,
-                ResponsibleDepartment = responsible,
-                ResponsibleDepartmentId = assignmentDeptIds.FirstOrDefault(),
-                AssignmentDepartmentIds = assignmentDeptIds,
-                AssignmentDepartmentNames = assignmentDeptNames,
-                OutgoingDepartmentIds = uniqueOutgoingDepartments.Select(o => o.DepartmentId).ToList(),
-                OutgoingDepartmentNames = uniqueOutgoingDepartments.Select(o => o.DepartmentName).ToList(),
-                ActiveAssignmentCount = activeAssignments.Count,
-                RepliedAssignmentCount = activeAssignments.Count(a => a.ReplyStatus == ReplyStatus.Replied),
-                PendingReplyAssignmentCount = activeAssignments.Count(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied),
-                LastFollowUpDate = row.LastFollowUpDate?.Date,
-                LastAssignmentDueDate = activeAssignments.Where(a => a.DueDate.HasValue).Select(a => a.DueDate!.Value).OrderBy(d => d).FirstOrDefault(),
-                IsClosed = row.Status == TransactionStatus.Closed,
-                IsOpen = InstitutionalReportMetricsCalculator.IsOpenStatus(row.Status),
-                ElapsedDays = Math.Max(0, (today - row.IncomingDate.Date).Days)
-            };
-
-            snapshot.IsOverdue = InstitutionalReportMetricsCalculator.IsOverdue(snapshot, today);
-            snapshot.IsWaitingForStatement = InstitutionalReportMetricsCalculator.IsWaitingForStatement(snapshot);
-            snapshot.IsPartialReply = InstitutionalReportMetricsCalculator.IsPartialReply(snapshot);
-            snapshot.IsJointDepartment = InstitutionalReportMetricsCalculator.IsJointDepartment(snapshot);
-            snapshot.FollowUpStages = InstitutionalReportMetricsCalculator.ResolveFollowUpStages(snapshot, today);
-
-            return snapshot;
-        }).ToList();
+        return rows.Select(row => InstitutionalReportSnapshotQuery.MapRowToSnapshot(row, today)).ToList();
     }
 
     private static ReportFilterRequest MapLegacyFilter(ReportFiltersDto filters) => new()
@@ -366,44 +300,6 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
         IncomingPartyId = filters.PartyIds.FirstOrDefault(),
         Search = filters.Search
     };
-
-    private static IQueryable<Transaction> ApplyInstitutionalFilter(
-        IQueryable<Transaction> query,
-        ReportFiltersDto filters,
-        ReportFilterRequest legacy)
-    {
-        if (legacy.DateFrom.HasValue) query = query.Where(t => t.IncomingDate >= legacy.DateFrom);
-        if (legacy.DateTo.HasValue) query = query.Where(t => t.IncomingDate <= legacy.DateTo);
-        if (filters.CategoryIds.Count > 0) query = query.Where(t => t.CategoryId.HasValue && filters.CategoryIds.Contains(t.CategoryId.Value));
-        if (filters.DepartmentIds.Count > 0)
-            query = query.Where(t => t.Assignments.Any(a => filters.DepartmentIds.Contains(a.DepartmentId))
-                || t.OutgoingDepartments.Any(o => filters.DepartmentIds.Contains(o.DepartmentId)));
-        if (filters.PartyIds.Count > 0) query = query.Where(t => t.IncomingFromPartyId.HasValue && filters.PartyIds.Contains(t.IncomingFromPartyId.Value));
-        if (filters.Priorities.Count > 0)
-        {
-            var parsed = filters.Priorities
-                .Select(p => Enum.TryParse<Priority>(p, true, out var pr) ? (Priority?)pr : null)
-                .Where(p => p.HasValue)
-                .Select(p => p!.Value)
-                .ToList();
-            if (parsed.Count > 0) query = query.Where(t => parsed.Contains(t.Priority));
-        }
-        if (filters.Statuses.Count > 0)
-        {
-            var parsed = filters.Statuses
-                .Select(s => Enum.TryParse<TransactionStatus>(s, true, out var st) ? (TransactionStatus?)st : null)
-                .Where(s => s.HasValue)
-                .Select(s => s!.Value)
-                .ToList();
-            if (parsed.Count > 0) query = query.Where(t => parsed.Contains(t.Status));
-        }
-        if (!string.IsNullOrWhiteSpace(filters.Search))
-        {
-            var term = filters.Search.Trim();
-            query = query.Where(t => t.IncomingNumber.Contains(term) || t.InternalTrackingNumber.Contains(term) || t.Subject.Contains(term));
-        }
-        return query;
-    }
 
     private ExecutiveSummaryDto BuildExecutiveSummary(
         InstitutionalMetricsResult metrics,

@@ -58,7 +58,7 @@ public sealed class InstitutionalReportDocxExporter
                         break;
                     case ReportSectionId.TransactionDetails:
                         AppendHeading(body, "المعاملات التفصيلية");
-                        foreach (var tx in model.Transactions.Take(500))
+                        foreach (var tx in model.Transactions)
                             AppendParagraph(body, $"{tx.Sequence}. {tx.IncomingNumber} — {tx.Subject}");
                         break;
                     case ReportSectionId.ReportMetadata:

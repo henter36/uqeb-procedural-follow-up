@@ -1,49 +1,55 @@
 import { useCallback, useMemo, useState } from 'react';
 import { institutionalReportsApi, type InstitutionalReportManifest, type ReportBuildRequest, type ReportExportRequest } from '../api/services';
+import {
+  ExportFormat,
+  ExportMode,
+  InstitutionalReportType,
+  PageNumberingMode,
+  ReportSectionId,
+} from '../api/institutionalReports.constants';
 import { downloadBlob } from '../utils/downloadBlob';
+import { addDaysIso, todayLocalIso } from '../utils/localDate';
+import { sanitizeReportHtml } from '../utils/sanitizeReportHtml';
 import '../styles/institutional-report.css';
 
 const REPORT_TYPES = [
-  { value: 1, label: 'التقرير التنفيذي الشامل' },
-  { value: 2, label: 'تقرير المعاملات المتأخرة' },
-  { value: 3, label: 'تقرير معاملات الإدارات المشتركة' },
-  { value: 4, label: 'تقرير الإفادات والردود الجزئية' },
-  { value: 5, label: 'تقرير معاملة واحدة' },
+  { value: InstitutionalReportType.ExecutiveComprehensive, label: 'التقرير التنفيذي الشامل' },
+  { value: InstitutionalReportType.OverdueTransactions, label: 'تقرير المعاملات المتأخرة' },
+  { value: InstitutionalReportType.JointDepartmentTransactions, label: 'تقرير معاملات الإدارات المشتركة' },
+  { value: InstitutionalReportType.PartialResponses, label: 'تقرير الإفادات والردود الجزئية' },
+  { value: InstitutionalReportType.SingleTransaction, label: 'تقرير معاملة واحدة' },
 ] as const;
 
 const SECTIONS = [
-  { id: 1, label: 'الغلاف' },
-  { id: 2, label: 'الملخص التنفيذي' },
-  { id: 3, label: 'لوحة المؤشرات والاتجاهات' },
-  { id: 4, label: 'أداء الإدارات' },
-  { id: 5, label: 'المخاطر والتنبيهات' },
-  { id: 6, label: 'التوصيات التنفيذية' },
-  { id: 7, label: 'المعاملات التفصيلية' },
-  { id: 9, label: 'بيانات التقرير والفلاتر' },
+  { id: ReportSectionId.Cover, label: 'الغلاف' },
+  { id: ReportSectionId.ExecutiveSummary, label: 'الملخص التنفيذي' },
+  { id: ReportSectionId.IndicatorsDashboard, label: 'لوحة المؤشرات والاتجاهات' },
+  { id: ReportSectionId.DepartmentPerformance, label: 'أداء الإدارات' },
+  { id: ReportSectionId.RisksAndAlerts, label: 'المخاطر والتنبيهات' },
+  { id: ReportSectionId.ExecutiveRecommendations, label: 'التوصيات التنفيذية' },
+  { id: ReportSectionId.TransactionDetails, label: 'المعاملات التفصيلية' },
+  { id: ReportSectionId.ReportMetadata, label: 'بيانات التقرير والفلاتر' },
 ] as const;
 
-type ExportMode = 1 | 2 | 3 | 4;
-type ExportFormat = 1 | 2 | 3 | 4;
 type PageSelectionMode = 'thumbnails' | 'range';
 
-function defaultDate(offsetDays: number) {
-  const d = new Date();
-  d.setDate(d.getDate() + offsetDays);
-  return d.toISOString().slice(0, 10);
+/** Default YYYY-MM-DD for date inputs using local calendar parts (not UTC). */
+export function defaultDate(offsetDays: number): string {
+  return addDaysIso(todayLocalIso(), offsetDays);
 }
 
 export function buildReportExportPageSelection(
-  exportMode: ExportMode,
+  exportMode: typeof ExportMode[keyof typeof ExportMode],
   pageSelectionMode: PageSelectionMode,
   selectedPages: number[],
   pageRange: string,
   currentPage: number,
 ): Pick<ReportExportRequest, 'selectedPageNumbers' | 'pageRangeExpression' | 'currentPageNumber'> {
-  if (exportMode !== 3) {
+  if (exportMode !== ExportMode.SelectedPages) {
     return {
       selectedPageNumbers: [],
       pageRangeExpression: null,
-      currentPageNumber: exportMode === 4 ? currentPage : null,
+      currentPageNumber: exportMode === ExportMode.CurrentPage ? currentPage : null,
     };
   }
 
@@ -63,7 +69,9 @@ export function buildReportExportPageSelection(
 }
 
 export default function ReportBuilderPage() {
-  const [reportType, setReportType] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const [reportType, setReportType] = useState<typeof InstitutionalReportType[keyof typeof InstitutionalReportType]>(
+    InstitutionalReportType.ExecutiveComprehensive,
+  );
   const [dateFrom, setDateFrom] = useState(defaultDate(-30));
   const [dateTo, setDateTo] = useState(defaultDate(0));
   const [title, setTitle] = useState('تقرير المتابعة الإجرائية للمعاملات');
@@ -76,10 +84,12 @@ export default function ReportBuilderPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [exportOpen, setExportOpen] = useState(false);
-  const [exportMode, setExportMode] = useState<ExportMode>(1);
-  const [exportFormat, setExportFormat] = useState<ExportFormat>(1);
+  const [exportMode, setExportMode] = useState<typeof ExportMode[keyof typeof ExportMode]>(ExportMode.FullReport);
+  const [exportFormat, setExportFormat] = useState<typeof ExportFormat[keyof typeof ExportFormat]>(ExportFormat.Pdf);
   const [pageRange, setPageRange] = useState('');
-  const [pageNumberingMode, setPageNumberingMode] = useState<1 | 2>(2);
+  const [pageNumberingMode, setPageNumberingMode] = useState<typeof PageNumberingMode[keyof typeof PageNumberingMode]>(
+    PageNumberingMode.Restart,
+  );
   const [includePartialCover, setIncludePartialCover] = useState(true);
   const [includePartialManifest, setIncludePartialManifest] = useState(true);
 
@@ -123,6 +133,11 @@ export default function ReportBuilderPage() {
     [manifest, currentPage],
   );
 
+  const sanitizedActivePageHtml = useMemo(
+    () => (activePage ? sanitizeReportHtml(activePage.htmlContent) : ''),
+    [activePage],
+  );
+
   const toggleSection = (id: number) => {
     setSectionIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   };
@@ -155,7 +170,10 @@ export default function ReportBuilderPage() {
         pageNumberingMode,
         ...pageSelection,
       });
-      const ext = exportFormat === 2 ? 'docx' : exportFormat === 3 ? 'xlsx' : exportFormat === 4 ? 'html' : 'pdf';
+      const ext = exportFormat === ExportFormat.Docx ? 'docx'
+        : exportFormat === ExportFormat.Xlsx ? 'xlsx'
+          : exportFormat === ExportFormat.Html ? 'html'
+            : 'pdf';
       const contentType = typeof response.headers['content-type'] === 'string'
         ? response.headers['content-type']
         : 'application/octet-stream';
@@ -191,24 +209,29 @@ export default function ReportBuilderPage() {
       <div className="report-builder-grid">
         <aside className="report-builder-panel">
           <h3>إعدادات التقرير</h3>
-          <label>نوع التقرير</label>
-          <select value={reportType} onChange={(e) => setReportType(Number(e.target.value) as typeof reportType)}>
+          <label htmlFor="report-type">نوع التقرير</label>
+          <select
+            id="report-type"
+            value={reportType}
+            onChange={(e) => setReportType(Number(e.target.value) as typeof reportType)}
+          >
             {REPORT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
-          <label>من تاريخ</label>
-          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
-          <label>إلى تاريخ</label>
-          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
-          <label>عنوان التقرير</label>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} />
+          <label htmlFor="date-from">من تاريخ</label>
+          <input id="date-from" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+          <label htmlFor="date-to">إلى تاريخ</label>
+          <input id="date-to" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+          <label htmlFor="report-title">عنوان التقرير</label>
+          <input id="report-title" value={title} onChange={(e) => setTitle(e.target.value)} />
 
           <h3 style={{ marginTop: '1rem' }}>الأقسام المراد تضمينها</h3>
           <div className="report-section-list">
             <button type="button" className="btn btn-sm btn-outline" onClick={() => setSectionIds(SECTIONS.map((s) => s.id))}>تحديد الكل</button>
             <button type="button" className="btn btn-sm btn-outline" onClick={() => setSectionIds([])}>إلغاء تحديد الكل</button>
             {SECTIONS.map((section) => (
-              <label key={section.id}>
+              <label key={section.id} htmlFor={`section-${section.id}`}>
                 <input
+                  id={`section-${section.id}`}
                   type="checkbox"
                   checked={sectionIds.includes(section.id)}
                   onChange={() => toggleSection(section.id)}
@@ -231,34 +254,51 @@ export default function ReportBuilderPage() {
                   ? `نطاق الصفحات النشط: ${pageRange.trim()}`
                   : ''}
             </span>
-            <label>تكبير</label>
-            <input type="range" min="0.5" max="1" step="0.05" value={zoom} onChange={(e) => setZoom(Number(e.target.value))} />
+            <label htmlFor="preview-zoom">تكبير</label>
+            <input
+              id="preview-zoom"
+              type="range"
+              min="0.5"
+              max="1"
+              step="0.05"
+              value={zoom}
+              onChange={(e) => setZoom(Number(e.target.value))}
+            />
           </div>
 
           <div className="report-preview-shell">
             <div className="report-thumbs">
-              {manifest?.pages.map((page) => (
-                <button
-                  key={page.originalPageNumber}
-                  type="button"
-                  className={`report-thumb${page.originalPageNumber === currentPage ? ' is-active' : ''}${selectedPages.includes(page.originalPageNumber) ? ' is-selected' : ''}`}
-                  onClick={() => setCurrentPage(page.originalPageNumber)}
-                >
-                  <label style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+              {manifest?.pages.map((page) => {
+                const checkboxId = `thumb-select-${page.originalPageNumber}`;
+                return (
+                  <div
+                    key={page.originalPageNumber}
+                    className={`report-thumb${page.originalPageNumber === currentPage ? ' is-active' : ''}${selectedPages.includes(page.originalPageNumber) ? ' is-selected' : ''}`}
+                  >
                     <input
+                      id={checkboxId}
                       type="checkbox"
                       checked={selectedPages.includes(page.originalPageNumber)}
-                      onChange={(e) => { e.stopPropagation(); togglePage(page.originalPageNumber); }}
+                      onChange={() => togglePage(page.originalPageNumber)}
+                      aria-label={`تحديد الصفحة ${page.originalPageNumber}`}
                     />
-                    {page.originalPageNumber}. {page.sectionName}
-                  </label>
-                </button>
-              ))}
+                    <button
+                      type="button"
+                      className="report-thumb-open"
+                      onClick={() => setCurrentPage(page.originalPageNumber)}
+                    >
+                      {page.originalPageNumber}. {page.sectionName}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
             <div className="report-preview-stage">
               {activePage ? (
-                <div className="report-preview-frame" style={{ transform: `scale(${zoom})` }}
-                  dangerouslySetInnerHTML={{ __html: activePage.htmlContent }}
+                <div
+                  className="report-preview-frame"
+                  style={{ transform: `scale(${zoom})` }}
+                  dangerouslySetInnerHTML={{ __html: sanitizedActivePageHtml }}
                 />
               ) : (
                 <p className="text-muted">اضغط «معاينة التقرير» لعرض الصفحات.</p>
@@ -272,27 +312,36 @@ export default function ReportBuilderPage() {
         <div className="report-export-modal" role="dialog" aria-label="خيارات تصدير التقرير">
           <div className="report-export-card">
             <h3>خيارات تصدير التقرير</h3>
-            <label>وضع التصدير</label>
-            <select value={exportMode} onChange={(e) => setExportMode(Number(e.target.value) as ExportMode)}>
-              <option value={1}>تصدير كامل التقرير</option>
-              <option value={2}>تصدير حسب الأقسام</option>
-              <option value={3}>تصدير صفحات محددة</option>
-              <option value={4}>تصدير الصفحة الحالية</option>
+            <label htmlFor="export-mode">وضع التصدير</label>
+            <select
+              id="export-mode"
+              value={exportMode}
+              onChange={(e) => setExportMode(Number(e.target.value) as typeof exportMode)}
+            >
+              <option value={ExportMode.FullReport}>تصدير كامل التقرير</option>
+              <option value={ExportMode.SelectedSections}>تصدير حسب الأقسام</option>
+              <option value={ExportMode.SelectedPages}>تصدير صفحات محددة</option>
+              <option value={ExportMode.CurrentPage}>تصدير الصفحة الحالية</option>
             </select>
-            <label>صيغة الملف</label>
-            <select value={exportFormat} onChange={(e) => setExportFormat(Number(e.target.value) as ExportFormat)}>
-              <option value={1}>PDF</option>
-              <option value={2}>Word (DOCX)</option>
-              <option value={3}>Excel (XLSX)</option>
-              <option value={4}>HTML</option>
+            <label htmlFor="export-format">صيغة الملف</label>
+            <select
+              id="export-format"
+              value={exportFormat}
+              onChange={(e) => setExportFormat(Number(e.target.value) as typeof exportFormat)}
+            >
+              <option value={ExportFormat.Pdf}>PDF</option>
+              <option value={ExportFormat.Docx}>Word (DOCX)</option>
+              <option value={ExportFormat.Xlsx}>Excel (XLSX)</option>
+              <option value={ExportFormat.Html}>HTML</option>
             </select>
-            {exportMode === 3 && (
+            {exportMode === ExportMode.SelectedPages && (
               <>
                 <p className="text-muted">
                   النمط النشط: {pageSelectionMode === 'range' && pageRange.trim() ? 'نطاق الصفحات' : 'تحديد الصور المصغرة'}
                 </p>
-                <label>نطاق الصفحات (مثال: 1,3-5,8)</label>
+                <label htmlFor="page-range">نطاق الصفحات (مثال: 1,3-5,8)</label>
                 <input
+                  id="page-range"
                   value={pageRange}
                   onChange={(e) => {
                     setPageSelectionMode('range');
@@ -303,14 +352,34 @@ export default function ReportBuilderPage() {
                 />
               </>
             )}
-            <label>ترقيم الصفحات</label>
-            <select value={pageNumberingMode} onChange={(e) => setPageNumberingMode(Number(e.target.value) as 1 | 2)}>
-              <option value={2}>إعادة الترقيم من 1</option>
-              <option value={1}>الاحتفاظ بالترقيم الأصلي</option>
+            <label htmlFor="page-numbering-mode">ترقيم الصفحات</label>
+            <select
+              id="page-numbering-mode"
+              value={pageNumberingMode}
+              onChange={(e) => setPageNumberingMode(Number(e.target.value) as typeof pageNumberingMode)}
+            >
+              <option value={PageNumberingMode.Restart}>إعادة الترقيم من 1</option>
+              <option value={PageNumberingMode.PreserveOriginal}>الاحتفاظ بالترقيم الأصلي</option>
             </select>
-            <label><input type="checkbox" checked={includePartialCover} onChange={(e) => setIncludePartialCover(e.target.checked)} /> إضافة غلاف للنسخة الجزئية</label>
-            <label><input type="checkbox" checked={includePartialManifest} onChange={(e) => setIncludePartialManifest(e.target.checked)} /> إدراج صفحة تعريف النسخة الجزئية</label>
-            {(exportFormat === 2 || exportFormat === 3) && exportMode === 3 && (
+            <label htmlFor="include-partial-cover">
+              <input
+                id="include-partial-cover"
+                type="checkbox"
+                checked={includePartialCover}
+                onChange={(e) => setIncludePartialCover(e.target.checked)}
+              />
+              {' '}إضافة غلاف للنسخة الجزئية
+            </label>
+            <label htmlFor="include-partial-manifest">
+              <input
+                id="include-partial-manifest"
+                type="checkbox"
+                checked={includePartialManifest}
+                onChange={(e) => setIncludePartialManifest(e.target.checked)}
+              />
+              {' '}إدراج صفحة تعريف النسخة الجزئية
+            </label>
+            {(exportFormat === ExportFormat.Docx || exportFormat === ExportFormat.Xlsx) && exportMode === ExportMode.SelectedPages && (
               <p className="text-muted">اختيار الصفحات الفعلية يطبق بدقة على PDF. في Word/Excel سيتم تصدير الأقسام المقابلة لأن توزيع الصفحات قد يختلف.</p>
             )}
             <div className="report-export-actions">

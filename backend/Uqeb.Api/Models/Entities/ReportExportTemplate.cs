@@ -14,5 +14,6 @@ public class ReportExportTemplate
     public bool IncludePartialCover { get; set; }
     public bool IncludePartialManifest { get; set; }
     public int CreatedById { get; set; }
+    public User CreatedBy { get; set; } = null!;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
