@@ -70,6 +70,7 @@ Describe 'Correlation ID validation (deploy script policy)' {
 Describe 'verify-deployment-health.ps1 HTTP scenarios' {
     BeforeEach {
         Mock Invoke-WebRequest
+        Mock Start-Sleep {}
     }
 
     It 'PASS: /health/live succeeds on first attempt' {
@@ -80,25 +81,47 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
     }
 
     It 'PASS: endpoint succeeds after two attempts' {
-        $script:callCount = 0
         Mock Invoke-WebRequest {
-            $script:callCount++
-            if ($script:callCount -lt 2) {
-                throw 'starting'
+            param($Uri)
+            $path = ([uri]$Uri).AbsolutePath
+
+            if ($path -eq '/health/live') {
+                if (-not $script:liveAttemptCount) {
+                    $script:liveAttemptCount = 0
+                }
+
+                $script:liveAttemptCount++
+                if ($script:liveAttemptCount -lt 2) {
+                    throw 'starting'
+                }
+
+                return (New-HealthResponse -Status 200 -HealthStatus 'live')
             }
 
-            return (New-HealthResponse -Status 200 -HealthStatus 'live')
+            if ($path -eq '/health/ready') {
+                return (New-HealthResponse -Status 200 -HealthStatus 'ready')
+            }
+
+            if ($path -eq '/health') {
+                return (New-HealthResponse -Status 200 -HealthStatus 'healthy')
+            }
+
+            throw "Unexpected path $path"
         }
 
-        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 3 -RetryDelaySec 0 } |
+        $script:liveAttemptCount = 0
+
+        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 3 -RetryDelaySec 1 } |
             Should -Not -Throw
-        $script:callCount | Should -BeGreaterOrEqual 2
+
+        Assert-MockCalled Invoke-WebRequest -ParameterFilter { $Uri -like '*/health/live' } -Times 2 -Exactly
+        Assert-MockCalled Invoke-WebRequest -Times 4 -Exactly
     }
 
     It 'FAIL: endpoint fails through final retry' {
         Mock Invoke-WebRequest { throw 'connection refused' }
 
-        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 2 -RetryDelaySec 0 } |
+        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 2 -RetryDelaySec 1 } |
             Should -Throw '*liveness failed after 2 attempts*'
     }
 
