@@ -179,21 +179,8 @@ internal sealed class FailingHealthDatabaseProbe : IHealthDatabaseProbe
 
 internal sealed class TimeoutHealthDatabaseProbe : IHealthDatabaseProbe
 {
-    public async Task<HealthDatabaseCheckResult> CheckAsync(CancellationToken cancellationToken)
-    {
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(1));
-
-        try
-        {
-            await Task.Delay(TimeSpan.FromSeconds(10), timeoutCts.Token);
-            return new HealthDatabaseCheckResult(HealthDatabaseStatus.Ready);
-        }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-        {
-            return new HealthDatabaseCheckResult(HealthDatabaseStatus.Timeout);
-        }
-    }
+    public Task<HealthDatabaseCheckResult> CheckAsync(CancellationToken cancellationToken) =>
+        Task.FromResult(new HealthDatabaseCheckResult(HealthDatabaseStatus.Timeout));
 }
 
 public sealed class FailingHealthWebApplicationFactory : WebApplicationFactory<Program>
