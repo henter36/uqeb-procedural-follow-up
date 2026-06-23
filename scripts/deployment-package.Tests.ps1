@@ -84,6 +84,47 @@ BeforeAll {
 
     $global:NewTestSqlHeaderHandlerBody = ${function:New-TestSqlHeaderHandlerBody}
 
+    function New-TestDatabasePassword {
+        return "Tst-$([guid]::NewGuid().ToString('N'))!"
+    }
+
+    function New-TestSqlConnectionString {
+        param(
+            [ValidateSet('Integrated', 'SqlLogin')]
+            [string]$AuthenticationMode,
+            [string]$Password
+        )
+
+        if ($AuthenticationMode -eq 'Integrated') {
+            return 'Server=.;Database=UqebDb;Integrated Security=True;TrustServerCertificate=True'
+        }
+
+        if ([string]::IsNullOrWhiteSpace($Password)) {
+            $Password = New-TestDatabasePassword
+        }
+
+        return "Server=.;Database=UqebDb;User ID=uqeb;Password=$Password;TrustServerCertificate=True"
+    }
+
+    function New-TestProductionSettings {
+        param([string]$ConnectionString)
+
+        $settingsPath = Join-Path (New-TempDirectory) 'appsettings.Production.json'
+        @{
+            ConnectionStrings = @{
+                DefaultConnection = $ConnectionString
+            }
+        } | ConvertTo-Json -Compress | Set-Content -LiteralPath $settingsPath -Encoding UTF8
+
+        return $settingsPath
+    }
+
+    function Get-TestSqlConnectionBuilder {
+        param([string]$ConnectionString)
+
+        return New-Object System.Data.SqlClient.SqlConnectionStringBuilder $ConnectionString
+    }
+
     function New-TestProductionSettingsJson {
         return (@{
             ConnectionStrings = @{ DefaultConnection = 'Server=.;Database=UqebDb;Integrated Security=True' }
@@ -1127,36 +1168,28 @@ Describe 'Protected database backup paths' {
 
 Describe 'SQL connection settings' {
     It 'preserves Integrated Security from production settings' {
-        $settings = Join-Path (New-TempDirectory) 'appsettings.Production.json'
-        (@{
-            ConnectionStrings = @{
-                DefaultConnection = 'Server=.;Database=UqebDb;Integrated Security=True;TrustServerCertificate=True'
-            }
-        } | ConvertTo-Json -Compress) | Set-Content $settings -Encoding UTF8
-
+        $settings = New-TestProductionSettings -ConnectionString (New-TestSqlConnectionString -AuthenticationMode Integrated)
         $info = Get-SqlConnectionInfoFromSettings -SettingsPath $settings
-        $builder = New-Object System.Data.SqlClient.SqlConnectionStringBuilder $info.ConnectionString
+        $builder = Get-TestSqlConnectionBuilder -ConnectionString $info.ConnectionString
         $builder.IntegratedSecurity | Should -BeTrue
     }
 
     It 'preserves SQL login authentication from production settings' {
-        $settings = Join-Path (New-TempDirectory) 'appsettings.Production.json'
-        (@{
-            ConnectionStrings = @{
-                DefaultConnection = 'Server=.;Database=UqebDb;User ID=uqeb;Password=Secret123!;TrustServerCertificate=True'
-            }
-        } | ConvertTo-Json -Compress) | Set-Content $settings -Encoding UTF8
+        $testPassword = New-TestDatabasePassword
+        $connectionString = New-TestSqlConnectionString -AuthenticationMode SqlLogin -Password $testPassword
+        $settings = New-TestProductionSettings -ConnectionString $connectionString
 
         $info = Get-SqlConnectionInfoFromSettings -SettingsPath $settings
-        $builder = New-Object System.Data.SqlClient.SqlConnectionStringBuilder $info.ConnectionString
+        $builder = Get-TestSqlConnectionBuilder -ConnectionString $info.ConnectionString
         $builder.UserID | Should -Be 'uqeb'
-        $builder.Password | Should -Be 'Secret123!'
+        $builder.Password | Should -Be $testPassword
     }
 
     It 'switches database to master without changing authentication' {
-        $connectionString = 'Server=.;Database=UqebDb;User ID=uqeb;Password=Secret123!;TrustServerCertificate=True'
+        $testPassword = New-TestDatabasePassword
+        $connectionString = New-TestSqlConnectionString -AuthenticationMode SqlLogin -Password $testPassword
         $connection = New-SqlDeploymentConnection -ConnectionString $connectionString -Database 'master'
-        $builder = New-Object System.Data.SqlClient.SqlConnectionStringBuilder $connection.ConnectionString
+        $builder = Get-TestSqlConnectionBuilder -ConnectionString $connection.ConnectionString
         if ($builder.ContainsKey('Database')) {
             $builder.Database | Should -Be 'master'
         }
@@ -1164,7 +1197,7 @@ Describe 'SQL connection settings' {
             $builder['Initial Catalog'] | Should -Be 'master'
         }
         $builder.UserID | Should -Be 'uqeb'
-        $builder.Password | Should -Be 'Secret123!'
+        $builder.Password | Should -Be $testPassword
         $connection.Dispose()
     }
 
@@ -1175,9 +1208,9 @@ Describe 'SQL connection settings' {
     }
 
     It 'fails clearly when connection string is missing' {
-        $settings = Join-Path (New-TempDirectory) 'appsettings.Production.json'
-        (@{ ConnectionStrings = @{} } | ConvertTo-Json -Compress) | Set-Content $settings -Encoding UTF8
-        { Get-SqlConnectionInfoFromSettings -SettingsPath $settings } | Should -Throw '*DefaultConnection*'
+        $settingsPath = Join-Path (New-TempDirectory) 'appsettings.Production.json'
+        (@{ ConnectionStrings = @{} } | ConvertTo-Json -Compress) | Set-Content $settingsPath -Encoding UTF8
+        { Get-SqlConnectionInfoFromSettings -SettingsPath $settingsPath } | Should -Throw '*DefaultConnection*'
     }
 }
 

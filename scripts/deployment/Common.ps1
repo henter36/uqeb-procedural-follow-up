@@ -381,6 +381,117 @@ function Get-LogLineTimestampUtc {
     return $null
 }
 
+function Get-RecentLogTailLines {
+    param(
+        [string]$LogPath,
+        [int]$TailLineCount
+    )
+
+    return ,@(Get-Content -LiteralPath $LogPath -Tail $TailLineCount -ErrorAction SilentlyContinue)
+}
+
+function Test-LogHasTimestampedLines {
+    param([string[]]$Lines)
+
+    foreach ($line in $Lines) {
+        if (Get-LogLineTimestampUtc -Line $line) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Test-LogFileIsRecent {
+    param(
+        [string]$LogPath,
+        [datetime]$SinceUtc,
+        [bool]$UseFileWriteTimeFallback
+    )
+
+    if (-not $UseFileWriteTimeFallback) {
+        return $true
+    }
+
+    $fileWriteUtc = (Get-Item -LiteralPath $LogPath).LastWriteTimeUtc
+    return ($fileWriteUtc -ge $SinceUtc)
+}
+
+function Test-LogLineMatchesPattern {
+    param(
+        [string]$Line,
+        [string[]]$Patterns
+    )
+
+    foreach ($pattern in $Patterns) {
+        if ($Line -like "*$pattern*") {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Add-RecentLogMatchedLine {
+    param(
+        [System.Collections.Generic.List[string]]$MatchedLines,
+        [string]$Line
+    )
+
+    $MatchedLines.Add($Line.Trim()) | Out-Null
+}
+
+function Find-RecentLogErrors {
+    param(
+        [string[]]$Lines,
+        [datetime]$SinceUtc,
+        [string[]]$Patterns,
+        [bool]$UseFileWriteTimeFallback
+    )
+
+    $matchedLines = New-Object System.Collections.Generic.List[string]
+    $currentEventUtc = $null
+    $captureContinuation = $false
+
+    foreach ($line in $Lines) {
+        $lineTimestamp = $null
+        if (-not $UseFileWriteTimeFallback) {
+            $lineTimestamp = Get-LogLineTimestampUtc -Line $line
+            if ($lineTimestamp) {
+                $currentEventUtc = $lineTimestamp
+                $captureContinuation = $false
+            }
+
+            if ($null -eq $currentEventUtc -or $currentEventUtc -lt $SinceUtc) {
+                $captureContinuation = $false
+                continue
+            }
+        }
+
+        $isRecent = $UseFileWriteTimeFallback
+        if (-not $UseFileWriteTimeFallback) {
+            $isRecent = $true
+        }
+
+        if (Test-LogLineMatchesPattern -Line $line -Patterns $Patterns) {
+            Add-RecentLogMatchedLine -MatchedLines $matchedLines -Line $line
+            $captureContinuation = $true
+            continue
+        }
+
+        if ($captureContinuation -and $isRecent -and -not $lineTimestamp) {
+            if ([string]::IsNullOrWhiteSpace($line)) {
+                $captureContinuation = $false
+            }
+            else {
+                Add-RecentLogMatchedLine -MatchedLines $matchedLines -Line $line
+            }
+        }
+    }
+
+    return ,@($matchedLines | Select-Object -Unique)
+}
+
 function Test-RecentLogErrors {
     param(
         [string]$LogPath,
@@ -399,71 +510,21 @@ function Test-RecentLogErrors {
     }
 
     $sinceUtc = $Since.ToUniversalTime()
-    $lines = @(Get-Content -LiteralPath $LogPath -Tail $TailLineCount -ErrorAction SilentlyContinue)
-    if ($lines.Count -eq 0) {
+    $lines = Get-RecentLogTailLines -LogPath $LogPath -TailLineCount $TailLineCount
+    if (@($lines).Count -eq 0) {
         return ,@()
     }
 
-    $hasTimestampedLines = $false
-    foreach ($line in $lines) {
-        if (Get-LogLineTimestampUtc -Line $line) {
-            $hasTimestampedLines = $true
-            break
-        }
+    $useFileWriteTimeFallback = -not (Test-LogHasTimestampedLines -Lines $lines)
+    if (-not (Test-LogFileIsRecent -LogPath $LogPath -SinceUtc $sinceUtc -UseFileWriteTimeFallback $useFileWriteTimeFallback)) {
+        return ,@()
     }
 
-    $useFileWriteTimeFallback = -not $hasTimestampedLines
-    if ($useFileWriteTimeFallback) {
-        $fileWriteUtc = (Get-Item -LiteralPath $LogPath).LastWriteTimeUtc
-        if ($fileWriteUtc -lt $sinceUtc) {
-            return ,@()
-        }
-    }
-
-    $matchedLines = New-Object System.Collections.Generic.List[string]
-    $currentEventUtc = $null
-    $captureContinuation = $false
-
-    foreach ($line in $lines) {
-        $lineTimestamp = $null
-        if (-not $useFileWriteTimeFallback) {
-            $lineTimestamp = Get-LogLineTimestampUtc -Line $line
-            if ($lineTimestamp) {
-                $currentEventUtc = $lineTimestamp
-                $captureContinuation = $false
-            }
-        }
-
-        $isRecent = $useFileWriteTimeFallback
-        if (-not $useFileWriteTimeFallback) {
-            if ($null -eq $currentEventUtc -or $currentEventUtc -lt $sinceUtc) {
-                $captureContinuation = $false
-                continue
-            }
-            $isRecent = $true
-        }
-
-        $patternMatched = $false
-        foreach ($pattern in $Patterns) {
-            if ($line -like "*$pattern*") {
-                $matchedLines.Add($line.Trim()) | Out-Null
-                $captureContinuation = $true
-                $patternMatched = $true
-                break
-            }
-        }
-
-        if (-not $patternMatched -and $captureContinuation -and $isRecent -and -not $lineTimestamp) {
-            if ([string]::IsNullOrWhiteSpace($line)) {
-                $captureContinuation = $false
-            }
-            else {
-                $matchedLines.Add($line.Trim()) | Out-Null
-            }
-        }
-    }
-
-    return ,@($matchedLines | Select-Object -Unique)
+    return Find-RecentLogErrors `
+        -Lines $lines `
+        -SinceUtc $sinceUtc `
+        -Patterns $Patterns `
+        -UseFileWriteTimeFallback $useFileWriteTimeFallback
 }
 
 function Invoke-DeploymentFileRollback {
