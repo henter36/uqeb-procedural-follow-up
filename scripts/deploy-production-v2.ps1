@@ -159,6 +159,17 @@ do {
 if (-not $listener) { throw ("API did not start. Review " + $apiLog) }
 if (-not ($listener | Where-Object { $_.LocalAddress -in @($ApiBindAddress,"0.0.0.0","::") })) { throw "API binding is not LAN-capable." }
 
+try {
+    $live = Invoke-WebRequest -UseBasicParsing -Uri ("http://localhost:" + $ApiPort + "/health/live") -TimeoutSec 15
+    if ($live.StatusCode -ne 200) { throw "Health live check failed." }
+    $ready = Invoke-WebRequest -UseBasicParsing -Uri ("http://localhost:" + $ApiPort + "/health/ready") -TimeoutSec 20
+    if ($ready.StatusCode -ne 200) { throw "Health ready check failed." }
+    Write-Info "Health checks passed (live + ready)."
+}
+catch {
+    throw ("Post-deploy health verification failed. Review " + $apiLog + ". Details: " + $_.Exception.Message)
+}
+
 $buildInfo = "DeployedAt=$(Get-Date -Format s)`r`nApiTarget=$apiTarget`r`nWebTarget=$webTarget`r`nApiBinding=http://$ApiBindAddress`:$ApiPort`r`nBackup=$backup"
 Set-Content (Join-Path $InstallRoot "BUILD_INFO.txt") $buildInfo -Encoding UTF8
 Write-Step "Deployment completed successfully"

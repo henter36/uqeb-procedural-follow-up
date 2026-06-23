@@ -145,6 +145,8 @@ catch (Exception ex)
 
 app.UseCors();
 app.UseResponseCompression();
+app.UseMiddleware<SecurityHeadersMiddleware>();
+app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseRateLimiter();
 app.UseMiddleware<Uqeb.Api.Middleware.UnauthorizedAccessLoggingMiddleware>();
 app.UseAuthentication();
@@ -152,3 +154,5 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+public partial class Program;
