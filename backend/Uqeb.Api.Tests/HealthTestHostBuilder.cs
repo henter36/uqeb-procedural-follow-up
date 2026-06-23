@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -62,4 +63,45 @@ internal sealed class SuccessfulHealthDatabaseProbe : IHealthDatabaseProbe
 {
     public Task<HealthDatabaseCheckResult> CheckAsync(CancellationToken cancellationToken) =>
         Task.FromResult(new HealthDatabaseCheckResult(HealthDatabaseStatus.Ready));
+}
+
+internal sealed class ThrowingHealthDatabaseProbe : IHealthDatabaseProbe
+{
+    public Task<HealthDatabaseCheckResult> CheckAsync(CancellationToken cancellationToken) =>
+        throw new InvalidOperationException("simulated unexpected probe failure");
+}
+
+internal sealed class ThrowingTimeoutHealthDatabaseProbe : IHealthDatabaseProbe
+{
+    public Task<HealthDatabaseCheckResult> CheckAsync(CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested)
+            throw new OperationCanceledException(cancellationToken);
+
+        throw new OperationCanceledException();
+    }
+}
+
+public sealed class ThrowingHealthWebApplicationFactory : WebApplicationFactory<Program>
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        HealthTestHostBuilder.Configure(builder, services =>
+        {
+            services.RemoveAll(typeof(IHealthDatabaseProbe));
+            services.AddSingleton<IHealthDatabaseProbe, ThrowingHealthDatabaseProbe>();
+        });
+    }
+}
+
+public sealed class ThrowingTimeoutHealthWebApplicationFactory : WebApplicationFactory<Program>
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        HealthTestHostBuilder.Configure(builder, services =>
+        {
+            services.RemoveAll(typeof(IHealthDatabaseProbe));
+            services.AddSingleton<IHealthDatabaseProbe, ThrowingTimeoutHealthDatabaseProbe>();
+        });
+    }
 }

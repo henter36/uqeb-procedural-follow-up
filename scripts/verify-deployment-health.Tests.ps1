@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 BeforeAll {
     $script:HealthScript = Join-Path $PSScriptRoot 'verify-deployment-health.ps1'
@@ -63,7 +63,7 @@ Describe 'Correlation ID validation (deploy script policy)' {
         Test-ValidCorrelationId '' | Should -BeFalse
         Test-ValidCorrelationId ('a' * 65) | Should -BeFalse
         Test-ValidCorrelationId 'has space' | Should -BeFalse
-        Test-ValidCorrelationId 'unicode-مرحبا' | Should -BeFalse
+        Test-ValidCorrelationId 'unicode-ظ…ط±ط­ط¨ط§' | Should -BeFalse
     }
 }
 
@@ -240,16 +240,60 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
     It 'FAIL: summary degraded' {
         Mock Invoke-WebRequest {
             param($Uri)
-            $path = ([uri]$Uri).AbsolutePath
-            if ($path -eq '/health') {
-                return (New-HealthResponse -Status 503 -HealthStatus 'degraded')
-            }
 
-            return (New-HealthResponse -Status 200 -HealthStatus 'ready')
+            $path = ([uri]$Uri).AbsolutePath
+
+            switch ($path) {
+                '/health/live' {
+                    return New-HealthResponse `
+                        -Status 200 `
+                        -HealthStatus 'live'
+                }
+
+                '/health/ready' {
+                    return New-HealthResponse `
+                        -Status 200 `
+                        -HealthStatus 'ready'
+                }
+
+                '/health' {
+                    return New-HealthResponse `
+                        -Status 503 `
+                        -HealthStatus 'degraded'
+                }
+
+                default {
+                    throw "Unexpected path $path"
+                }
+            }
         }
 
-        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
-            Should -Throw
+        {
+            & $script:HealthScript `
+                -ApiBaseUrl 'http://localhost:5000' `
+                -RetryCount 1
+        } | Should -Throw '*summary failed with unexpected status 503*'
+
+        Assert-MockCalled Invoke-WebRequest `
+            -ParameterFilter {
+                ([uri]$Uri).AbsolutePath -eq '/health/live'
+            } `
+            -Times 1 `
+            -Exactly
+
+        Assert-MockCalled Invoke-WebRequest `
+            -ParameterFilter {
+                ([uri]$Uri).AbsolutePath -eq '/health/ready'
+            } `
+            -Times 1 `
+            -Exactly
+
+        Assert-MockCalled Invoke-WebRequest `
+            -ParameterFilter {
+                ([uri]$Uri).AbsolutePath -eq '/health'
+            } `
+            -Times 1 `
+            -Exactly
     }
 }
 

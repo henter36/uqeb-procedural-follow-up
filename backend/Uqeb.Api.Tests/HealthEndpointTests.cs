@@ -45,6 +45,51 @@ public class HealthEndpointTests : IClassFixture<HealthEndpointWebApplicationFac
     }
 }
 
+public class HealthEndpointProbeThrowTests : IClassFixture<ThrowingHealthWebApplicationFactory>
+{
+    private readonly HttpClient _client;
+
+    public HealthEndpointProbeThrowTests(ThrowingHealthWebApplicationFactory factory)
+    {
+        _client = factory.CreateClient();
+    }
+
+    [Fact]
+    public async Task Ready_Returns503WhenProbeThrowsUnexpectedException()
+    {
+        var response = await _client.GetAsync("/health/ready");
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("\"status\":\"not_ready\"", body, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("database_error", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("simulated unexpected probe failure", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("InvalidOperationException", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("stack", body, StringComparison.OrdinalIgnoreCase);
+    }
+}
+
+public class HealthEndpointProbeThrowTimeoutTests : IClassFixture<ThrowingTimeoutHealthWebApplicationFactory>
+{
+    private readonly HttpClient _client;
+
+    public HealthEndpointProbeThrowTimeoutTests(ThrowingTimeoutHealthWebApplicationFactory factory)
+    {
+        _client = factory.CreateClient();
+    }
+
+    [Fact]
+    public async Task Ready_Returns503WhenProbeThrowsInternalCancellation()
+    {
+        var response = await _client.GetAsync("/health/ready");
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("\"status\":\"not_ready\"", body, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("database_timeout", body, StringComparison.OrdinalIgnoreCase);
+    }
+}
+
 public sealed class HealthEndpointWebApplicationFactory : WebApplicationFactory<Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)

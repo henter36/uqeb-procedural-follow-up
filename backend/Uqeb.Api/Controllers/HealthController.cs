@@ -33,45 +33,22 @@ public class HealthController : ControllerBase
     [HttpGet("ready")]
     public async Task<IActionResult> Ready(CancellationToken cancellationToken)
     {
-        var result = await _databaseProbe.CheckAsync(cancellationToken);
-        return MapDatabaseResult(result, readySuccessStatus: "ready", notReadyStatus: "not_ready");
+        var result = await CheckDatabaseSafelyAsync(
+            cancellationToken,
+            "Health readiness check");
+
+        return MapDatabaseResult(
+            result,
+            readySuccessStatus: "ready",
+            notReadyStatus: "not_ready");
     }
 
     [HttpGet]
     public async Task<IActionResult> Summary(CancellationToken cancellationToken)
     {
-        HealthDatabaseCheckResult result;
-        try
-        {
-            result = await _databaseProbe.CheckAsync(cancellationToken);
-        }
-        catch (Exception exception)
-        {
-            _logger.LogError(
-                exception,
-                "Health summary check failed while verifying database connectivity.");
-
-            result = new HealthDatabaseCheckResult(HealthDatabaseStatus.Error);
-        }
-
-        if (result.Status is HealthDatabaseStatus.Error)
-        {
-            if (result.Exception is not null)
-            {
-                _logger.LogError(
-                    result.Exception,
-                    "Health summary check failed while verifying database connectivity.");
-            }
-            else
-            {
-                _logger.LogError(
-                    "Health summary check reported database connectivity failure.");
-            }
-        }
-        else if (result.Status is HealthDatabaseStatus.Timeout)
-        {
-            _logger.LogWarning("Health summary check timed out while verifying database connectivity.");
-        }
+        var result = await CheckDatabaseSafelyAsync(
+            cancellationToken,
+            "Health summary check");
 
         var databaseReady = result.Status == HealthDatabaseStatus.Ready;
         var payload = new
@@ -88,6 +65,37 @@ public class HealthController : ControllerBase
         return databaseReady
             ? Ok(payload)
             : StatusCode(StatusCodes.Status503ServiceUnavailable, payload);
+    }
+
+    private async Task<HealthDatabaseCheckResult> CheckDatabaseSafelyAsync(
+        CancellationToken cancellationToken,
+        string logContext)
+    {
+        try
+        {
+            return await _databaseProbe.CheckAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                "{LogContext} timed out while verifying database connectivity.",
+                logContext);
+
+            return new HealthDatabaseCheckResult(HealthDatabaseStatus.Timeout);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(
+                exception,
+                "{LogContext} failed while verifying database connectivity.",
+                logContext);
+
+            return new HealthDatabaseCheckResult(HealthDatabaseStatus.Error, exception);
+        }
     }
 
     private IActionResult MapDatabaseResult(
