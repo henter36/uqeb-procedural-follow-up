@@ -169,6 +169,73 @@ SELECT 2;
         $batches[0] | Should -Match "GO value"
     }
 
+    It 'does not split on GO inside a double-quoted string' {
+        $sql = @"
+SELECT "GO value";
+SELECT 2;
+"@
+        $batches = Split-SqlBatches -SqlContent $sql
+        $batches.Count | Should -Be 1
+        $batches[0] | Should -Match 'GO value'
+    }
+
+    It 'handles escaped single quotes inside strings' {
+        $sql = "SELECT 'it''s GO';"
+        $batches = Split-SqlBatches -SqlContent $sql
+        $batches.Count | Should -Be 1
+        $batches[0] | Should -Match "it''s GO"
+    }
+
+    It 'does not split on GO inside a multiline single-quoted string' {
+        $sql = @"
+SELECT 'line1
+GO
+line2';
+"@
+        $batches = Split-SqlBatches -SqlContent $sql
+        $batches.Count | Should -Be 1
+        $batches[0] | Should -Match 'line1'
+        $batches[0] | Should -Match 'line2'
+    }
+
+    It 'ignores empty batches from repeated GO separators' {
+        $sql = @"
+GO
+GO
+SELECT 1;
+GO
+"@
+        $batches = Split-SqlBatches -SqlContent $sql
+        $batches.Count | Should -Be 1
+        $batches[0] | Should -Match 'SELECT 1'
+    }
+
+    It 'treats GO separators case-insensitively' {
+        $sql = @"
+SELECT 1;
+go
+SELECT 2;
+Go
+SELECT 3;
+"@
+        $batches = Split-SqlBatches -SqlContent $sql
+        $batches.Count | Should -Be 3
+        $batches[0] | Should -Match 'SELECT 1'
+        $batches[1] | Should -Match 'SELECT 2'
+        $batches[2] | Should -Match 'SELECT 3'
+    }
+
+    It 'keeps the final batch when SQL ends without GO' {
+        $sql = @"
+SELECT 1;
+SELECT 2;
+"@
+        $batches = Split-SqlBatches -SqlContent $sql
+        $batches.Count | Should -Be 1
+        $batches[0] | Should -Match 'SELECT 1'
+        $batches[0] | Should -Match 'SELECT 2'
+    }
+
     It 'repairs idempotent migration script with GO before NameNormalized usage' {
         $sql = @"
 ALTER TABLE [ExternalParties] ADD [NameNormalized] nvarchar(450) NOT NULL DEFAULT N'';
@@ -178,6 +245,56 @@ UPDATE Departments SET NameNormalized = LOWER(Name);
 "@
         $fixed = Repair-IdempotentMigrationScript -Content $sql
         $fixed | Should -Match '(?is)ALTER TABLE \[Categories\].*;\s*GO\s*UPDATE Departments'
+    }
+}
+
+Describe 'Recent log error scanning' {
+    It 'returns matching log lines' {
+        $log = Join-Path (New-TempDirectory) 'api.log'
+        @(
+            'info line'
+            'SqlException: timeout'
+            'another SqlException: deadlock'
+        ) | Set-Content -LiteralPath $log -Encoding UTF8
+
+        $result = Test-RecentLogErrors -LogPath $log -Since (Get-Date).AddHours(-1)
+        $result.Count | Should -Be 2
+        ($result -join ' ') | Should -Match 'timeout'
+        ($result -join ' ') | Should -Match 'deadlock'
+    }
+
+    It 'removes duplicate matching lines' {
+        $log = Join-Path (New-TempDirectory) 'api.log'
+        @(
+            'SqlException: same'
+            'SqlException: same'
+        ) | Set-Content -LiteralPath $log -Encoding UTF8
+
+        $result = Test-RecentLogErrors -LogPath $log -Since (Get-Date).AddHours(-1)
+        @($result).Count | Should -Be 1
+        $result[0] | Should -Be 'SqlException: same'
+    }
+
+    It 'returns an empty array when the log file is missing' {
+        $missing = Join-Path (New-TempDirectory) 'missing.log'
+        $result = Test-RecentLogErrors -LogPath $missing -Since (Get-Date).AddHours(-1)
+        @($result).Count | Should -Be 0
+    }
+
+    It 'does not use the automatic $Matches variable' {
+        $log = Join-Path (New-TempDirectory) 'api.log'
+        'Unhandled exception in pipeline' | Set-Content -LiteralPath $log -Encoding UTF8
+        $script:Matches = @('stale')
+
+        try {
+            $result = Test-RecentLogErrors -LogPath $log -Since (Get-Date).AddHours(-1)
+            @($result).Count | Should -Be 1
+            $result[0] | Should -Match 'Unhandled exception'
+            $script:Matches | Should -Be @('stale')
+        }
+        finally {
+            Remove-Variable -Name Matches -Scope Script -ErrorAction SilentlyContinue
+        }
     }
 }
 

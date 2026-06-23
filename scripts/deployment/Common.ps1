@@ -59,6 +59,70 @@ function Get-TextSha256Hex {
     }
 }
 
+function Test-IsSqlGoSeparator {
+    param(
+        [string]$Line,
+        [bool]$InSingleQuote,
+        [bool]$InDoubleQuote
+    )
+
+    if ($InSingleQuote -or $InDoubleQuote) {
+        return $false
+    }
+
+    $trimmed = $Line.Trim()
+    return ($trimmed -match '^(?i)GO(?:\s+.*)?$')
+}
+
+function Update-SqlQuoteState {
+    param(
+        [string]$Line,
+        [ref]$InSingleQuote,
+        [ref]$InDoubleQuote
+    )
+
+    for ($i = 0; $i -lt $Line.Length; $i++) {
+        $ch = $Line[$i]
+        if ($ch -eq "'" -and -not $InDoubleQuote.Value) {
+            if ($InSingleQuote.Value -and ($i + 1) -lt $Line.Length -and $Line[$i + 1] -eq "'") {
+                $i++
+                continue
+            }
+            $InSingleQuote.Value = -not $InSingleQuote.Value
+        }
+        elseif ($ch -eq '"' -and -not $InSingleQuote.Value) {
+            $InDoubleQuote.Value = -not $InDoubleQuote.Value
+        }
+    }
+}
+
+function Add-SqlBatchIfNotEmpty {
+    param(
+        [System.Text.StringBuilder]$Builder,
+        [System.Collections.Generic.List[string]]$Batches
+    )
+
+    $batchText = $Builder.ToString().Trim()
+    if ($batchText.Length -gt 0) {
+        $Batches.Add($batchText) | Out-Null
+    }
+    $Builder.Clear() | Out-Null
+}
+
+function Add-SqlLineToCurrentBatch {
+    param(
+        [System.Text.StringBuilder]$Builder,
+        [string]$Line
+    )
+
+    if ($Line.Length -gt 0) {
+        [void]$Builder.AppendLine($Line)
+    }
+    else {
+        [void]$Builder.AppendLine()
+    }
+}
+
 function Split-SqlBatches {
     param([string]$SqlContent)
 
@@ -69,44 +133,16 @@ function Split-SqlBatches {
     $inDoubleQuote = $false
 
     foreach ($line in $lines) {
-        $trimmed = $line.Trim()
-        $isGo = (-not $inSingleQuote -and -not $inDoubleQuote) -and ($trimmed -match '^(?i)GO(?:\s+.*)?$')
-
-        if ($isGo) {
-            $batchText = $current.ToString().Trim()
-            if ($batchText.Length -gt 0) {
-                $batches.Add($batchText) | Out-Null
-            }
-            $current.Clear() | Out-Null
+        if (Test-IsSqlGoSeparator -Line $line -InSingleQuote $inSingleQuote -InDoubleQuote $inDoubleQuote) {
+            Add-SqlBatchIfNotEmpty -Builder $current -Batches $batches
             continue
         }
 
-        if ($line.Length -gt 0) {
-            [void]$current.AppendLine($line)
-        }
-        else {
-            [void]$current.AppendLine()
-        }
-
-        for ($i = 0; $i -lt $line.Length; $i++) {
-            $ch = $line[$i]
-            if ($ch -eq "'" -and -not $inDoubleQuote) {
-                if ($inSingleQuote -and ($i + 1) -lt $line.Length -and $line[$i + 1] -eq "'") {
-                    $i++
-                    continue
-                }
-                $inSingleQuote = -not $inSingleQuote
-            }
-            elseif ($ch -eq '"' -and -not $inSingleQuote) {
-                $inDoubleQuote = -not $inDoubleQuote
-            }
-        }
+        Add-SqlLineToCurrentBatch -Builder $current -Line $line
+        Update-SqlQuoteState -Line $line -InSingleQuote ([ref]$inSingleQuote) -InDoubleQuote ([ref]$inDoubleQuote)
     }
 
-    $tail = $current.ToString().Trim()
-    if ($tail.Length -gt 0) {
-        $batches.Add($tail) | Out-Null
-    }
+    Add-SqlBatchIfNotEmpty -Builder $current -Batches $batches
 
     return ,@($batches.ToArray())
 }
@@ -311,21 +347,21 @@ function Test-RecentLogErrors {
     )
 
     if (-not (Test-Path -LiteralPath $LogPath)) {
-        return @()
+        return ,@()
     }
 
-    $matches = New-Object System.Collections.Generic.List[string]
+    $matchedLines = New-Object System.Collections.Generic.List[string]
     $lines = Get-Content -LiteralPath $LogPath -ErrorAction SilentlyContinue
     foreach ($line in $lines) {
         foreach ($pattern in $Patterns) {
             if ($line -like "*$pattern*") {
-                $matches.Add($line.Trim()) | Out-Null
+                $matchedLines.Add($line.Trim()) | Out-Null
                 break
             }
         }
     }
 
-    return @($matches | Select-Object -Unique)
+    return ,@($matchedLines | Select-Object -Unique)
 }
 
 function Invoke-DeploymentFileRollback {
