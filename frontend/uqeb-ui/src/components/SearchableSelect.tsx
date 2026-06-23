@@ -50,7 +50,7 @@ export default function SearchableSelect({
   const inputId = useId();
   const listboxId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
-  const optionRefs = useRef<Map<number, HTMLLIElement>>(new Map());
+  const optionRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [highlightIndex, setHighlightIndex] = useState(0);
@@ -198,26 +198,28 @@ export default function SearchableSelect({
               aria-label={label}
             >
               {filtered.map((option, index) => (
-                <li
-                  key={option.id}
-                  id={`${listboxId}-option-${option.id}`}
-                  role="option"
-                  tabIndex={-1}
-                  aria-selected={value === option.id}
-                  ref={(el) => {
-                    if (el) optionRefs.current.set(option.id, el);
-                    else optionRefs.current.delete(option.id);
-                  }}
-                  className={`searchable-select-option${clampedHighlight === index ? ' is-highlighted' : ''}${value === option.id ? ' is-selected' : ''}${option.isActive === false ? ' is-inactive' : ''}`}
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                  }}
-                  onClick={() => {
-                    selectOption(option);
-                  }}
-                  onMouseEnter={() => setHighlightIndex(index)}
-                >
-                  {formatOptionLabel(option)}
+                <li key={option.id}>
+                  <button
+                    type="button"
+                    id={`${listboxId}-option-${option.id}`}
+                    role="option"
+                    tabIndex={-1}
+                    aria-selected={value === option.id}
+                    ref={(el) => {
+                      if (el) optionRefs.current.set(option.id, el);
+                      else optionRefs.current.delete(option.id);
+                    }}
+                    className={`searchable-select-option${clampedHighlight === index ? ' is-highlighted' : ''}${value === option.id ? ' is-selected' : ''}${option.isActive === false ? ' is-inactive' : ''}`}
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                    }}
+                    onClick={() => {
+                      selectOption(option);
+                    }}
+                    onMouseEnter={() => setHighlightIndex(index)}
+                  >
+                    {formatOptionLabel(option)}
+                  </button>
                 </li>
               ))}
             </ul>
