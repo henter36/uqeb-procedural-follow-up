@@ -15,7 +15,8 @@ jobs:
           dotnet-version: '10.0.x'
       - run: dotnet restore backend/Uqeb.Api/Uqeb.Api.csproj
       - run: dotnet build backend/Uqeb.Api/Uqeb.Api.csproj --no-restore
-      - run: bash backend/Uqeb.Api/bin/Debug/net10.0/playwright.sh install chromium
+      - run: dotnet tool install --global Microsoft.Playwright.CLI
+      - run: playwright install --with-deps chromium
       - run: dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --no-restore
 
   frontend:
