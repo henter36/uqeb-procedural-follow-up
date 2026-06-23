@@ -225,20 +225,20 @@ public sealed class ReportExportRequestDto
 {
     public string? ReportId { get; set; }
     public ReportBuildRequestDto BuildRequest { get; set; } = new();
-    /// <summary>Defaults to PDF when omitted.</summary>
-    public ExportFormat ExportFormat { get; set; } = ExportFormat.Pdf;
-    /// <summary>Defaults to full report when omitted.</summary>
-    public ExportMode ExportMode { get; set; } = ExportMode.FullReport;
+    /// <summary>Defaults to PDF when omitted from JSON.</summary>
+    public ExportFormat? ExportFormat { get; set; }
+    /// <summary>Defaults to full report when omitted from JSON.</summary>
+    public ExportMode? ExportMode { get; set; }
     public List<ReportSectionId> SelectedSectionIds { get; set; } = [];
     public List<int> SelectedPageNumbers { get; set; } = [];
     public string? PageRangeExpression { get; set; }
     public int? CurrentPageNumber { get; set; }
-    /// <summary>Defaults to false when omitted.</summary>
-    public bool IncludePartialCover { get; set; }
-    /// <summary>Defaults to false when omitted.</summary>
-    public bool IncludePartialManifest { get; set; }
-    /// <summary>Defaults to restart numbering when omitted.</summary>
-    public PageNumberingMode PageNumberingMode { get; set; } = PageNumberingMode.Restart;
+    /// <summary>Defaults to false when omitted from JSON.</summary>
+    public bool? IncludePartialCover { get; set; }
+    /// <summary>Defaults to false when omitted from JSON.</summary>
+    public bool? IncludePartialManifest { get; set; }
+    /// <summary>Defaults to restart numbering when omitted from JSON.</summary>
+    public PageNumberingMode? PageNumberingMode { get; set; }
     public int? TemplateId { get; set; }
     public string? Reason { get; set; }
     /// <summary>Required when matching transactions exceed configured detail row limit.</summary>
@@ -270,11 +270,11 @@ public sealed class ReportTemplateDto
 public sealed class SaveReportTemplateRequestDto
 {
     public string Name { get; set; } = string.Empty;
-    public InstitutionalReportType ReportType { get; set; }
+    public InstitutionalReportType? ReportType { get; set; }
     public List<ReportSectionId> SectionIds { get; set; } = [];
     public ReportFiltersDto DefaultFilters { get; set; } = new();
-    public ExportFormat DefaultFormat { get; set; } = ExportFormat.Pdf;
-    public PageNumberingMode PageNumberingMode { get; set; } = PageNumberingMode.Restart;
-    public bool IncludePartialCover { get; set; }
-    public bool IncludePartialManifest { get; set; }
+    public ExportFormat? DefaultFormat { get; set; }
+    public PageNumberingMode? PageNumberingMode { get; set; }
+    public bool? IncludePartialCover { get; set; }
+    public bool? IncludePartialManifest { get; set; }
 }

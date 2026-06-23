@@ -22,6 +22,41 @@ public class ReportPageRangeParserTests
     }
 
     [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    public void RejectsEmptyExpression(string? expression)
+    {
+        var result = ReportPageRangeParser.Parse(expression, 10);
+        Assert.False(result.IsValid);
+    }
+
+    [Fact]
+    public void ParsesWhitespaceAndDuplicateSeparators()
+    {
+        var result = ReportPageRangeParser.Parse(" 1 , 3 - 5 , 5 ", 10);
+        Assert.True(result.IsValid);
+        Assert.Equal([1, 3, 4, 5], result.PageNumbers);
+    }
+
+    [Theory]
+    [InlineData("abc")]
+    [InlineData("1,a")]
+    public void RejectsNonNumericTokens(string expression)
+    {
+        var result = ReportPageRangeParser.Parse(expression, 10);
+        Assert.False(result.IsValid);
+    }
+
+    [Fact]
+    public void AcceptsDuplicatePagesAcrossTokens()
+    {
+        var result = ReportPageRangeParser.Parse("1,3-5,5", 10);
+        Assert.True(result.IsValid);
+        Assert.Equal([1, 3, 4, 5], result.PageNumbers);
+    }
+
+    [Theory]
     [InlineData("0")]
     [InlineData("-1")]
     [InlineData("8-3")]

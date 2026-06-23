@@ -88,6 +88,17 @@ public class InstitutionalReportDtoUnderPostingTests : IClassFixture<Institution
     }
 
     [Fact]
+    public async Task SaveTemplate_WithoutReportType_Returns400()
+    {
+        var response = await _client.PostAsJsonAsync(
+            "/api/institutional-reports/templates",
+            new { name = "قالب", sectionIds = new[] { 1 } });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.NotEqual(HttpStatusCode.InternalServerError, response.StatusCode);
+    }
+
+    [Fact]
     public async Task SaveTemplate_WithInvalidEnum_Returns400_Not500()
     {
         var response = await _client.PostAsJsonAsync(

@@ -44,7 +44,7 @@ public class InstitutionalReportPlaywrightPdfExporterTests
 
         var renderer = new InstitutionalReportRenderer();
         var manifest = BuildManifestWithDepartmentTable();
-        var html = renderer.RenderHtmlDocument(manifest);
+        var html = InstitutionalReportRenderer.RenderHtmlDocument(manifest);
 
         Assert.Contains("report-table", html);
         Assert.Contains("أداء الإدارات", html);
@@ -81,7 +81,7 @@ public class InstitutionalReportPlaywrightPdfExporterTests
         Assert.Equal(1, exportManifest.Pages[0].RenderedPageNumber);
 
         await using var exporter = new InstitutionalReportPlaywrightPdfExporter();
-        var pdf = await exporter.ExportAsync(exportManifest, renderer.RenderHtmlDocument(exportManifest));
+        var pdf = await exporter.ExportAsync(exportManifest, InstitutionalReportRenderer.RenderHtmlDocument(exportManifest));
         Assert.True(pdf.Length > 1_000);
     }
 

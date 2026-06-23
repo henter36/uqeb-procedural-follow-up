@@ -6,7 +6,13 @@ namespace Uqeb.Api.Reporting.Exporters;
 
 public sealed class InstitutionalReportXlsxExporter
 {
-    public byte[] Export(InstitutionalReportModel model, RenderedReportManifestDto manifest, ReportExportRequestDto request)
+    public byte[] Export(InstitutionalReportModel model, RenderedReportManifestDto manifest, ReportExportRequestDto request) =>
+        ExportWorkbook(model, manifest, request);
+
+    public static byte[] ExportWorkbook(
+        InstitutionalReportModel model,
+        RenderedReportManifestDto manifest,
+        ReportExportRequestDto request)
     {
         using var workbook = new XLWorkbook();
 

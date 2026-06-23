@@ -18,8 +18,12 @@ internal static class InstitutionalReportSnapshotQuery
         public string IncomingNumber { get; init; } = string.Empty;
         public DateTime IncomingDate { get; init; }
         public string Subject { get; init; } = string.Empty;
-        public string? IncomingParty { get; init; }
-        public string? CategoryName { get; init; }
+        public IncomingSourceType IncomingSourceType { get; init; }
+        public string? IncomingFromRaw { get; init; }
+        public string? IncomingDepartmentName { get; init; }
+        public string? IncomingPartyName { get; init; }
+        public string? CategoryEntityName { get; init; }
+        public string? CategoryRaw { get; init; }
         public Priority Priority { get; init; }
         public TransactionStatus Status { get; init; }
         public bool RequiresResponse { get; init; }
@@ -199,6 +203,17 @@ internal static class InstitutionalReportSnapshotQuery
             || t.Subject.Contains(term));
     }
 
+    internal static string ResolveIncomingPartyDisplay(SnapshotRow row)
+    {
+        if (row.IncomingSourceType == IncomingSourceType.Internal)
+            return row.IncomingDepartmentName ?? row.IncomingFromRaw ?? "—";
+
+        return row.IncomingPartyName ?? row.IncomingFromRaw ?? "—";
+    }
+
+    internal static string? ResolveCategoryName(SnapshotRow row) =>
+        row.CategoryEntityName ?? row.CategoryRaw;
+
     internal static TransactionReportSnapshot MapRowToSnapshot(SnapshotRow row, DateTime today)
     {
         var activeAssignments = row.Assignments.Where(a => a.Status == AssignmentStatus.Active).ToList();
@@ -227,8 +242,8 @@ internal static class InstitutionalReportSnapshotQuery
             IncomingNumber = row.IncomingNumber,
             IncomingDate = row.IncomingDate.Date,
             Subject = row.Subject,
-            IncomingParty = row.IncomingParty ?? "—",
-            CategoryName = row.CategoryName,
+            IncomingParty = ResolveIncomingPartyDisplay(row),
+            CategoryName = ResolveCategoryName(row),
             Priority = row.Priority,
             Status = row.Status,
             RequiresResponse = row.RequiresResponse,

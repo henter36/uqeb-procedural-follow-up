@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import axios from 'axios';
-import { institutionalReportsApi, type InstitutionalReportManifest, type ReportBuildRequest, type ReportExportRequest } from '../api/services';
+import { institutionalReportsApi, type InstitutionalReportManifest, type ReportBuildRequest } from '../api/services';
 import {
   DetailOverflowAction,
   ExportFormat,
@@ -9,10 +8,17 @@ import {
   PageNumberingMode,
   ReportSectionId,
 } from '../api/institutionalReports.constants';
-import { downloadBlob } from '../utils/downloadBlob';
-import { addDaysIso, todayLocalIso } from '../utils/localDate';
 import { sanitizeReportHtml } from '../utils/sanitizeReportHtml';
+import {
+  defaultDate,
+  exportFormatLabels,
+  getPageSelectionSummary,
+  getPreviewStatusMessage,
+} from './reportBuilderHelpers';
+import { useReportBuilderExport } from './useReportBuilderExport';
 import '../styles/institutional-report.css';
+
+export { buildReportExportPageSelection, defaultDate } from './reportBuilderHelpers';
 
 const REPORT_TYPES = [
   { value: InstitutionalReportType.ExecutiveComprehensive, label: 'التقرير التنفيذي الشامل' },
@@ -33,43 +39,6 @@ const SECTIONS = [
   { id: ReportSectionId.ReportMetadata, label: 'بيانات التقرير والفلاتر' },
 ] as const;
 
-type PageSelectionMode = 'thumbnails' | 'range';
-
-/** Default YYYY-MM-DD for date inputs using local calendar parts (not UTC). */
-export function defaultDate(offsetDays: number): string {
-  return addDaysIso(todayLocalIso(), offsetDays);
-}
-
-export function buildReportExportPageSelection(
-  exportMode: typeof ExportMode[keyof typeof ExportMode],
-  pageSelectionMode: PageSelectionMode,
-  selectedPages: number[],
-  pageRange: string,
-  currentPage: number,
-): Pick<ReportExportRequest, 'selectedPageNumbers' | 'pageRangeExpression' | 'currentPageNumber'> {
-  if (exportMode !== ExportMode.SelectedPages) {
-    return {
-      selectedPageNumbers: [],
-      pageRangeExpression: null,
-      currentPageNumber: exportMode === ExportMode.CurrentPage ? currentPage : null,
-    };
-  }
-
-  if (pageSelectionMode === 'range' && pageRange.trim()) {
-    return {
-      selectedPageNumbers: [],
-      pageRangeExpression: pageRange.trim(),
-      currentPageNumber: null,
-    };
-  }
-
-  return {
-    selectedPageNumbers: selectedPages,
-    pageRangeExpression: null,
-    currentPageNumber: null,
-  };
-}
-
 export default function ReportBuilderPage() {
   const [reportType, setReportType] = useState<typeof InstitutionalReportType[keyof typeof InstitutionalReportType]>(
     InstitutionalReportType.ExecutiveComprehensive,
@@ -81,29 +50,13 @@ export default function ReportBuilderPage() {
   const [manifest, setManifest] = useState<InstitutionalReportManifest | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedPages, setSelectedPages] = useState<number[]>([]);
-  const [pageSelectionMode, setPageSelectionMode] = useState<PageSelectionMode>('thumbnails');
+  const [pageSelectionMode, setPageSelectionMode] = useState<'thumbnails' | 'range'>('thumbnails');
+  const [pageRange, setPageRange] = useState('');
   const [zoom, setZoom] = useState(0.75);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [exportOpen, setExportOpen] = useState(false);
-  const [exportMode, setExportMode] = useState<typeof ExportMode[keyof typeof ExportMode]>(ExportMode.FullReport);
-  const [exportFormat, setExportFormat] = useState<typeof ExportFormat[keyof typeof ExportFormat]>(ExportFormat.Pdf);
-  const [pageRange, setPageRange] = useState('');
-  const [pageNumberingMode, setPageNumberingMode] = useState<typeof PageNumberingMode[keyof typeof PageNumberingMode]>(
-    PageNumberingMode.Restart,
-  );
-  const [includePartialCover, setIncludePartialCover] = useState(true);
-  const [includePartialManifest, setIncludePartialManifest] = useState(true);
-  const [detailOverflowAction, setDetailOverflowAction] = useState<typeof DetailOverflowAction[keyof typeof DetailOverflowAction]>(
-    DetailOverflowAction.None,
-  );
 
   const includesTransactionDetails = sectionIds.includes(ReportSectionId.TransactionDetails);
-  const requiresOverflowChoice = Boolean(
-    manifest?.requiresDetailOverflowAction
-    && includesTransactionDetails
-    && (exportFormat === ExportFormat.Pdf || exportFormat === ExportFormat.Docx || exportFormat === ExportFormat.Html),
-  );
 
   const buildRequest = useCallback((): ReportBuildRequest => ({
     reportType,
@@ -124,6 +77,37 @@ export default function ReportBuilderPage() {
       statuses: [],
     },
   }), [reportType, title, sectionIds, dateFrom, dateTo]);
+
+  const {
+    openExportDialog,
+    closeExportDialog,
+    exportDialogRef,
+    handleExportDialogCancel,
+    exportMode,
+    setExportMode,
+    exportFormat,
+    setExportFormat,
+    pageNumberingMode,
+    setPageNumberingMode,
+    includePartialCover,
+    setIncludePartialCover,
+    includePartialManifest,
+    setIncludePartialManifest,
+    detailOverflowAction,
+    setDetailOverflowAction,
+    requiresOverflowChoice,
+    runExport,
+  } = useReportBuilderExport({
+    buildRequest,
+    manifest,
+    sectionIds,
+    selectedPages,
+    pageSelectionMode,
+    pageRange,
+    currentPage,
+    setLoading,
+    setError,
+  });
 
   const loadPreview = async () => {
     setLoading(true);
@@ -150,6 +134,14 @@ export default function ReportBuilderPage() {
     [activePage],
   );
 
+  const previewStatusMessage = getPreviewStatusMessage(loading, error, Boolean(manifest));
+  const pageSelectionSummary = getPageSelectionSummary(
+    pageSelectionMode,
+    selectedPages,
+    pageRange,
+    manifest?.totalPages ?? 0,
+  );
+
   const toggleSection = (id: number) => {
     setSectionIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   };
@@ -160,78 +152,10 @@ export default function ReportBuilderPage() {
     setSelectedPages((prev) => prev.includes(pageNo) ? prev.filter((p) => p !== pageNo) : [...prev, pageNo].sort((a, b) => a - b));
   };
 
-  const runExport = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      if (requiresOverflowChoice && detailOverflowAction === DetailOverflowAction.None) {
-        setError('يتجاوز التقرير حد صفوف التفاصيل. اختر كيفية التعامل مع التفاصيل قبل التصدير.');
-        return;
-      }
-
-      if (requiresOverflowChoice && detailOverflowAction === DetailOverflowAction.SplitPdf && exportFormat !== ExportFormat.Pdf) {
-        setError('تقسيم التفاصيل إلى عدة ملفات PDF متاح فقط عند اختيار صيغة PDF.');
-        return;
-      }
-
-      const pageSelection = buildReportExportPageSelection(
-        exportMode,
-        pageSelectionMode,
-        selectedPages,
-        pageRange,
-        currentPage,
-      );
-
-      const effectiveOverflowAction = requiresOverflowChoice
-        ? detailOverflowAction
-        : (exportFormat === ExportFormat.Xlsx && manifest?.requiresDetailOverflowAction
-          ? DetailOverflowAction.FullDetailsXlsx
-          : DetailOverflowAction.None);
-
-      const response = await institutionalReportsApi.export({
-        buildRequest: buildRequest(),
-        exportFormat,
-        exportMode,
-        selectedSectionIds: sectionIds as ReportExportRequest['selectedSectionIds'],
-        includePartialCover,
-        includePartialManifest,
-        pageNumberingMode,
-        detailOverflowAction: effectiveOverflowAction,
-        ...pageSelection,
-      });
-      const contentType = typeof response.headers['content-type'] === 'string'
-        ? response.headers['content-type']
-        : 'application/octet-stream';
-      const ext = contentType.includes('zip')
-        ? 'zip'
-        : contentType.includes('spreadsheetml')
-          ? 'xlsx'
-          : exportFormat === ExportFormat.Docx
-            ? 'docx'
-            : exportFormat === ExportFormat.Html
-              ? 'html'
-              : 'pdf';
-      const blob = new Blob([response.data], { type: contentType });
-      downloadBlob(blob, `institutional-report.${ext}`);
-      setExportOpen(false);
-    } catch (err) {
-      if (axios.isAxiosError(err) && err.response?.data instanceof Blob) {
-        try {
-          const text = await err.response.data.text();
-          const body = JSON.parse(text) as { errors?: Record<string, string[]> };
-          const overflowMessage = body.errors?.detailOverflowAction?.[0];
-          if (overflowMessage) {
-            setError(overflowMessage);
-            return;
-          }
-        } catch {
-          // fall through to generic message
-        }
-      }
-      setError('تعذر تصدير التقرير.');
-    } finally {
-      setLoading(false);
-    }
+  const handlePageRangeChange = (value: string) => {
+    setPageSelectionMode('range');
+    setSelectedPages([]);
+    setPageRange(value);
   };
 
   return (
@@ -245,7 +169,7 @@ export default function ReportBuilderPage() {
           <button type="button" className="btn btn-secondary" onClick={loadPreview} disabled={loading}>
             {loading ? 'جاري التوليد...' : 'معاينة التقرير'}
           </button>
-          <button type="button" className="btn btn-primary" onClick={() => setExportOpen(true)} disabled={!manifest}>
+          <button type="button" className="btn btn-primary" onClick={openExportDialog} disabled={!manifest}>
             تصدير
           </button>
         </div>
@@ -305,13 +229,7 @@ export default function ReportBuilderPage() {
             <button type="button" className="btn btn-sm btn-outline" disabled={!manifest || currentPage <= 1} onClick={() => setCurrentPage((p) => p - 1)}>السابق</button>
             <button type="button" className="btn btn-sm btn-outline" disabled={!manifest || currentPage >= (manifest?.totalPages ?? 1)} onClick={() => setCurrentPage((p) => p + 1)}>التالي</button>
             <span>{manifest ? `الصفحة ${currentPage} من ${manifest.totalPages}` : 'لا توجد معاينة بعد'}</span>
-            <span>
-              {pageSelectionMode === 'thumbnails' && selectedPages.length > 0
-                ? `تم تحديد ${selectedPages.length} من ${manifest?.totalPages ?? 0} صفحات (تحديد مصغرات)`
-                : pageSelectionMode === 'range' && pageRange.trim()
-                  ? `نطاق الصفحات النشط: ${pageRange.trim()}`
-                  : ''}
-            </span>
+            {pageSelectionSummary && <span>{pageSelectionSummary}</span>}
             <label htmlFor="preview-zoom">تكبير</label>
             <input
               id="preview-zoom"
@@ -359,134 +277,132 @@ export default function ReportBuilderPage() {
                   dangerouslySetInnerHTML={{ __html: sanitizedActivePageHtml }}
                 />
               ) : (
-                <p className="text-muted">اضغط «معاينة التقرير» لعرض الصفحات.</p>
+                <p className="text-muted">{previewStatusMessage}</p>
               )}
             </div>
           </div>
         </section>
       </div>
 
-      {exportOpen && (
-        <div className="report-export-modal" role="dialog" aria-label="خيارات تصدير التقرير">
-          <div className="report-export-card">
-            <h3>خيارات تصدير التقرير</h3>
-            <label htmlFor="export-mode">وضع التصدير</label>
-            <select
-              id="export-mode"
-              value={exportMode}
-              onChange={(e) => setExportMode(Number(e.target.value) as typeof exportMode)}
-            >
-              <option value={ExportMode.FullReport}>تصدير كامل التقرير</option>
-              <option value={ExportMode.SelectedSections}>تصدير حسب الأقسام</option>
-              <option value={ExportMode.SelectedPages}>تصدير صفحات محددة</option>
-              <option value={ExportMode.CurrentPage}>تصدير الصفحة الحالية</option>
-            </select>
-            <label htmlFor="export-format">صيغة الملف</label>
-            <select
-              id="export-format"
-              value={exportFormat}
-              onChange={(e) => setExportFormat(Number(e.target.value) as typeof exportFormat)}
-            >
-              <option value={ExportFormat.Pdf}>PDF</option>
-              <option value={ExportFormat.Docx}>Word (DOCX)</option>
-              <option value={ExportFormat.Xlsx}>Excel (XLSX)</option>
-              <option value={ExportFormat.Html}>HTML</option>
-            </select>
-            {exportMode === ExportMode.SelectedPages && (
-              <>
-                <p className="text-muted">
-                  النمط النشط: {pageSelectionMode === 'range' && pageRange.trim() ? 'نطاق الصفحات' : 'تحديد الصور المصغرة'}
-                </p>
-                <label htmlFor="page-range">نطاق الصفحات (مثال: 1,3-5,8)</label>
+      <dialog
+        ref={exportDialogRef}
+        className="report-export-modal"
+        aria-labelledby="report-export-dialog-title"
+        onCancel={handleExportDialogCancel}
+      >
+        <div className="report-export-card">
+          <h3 id="report-export-dialog-title">خيارات تصدير التقرير</h3>
+          <label htmlFor="export-mode">وضع التصدير</label>
+          <select
+            id="export-mode"
+            value={exportMode}
+            onChange={(e) => setExportMode(Number(e.target.value) as typeof exportMode)}
+          >
+            <option value={ExportMode.FullReport}>تصدير كامل التقرير</option>
+            <option value={ExportMode.SelectedSections}>تصدير حسب الأقسام</option>
+            <option value={ExportMode.SelectedPages}>تصدير صفحات محددة</option>
+            <option value={ExportMode.CurrentPage}>تصدير الصفحة الحالية</option>
+          </select>
+          <label htmlFor="export-format">صيغة الملف</label>
+          <select
+            id="export-format"
+            value={exportFormat}
+            onChange={(e) => setExportFormat(Number(e.target.value) as typeof exportFormat)}
+          >
+            {Object.entries(exportFormatLabels).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+          {exportMode === ExportMode.SelectedPages && (
+            <>
+              <p className="text-muted">
+                النمط النشط: {pageSelectionMode === 'range' && pageRange.trim() ? 'نطاق الصفحات' : 'تحديد الصور المصغرة'}
+              </p>
+              <label htmlFor="page-range">نطاق الصفحات (مثال: 1,3-5,8)</label>
+              <input
+                id="page-range"
+                value={pageRange}
+                onChange={(e) => handlePageRangeChange(e.target.value)}
+                placeholder="1,3-5,8"
+              />
+            </>
+          )}
+          <label htmlFor="page-numbering-mode">ترقيم الصفحات</label>
+          <select
+            id="page-numbering-mode"
+            value={pageNumberingMode}
+            onChange={(e) => setPageNumberingMode(Number(e.target.value) as typeof pageNumberingMode)}
+          >
+            <option value={PageNumberingMode.Restart}>إعادة الترقيم من 1</option>
+            <option value={PageNumberingMode.PreserveOriginal}>الاحتفاظ بالترقيم الأصلي</option>
+          </select>
+          <label htmlFor="include-partial-cover">
+            <input
+              id="include-partial-cover"
+              type="checkbox"
+              checked={includePartialCover}
+              onChange={(e) => setIncludePartialCover(e.target.checked)}
+            />
+            {' '}إضافة غلاف للنسخة الجزئية
+          </label>
+          <label htmlFor="include-partial-manifest">
+            <input
+              id="include-partial-manifest"
+              type="checkbox"
+              checked={includePartialManifest}
+              onChange={(e) => setIncludePartialManifest(e.target.checked)}
+            />
+            {' '}إدراج صفحة تعريف النسخة الجزئية
+          </label>
+          {(exportFormat === ExportFormat.Docx || exportFormat === ExportFormat.Xlsx) && exportMode === ExportMode.SelectedPages && (
+            <p className="text-muted">اختيار الصفحات الفعلية يطبق بدقة على PDF. في Word/Excel سيتم تصدير الأقسام المقابلة لأن توزيع الصفحات قد يختلف.</p>
+          )}
+          {requiresOverflowChoice && (
+            <fieldset className="report-overflow-options">
+              <legend>تجاوز حد صفوف التفاصيل</legend>
+              <p className="text-muted">
+                المطلوب: {manifest?.totalMatchingTransactions?.toLocaleString('ar-SA')} معاملة —
+                الحد: {manifest?.detailRowLimit?.toLocaleString('ar-SA')} صف لكل ملف PDF/DOCX.
+              </p>
+              <label htmlFor="overflow-summary-only">
                 <input
-                  id="page-range"
-                  value={pageRange}
-                  onChange={(e) => {
-                    setPageSelectionMode('range');
-                    setSelectedPages([]);
-                    setPageRange(e.target.value);
-                  }}
-                  placeholder="1,3-5,8"
+                  id="overflow-summary-only"
+                  type="radio"
+                  name="detailOverflowAction"
+                  checked={detailOverflowAction === DetailOverflowAction.SummaryOnly}
+                  onChange={() => setDetailOverflowAction(DetailOverflowAction.SummaryOnly)}
                 />
-              </>
-            )}
-            <label htmlFor="page-numbering-mode">ترقيم الصفحات</label>
-            <select
-              id="page-numbering-mode"
-              value={pageNumberingMode}
-              onChange={(e) => setPageNumberingMode(Number(e.target.value) as typeof pageNumberingMode)}
-            >
-              <option value={PageNumberingMode.Restart}>إعادة الترقيم من 1</option>
-              <option value={PageNumberingMode.PreserveOriginal}>الاحتفاظ بالترقيم الأصلي</option>
-            </select>
-            <label htmlFor="include-partial-cover">
-              <input
-                id="include-partial-cover"
-                type="checkbox"
-                checked={includePartialCover}
-                onChange={(e) => setIncludePartialCover(e.target.checked)}
-              />
-              {' '}إضافة غلاف للنسخة الجزئية
-            </label>
-            <label htmlFor="include-partial-manifest">
-              <input
-                id="include-partial-manifest"
-                type="checkbox"
-                checked={includePartialManifest}
-                onChange={(e) => setIncludePartialManifest(e.target.checked)}
-              />
-              {' '}إدراج صفحة تعريف النسخة الجزئية
-            </label>
-            {(exportFormat === ExportFormat.Docx || exportFormat === ExportFormat.Xlsx) && exportMode === ExportMode.SelectedPages && (
-              <p className="text-muted">اختيار الصفحات الفعلية يطبق بدقة على PDF. في Word/Excel سيتم تصدير الأقسام المقابلة لأن توزيع الصفحات قد يختلف.</p>
-            )}
-            {requiresOverflowChoice && (
-              <fieldset className="report-overflow-options">
-                <legend>تجاوز حد صفوف التفاصيل</legend>
-                <p className="text-muted">
-                  المطلوب: {manifest?.totalMatchingTransactions?.toLocaleString('ar-SA')} معاملة —
-                  الحد: {manifest?.detailRowLimit?.toLocaleString('ar-SA')} صف لكل ملف PDF/DOCX.
-                </p>
-                <label htmlFor="overflow-summary-only">
-                  <input
-                    id="overflow-summary-only"
-                    type="radio"
-                    name="detailOverflowAction"
-                    checked={detailOverflowAction === DetailOverflowAction.SummaryOnly}
-                    onChange={() => setDetailOverflowAction(DetailOverflowAction.SummaryOnly)}
-                  />
-                  {' '}ملخص كامل بدون تفاصيل مضمّنة (PDF/DOCX/HTML)
-                </label>
-                <label htmlFor="overflow-split-pdf">
-                  <input
-                    id="overflow-split-pdf"
-                    type="radio"
-                    name="detailOverflowAction"
-                    checked={detailOverflowAction === DetailOverflowAction.SplitPdf}
-                    onChange={() => setDetailOverflowAction(DetailOverflowAction.SplitPdf)}
-                    disabled={exportFormat !== ExportFormat.Pdf}
-                  />
-                  {' '}تقسيم التفاصيل إلى عدة ملفات PDF (ملف ZIP)
-                </label>
-                <label htmlFor="overflow-xlsx">
-                  <input
-                    id="overflow-xlsx"
-                    type="radio"
-                    name="detailOverflowAction"
-                    checked={detailOverflowAction === DetailOverflowAction.FullDetailsXlsx}
-                    onChange={() => setDetailOverflowAction(DetailOverflowAction.FullDetailsXlsx)}
-                  />
-                  {' '}تصدير التفاصيل كاملة إلى Excel (XLSX)
-                </label>
-              </fieldset>
-            )}
-            <div className="report-export-actions">
-              <button type="button" className="btn btn-primary" onClick={runExport} disabled={loading}>تنفيذ التصدير</button>
-              <button type="button" className="btn btn-outline" onClick={() => setExportOpen(false)}>إلغاء</button>
-            </div>
+                {' '}ملخص كامل بدون تفاصيل مضمّنة (PDF/DOCX/HTML)
+              </label>
+              <label htmlFor="overflow-split-pdf">
+                <input
+                  id="overflow-split-pdf"
+                  type="radio"
+                  name="detailOverflowAction"
+                  checked={detailOverflowAction === DetailOverflowAction.SplitPdf}
+                  onChange={() => setDetailOverflowAction(DetailOverflowAction.SplitPdf)}
+                  disabled={exportFormat !== ExportFormat.Pdf}
+                />
+                {' '}تقسيم التفاصيل إلى عدة ملفات PDF (ملف ZIP)
+              </label>
+              <label htmlFor="overflow-xlsx">
+                <input
+                  id="overflow-xlsx"
+                  type="radio"
+                  name="detailOverflowAction"
+                  checked={detailOverflowAction === DetailOverflowAction.FullDetailsXlsx}
+                  onChange={() => setDetailOverflowAction(DetailOverflowAction.FullDetailsXlsx)}
+                />
+                {' '}تصدير التفاصيل كاملة إلى Excel (XLSX)
+              </label>
+            </fieldset>
+          )}
+          <div className="report-export-actions">
+            <button type="button" className="btn btn-primary" onClick={runExport} disabled={loading}>تنفيذ التصدير</button>
+            <button type="button" className="btn btn-outline" onClick={closeExportDialog}>إلغاء</button>
           </div>
         </div>
-      )}
+      </dialog>
     </div>
   );
 }

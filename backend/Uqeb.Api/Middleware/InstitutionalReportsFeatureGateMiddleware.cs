@@ -14,15 +14,15 @@ public sealed class InstitutionalReportsFeatureGateMiddleware
 
     public async Task InvokeAsync(HttpContext context, IOptions<FeatureFlagsSettings> featureFlags)
     {
-        if (context.Request.Path.StartsWithSegments("/api/institutional-reports", out _))
+        if (IsInstitutionalReportsPath(context.Request.Path) && !featureFlags.Value.InstitutionalReports)
         {
-            if (!featureFlags.Value.InstitutionalReports)
-            {
-                context.Response.StatusCode = StatusCodes.Status404NotFound;
-                return;
-            }
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
         }
 
         await _next(context);
     }
+
+    private static bool IsInstitutionalReportsPath(PathString path) =>
+        path.StartsWithSegments("/api/institutional-reports", out _);
 }

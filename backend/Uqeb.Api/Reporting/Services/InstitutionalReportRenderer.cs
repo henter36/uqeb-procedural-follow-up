@@ -61,54 +61,18 @@ public sealed class InstitutionalReportRenderer
         bool includeTransactionDetails = true)
     {
         var pages = new List<RenderedReportPageDto>();
-        var pageNo = 1;
         var coverPageIndex = -1;
 
         foreach (var section in sections)
         {
-            switch (section)
-            {
-                case ReportSectionId.Cover:
-                    coverPageIndex = pages.Count;
-                    pages.Add(MakePage(pageNo++, section, "الغلاف", string.Empty));
-                    break;
-                case ReportSectionId.ExecutiveSummary:
-                    pages.Add(MakePage(pageNo++, section, "الملخص التنفيذي", RenderExecutiveSummary(model)));
-                    break;
-                case ReportSectionId.IndicatorsDashboard:
-                    pages.Add(MakePage(pageNo++, section, "لوحة المؤشرات والاتجاهات", RenderCharts(model)));
-                    break;
-                case ReportSectionId.DepartmentPerformance:
-                    pages.Add(MakePage(pageNo++, section, "أداء الإدارات", RenderDepartments(model)));
-                    break;
-                case ReportSectionId.RisksAndAlerts:
-                    pages.Add(MakePage(pageNo++, section, "المخاطر والتنبيهات", RenderRisks(model)));
-                    break;
-                case ReportSectionId.ExecutiveRecommendations:
-                    pages.Add(MakePage(pageNo++, section, "التوصيات التنفيذية", RenderRecommendations(model)));
-                    break;
-                case ReportSectionId.TransactionDetails:
-                    if (!includeTransactionDetails)
-                        break;
-                    if (model.DetailRowsTruncated)
-                        pages.Add(MakePage(pageNo++, section, "تنبيه صفوف التفاصيل", RenderDetailTruncationNotice(model)));
-                    foreach (var chunk in model.Transactions.Chunk(18))
-                        pages.Add(MakePage(pageNo++, section, "المعاملات التفصيلية", RenderTransactions(model, chunk.ToList())));
-                    if (model.Transactions.Count == 0)
-                        pages.Add(MakePage(pageNo++, section, "المعاملات التفصيلية", RenderTransactions(model, [])));
-                    break;
-                case ReportSectionId.ReportMetadata:
-                    pages.Add(MakePage(pageNo++, section, "بيانات التقرير والفلاتر", RenderMetadata(model)));
-                    break;
-            }
+            if (section == ReportSectionId.Cover)
+                coverPageIndex = pages.Count;
+
+            AppendSectionPages(model, section, includeTransactionDetails, pages);
         }
 
-        if (!includeTransactionDetails && model.DetailRowsTruncated)
-        {
-            pages.Add(MakePage(pageNo++, ReportSectionId.ReportMetadata, "تنبيه حد صفوف التفاصيل", RenderDetailOverflowNotice(model)));
-        }
+        AppendDetailOverflowNoticeIfNeeded(model, includeTransactionDetails, pages);
 
-        var reportId = model.Metadata.ReportNumber;
         model.Metadata.TotalPages = pages.Count;
 
         if (coverPageIndex >= 0)
@@ -117,10 +81,96 @@ public sealed class InstitutionalReportRenderer
             pages[coverPageIndex] = coverPage with { HtmlContent = RenderCover(model) };
         }
 
+        return BuildManifestResult(model, pages);
+    }
+
+    private static void AppendSectionPages(
+        InstitutionalReportModel model,
+        ReportSectionId section,
+        bool includeTransactionDetails,
+        List<RenderedReportPageDto> pages)
+    {
+        switch (section)
+        {
+            case ReportSectionId.Cover:
+                pages.Add(MakePage(section, "الغلاف", string.Empty));
+                break;
+            case ReportSectionId.ExecutiveSummary:
+                pages.Add(MakePage(section, "الملخص التنفيذي", RenderExecutiveSummary(model)));
+                break;
+            case ReportSectionId.IndicatorsDashboard:
+                pages.Add(MakePage(section, "لوحة المؤشرات والاتجاهات", RenderCharts(model)));
+                break;
+            case ReportSectionId.DepartmentPerformance:
+                pages.Add(MakePage(section, "أداء الإدارات", RenderDepartments(model)));
+                break;
+            case ReportSectionId.RisksAndAlerts:
+                pages.Add(MakePage(section, "المخاطر والتنبيهات", RenderRisks(model)));
+                break;
+            case ReportSectionId.ExecutiveRecommendations:
+                pages.Add(MakePage(section, "التوصيات التنفيذية", RenderRecommendations(model)));
+                break;
+            case ReportSectionId.TransactionDetails:
+                AppendTransactionDetailPages(model, includeTransactionDetails, pages);
+                break;
+            case ReportSectionId.ReportMetadata:
+                pages.Add(MakePage(section, "بيانات التقرير والفلاتر", RenderMetadata(model)));
+                break;
+        }
+    }
+
+    private static void AppendTransactionDetailPages(
+        InstitutionalReportModel model,
+        bool includeTransactionDetails,
+        List<RenderedReportPageDto> pages)
+    {
+        if (!includeTransactionDetails)
+            return;
+
+        if (model.DetailRowsTruncated)
+            pages.Add(MakePage(ReportSectionId.TransactionDetails, "تنبيه صفوف التفاصيل", RenderDetailTruncationNotice(model)));
+
+        foreach (var chunk in model.Transactions.Chunk(18))
+            pages.Add(MakePage(ReportSectionId.TransactionDetails, "المعاملات التفصيلية", RenderTransactions(model, chunk.ToList())));
+
+        if (model.Transactions.Count == 0)
+            pages.Add(MakePage(ReportSectionId.TransactionDetails, "المعاملات التفصيلية", RenderTransactions(model, [])));
+    }
+
+    private static void AppendDetailOverflowNoticeIfNeeded(
+        InstitutionalReportModel model,
+        bool includeTransactionDetails,
+        List<RenderedReportPageDto> pages)
+    {
+        if (!includeTransactionDetails && model.DetailRowsTruncated)
+        {
+            pages.Add(MakePage(
+                ReportSectionId.ReportMetadata,
+                "تنبيه حد صفوف التفاصيل",
+                RenderDetailOverflowNotice(model)));
+        }
+    }
+
+    private static RenderedReportManifestDto BuildManifestResult(
+        InstitutionalReportModel model,
+        List<RenderedReportPageDto> pages)
+    {
+        var total = pages.Count;
+        var numberedPages = pages.Select((page, index) =>
+        {
+            var pageNumber = index + 1;
+            return page with
+            {
+                OriginalPageNumber = pageNumber,
+                RenderedPageNumber = pageNumber,
+                HtmlContent = InjectFooter(page.HtmlContent, pageNumber, total, false)
+            };
+        }).ToList();
+
         return new RenderedReportManifestDto
         {
-            ReportId = reportId,
-            TotalPages = pages.Count,
+            ReportId = model.Metadata.ReportNumber,
+            TotalPages = total,
             TotalMatchingTransactions = model.TotalMatchedRows,
             IncludedTransactionCount = model.ExportedDetailRows,
             DetailRowLimit = model.Metadata.DetailRowLimit,
@@ -129,11 +179,7 @@ public sealed class InstitutionalReportRenderer
             ExportedDetailRows = model.ExportedDetailRows,
             DetailRowsTruncated = model.DetailRowsTruncated,
             DetailPartsCount = model.DetailPartsCount,
-            Pages = pages.Select((p, i) => p with
-            {
-                OriginalPageNumber = i + 1,
-                RenderedPageNumber = i + 1
-            }).ToList()
+            Pages = numberedPages
         };
     }
 
@@ -221,16 +267,20 @@ public sealed class InstitutionalReportRenderer
         var isPartial = selected.Count < source.Pages.Count;
         var pages = new List<RenderedReportPageDto>();
 
-        if (isPartial && request.IncludePartialCover)
-            pages.Add(CreatePartialCoverPage(source, request, selected));
+        if (isPartial && request.IncludePartialCover == true)
+            pages.Add(CreatePartialCoverPage(source, selected));
 
-        if (isPartial && request.IncludePartialManifest)
+        if (isPartial && request.IncludePartialManifest == true)
             pages.Add(CreatePartialManifestPage(source, request, selected));
 
         foreach (var page in selected)
             pages.Add(page);
 
-        ApplyFinalPageNumbering(pages, request.PageNumberingMode, source.TotalPages, isPartial);
+        ApplyFinalPageNumbering(
+            pages,
+            request.PageNumberingMode ?? PageNumberingMode.Restart,
+            source.TotalPages,
+            isPartial);
 
         return new RenderedReportManifestDto
         {
@@ -264,12 +314,7 @@ public sealed class InstitutionalReportRenderer
             int renderedNumber;
             int footerTotal;
 
-            if (numberingMode == PageNumberingMode.Restart)
-            {
-                renderedNumber = i + 1;
-                footerTotal = pages.Count;
-            }
-            else if (isSupplementary)
+            if (numberingMode == PageNumberingMode.Restart || isSupplementary)
             {
                 renderedNumber = i + 1;
                 footerTotal = pages.Count;
@@ -288,7 +333,7 @@ public sealed class InstitutionalReportRenderer
         }
     }
 
-    public string RenderHtmlDocument(RenderedReportManifestDto manifest)
+    public static string RenderHtmlDocument(RenderedReportManifestDto manifest)
     {
         var sb = new StringBuilder();
         sb.Append("<!DOCTYPE html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><style>")
@@ -301,15 +346,15 @@ public sealed class InstitutionalReportRenderer
         return sb.ToString();
     }
 
-    private static RenderedReportPageDto MakePage(int pageNo, ReportSectionId section, string title, string innerHtml) =>
+    private static RenderedReportPageDto MakePage(ReportSectionId section, string title, string innerHtml) =>
         new()
         {
-            OriginalPageNumber = pageNo,
-            RenderedPageNumber = pageNo,
+            OriginalPageNumber = 0,
+            RenderedPageNumber = 0,
             SectionId = section,
             SectionName = title,
             PageTitle = title,
-            HtmlContent = WrapPage(innerHtml, pageNo, pageNo, false)
+            HtmlContent = WrapPage(innerHtml, 1, 1, false)
         };
 
     private static string WrapPage(string content, int pageNumber, int totalPages, bool partial) =>
@@ -522,7 +567,7 @@ public sealed class InstitutionalReportRenderer
         """;
     }
 
-    private static RenderedReportPageDto CreatePartialCoverPage(RenderedReportManifestDto source, ReportExportRequestDto request, List<RenderedReportPageDto> selected) =>
+    private static RenderedReportPageDto CreatePartialCoverPage(RenderedReportManifestDto source, List<RenderedReportPageDto> selected) =>
         new()
         {
             OriginalPageNumber = 0,
