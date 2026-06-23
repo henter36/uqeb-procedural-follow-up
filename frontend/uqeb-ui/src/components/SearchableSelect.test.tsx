@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
@@ -25,22 +25,30 @@ function renderSelect(onChange = vi.fn(), value: number | '' = '') {
   );
 }
 
+function getResultsSelect() {
+  return screen.getByRole('listbox', { name: 'اختيار القائمة - النتائج' });
+}
+
 describe('SearchableSelect accessibility', () => {
-  it('renders combobox, listbox, and option roles', async () => {
+  it('renders combobox and native select results when open', async () => {
     const user = userEvent.setup();
     renderSelect();
 
     const input = screen.getByRole('combobox', { name: 'اختيار القائمة' });
     expect(input).toHaveAttribute('role', 'combobox');
+    expect(input).not.toHaveAttribute('aria-activedescendant');
 
     await user.click(input);
 
-    const listbox = screen.getByRole('listbox', { name: 'اختيار القائمة' });
-    expect(listbox).toHaveAttribute('id');
-    expect(screen.getAllByRole('option')).toHaveLength(3);
+    const select = getResultsSelect();
+    expect(select).toHaveClass('searchable-select-list');
+    expect(select).toHaveAttribute('tabindex', '-1');
+    expect(within(select).getAllByRole('option')).toHaveLength(3);
+    expect(document.querySelector('ul[role="listbox"]')).toBeNull();
+    expect(document.querySelector('[role="option"][tabindex]')).toBeNull();
   });
 
-  it('keeps options out of the tab order', async () => {
+  it('keeps native select out of the tab order', async () => {
     const user = userEvent.setup();
     render(
       <div>
@@ -50,30 +58,28 @@ describe('SearchableSelect accessibility', () => {
     );
 
     await user.click(screen.getByRole('combobox', { name: 'اختيار القائمة' }));
-
-    const optionElements = screen.getAllByRole('option');
-    optionElements.forEach((option) => {
-      expect(option).toHaveAttribute('tabindex', '-1');
-      expect(option).not.toHaveFocus();
-    });
+    expect(getResultsSelect()).toHaveAttribute('tabindex', '-1');
 
     await user.tab();
     expect(screen.getByRole('button', { name: 'التالي' })).toHaveFocus();
   });
 
-  it('updates aria-activedescendant with ArrowDown', async () => {
+  it('syncs native select highlight when navigating with ArrowDown', async () => {
     const user = userEvent.setup();
     renderSelect();
 
     const input = screen.getByRole('combobox', { name: 'اختيار القائمة' });
     await user.click(input);
-    expect(input).toHaveAttribute('aria-activedescendant', expect.stringContaining('-option-1'));
+
+    const select = getResultsSelect();
+    expect(select).toHaveValue('1');
 
     await user.keyboard('{ArrowDown}');
-    expect(input).toHaveAttribute('aria-activedescendant', expect.stringContaining('-option-2'));
+    expect(select).toHaveValue('2');
+    expect(document.activeElement).toBe(input);
   });
 
-  it('selects active option with Enter', async () => {
+  it('selects active option with Enter from input', async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     renderSelect(onChange);
@@ -85,22 +91,22 @@ describe('SearchableSelect accessibility', () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 
-  it('closes list on Escape', async () => {
+  it('closes results on Escape', async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     renderSelect(onChange, 1);
 
     const input = screen.getByRole('combobox', { name: 'اختيار القائمة' });
     await user.click(input);
-    expect(screen.getByRole('listbox')).toBeInTheDocument();
+    expect(getResultsSelect()).toBeInTheDocument();
 
     await user.keyboard('{Escape}');
-    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('listbox', { name: 'اختيار القائمة - النتائج' })).not.toBeInTheDocument();
     expect(onChange).not.toHaveBeenCalled();
     expect(input).toHaveValue('Alpha');
   });
 
-  it('does not move DOM focus to option elements', async () => {
+  it('does not move DOM focus to native options', async () => {
     const user = userEvent.setup();
     renderSelect();
 
@@ -109,7 +115,6 @@ describe('SearchableSelect accessibility', () => {
     await user.keyboard('{ArrowDown}{ArrowDown}');
 
     expect(document.activeElement).toBe(input);
-    expect(screen.getAllByRole('option').some((option) => option === document.activeElement)).toBe(false);
   });
 });
 
@@ -125,23 +130,18 @@ describe('SearchableSelect interaction', () => {
 
     expect(onChange).toHaveBeenCalledWith(2);
     expect(onChange).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('listbox', { name: 'اختيار القائمة - النتائج' })).not.toBeInTheDocument();
   });
 
-  it('commits selection on pointer up/click, not pointer down', async () => {
+  it('selects option with user.selectOptions', async () => {
+    const user = userEvent.setup();
     const onChange = vi.fn();
 
     renderSelect(onChange);
 
-    const input = screen.getByRole('combobox', { name: 'اختيار القائمة' });
-    await userEvent.click(input);
+    await user.click(screen.getByRole('combobox', { name: 'اختيار القائمة' }));
+    await user.selectOptions(getResultsSelect(), '2');
 
-    const option = screen.getByRole('option', { name: 'Beta' });
-
-    fireEvent.pointerDown(option, { pointerType: 'touch' });
-    expect(onChange).not.toHaveBeenCalled();
-
-    fireEvent.click(option);
     expect(onChange).toHaveBeenCalledWith(2);
     expect(onChange).toHaveBeenCalledTimes(1);
   });
@@ -173,7 +173,7 @@ describe('SearchableSelect interaction', () => {
     expect(onChange).toHaveBeenCalledWith(3);
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('combobox', { name: 'اختيار القائمة' })).toHaveValue('Gamma (غير نشط)');
-    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('listbox', { name: 'اختيار القائمة - النتائج' })).not.toBeInTheDocument();
   });
 
   it('does not clear selected value on blur', async () => {
@@ -206,14 +206,15 @@ describe('SearchableSelect interaction', () => {
     expect(onChange).toHaveBeenCalledWith(2);
   });
 
-  it('does not use role=presentation wrappers in the listbox', async () => {
+  it('does not use custom listbox markup', async () => {
     const user = userEvent.setup();
     renderSelect();
 
     await user.click(screen.getByRole('combobox', { name: 'اختيار القائمة' }));
 
+    expect(document.querySelector('ul[role="listbox"]')).toBeNull();
+    expect(document.querySelector('select.searchable-select-list')).toBeTruthy();
     expect(document.querySelector('[role="presentation"]')).toBeNull();
-    expect(document.querySelector('select.searchable-select-list')).toBeNull();
   });
 
   it('supports arrow navigation before Enter selection', async () => {
@@ -227,7 +228,7 @@ describe('SearchableSelect interaction', () => {
     expect(onChange).toHaveBeenCalledWith(3);
   });
 
-  it('renders inactive and sublabel text in listbox options', async () => {
+  it('renders inactive and sublabel text in native options', async () => {
     const user = userEvent.setup();
     renderSelect();
 

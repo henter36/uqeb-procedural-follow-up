@@ -50,7 +50,9 @@ export default function SearchableSelect({
   const inputId = useId();
   const listboxId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
-  const optionRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
+  const inputRef = useRef<HTMLInputElement>(null);
+  const selectRef = useRef<HTMLSelectElement>(null);
+  const lastCommittedIdRef = useRef<number | null>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [highlightIndex, setHighlightIndex] = useState(0);
@@ -77,10 +79,12 @@ export default function SearchableSelect({
 
   const clampedHighlight = Math.min(highlightIndex, Math.max(filtered.length - 1, 0));
   const activeOption = filtered[clampedHighlight] ?? null;
+  const visibleOptionCount = Math.min(Math.max(filtered.length, 1), 6);
 
   useEffect(() => {
-    if (!open || !activeOption) return;
-    optionRefs.current.get(activeOption.id)?.scrollIntoView?.({ block: 'nearest' });
+    if (!open || !activeOption || !selectRef.current) return;
+    const optionEl = selectRef.current.querySelector(`option[value="${activeOption.id}"]`);
+    optionEl?.scrollIntoView?.({ block: 'nearest' });
   }, [open, activeOption]);
 
   useEffect(() => {
@@ -99,17 +103,33 @@ export default function SearchableSelect({
   const displayValue = getDisplayValue(open, query, selected);
 
   const selectOption = useCallback((option: SelectOption) => {
-    onChange(option.id);
+    if (value !== option.id) {
+      onChange(option.id);
+    }
     setQuery('');
     setOpen(false);
     setHighlightIndex(0);
-  }, [onChange]);
+  }, [onChange, value]);
 
   const closeList = useCallback(() => {
     setOpen(false);
     setQuery('');
     setHighlightIndex(0);
   }, []);
+
+  const commitNativeSelection = useCallback((selectedId: number) => {
+    if (!Number.isFinite(selectedId)) return;
+    if (lastCommittedIdRef.current === selectedId) return;
+
+    const option = filtered.find((item) => item.id === selectedId);
+    if (!option) return;
+
+    lastCommittedIdRef.current = selectedId;
+    selectOption(option);
+    globalThis.queueMicrotask(() => {
+      lastCommittedIdRef.current = null;
+    });
+  }, [filtered, selectOption]);
 
   const onInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) {
@@ -141,14 +161,12 @@ export default function SearchableSelect({
       <label htmlFor={inputId}>{label}{required ? ' *' : ''}</label>
       <div className="searchable-select-control">
         <input
+          ref={inputRef}
           id={inputId}
           type="text"
           role="combobox"
           aria-expanded={open}
           aria-controls={open ? listboxId : undefined}
-          aria-activedescendant={
-            open && activeOption ? `${listboxId}-option-${activeOption.id}` : undefined
-          }
           aria-autocomplete="list"
           autoComplete="off"
           disabled={disabled}
@@ -191,38 +209,64 @@ export default function SearchableSelect({
             <div className="searchable-select-empty">لا توجد نتائج</div>
           )}
           {!loading && filtered.length > 0 && (
-            <ul
+            <select
               id={listboxId}
-              role="listbox"
+              ref={selectRef}
+              tabIndex={-1}
               className="searchable-select-list"
-              aria-label={label}
+              size={visibleOptionCount}
+              aria-label={`${label} - النتائج`}
+              value={activeOption ? String(activeOption.id) : ''}
+              onPointerDown={(event) => {
+                event.preventDefault();
+              }}
+              onChange={(event) => {
+                commitNativeSelection(Number(event.currentTarget.value));
+              }}
+              onClick={(event) => {
+                const target = event.target;
+                if (target instanceof HTMLOptionElement) {
+                  commitNativeSelection(Number(target.value));
+                }
+              }}
+              onMouseMove={(event) => {
+                const target = event.target;
+                if (!(target instanceof HTMLOptionElement)) return;
+
+                const index = filtered.findIndex((item) => item.id === Number(target.value));
+                if (index >= 0) {
+                  setHighlightIndex(index);
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  closeList();
+                  inputRef.current?.focus();
+                  return;
+                }
+
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  commitNativeSelection(Number(event.currentTarget.value));
+                  inputRef.current?.focus();
+                }
+              }}
             >
-              {filtered.map((option, index) => (
-                <li key={option.id}>
-                  <button
-                    type="button"
-                    id={`${listboxId}-option-${option.id}`}
-                    role="option"
-                    tabIndex={-1}
-                    aria-selected={value === option.id}
-                    ref={(el) => {
-                      if (el) optionRefs.current.set(option.id, el);
-                      else optionRefs.current.delete(option.id);
-                    }}
-                    className={`searchable-select-option${clampedHighlight === index ? ' is-highlighted' : ''}${value === option.id ? ' is-selected' : ''}${option.isActive === false ? ' is-inactive' : ''}`}
-                    onPointerDown={(event) => {
-                      event.preventDefault();
-                    }}
-                    onClick={() => {
-                      selectOption(option);
-                    }}
-                    onMouseEnter={() => setHighlightIndex(index)}
-                  >
-                    {formatOptionLabel(option)}
-                  </button>
-                </li>
+              {filtered.map((option) => (
+                <option
+                  key={option.id}
+                  value={option.id}
+                  className={
+                    option.isActive === false
+                      ? 'searchable-select-option is-inactive'
+                      : 'searchable-select-option'
+                  }
+                >
+                  {formatOptionLabel(option)}
+                </option>
               ))}
-            </ul>
+            </select>
           )}
         </div>
       )}
