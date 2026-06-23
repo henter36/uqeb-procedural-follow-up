@@ -48,6 +48,8 @@ public sealed class InstitutionalMetricsResult
     public int TotalTransactions { get; init; }
     public int ClosedCount { get; init; }
     public int OpenCount { get; init; }
+    public int CancelledCount { get; init; }
+    public int ArchivedCount { get; init; }
     public int OverdueCount { get; init; }
     public int JointDepartmentCount { get; init; }
     public int PartialResponseCount { get; init; }

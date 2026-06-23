@@ -1,41 +1,64 @@
-using Xunit;
+using Uqeb.Api.Models.Enums;
+using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
 using Uqeb.Api.Reporting.Models;
 using Uqeb.Api.Reporting.Services;
-using Uqeb.Api.Models.Enums;
+using Xunit;
 
 namespace Uqeb.Api.Tests.Reporting;
 
 public class InstitutionalReportMetricsCalculatorTests
 {
-    private static TransactionReportSnapshot Snap(int id, bool closed = false, bool overdue = false, bool partial = false, bool joint = false) =>
+    private static TransactionReportSnapshot Snap(
+        int id,
+        TransactionStatus status,
+        bool overdue = false,
+        bool partial = false,
+        bool joint = false) =>
         new()
         {
             TransactionId = id,
             IncomingDate = DateTime.UtcNow.Date.AddDays(-10),
-            IsClosed = closed,
-            IsOpen = !closed,
+            Status = status,
+            IsClosed = status == TransactionStatus.Closed,
+            IsOpen = TransactionStatusSemantics.IsOperationalOpen(status),
             IsOverdue = overdue,
             IsPartialReply = partial,
             IsJointDepartment = joint,
-            Status = closed ? TransactionStatus.Closed : TransactionStatus.InProgress
         };
 
     [Fact]
-    public void TotalEqualsOpenPlusClosed()
+    public void TotalEqualsOperationalBuckets()
     {
-        var snapshots = new[] { Snap(1), Snap(2, closed: true), Snap(3) };
+        var snapshots = new[]
+        {
+            Snap(1, TransactionStatus.InProgress),
+            Snap(2, TransactionStatus.Closed),
+            Snap(3, TransactionStatus.Cancelled),
+            Snap(4, TransactionStatus.Archived),
+        };
+
         var result = InstitutionalReportMetricsCalculator.Calculate(snapshots, DateTime.UtcNow.Date);
-        Assert.Equal(3, result.TotalTransactions);
-        Assert.Equal(2, result.OpenCount);
+
+        Assert.Equal(4, result.TotalTransactions);
+        Assert.Equal(1, result.OpenCount);
         Assert.Equal(1, result.ClosedCount);
-        Assert.Equal(result.OpenCount + result.ClosedCount, result.TotalTransactions);
+        Assert.Equal(1, result.CancelledCount);
+        Assert.Equal(1, result.ArchivedCount);
+        Assert.Equal(
+            result.TotalTransactions,
+            result.OpenCount + result.ClosedCount + result.CancelledCount + result.ArchivedCount);
     }
 
     [Fact]
     public void OverdueIsSubsetOfOpen()
     {
-        var snapshots = new[] { Snap(1, overdue: true), Snap(2), Snap(3, closed: true) };
+        var snapshots = new[]
+        {
+            Snap(1, TransactionStatus.Overdue, overdue: true),
+            Snap(2, TransactionStatus.InProgress),
+            Snap(3, TransactionStatus.Closed),
+        };
         var result = InstitutionalReportMetricsCalculator.Calculate(snapshots, DateTime.UtcNow.Date);
         Assert.True(result.OverdueCount <= result.OpenCount);
     }
@@ -45,13 +68,30 @@ public class InstitutionalReportMetricsCalculatorTests
     {
         var snapshots = new[]
         {
-            Snap(1, partial: true, joint: true),
-            Snap(2, partial: true),
-            Snap(3, joint: true)
+            Snap(1, TransactionStatus.PartiallyReplied, partial: true, joint: true),
+            Snap(2, TransactionStatus.PartiallyReplied, partial: true),
+            Snap(3, TransactionStatus.InProgress, joint: true),
         };
         var result = InstitutionalReportMetricsCalculator.Calculate(snapshots, DateTime.UtcNow.Date);
         Assert.Equal(3, result.TotalTransactions);
         Assert.Equal(2, result.PartialResponseCount);
         Assert.Equal(2, result.JointDepartmentCount);
+    }
+
+    [Fact]
+    public void CancelledAndArchivedAreExcludedFromOpenAndClosed()
+    {
+        var snapshots = new[]
+        {
+            Snap(1, TransactionStatus.Cancelled),
+            Snap(2, TransactionStatus.Archived),
+        };
+
+        var result = InstitutionalReportMetricsCalculator.Calculate(snapshots, DateTime.UtcNow.Date);
+
+        Assert.Equal(0, result.OpenCount);
+        Assert.Equal(0, result.ClosedCount);
+        Assert.Equal(1, result.CancelledCount);
+        Assert.Equal(1, result.ArchivedCount);
     }
 }

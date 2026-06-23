@@ -36,6 +36,7 @@ builder.Services.AddScoped<IExcelTransactionImportService, ExcelTransactionImpor
 builder.Services.AddScoped<IAttachmentService, AttachmentService>();
 builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<IInstitutionalReportService, InstitutionalReportService>();
+builder.Services.AddScoped<IInstitutionalReportNumberAllocator, InstitutionalReportNumberAllocator>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IDepartmentService, DepartmentService>();
 builder.Services.AddScoped<IExternalPartyService, ExternalPartyService>();

@@ -129,14 +129,23 @@ public sealed class InstitutionalReportsEnabledWebApplicationFactory : WebApplic
 
 internal static class InstitutionalReportsTestHostBuilder
 {
-    internal static void Configure(IWebHostBuilder builder, bool institutionalReportsEnabled)
+    internal static void Configure(
+        IWebHostBuilder builder,
+        bool institutionalReportsEnabled,
+        bool useRealInstitutionalReportService = false,
+        Action<IServiceCollection>? configureServices = null)
     {
         HealthTestHostBuilder.Configure(
             builder,
             services =>
             {
-                services.RemoveAll(typeof(IInstitutionalReportService));
-                services.AddSingleton<IInstitutionalReportService, StubInstitutionalReportService>();
+                if (!useRealInstitutionalReportService)
+                {
+                    services.RemoveAll(typeof(IInstitutionalReportService));
+                    services.AddSingleton<IInstitutionalReportService, StubInstitutionalReportService>();
+                }
+
+                configureServices?.Invoke(services);
             },
             extraConfig: new Dictionary<string, string?>
             {

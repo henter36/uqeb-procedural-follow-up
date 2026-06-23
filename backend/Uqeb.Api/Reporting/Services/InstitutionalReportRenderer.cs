@@ -118,23 +118,15 @@ public sealed class InstitutionalReportRenderer
         var pages = new List<RenderedReportPageDto>();
 
         if (isPartial && request.IncludePartialCover)
-            pages.Add(MakePartialCover(source, request, selected));
+            pages.Add(CreatePartialCoverPage(source, request, selected));
 
         if (isPartial && request.IncludePartialManifest)
-            pages.Add(MakePartialManifestPage(source, request, selected));
+            pages.Add(CreatePartialManifestPage(source, request, selected));
 
-        var start = pages.Count;
-        for (var i = 0; i < selected.Count; i++)
-        {
-            var page = selected[i];
-            var displayNumber = request.PageNumberingMode == PageNumberingMode.Restart ? start + i + 1 : page.OriginalPageNumber;
-            var total = request.PageNumberingMode == PageNumberingMode.Restart ? start + selected.Count : source.TotalPages;
-            pages.Add(page with
-            {
-                RenderedPageNumber = displayNumber,
-                HtmlContent = InjectFooter(page.HtmlContent, displayNumber, total, isPartial)
-            });
-        }
+        foreach (var page in selected)
+            pages.Add(page);
+
+        ApplyFinalPageNumbering(pages, request.PageNumberingMode, source.TotalPages, isPartial);
 
         return new RenderedReportManifestDto
         {
@@ -144,6 +136,44 @@ public sealed class InstitutionalReportRenderer
             IsPartialExport = isPartial,
             PartialExportNote = isPartial ? "هذه نسخة جزئية من التقرير الأصلي." : null
         };
+    }
+
+    private static void ApplyFinalPageNumbering(
+        List<RenderedReportPageDto> pages,
+        PageNumberingMode numberingMode,
+        int originalTotalPages,
+        bool isPartial)
+    {
+        for (var i = 0; i < pages.Count; i++)
+        {
+            var page = pages[i];
+            var isSupplementary = page.SectionId is ReportSectionId.PartialCover or ReportSectionId.PartialManifest;
+
+            int renderedNumber;
+            int footerTotal;
+
+            if (numberingMode == PageNumberingMode.Restart)
+            {
+                renderedNumber = i + 1;
+                footerTotal = pages.Count;
+            }
+            else if (isSupplementary)
+            {
+                renderedNumber = i + 1;
+                footerTotal = pages.Count;
+            }
+            else
+            {
+                renderedNumber = page.OriginalPageNumber;
+                footerTotal = originalTotalPages;
+            }
+
+            pages[i] = page with
+            {
+                RenderedPageNumber = renderedNumber,
+                HtmlContent = InjectFooter(page.HtmlContent, renderedNumber, footerTotal, isPartial)
+            };
+        }
     }
 
     public string RenderHtmlDocument(RenderedReportManifestDto manifest)
@@ -174,10 +204,7 @@ public sealed class InstitutionalReportRenderer
         <section class="report-page" data-page="{pageNumber}">
           {Header(partial)}
           <main>{content}</main>
-          <footer class="report-footer">
-            <span>{(partial ? "نسخة جزئية — " : string.Empty)}الصفحة {pageNumber} من {totalPages}</span>
-            <span>تقرير المتابعة الإجرائية للمعاملات</span>
-          </footer>
+          {BuildFooter(pageNumber, totalPages, partial)}
         </section>
         """;
 
@@ -191,9 +218,20 @@ public sealed class InstitutionalReportRenderer
 
     private static string InjectFooter(string html, int pageNumber, int totalPages, bool partial)
     {
-        var footer = $"<footer class=\"report-footer\"><span>{(partial ? "نسخة جزئية — " : string.Empty)}الصفحة {pageNumber} من {totalPages}</span><span>تقرير المتابعة الإجرائية للمعاملات</span></footer>";
+        var footer = BuildFooter(pageNumber, totalPages, partial);
+        var footerStart = html.IndexOf("<footer class=\"report-footer\">", StringComparison.Ordinal);
+        if (footerStart >= 0)
+        {
+            var footerEnd = html.IndexOf("</footer>", footerStart, StringComparison.Ordinal);
+            if (footerEnd >= 0)
+                return string.Concat(html.AsSpan(0, footerStart), footer, html.AsSpan(footerEnd + "</footer>".Length));
+        }
+
         return html.Replace("</section>", $"{footer}</section>", StringComparison.Ordinal);
     }
+
+    private static string BuildFooter(int pageNumber, int totalPages, bool partial) =>
+        $"<footer class=\"report-footer\"><span>{(partial ? "نسخة جزئية — " : string.Empty)}الصفحة {pageNumber} من {totalPages}</span><span>تقرير المتابعة الإجرائية للمعاملات</span></footer>";
 
     private static string RenderCover(InstitutionalReportModel model)
     {
@@ -363,25 +401,41 @@ public sealed class InstitutionalReportRenderer
         """;
     }
 
-    private static RenderedReportPageDto MakePartialCover(RenderedReportManifestDto source, ReportExportRequestDto request, List<RenderedReportPageDto> selected) =>
-        MakePage(0, ReportSectionId.PartialCover, "غلاف النسخة الجزئية", $"""
-            <div class="partial-note">نسخة جزئية من التقرير</div>
-            <h2 class="section-title">غلاف النسخة الجزئية</h2>
-            <dl class="info-card">
-              <dt>رقم التقرير الأصلي</dt><dd>{Esc(source.ReportId)}</dd>
-              <dt>الصفحات المضمنة</dt><dd>{string.Join(", ", selected.Select(p => p.OriginalPageNumber))}</dd>
-              <dt>تاريخ التصدير</dt><dd>{DateTime.UtcNow:yyyy-MM-dd}</dd>
-            </dl>
-            """);
+    private static RenderedReportPageDto CreatePartialCoverPage(RenderedReportManifestDto source, ReportExportRequestDto request, List<RenderedReportPageDto> selected) =>
+        new()
+        {
+            OriginalPageNumber = 0,
+            RenderedPageNumber = 0,
+            SectionId = ReportSectionId.PartialCover,
+            SectionName = "غلاف النسخة الجزئية",
+            PageTitle = "غلاف النسخة الجزئية",
+            HtmlContent = WrapPage($"""
+                <div class="partial-note">نسخة جزئية من التقرير</div>
+                <h2 class="section-title">غلاف النسخة الجزئية</h2>
+                <dl class="info-card">
+                  <dt>رقم التقرير الأصلي</dt><dd>{Esc(source.ReportId)}</dd>
+                  <dt>الصفحات المضمنة</dt><dd>{string.Join(", ", selected.Select(p => p.OriginalPageNumber))}</dd>
+                  <dt>تاريخ التصدير</dt><dd>{DateTime.UtcNow:yyyy-MM-dd}</dd>
+                </dl>
+                """, 0, 0, partial: true)
+        };
 
-    private static RenderedReportPageDto MakePartialManifestPage(RenderedReportManifestDto source, ReportExportRequestDto request, List<RenderedReportPageDto> selected) =>
-        MakePage(0, ReportSectionId.PartialManifest, "تعريف النسخة الجزئية", $"""
-            <h2 class="section-title">تعريف النسخة الجزئية</h2>
-            <p>رقم التقرير الأصلي: {Esc(source.ReportId)}</p>
-            <p>الصفحات الأصلية المختارة: {string.Join(", ", selected.Select(p => p.OriginalPageNumber))}</p>
-            <p>الأقسام المضمنة: {string.Join("، ", selected.Select(p => p.SectionName).Distinct())}</p>
-            {(string.IsNullOrWhiteSpace(request.Reason) ? string.Empty : $"<p>سبب الإنشاء: {Esc(request.Reason)}</p>")}
-            """);
+    private static RenderedReportPageDto CreatePartialManifestPage(RenderedReportManifestDto source, ReportExportRequestDto request, List<RenderedReportPageDto> selected) =>
+        new()
+        {
+            OriginalPageNumber = 0,
+            RenderedPageNumber = 0,
+            SectionId = ReportSectionId.PartialManifest,
+            SectionName = "تعريف النسخة الجزئية",
+            PageTitle = "تعريف النسخة الجزئية",
+            HtmlContent = WrapPage($"""
+                <h2 class="section-title">تعريف النسخة الجزئية</h2>
+                <p>رقم التقرير الأصلي: {Esc(source.ReportId)}</p>
+                <p>الصفحات الأصلية المختارة: {string.Join(", ", selected.Select(p => p.OriginalPageNumber))}</p>
+                <p>الأقسام المضمنة: {string.Join("، ", selected.Select(p => p.SectionName).Distinct())}</p>
+                {(string.IsNullOrWhiteSpace(request.Reason) ? string.Empty : $"<p>سبب الإنشاء: {Esc(request.Reason)}</p>")}
+                """, 0, 0, partial: true)
+        };
 
     private static string Esc(string? value) =>
         System.Net.WebUtility.HtmlEncode(value ?? string.Empty);

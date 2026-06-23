@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Uqeb.Api.Authorization;
+using Uqeb.Api.Helpers;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Services;
 
@@ -25,8 +26,20 @@ public class InstitutionalReportsController : ControllerBase
     [HttpPost("export")]
     public async Task<IActionResult> Export([FromBody] ReportExportRequestDto request, CancellationToken ct)
     {
-        var result = await _service.ExportAsync(request, ct);
-        return File(result.Content, result.ContentType, result.FileName);
+        try
+        {
+            var result = await _service.ExportAsync(request, ct);
+            return File(result.Content, result.ContentType, result.FileName);
+        }
+        catch (FieldValidationException ex)
+        {
+            return ValidationProblem(new ValidationProblemDetails(
+                ex.FieldErrors.ToDictionary(k => k.Key, v => new[] { v.Value }))
+            {
+                Title = ex.Message,
+                Status = StatusCodes.Status400BadRequest
+            });
+        }
     }
 
     [HttpGet("templates")]

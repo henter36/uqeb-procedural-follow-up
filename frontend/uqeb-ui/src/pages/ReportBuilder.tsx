@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { institutionalReportsApi, type InstitutionalReportManifest } from '../api/services';
+import { institutionalReportsApi, type InstitutionalReportManifest, type ReportBuildRequest, type ReportExportRequest } from '../api/services';
 import { downloadBlob } from '../utils/downloadBlob';
 import '../styles/institutional-report.css';
 
@@ -9,7 +9,7 @@ const REPORT_TYPES = [
   { value: 3, label: 'تقرير معاملات الإدارات المشتركة' },
   { value: 4, label: 'تقرير الإفادات والردود الجزئية' },
   { value: 5, label: 'تقرير معاملة واحدة' },
-];
+] as const;
 
 const SECTIONS = [
   { id: 1, label: 'الغلاف' },
@@ -20,10 +20,11 @@ const SECTIONS = [
   { id: 6, label: 'التوصيات التنفيذية' },
   { id: 7, label: 'المعاملات التفصيلية' },
   { id: 9, label: 'بيانات التقرير والفلاتر' },
-];
+] as const;
 
 type ExportMode = 1 | 2 | 3 | 4;
 type ExportFormat = 1 | 2 | 3 | 4;
+type PageSelectionMode = 'thumbnails' | 'range';
 
 function defaultDate(offsetDays: number) {
   const d = new Date();
@@ -31,8 +32,38 @@ function defaultDate(offsetDays: number) {
   return d.toISOString().slice(0, 10);
 }
 
+export function buildReportExportPageSelection(
+  exportMode: ExportMode,
+  pageSelectionMode: PageSelectionMode,
+  selectedPages: number[],
+  pageRange: string,
+  currentPage: number,
+): Pick<ReportExportRequest, 'selectedPageNumbers' | 'pageRangeExpression' | 'currentPageNumber'> {
+  if (exportMode !== 3) {
+    return {
+      selectedPageNumbers: [],
+      pageRangeExpression: null,
+      currentPageNumber: exportMode === 4 ? currentPage : null,
+    };
+  }
+
+  if (pageSelectionMode === 'range' && pageRange.trim()) {
+    return {
+      selectedPageNumbers: [],
+      pageRangeExpression: pageRange.trim(),
+      currentPageNumber: null,
+    };
+  }
+
+  return {
+    selectedPageNumbers: selectedPages,
+    pageRangeExpression: null,
+    currentPageNumber: null,
+  };
+}
+
 export default function ReportBuilderPage() {
-  const [reportType, setReportType] = useState(1);
+  const [reportType, setReportType] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [dateFrom, setDateFrom] = useState(defaultDate(-30));
   const [dateTo, setDateTo] = useState(defaultDate(0));
   const [title, setTitle] = useState('تقرير المتابعة الإجرائية للمعاملات');
@@ -40,6 +71,7 @@ export default function ReportBuilderPage() {
   const [manifest, setManifest] = useState<InstitutionalReportManifest | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedPages, setSelectedPages] = useState<number[]>([]);
+  const [pageSelectionMode, setPageSelectionMode] = useState<PageSelectionMode>('thumbnails');
   const [zoom, setZoom] = useState(0.75);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -51,13 +83,13 @@ export default function ReportBuilderPage() {
   const [includePartialCover, setIncludePartialCover] = useState(true);
   const [includePartialManifest, setIncludePartialManifest] = useState(true);
 
-  const buildRequest = useCallback(() => ({
+  const buildRequest = useCallback((): ReportBuildRequest => ({
     reportType,
     title,
-    sectionIds,
+    sectionIds: sectionIds as ReportBuildRequest['sectionIds'],
     filters: {
-      dateFrom,
-      dateTo,
+      dateFrom: dateFrom || null,
+      dateTo: dateTo || null,
       includeJointDepartmentTransactions: true,
       includeOverdue: true,
       includeDetails: true,
@@ -96,6 +128,8 @@ export default function ReportBuilderPage() {
   };
 
   const togglePage = (pageNo: number) => {
+    setPageSelectionMode('thumbnails');
+    setPageRange('');
     setSelectedPages((prev) => prev.includes(pageNo) ? prev.filter((p) => p !== pageNo) : [...prev, pageNo].sort((a, b) => a - b));
   };
 
@@ -103,17 +137,23 @@ export default function ReportBuilderPage() {
     setLoading(true);
     setError('');
     try {
+      const pageSelection = buildReportExportPageSelection(
+        exportMode,
+        pageSelectionMode,
+        selectedPages,
+        pageRange,
+        currentPage,
+      );
+
       const response = await institutionalReportsApi.export({
         buildRequest: buildRequest(),
         exportFormat,
         exportMode,
-        selectedSectionIds: sectionIds,
-        selectedPageNumbers: exportMode === 3 ? selectedPages : [],
-        pageRangeExpression: exportMode === 3 ? pageRange : undefined,
-        currentPageNumber: exportMode === 4 ? currentPage : undefined,
+        selectedSectionIds: sectionIds as ReportExportRequest['selectedSectionIds'],
         includePartialCover,
         includePartialManifest,
         pageNumberingMode,
+        ...pageSelection,
       });
       const ext = exportFormat === 2 ? 'docx' : exportFormat === 3 ? 'xlsx' : exportFormat === 4 ? 'html' : 'pdf';
       const contentType = typeof response.headers['content-type'] === 'string'
@@ -152,7 +192,7 @@ export default function ReportBuilderPage() {
         <aside className="report-builder-panel">
           <h3>إعدادات التقرير</h3>
           <label>نوع التقرير</label>
-          <select value={reportType} onChange={(e) => setReportType(Number(e.target.value))}>
+          <select value={reportType} onChange={(e) => setReportType(Number(e.target.value) as typeof reportType)}>
             {REPORT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
           <label>من تاريخ</label>
@@ -184,7 +224,13 @@ export default function ReportBuilderPage() {
             <button type="button" className="btn btn-sm btn-outline" disabled={!manifest || currentPage <= 1} onClick={() => setCurrentPage((p) => p - 1)}>السابق</button>
             <button type="button" className="btn btn-sm btn-outline" disabled={!manifest || currentPage >= (manifest?.totalPages ?? 1)} onClick={() => setCurrentPage((p) => p + 1)}>التالي</button>
             <span>{manifest ? `الصفحة ${currentPage} من ${manifest.totalPages}` : 'لا توجد معاينة بعد'}</span>
-            <span>{selectedPages.length > 0 ? `تم تحديد ${selectedPages.length} من ${manifest?.totalPages ?? 0} صفحات` : ''}</span>
+            <span>
+              {pageSelectionMode === 'thumbnails' && selectedPages.length > 0
+                ? `تم تحديد ${selectedPages.length} من ${manifest?.totalPages ?? 0} صفحات (تحديد مصغرات)`
+                : pageSelectionMode === 'range' && pageRange.trim()
+                  ? `نطاق الصفحات النشط: ${pageRange.trim()}`
+                  : ''}
+            </span>
             <label>تكبير</label>
             <input type="range" min="0.5" max="1" step="0.05" value={zoom} onChange={(e) => setZoom(Number(e.target.value))} />
           </div>
@@ -242,8 +288,19 @@ export default function ReportBuilderPage() {
             </select>
             {exportMode === 3 && (
               <>
+                <p className="text-muted">
+                  النمط النشط: {pageSelectionMode === 'range' && pageRange.trim() ? 'نطاق الصفحات' : 'تحديد الصور المصغرة'}
+                </p>
                 <label>نطاق الصفحات (مثال: 1,3-5,8)</label>
-                <input value={pageRange} onChange={(e) => setPageRange(e.target.value)} placeholder="1,3-5,8" />
+                <input
+                  value={pageRange}
+                  onChange={(e) => {
+                    setPageSelectionMode('range');
+                    setSelectedPages([]);
+                    setPageRange(e.target.value);
+                  }}
+                  placeholder="1,3-5,8"
+                />
               </>
             )}
             <label>ترقيم الصفحات</label>

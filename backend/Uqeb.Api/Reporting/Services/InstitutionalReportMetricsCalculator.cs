@@ -18,6 +18,8 @@ public static class InstitutionalReportMetricsCalculator
 
         var closed = unique.Where(s => s.IsClosed).ToList();
         var open = unique.Where(s => s.IsOpen).ToList();
+        var cancelled = unique.Count(s => TransactionStatusSemantics.IsCancelled(s.Status));
+        var archived = unique.Count(s => TransactionStatusSemantics.IsArchived(s.Status));
 
         var overdueOpen = open.Count(s => s.IsOverdue);
         var joint = unique.Count(s => s.IsJointDepartment);
@@ -46,6 +48,8 @@ public static class InstitutionalReportMetricsCalculator
             TotalTransactions = unique.Count,
             ClosedCount = closed.Count,
             OpenCount = open.Count,
+            CancelledCount = cancelled,
+            ArchivedCount = archived,
             OverdueCount = overdueOpen,
             JointDepartmentCount = joint,
             PartialResponseCount = partial,
@@ -92,9 +96,7 @@ public static class InstitutionalReportMetricsCalculator
     }
 
     public static bool IsOpenStatus(TransactionStatus status) =>
-        status is not TransactionStatus.Closed
-            and not TransactionStatus.Cancelled
-            and not TransactionStatus.Archived;
+        TransactionStatusSemantics.IsOperationalOpen(status);
 
     public static bool IsOverdue(TransactionReportSnapshot snapshot, DateTime today)
     {

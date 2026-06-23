@@ -31,6 +31,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly ICurrentUserService _currentUser;
     private readonly IAuditService _audit;
+    private readonly IInstitutionalReportNumberAllocator _reportNumberAllocator;
     private readonly DepartmentRatingCriteria _ratingCriteria = new();
     private readonly InstitutionalReportRenderer _renderer = new();
     private readonly InstitutionalReportPdfExporter _pdfExporter = new();
@@ -40,11 +41,13 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
     public InstitutionalReportService(
         IDbContextFactory<AppDbContext> dbFactory,
         ICurrentUserService currentUser,
-        IAuditService audit)
+        IAuditService audit,
+        IInstitutionalReportNumberAllocator reportNumberAllocator)
     {
         _dbFactory = dbFactory;
         _currentUser = currentUser;
         _audit = audit;
+        _reportNumberAllocator = reportNumberAllocator;
     }
 
     public Task<InstitutionalReportModel> BuildReportModelAsync(ReportBuildRequestDto request, CancellationToken ct = default) =>
@@ -64,7 +67,24 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
         var manifest = _renderer.RenderManifest(model, allSections);
         var selectedPages = ResolveSelectedPages(request, manifest);
 
+        if (selectedPages.Count == 0)
+        {
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                ["selectedPages"] = "يجب اختيار صفحة واحدة على الأقل للتصدير."
+            });
+        }
+
         var exportManifest = _renderer.BuildExportManifest(manifest, selectedPages, request);
+
+        if (exportManifest.Pages.Count == 0)
+        {
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                ["selectedPages"] = "لا توجد صفحات قابلة للتصدير ضمن الاختيار الحالي."
+            });
+        }
+
         byte[] content;
         string contentType;
         string extension;
@@ -118,10 +138,11 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
     public async Task<List<ReportTemplateDto>> GetTemplatesAsync(CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        return await db.ReportExportTemplates.AsNoTracking()
+        var templates = await db.ReportExportTemplates.AsNoTracking()
             .OrderBy(t => t.Name)
-            .Select(t => MapTemplate(t))
             .ToListAsync(ct);
+
+        return templates.Select(MapTemplate).ToList();
     }
 
     public async Task<ReportTemplateDto> SaveTemplateAsync(SaveReportTemplateRequestDto request, CancellationToken ct = default)
@@ -159,7 +180,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
         var today = DateTime.UtcNow.Date;
         var snapshots = await LoadSnapshotsAsync(request, ct);
         var metrics = InstitutionalReportMetricsCalculator.Calculate(snapshots, today);
-        var reportNumber = await GenerateReportNumberAsync(ct);
+        var reportNumber = await _reportNumberAllocator.AllocateAsync(ct);
         var verificationId = Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
 
         var model = new InstitutionalReportModel
@@ -267,9 +288,19 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
         return rows.Select(row =>
         {
             var activeAssignments = row.Assignments.Where(a => a.Status == AssignmentStatus.Active).ToList();
-            var assignmentDeptIds = activeAssignments.Select(a => a.DepartmentId).Distinct().ToList();
-            var assignmentDeptNames = activeAssignments.Select(a => a.DepartmentName).Distinct().ToList();
+            var uniqueDepartments = activeAssignments
+                .Select(a => new { a.DepartmentId, a.DepartmentName })
+                .GroupBy(x => x.DepartmentId)
+                .Select(g => g.First())
+                .ToList();
+            var assignmentDeptIds = uniqueDepartments.Select(x => x.DepartmentId).ToList();
+            var assignmentDeptNames = uniqueDepartments.Select(x => x.DepartmentName).ToList();
             var responsible = assignmentDeptNames.FirstOrDefault() ?? "—";
+
+            var uniqueOutgoingDepartments = row.OutgoingDepartments
+                .GroupBy(o => o.DepartmentId)
+                .Select(g => g.First())
+                .ToList();
 
             var snapshot = new TransactionReportSnapshot
             {
@@ -294,8 +325,8 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
                 ResponsibleDepartmentId = assignmentDeptIds.FirstOrDefault(),
                 AssignmentDepartmentIds = assignmentDeptIds,
                 AssignmentDepartmentNames = assignmentDeptNames,
-                OutgoingDepartmentIds = row.OutgoingDepartments.Select(o => o.DepartmentId).Distinct().ToList(),
-                OutgoingDepartmentNames = row.OutgoingDepartments.Select(o => o.DepartmentName).Distinct().ToList(),
+                OutgoingDepartmentIds = uniqueOutgoingDepartments.Select(o => o.DepartmentId).ToList(),
+                OutgoingDepartmentNames = uniqueOutgoingDepartments.Select(o => o.DepartmentName).ToList(),
                 ActiveAssignmentCount = activeAssignments.Count,
                 RepliedAssignmentCount = activeAssignments.Count(a => a.ReplyStatus == ReplyStatus.Replied),
                 PendingReplyAssignmentCount = activeAssignments.Count(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied),
@@ -612,15 +643,16 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
             OutgoingDate = s.OutgoingDate?.ToString("yyyy-MM-dd")
         }).ToList();
 
-    private List<IntegrityWarningDto> ValidateIntegrity(InstitutionalMetricsResult metrics)
+    private static List<IntegrityWarningDto> ValidateIntegrity(InstitutionalMetricsResult metrics)
     {
         var warnings = new List<IntegrityWarningDto>();
-        if (metrics.OpenCount + metrics.ClosedCount != metrics.TotalTransactions)
+        var bucketTotal = metrics.OpenCount + metrics.ClosedCount + metrics.CancelledCount + metrics.ArchivedCount;
+        if (bucketTotal != metrics.TotalTransactions)
         {
             warnings.Add(new IntegrityWarningDto
             {
                 Code = "TOTAL_MISMATCH",
-                Message = "مجموع المفتوحة والمغلقة لا يساوي إجمالي المعاملات الفريدة.",
+                Message = "مجموع المفتوحة والمغلقة والملغاة والمؤرشفة لا يساوي إجمالي المعاملات الفريدة.",
                 Severity = "critical"
             });
         }
@@ -659,9 +691,13 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
         return request.ExportMode switch
         {
             ExportMode.CurrentPage when request.CurrentPageNumber.HasValue => [request.CurrentPageNumber.Value],
-            ExportMode.SelectedPages when request.SelectedPageNumbers.Count > 0 => request.SelectedPageNumbers.Distinct().OrderBy(p => p).ToList(),
             ExportMode.SelectedPages when !string.IsNullOrWhiteSpace(request.PageRangeExpression)
-                => ReportPageRangeParser.Parse(request.PageRangeExpression, manifest.TotalPages).PageNumbers,
+                => ParsePageRangeOrThrow(request.PageRangeExpression, manifest.TotalPages),
+            ExportMode.SelectedPages when request.SelectedPageNumbers.Count > 0 => request.SelectedPageNumbers.Distinct().OrderBy(p => p).ToList(),
+            ExportMode.SelectedPages => throw new FieldValidationException(new Dictionary<string, string>
+            {
+                ["selectedPages"] = "يجب تحديد الصفحات عبر التحديد اليدوي أو نطاق الصفحات."
+            }),
             ExportMode.SelectedSections => manifest.Pages
                 .Where(p => request.SelectedSectionIds.Contains(p.SectionId))
                 .Select(p => p.OriginalPageNumber)
@@ -670,6 +706,28 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
                 .ToList(),
             _ => manifest.Pages.Select(p => p.OriginalPageNumber).ToList()
         };
+    }
+
+    private static List<int> ParsePageRangeOrThrow(string expression, int totalPages)
+    {
+        var parsed = ReportPageRangeParser.Parse(expression, totalPages);
+        if (!parsed.IsValid)
+        {
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                ["pageRangeExpression"] = parsed.ErrorMessage ?? "صيغة الصفحات غير صالحة."
+            });
+        }
+
+        if (parsed.PageNumbers.Count == 0)
+        {
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                ["pageRangeExpression"] = "لم يتم العثور على صفحات صالحة ضمن التعبير المحدد."
+            });
+        }
+
+        return parsed.PageNumbers;
     }
 
     private static string BuildFileName(string reportNumber, ReportExportRequestDto request, string extension, List<int> pages)
@@ -683,14 +741,6 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
                 : $"{baseName}-PAGES-{Guid.NewGuid():N[..8]}.{extension}",
             _ => $"{baseName}-FULL.{extension}"
         };
-    }
-
-    private async Task<string> GenerateReportNumberAsync(CancellationToken ct)
-    {
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var year = DateTime.UtcNow.Year;
-        var count = await db.AuditLogs.CountAsync(a => a.CreatedAt.Year == year, ct);
-        return $"REP-{year}-{(count + 1):D6}";
     }
 
     private static string ReportTypeLabel(InstitutionalReportType type) => type switch

@@ -4,6 +4,13 @@ import type {
   DashboardSummary, Department, ExternalParty, User, FollowUp, Assignment, Category,
   ReportTransactionRow, ReportSectionCounts, LetterTemplate, FollowUpLetterPreview
 } from './types';
+import type {
+  InstitutionalReportManifest,
+  ReportExportRequest,
+  ReportBuildRequest,
+  ReportTemplate,
+  SaveReportTemplateRequest,
+} from './institutionalReports.types';
 
 export const authApi = {
   login: (username: string, password: string) =>
@@ -173,31 +180,22 @@ export const securityApi = {
   markAllAlertsRead: () => api.post<{ marked: number }>('/security/alerts/mark-all-read'),
 };
 
-export type InstitutionalReportPage = {
-  renderedPageNumber: number;
-  originalPageNumber: number;
-  sectionId: number;
-  sectionName: string;
-  pageTitle: string;
-  htmlContent: string;
-  isSelectable: boolean;
-};
-
-export type InstitutionalReportManifest = {
-  reportId: string;
-  totalPages: number;
-  pages: InstitutionalReportPage[];
-  isPartialExport?: boolean;
-  partialExportNote?: string;
-};
+export type {
+  InstitutionalReportManifest,
+  InstitutionalReportPage,
+  ReportExportRequest,
+  ReportBuildRequest,
+  ReportTemplate,
+  SaveReportTemplateRequest,
+} from './institutionalReports.types';
 
 export const institutionalReportsApi = {
-  preview: (payload: Record<string, unknown>) =>
+  preview: (payload: ReportBuildRequest) =>
     api.post<InstitutionalReportManifest>('/institutional-reports/preview', payload),
-  export: (payload: Record<string, unknown>) =>
+  export: (payload: ReportExportRequest) =>
     api.post('/institutional-reports/export', payload, { responseType: 'blob' }),
-  getTemplates: () => api.get<Array<Record<string, unknown>>>('/institutional-reports/templates'),
-  saveTemplate: (payload: Record<string, unknown>) =>
-    api.post<Record<string, unknown>>('/institutional-reports/templates', payload),
+  getTemplates: () => api.get<ReportTemplate[]>('/institutional-reports/templates'),
+  saveTemplate: (payload: SaveReportTemplateRequest) =>
+    api.post<ReportTemplate>('/institutional-reports/templates', payload),
   deleteTemplate: (id: number) => api.delete(`/institutional-reports/templates/${id}`),
 };
