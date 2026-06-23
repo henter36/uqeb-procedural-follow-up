@@ -1,11 +1,13 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
+import { login, requireCredentials } from './helpers/auth.js';
 
 const apiBase = __ENV.UQEB_API_BASE_URL || 'http://localhost:5000/api';
 const username = __ENV.UQEB_TEST_USERNAME;
 const password = __ENV.UQEB_TEST_PASSWORD;
 const transactionId = __ENV.UQEB_TEST_TRANSACTION_ID;
 
+// Authenticated read probe only; no mutation is performed.
 export const options = {
   vus: Number(__ENV.K6_VUS || 5),
   duration: __ENV.K6_DURATION || '30s',
@@ -15,30 +17,24 @@ export const options = {
   },
 };
 
-function login() {
-  const res = http.post(`${apiBase}/auth/login`, JSON.stringify({
-    username,
-    password,
-  }), {
-    headers: { 'Content-Type': 'application/json' },
-  });
-  check(res, { 'login ok': (r) => r.status === 200 });
-  return res.json('token');
+export function setup() {
+  requireCredentials(username, password);
+  return {
+    token: login(apiBase, username, password),
+  };
 }
 
-export default function writeSmoke() {
-  if (!username || !password) {
-    throw new Error('Set UQEB_TEST_USERNAME and UQEB_TEST_PASSWORD.');
-  }
-
-  const token = login();
+export default function authenticatedReadSmoke(data) {
   const headers = {
-    Authorization: `Bearer ${token}`,
+    Authorization: `Bearer ${data.token}`,
     'Content-Type': 'application/json',
   };
 
   if (transactionId) {
-    const assignments = http.get(`${apiBase}/transactions/${transactionId}/assignments`, { headers });
+    const assignments = http.get(`${apiBase}/transactions/${transactionId}/assignments`, {
+      headers,
+      tags: { endpoint: 'transaction-assignments' },
+    });
     check(assignments, { 'assignments read ok': (r) => r.status === 200 });
   }
 

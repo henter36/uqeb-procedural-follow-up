@@ -16,21 +16,30 @@ Install [k6](https://k6.io/docs/get-started/installation/).
 
 | Script | Purpose |
 |--------|---------|
-| `read-smoke.js` | Login, dashboard, transactions list, transaction detail |
-| `write-smoke.js` | Login + lightweight mutation probe |
+| `read-smoke.js` | Login once in `setup()`, then dashboard, transactions list, and transaction detail reads |
+| `authenticated-read-smoke.js` | Login once in `setup()`, then optional authenticated assignments read |
+
+Neither script performs mutations. Keep `K6_DURATION` shorter than the API JWT lifetime.
 
 ## Run
 
 ```bash
 k6 run tests/performance/read-smoke.js
-k6 run tests/performance/write-smoke.js
+k6 run tests/performance/authenticated-read-smoke.js
+```
+
+Optional assignments read:
+
+```bash
+export UQEB_TEST_TRANSACTION_ID=123
+k6 run tests/performance/authenticated-read-smoke.js
 ```
 
 ## Initial thresholds (adjust after baseline)
 
 ```text
 GET p95 <= 1.5s
-Mutation p95 <= 2.5s
+Authenticated read p95 <= 2.5s
 Error rate < 1%
 ```
 

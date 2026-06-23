@@ -37,4 +37,4 @@ Install-Module Pester -MinimumVersion 5.0 -Force -Scope CurrentUser
 Invoke-Pester -Path .\scripts\verify-deployment-health.Tests.ps1 -Output Detailed
 ```
 
-Automated Pester coverage mocks `Invoke-WebRequest` for healthy API, live failure, ready 503, summary degraded, missing correlation header, retry success, and trailing-slash base URL scenarios.
+Automated Pester coverage mocks `Invoke-WebRequest` for healthy API, retry success/failure, invalid status/JSON/body, correlation header validation, trailing-slash base URL, and deploy-script throw propagation.

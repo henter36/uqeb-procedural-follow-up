@@ -173,10 +173,6 @@ try {
         -RetryCount 5 `
         -RetryDelaySec 2
 
-    if ($LASTEXITCODE -ne 0) {
-        throw "Health verification script returned exit code $LASTEXITCODE."
-    }
-
     Write-Info "Post-deploy health verification passed."
 }
 catch {

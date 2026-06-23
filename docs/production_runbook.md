@@ -27,9 +27,17 @@ Operational procedures for the on-prem Windows deployment (`10.0.177.17` per `AG
 4. Open UI → log in as smoke user → open one transaction.
 5. Review `api-runtime.log` for errors in last 24h.
 
+Run the following command **directly on the API host**:
+
 ```powershell
 Invoke-WebRequest -UseBasicParsing http://localhost:5000/health/ready
 Get-Content C:\Uqeb\logs\api-runtime.log -Tail 50
+```
+
+From an operator workstation on the LAN:
+
+```powershell
+Invoke-WebRequest -UseBasicParsing http://10.0.177.17:5000/health/ready
 ```
 
 Or use `scripts/verify-deployment-health.ps1`.

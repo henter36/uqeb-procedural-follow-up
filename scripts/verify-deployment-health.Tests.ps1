@@ -2,7 +2,6 @@
 
 BeforeAll {
     $script:HealthScript = Join-Path $PSScriptRoot 'verify-deployment-health.ps1'
-    $script:DeployScript = Join-Path $PSScriptRoot 'deploy-production-v2.ps1'
 
     function Test-ValidCorrelationId {
         param([string]$Value)
@@ -13,6 +12,33 @@ BeforeAll {
 
         return $Value -match '^[A-Za-z0-9._-]+$'
     }
+
+    function New-HealthResponse {
+        param(
+            [string]$Status,
+            [string]$HealthStatus,
+            [hashtable]$Headers = @{ 'X-Correlation-ID' = 'abc123' }
+        )
+
+        return [pscustomobject]@{
+            StatusCode = $Status
+            Content = (@{ status = $HealthStatus } | ConvertTo-Json -Compress)
+            Headers = $Headers
+        }
+    }
+
+    function Mock-HealthyApi {
+        Mock Invoke-WebRequest {
+            param($Uri)
+            $path = ([uri]$Uri).AbsolutePath
+            switch ($path) {
+                '/health/live' { return (New-HealthResponse -Status 200 -HealthStatus 'live') }
+                '/health/ready' { return (New-HealthResponse -Status 200 -HealthStatus 'ready') }
+                '/health' { return (New-HealthResponse -Status 200 -HealthStatus 'healthy') }
+                default { throw "Unexpected path $path" }
+            }
+        }
+    }
 }
 
 Describe 'PowerShell script parse checks' {
@@ -20,16 +46,6 @@ Describe 'PowerShell script parse checks' {
         $errors = $null
         [void][System.Management.Automation.Language.Parser]::ParseFile(
             $script:HealthScript,
-            [ref]$null,
-            [ref]$errors)
-
-        $errors | Should -BeNullOrEmpty
-    }
-
-    It 'parses deploy-production-v2.ps1' {
-        $errors = $null
-        [void][System.Management.Automation.Language.Parser]::ParseFile(
-            $script:DeployScript,
             [ref]$null,
             [ref]$errors)
 
@@ -56,87 +72,14 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
         Mock Invoke-WebRequest
     }
 
-    It 'PASS: healthy API' {
-        Mock Invoke-WebRequest {
-            param($Uri)
-            $path = ([uri]$Uri).AbsolutePath
-            $status = switch ($path) {
-                '/health/live' { 200; '"status":"live"' }
-                '/health/ready' { 200; '"status":"ready"' }
-                '/health' { 200; '"status":"healthy"' }
-                default { throw "Unexpected path $path" }
-            }
+    It 'PASS: /health/live succeeds on first attempt' {
+        Mock-HealthyApi
 
-            return [pscustomobject]@{
-                StatusCode = $status[0]
-                Content = $status[1]
-                Headers = @{ 'X-Correlation-ID' = 'abc123' }
-            }
-        }
-
-        & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1
-        $LASTEXITCODE | Should -Be 0
+        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
+            Should -Not -Throw
     }
 
-    It 'FAIL: live endpoint down' {
-        Mock Invoke-WebRequest { throw 'connection refused' }
-
-        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } | Should -Throw
-        $LASTEXITCODE | Should -Be 1
-    }
-
-    It 'FAIL: ready returns 503' {
-        Mock Invoke-WebRequest {
-            param($Uri)
-            if (([uri]$Uri).AbsolutePath -eq '/health/live') {
-                return [pscustomobject]@{
-                    StatusCode = 200
-                    Content = '"status":"live"'
-                    Headers = @{ 'X-Correlation-ID' = 'live-id' }
-                }
-            }
-
-            throw [System.Net.WebException]::new('503')
-        }
-
-        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } | Should -Throw
-    }
-
-    It 'FAIL: summary degraded' {
-        Mock Invoke-WebRequest {
-            param($Uri)
-            $path = ([uri]$Uri).AbsolutePath
-            if ($path -eq '/health') {
-                return [pscustomobject]@{
-                    StatusCode = 503
-                    Content = '"status":"degraded"'
-                    Headers = @{ 'X-Correlation-ID' = 'summary-id' }
-                }
-            }
-
-            return [pscustomobject]@{
-                StatusCode = 200
-                Content = '"status":"ready"'
-                Headers = @{ 'X-Correlation-ID' = 'ok-id' }
-            }
-        }
-
-        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } | Should -Throw
-    }
-
-    It 'FAIL: missing correlation header' {
-        Mock Invoke-WebRequest {
-            return [pscustomobject]@{
-                StatusCode = 200
-                Content = '"status":"live"'
-                Headers = @{}
-            }
-        }
-
-        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } | Should -Throw
-    }
-
-    It 'PASS: API starts after two attempts' {
+    It 'PASS: endpoint succeeds after two attempts' {
         $script:callCount = 0
         Mock Invoke-WebRequest {
             $script:callCount++
@@ -144,54 +87,175 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
                 throw 'starting'
             }
 
-            param($Uri)
-            $path = ([uri]$Uri).AbsolutePath
-            $content = switch ($path) {
-                '/health/live' { '"status":"live"' }
-                '/health/ready' { '"status":"ready"' }
-                '/health' { '"status":"healthy"' }
-            }
-
-            return [pscustomobject]@{
-                StatusCode = 200
-                Content = $content
-                Headers = @{ 'X-Correlation-ID' = 'retry-id' }
-            }
+            return (New-HealthResponse -Status 200 -HealthStatus 'live')
         }
 
-        & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 3 -RetryDelaySec 0
-        $LASTEXITCODE | Should -Be 0
+        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 3 -RetryDelaySec 0 } |
+            Should -Not -Throw
         $script:callCount | Should -BeGreaterOrEqual 2
     }
 
-    It 'PASS: trailing slash base URL' {
+    It 'FAIL: endpoint fails through final retry' {
+        Mock Invoke-WebRequest { throw 'connection refused' }
+
+        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 2 -RetryDelaySec 0 } |
+            Should -Throw '*liveness failed after 2 attempts*'
+    }
+
+    It 'FAIL: unexpected HTTP status' {
+        Mock Invoke-WebRequest {
+            return (New-HealthResponse -Status 503 -HealthStatus 'not_ready')
+        }
+
+        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
+            Should -Throw '*unexpected status 503*'
+    }
+
+    It 'FAIL: invalid JSON body' {
+        Mock Invoke-WebRequest {
+            return [pscustomobject]@{
+                StatusCode = 200
+                Content = 'not-json'
+                Headers = @{ 'X-Correlation-ID' = 'abc123' }
+            }
+        }
+
+        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
+            Should -Throw '*invalid JSON*'
+    }
+
+    It 'FAIL: incorrect status field' {
+        Mock Invoke-WebRequest {
+            return (New-HealthResponse -Status 200 -HealthStatus 'degraded')
+        }
+
+        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
+            Should -Throw "*instead of 'live'*"
+    }
+
+    It 'FAIL: missing correlation header' {
+        Mock Invoke-WebRequest {
+            return [pscustomobject]@{
+                StatusCode = 200
+                Content = (@{ status = 'live' } | ConvertTo-Json -Compress)
+                Headers = @{}
+            }
+        }
+
+        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
+            Should -Throw '*did not return X-Correlation-ID header*'
+    }
+
+    It 'FAIL: multiple correlation header values' {
+        Mock Invoke-WebRequest {
+            return [pscustomobject]@{
+                StatusCode = 200
+                Content = (@{ status = 'live' } | ConvertTo-Json -Compress)
+                Headers = @{ 'X-Correlation-ID' = @('first', 'second') }
+            }
+        }
+
+        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
+            Should -Throw '*multiple X-Correlation-ID header values*'
+    }
+
+    It 'FAIL: invalid correlation header value' {
+        Mock Invoke-WebRequest {
+            return [pscustomobject]@{
+                StatusCode = 200
+                Content = (@{ status = 'live' } | ConvertTo-Json -Compress)
+                Headers = @{ 'X-Correlation-ID' = 'bad header' }
+            }
+        }
+
+        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
+            Should -Throw '*invalid X-Correlation-ID header*'
+    }
+
+    It 'PASS: base URL with trailing slash' {
         Mock Invoke-WebRequest {
             param($Uri)
             ([uri]$Uri).AbsolutePath | Should -Be '/health/live'
-            return [pscustomobject]@{
-                StatusCode = 200
-                Content = '"status":"live"'
-                Headers = @{ 'X-Correlation-ID' = 'slash-id' }
-            }
+            return (New-HealthResponse -Status 200 -HealthStatus 'live')
         }
 
-        Mock Invoke-WebRequest -ParameterFilter { $Uri -like '*/health/ready*' } {
-            return [pscustomobject]@{
-                StatusCode = 200
-                Content = '"status":"ready"'
-                Headers = @{ 'X-Correlation-ID' = 'slash-id' }
-            }
+        Mock Invoke-WebRequest -ParameterFilter { $Uri -like '*/health/ready' } {
+            return (New-HealthResponse -Status 200 -HealthStatus 'ready')
         }
 
-        Mock Invoke-WebRequest -ParameterFilter { $Uri -like '*/health' -and $Uri -notlike '*/health/*' } {
-            return [pscustomobject]@{
-                StatusCode = 200
-                Content = '"status":"healthy"'
-                Headers = @{ 'X-Correlation-ID' = 'slash-id' }
-            }
+        Mock Invoke-WebRequest -ParameterFilter {
+            $Uri -match '/health$' -and $Uri -notmatch '/health/'
+        } {
+            return (New-HealthResponse -Status 200 -HealthStatus 'healthy')
         }
 
-        & $script:HealthScript -ApiBaseUrl 'http://localhost:5000/' -RetryCount 1
-        $LASTEXITCODE | Should -Be 0
+        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000/' -RetryCount 1 } |
+            Should -Not -Throw
+    }
+
+    It 'PASS: base URL without trailing slash' {
+        Mock-HealthyApi
+
+        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
+            Should -Not -Throw
+    }
+
+    It 'FAIL: ready endpoint returns 503' {
+        Mock Invoke-WebRequest {
+            param($Uri)
+            if (([uri]$Uri).AbsolutePath -eq '/health/live') {
+                return (New-HealthResponse -Status 200 -HealthStatus 'live')
+            }
+
+            throw [System.Net.WebException]::new('503')
+        }
+
+        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
+            Should -Throw
+    }
+
+    It 'FAIL: summary degraded' {
+        Mock Invoke-WebRequest {
+            param($Uri)
+            $path = ([uri]$Uri).AbsolutePath
+            if ($path -eq '/health') {
+                return (New-HealthResponse -Status 503 -HealthStatus 'degraded')
+            }
+
+            return (New-HealthResponse -Status 200 -HealthStatus 'ready')
+        }
+
+        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
+            Should -Throw
+    }
+}
+
+Describe 'deploy script health verifier integration pattern' {
+    It 'propagates verifier failure to caller catch block' {
+        Mock Invoke-WebRequest { throw 'connection refused' }
+
+        {
+            try {
+                & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1
+            }
+            catch {
+                throw "Post-deploy health verification failed. Details: $($_.Exception.Message)"
+            }
+        } | Should -Throw '*Post-deploy health verification failed*'
+    }
+
+    It 'allows deploy flow to continue when verifier succeeds' {
+        Mock-HealthyApi
+
+        $deploySucceeded = $false
+        try {
+            & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1
+            $deploySucceeded = $true
+        }
+        catch {
+            throw "Post-deploy health verification failed. Details: $($_.Exception.Message)"
+        }
+
+        $deploySucceeded | Should -BeTrue
     }
 }

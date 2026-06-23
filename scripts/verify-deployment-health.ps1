@@ -24,83 +24,153 @@ function Test-ValidCorrelationId {
     return $Value -match '^[A-Za-z0-9._-]+$'
 }
 
+function Get-HealthUri {
+    param(
+        [string]$BaseUrl,
+        [string]$Path
+    )
+
+    return ($BaseUrl.TrimEnd('/') + $Path)
+}
+
+function Assert-AllowedStatusCode {
+    param(
+        [int]$StatusCode,
+        [int[]]$AllowedStatusCodes,
+        [string]$Label
+    )
+
+    if ($AllowedStatusCodes -notcontains $StatusCode) {
+        throw "$Label failed with unexpected status $StatusCode."
+    }
+}
+
+function Get-ValidCorrelationId {
+    param(
+        $Response,
+        [string]$Label
+    )
+
+    $header = $Response.Headers['X-Correlation-ID']
+
+    if (-not $header) {
+        throw "$Label did not return X-Correlation-ID header."
+    }
+
+    $values = @($header)
+
+    if ($values.Count -ne 1) {
+        throw "$Label returned multiple X-Correlation-ID header values."
+    }
+
+    $value = [string]$values[0]
+
+    if (-not (Test-ValidCorrelationId -Value $value)) {
+        throw "$Label returned an invalid X-Correlation-ID header."
+    }
+
+    return $value
+}
+
+function Assert-ExpectedHealthStatus {
+    param(
+        [string]$Content,
+        [string]$ExpectedStatus,
+        [string]$Label
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ExpectedStatus)) {
+        return
+    }
+
+    try {
+        $payload = $Content | ConvertFrom-Json
+    }
+    catch {
+        throw "$Label returned invalid JSON."
+    }
+
+    if ($payload.status -ne $ExpectedStatus) {
+        throw "$Label returned status '$($payload.status)' instead of '$ExpectedStatus'."
+    }
+}
+
+function Assert-HealthResponse {
+    param(
+        $Response,
+        [string]$Label,
+        [int[]]$AllowedStatusCodes,
+        [string]$ExpectedStatus
+    )
+
+    Assert-AllowedStatusCode `
+        -StatusCode ([int]$Response.StatusCode) `
+        -AllowedStatusCodes $AllowedStatusCodes `
+        -Label $Label
+
+    Get-ValidCorrelationId `
+        -Response $Response `
+        -Label $Label | Out-Null
+
+    Assert-ExpectedHealthStatus `
+        -Content $Response.Content `
+        -ExpectedStatus $ExpectedStatus `
+        -Label $Label
+}
+
 function Invoke-HealthEndpoint {
     param(
         [string]$Path,
         [string]$Label,
         [int[]]$AllowedStatusCodes,
-        [string]$ExpectedStatusToken
+        [string]$ExpectedStatus
     )
 
-    $base = $ApiBaseUrl.TrimEnd('/')
-    $uri = "$base$Path"
-    Write-Output ("Checking $Label => $uri")
+    $uri = Get-HealthUri -BaseUrl $ApiBaseUrl -Path $Path
+    Write-Output "Checking $Label => $uri"
 
-  $attempt = 0
-  while ($true) {
-    $attempt++
-    try {
-      $response = Invoke-WebRequest -UseBasicParsing -Uri $uri -TimeoutSec $TimeoutSec
-      $statusCode = [int]$response.StatusCode
+    for ($attempt = 1; $attempt -le $RetryCount; $attempt++) {
+        try {
+            $response = Invoke-WebRequest `
+                -UseBasicParsing `
+                -Uri $uri `
+                -TimeoutSec $TimeoutSec
 
-      if ($AllowedStatusCodes -notcontains $statusCode) {
-        throw "$Label failed with unexpected status $statusCode."
-      }
+            Assert-HealthResponse `
+                -Response $response `
+                -Label $Label `
+                -AllowedStatusCodes $AllowedStatusCodes `
+                -ExpectedStatus $ExpectedStatus
 
-      if (-not $response.Headers['X-Correlation-ID']) {
-        throw "$Label did not return X-Correlation-ID header."
-      }
+            return $response
+        }
+        catch {
+            if ($attempt -eq $RetryCount) {
+                throw "$Label failed after $RetryCount attempts. Details: $($_.Exception.Message)"
+            }
 
-      $correlationValues = @($response.Headers['X-Correlation-ID'])
-      if ($correlationValues.Count -ne 1) {
-        throw "$Label returned multiple X-Correlation-ID header values."
-      }
-
-      if (-not (Test-ValidCorrelationId -Value $correlationValues[0])) {
-        throw "$Label returned an invalid X-Correlation-ID header."
-      }
-
-      $body = $response.Content
-      if ($ExpectedStatusToken -and $body -notmatch $ExpectedStatusToken) {
-        throw "$Label response did not contain expected status token '$ExpectedStatusToken'."
-      }
-
-      return $response
+            Write-Output "Retry $attempt/$RetryCount for $Label after failure: $($_.Exception.Message)"
+            Start-Sleep -Seconds $RetryDelaySec
+        }
     }
-    catch {
-      if ($attempt -ge $RetryCount) {
-        throw
-      }
-
-      Write-Output ("Retry $attempt/$RetryCount for $Label after failure: $($_.Exception.Message)")
-      Start-Sleep -Seconds $RetryDelaySec
-    }
-  }
 }
 
-try {
-  Invoke-HealthEndpoint `
+Invoke-HealthEndpoint `
     -Path '/health/live' `
     -Label 'liveness' `
     -AllowedStatusCodes @(200) `
-    -ExpectedStatusToken '"status":"live"' | Out-Null
+    -ExpectedStatus 'live' | Out-Null
 
-  Invoke-HealthEndpoint `
+Invoke-HealthEndpoint `
     -Path '/health/ready' `
     -Label 'readiness' `
     -AllowedStatusCodes @(200) `
-    -ExpectedStatusToken '"status":"ready"' | Out-Null
+    -ExpectedStatus 'ready' | Out-Null
 
-  Invoke-HealthEndpoint `
+Invoke-HealthEndpoint `
     -Path '/health' `
     -Label 'summary' `
     -AllowedStatusCodes @(200) `
-    -ExpectedStatusToken '"status":"healthy"' | Out-Null
+    -ExpectedStatus 'healthy' | Out-Null
 
-  Write-Output 'Health verification passed.'
-  exit 0
-}
-catch {
-  Write-Error $_.Exception.Message
-  exit 1
-}
+Write-Output 'Health verification passed.'
