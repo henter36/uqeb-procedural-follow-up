@@ -20,8 +20,17 @@ public class InstitutionalReportsController : ControllerBase
     }
 
     [HttpPost("preview")]
-    public Task<RenderedReportManifestDto> Preview([FromBody] ReportBuildRequestDto request, CancellationToken ct) =>
-        _service.RenderPreviewAsync(request, ct);
+    public async Task<IActionResult> Preview([FromBody] ReportBuildRequestDto request, CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await _service.RenderPreviewAsync(request, ct));
+        }
+        catch (FieldValidationException ex)
+        {
+            return ToValidationProblem(ex);
+        }
+    }
 
     [HttpPost("export")]
     public async Task<IActionResult> Export([FromBody] ReportExportRequestDto request, CancellationToken ct)
@@ -33,12 +42,7 @@ public class InstitutionalReportsController : ControllerBase
         }
         catch (FieldValidationException ex)
         {
-            return ValidationProblem(new ValidationProblemDetails(
-                ex.FieldErrors.ToDictionary(k => k.Key, v => new[] { v.Value }))
-            {
-                Title = ex.Message,
-                Status = StatusCodes.Status400BadRequest
-            });
+            return ToValidationProblem(ex);
         }
     }
 
@@ -47,8 +51,17 @@ public class InstitutionalReportsController : ControllerBase
         _service.GetTemplatesAsync(ct);
 
     [HttpPost("templates")]
-    public Task<ReportTemplateDto> SaveTemplate([FromBody] SaveReportTemplateRequestDto request, CancellationToken ct) =>
-        _service.SaveTemplateAsync(request, ct);
+    public async Task<IActionResult> SaveTemplate([FromBody] SaveReportTemplateRequestDto request, CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await _service.SaveTemplateAsync(request, ct));
+        }
+        catch (FieldValidationException ex)
+        {
+            return ToValidationProblem(ex);
+        }
+    }
 
     [HttpDelete("templates/{id:int}")]
     public async Task<IActionResult> DeleteTemplate(int id, CancellationToken ct)
@@ -56,4 +69,12 @@ public class InstitutionalReportsController : ControllerBase
         await _service.DeleteTemplateAsync(id, ct);
         return NoContent();
     }
+
+    private static BadRequestObjectResult ToValidationProblem(FieldValidationException ex) =>
+        new(new ValidationProblemDetails(
+            ex.FieldErrors.ToDictionary(k => k.Key, v => new[] { v.Value }))
+        {
+            Title = ex.Message,
+            Status = StatusCodes.Status400BadRequest
+        });
 }

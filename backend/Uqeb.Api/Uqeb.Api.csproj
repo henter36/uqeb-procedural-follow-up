@@ -26,7 +26,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="Reporting\Assets\Fonts\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Reporting\Assets\Fonts\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Uqeb.Api.Tests" />
   </ItemGroup>
 
 </Project>

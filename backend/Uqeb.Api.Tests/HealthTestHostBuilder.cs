@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,12 +16,14 @@ internal static class HealthTestHostBuilder
     internal static void Configure(
         IWebHostBuilder builder,
         Action<IServiceCollection>? configureServices = null,
-        Dictionary<string, string?>? extraConfig = null)
+        Dictionary<string, string?>? extraConfig = null,
+        string? inMemoryDatabaseName = null)
     {
         builder.UseEnvironment("Development");
 
         var values = new Dictionary<string, string?>
         {
+            ["Testing:UseInMemoryDatabase"] = "true",
             ["Jwt:Key"] = "integration-test-jwt-key-32-chars-min",
             ["Jwt:Issuer"] = "UqebApiTests",
             ["Jwt:Audience"] = "UqebClientTests",
@@ -39,16 +42,18 @@ internal static class HealthTestHostBuilder
 
         builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(values));
 
-        builder.ConfigureServices(services =>
+        var databaseName = inMemoryDatabaseName ?? $"health-tests-{Guid.NewGuid():N}";
+
+        builder.ConfigureTestServices(services =>
         {
-            services.RemoveAll(typeof(DbContextOptions<AppDbContext>));
-            services.RemoveAll(typeof(IDbContextFactory<AppDbContext>));
-            services.RemoveAll(typeof(AppDbContext));
-            services.RemoveAll(typeof(IHealthDatabaseProbe));
-            services.RemoveAll(typeof(ISecurityAuditService));
+            services.RemoveAll<DbContextOptions<AppDbContext>>();
+            services.RemoveAll<IDbContextFactory<AppDbContext>>();
+            services.RemoveAll<AppDbContext>();
+            services.RemoveAll<IHealthDatabaseProbe>();
+            services.RemoveAll<ISecurityAuditService>();
 
             services.AddDbContextFactory<AppDbContext>(options =>
-                options.UseInMemoryDatabase($"health-tests-{Guid.NewGuid():N}"));
+                options.UseInMemoryDatabase(databaseName));
             services.AddScoped(sp =>
                 sp.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
             services.AddScoped<IHealthDatabaseProbe, SuccessfulHealthDatabaseProbe>();

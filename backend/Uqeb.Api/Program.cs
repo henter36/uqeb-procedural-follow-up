@@ -11,7 +11,6 @@ using Uqeb.Api.Configuration;
 using Uqeb.Api.Data;
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Middleware;
-using Uqeb.Api.Configuration;
 using Uqeb.Api.Reporting.Exporters;
 using Uqeb.Api.Reporting.Configuration;
 using Uqeb.Api.Reporting.Services;
@@ -22,13 +21,20 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));
 builder.Services.Configure<FeatureFlagsSettings>(builder.Configuration.GetSection(FeatureFlagsSettings.SectionName));
-builder.Services.Configure<ReportingOptions>(builder.Configuration.GetSection(ReportingOptions.SectionName));
+builder.Services.AddOptions<ReportingOptions>()
+    .Bind(builder.Configuration.GetSection(ReportingOptions.SectionName))
+    .Validate(o => o.MaxPdfDetailRows > 0, "Reporting:MaxPdfDetailRows must be greater than zero.")
+    .ValidateOnStart();
 
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-builder.Services.AddDbContextFactory<AppDbContext>(options =>
-    options.UseSqlServer(connectionString));
-builder.Services.AddScoped(sp =>
-    sp.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
+var useInMemoryDatabase = builder.Configuration.GetValue<bool>("Testing:UseInMemoryDatabase");
+if (!useInMemoryDatabase)
+{
+    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    builder.Services.AddDbContextFactory<AppDbContext>(options =>
+        options.UseSqlServer(connectionString));
+    builder.Services.AddScoped(sp =>
+        sp.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
+}
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();

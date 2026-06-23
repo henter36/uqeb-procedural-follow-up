@@ -1,3 +1,5 @@
+using Uqeb.Api.Reporting.Configuration;
+
 namespace Uqeb.Api.Reporting.Services;
 
 /// <summary>Controls how aggregate metrics vs. transaction detail rows are assembled.</summary>
@@ -20,45 +22,61 @@ internal sealed record ReportAssemblyOptions
     /// <summary>Rows actually exported/embedded in detail output (may span multiple parts).</summary>
     public int? ExportedDetailRowsOverride { get; init; }
 
-    internal static ReportAssemblyOptions ForPreview(int totalMatched, int detailLimit) => new()
+    internal static ReportAssemblyOptions ForPreview(int totalMatched, int detailLimit)
     {
-        TotalMatchedOverride = totalMatched,
-        DetailRowLimit = detailLimit,
-        DetailRowsToLoad = detailLimit,
-        DetailRowsTruncated = totalMatched > detailLimit,
-        DetailPartsCount = totalMatched > detailLimit
-            ? (int)Math.Ceiling(totalMatched / (double)detailLimit)
-            : 0,
-        ExportedDetailRowsOverride = Math.Min(totalMatched, detailLimit),
-    };
+        ReportingOptions.ValidateDetailLimit(detailLimit);
+        return new()
+        {
+            TotalMatchedOverride = totalMatched,
+            DetailRowLimit = detailLimit,
+            DetailRowsToLoad = detailLimit,
+            DetailRowsTruncated = totalMatched > detailLimit,
+            DetailPartsCount = totalMatched > detailLimit
+                ? (int)Math.Ceiling(totalMatched / (double)detailLimit)
+                : 0,
+            ExportedDetailRowsOverride = Math.Min(totalMatched, detailLimit),
+        };
+    }
 
-    internal static ReportAssemblyOptions ForFullDetailExport(int totalMatched, int detailLimit) => new()
+    internal static ReportAssemblyOptions ForFullDetailExport(int totalMatched, int detailLimit)
     {
-        TotalMatchedOverride = totalMatched,
-        DetailRowLimit = detailLimit,
-        DetailRowsToLoad = null,
-        DetailRowsTruncated = false,
-        DetailPartsCount = 1,
-        ExportedDetailRowsOverride = totalMatched,
-    };
+        ReportingOptions.ValidateDetailLimit(detailLimit);
+        return new()
+        {
+            TotalMatchedOverride = totalMatched,
+            DetailRowLimit = detailLimit,
+            DetailRowsToLoad = null,
+            DetailRowsTruncated = false,
+            DetailPartsCount = 1,
+            ExportedDetailRowsOverride = totalMatched,
+        };
+    }
 
-    internal static ReportAssemblyOptions ForSummaryOnlyExport(int totalMatched, int detailLimit) => new()
+    internal static ReportAssemblyOptions ForSummaryOnlyExport(int totalMatched, int detailLimit)
     {
-        TotalMatchedOverride = totalMatched,
-        DetailRowLimit = detailLimit,
-        OmitDetailRows = true,
-        DetailRowsTruncated = totalMatched > 0,
-        DetailPartsCount = 0,
-        ExportedDetailRowsOverride = 0,
-    };
+        ReportingOptions.ValidateDetailLimit(detailLimit);
+        return new()
+        {
+            TotalMatchedOverride = totalMatched,
+            DetailRowLimit = detailLimit,
+            OmitDetailRows = true,
+            DetailRowsTruncated = totalMatched > 0,
+            DetailPartsCount = 0,
+            ExportedDetailRowsOverride = 0,
+        };
+    }
 
-    internal static ReportAssemblyOptions ForSplitPdfExport(int totalMatched, int detailLimit) => new()
+    internal static ReportAssemblyOptions ForSplitPdfExport(int totalMatched, int detailLimit)
     {
-        TotalMatchedOverride = totalMatched,
-        DetailRowLimit = detailLimit,
-        DetailRowsToLoad = null,
-        DetailRowsTruncated = true,
-        DetailPartsCount = (int)Math.Ceiling(totalMatched / (double)detailLimit),
-        ExportedDetailRowsOverride = totalMatched,
-    };
+        ReportingOptions.ValidateDetailLimit(detailLimit);
+        return new()
+        {
+            TotalMatchedOverride = totalMatched,
+            DetailRowLimit = detailLimit,
+            DetailRowsToLoad = null,
+            DetailRowsTruncated = true,
+            DetailPartsCount = (int)Math.Ceiling(totalMatched / (double)detailLimit),
+            ExportedDetailRowsOverride = totalMatched,
+        };
+    }
 }

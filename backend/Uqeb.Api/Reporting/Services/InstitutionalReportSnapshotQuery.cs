@@ -71,9 +71,7 @@ internal static class InstitutionalReportSnapshotQuery
 
         if (reportType == InstitutionalReportType.OverdueTransactions)
         {
-            return query.Where(t => t.Status != TransactionStatus.Closed
-                && t.Status != TransactionStatus.Cancelled
-                && t.Status != TransactionStatus.Archived);
+            return InstitutionalReportOverdueQuery.ApplyOverdueFilter(query, DateTime.UtcNow.Date);
         }
 
         if (reportType == InstitutionalReportType.JointDepartmentTransactions)
@@ -97,13 +95,20 @@ internal static class InstitutionalReportSnapshotQuery
         UserRole role,
         int? departmentId)
     {
-        if (departmentId is int deptId && role != UserRole.Admin)
+        if (role == UserRole.Admin)
+            return query;
+
+        if (departmentId is not int deptId)
         {
-            return query.Where(t => t.Assignments.Any(a => a.DepartmentId == deptId)
-                || t.OutgoingDepartments.Any(o => o.DepartmentId == deptId));
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                ["departmentId"] = "تعذر تحديد نطاق الإدارة للمستخدم الحالي."
+            });
         }
 
-        return query;
+        return query.Where(t =>
+            t.Assignments.Any(a => a.DepartmentId == deptId)
+            || t.OutgoingDepartments.Any(o => o.DepartmentId == deptId));
     }
 
     internal static IQueryable<Transaction> ApplyInstitutionalFilter(

@@ -62,13 +62,15 @@ public sealed class InstitutionalReportRenderer
     {
         var pages = new List<RenderedReportPageDto>();
         var pageNo = 1;
+        var coverPageIndex = -1;
 
         foreach (var section in sections)
         {
             switch (section)
             {
                 case ReportSectionId.Cover:
-                    pages.Add(MakePage(pageNo++, section, "الغلاف", RenderCover(model)));
+                    coverPageIndex = pages.Count;
+                    pages.Add(MakePage(pageNo++, section, "الغلاف", string.Empty));
                     break;
                 case ReportSectionId.ExecutiveSummary:
                     pages.Add(MakePage(pageNo++, section, "الملخص التنفيذي", RenderExecutiveSummary(model)));
@@ -108,6 +110,12 @@ public sealed class InstitutionalReportRenderer
 
         var reportId = model.Metadata.ReportNumber;
         model.Metadata.TotalPages = pages.Count;
+
+        if (coverPageIndex >= 0)
+        {
+            var coverPage = pages[coverPageIndex];
+            pages[coverPageIndex] = coverPage with { HtmlContent = RenderCover(model) };
+        }
 
         return new RenderedReportManifestDto
         {

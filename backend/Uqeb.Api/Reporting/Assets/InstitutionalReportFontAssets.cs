@@ -33,7 +33,11 @@ public static class InstitutionalReportFontAssets
     {
         var path = Path.Combine(AppContext.BaseDirectory, "Reporting", "Assets", "Fonts", fileName);
         if (!File.Exists(path))
-            return string.Empty;
+        {
+            throw new FileNotFoundException(
+                $"Required report font asset was not found: {fileName}",
+                path);
+        }
 
         var bytes = File.ReadAllBytes(path);
         return $"data:font/{format};base64,{Convert.ToBase64String(bytes)}";

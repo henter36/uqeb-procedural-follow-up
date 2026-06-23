@@ -361,6 +361,22 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
             });
         }
 
+        if (!Enum.IsDefined(request.ReportType))
+        {
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                ["reportType"] = "نوع التقرير غير صالح."
+            });
+        }
+
+        if (!Enum.IsDefined(request.DefaultFormat))
+        {
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                ["defaultFormat"] = "صيغة التصدير الافتراضية غير صالحة."
+            });
+        }
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var userExists = await db.Users.AsNoTracking().AnyAsync(u => u.Id == _currentUser.UserId, ct);
         if (!userExists)
@@ -426,6 +442,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
         ReportAssemblyOptions options)
     {
         var detailLimit = options.DetailRowLimit > 0 ? options.DetailRowLimit : _reportingOptions.MaxPdfDetailRows;
+        ReportingOptions.ValidateDetailLimit(detailLimit);
         var totalMatched = options.TotalMatchedOverride ?? await CountMatchingTransactionsAsync(request, ct);
 
         var metricSnapshots = await LoadSnapshotsAsync(request, ct, takeLimit: null);

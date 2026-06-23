@@ -103,6 +103,25 @@ public class InstitutionalReportOverflowTests
 
         Assert.Equal("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", result.ContentType);
         Assert.Contains("overflowAction=FullDetailsXlsx", audit.LastNewValue);
+        Assert.Equal(5, result.Manifest.TotalMatchedRows);
+        Assert.Equal(5, result.Manifest.ExportedDetailRows);
+        Assert.False(result.Manifest.DetailRowsTruncated);
+    }
+
+    [Fact]
+    public async Task ExportAsync_FullDetailsXlsx_ExportsAllRows_WhenCountExceedsPdfLimit()
+    {
+        const int transactionCount = 501;
+        var dbFactory = await CreateSeededFactoryAsync(transactionCount);
+        var service = InstitutionalReportServiceTestHelpers.CreateService(
+            dbFactory,
+            new ReportingOptions { MaxPdfDetailRows = DetailLimit });
+
+        var result = await service.ExportAsync(CreateExportRequest(DetailOverflowAction.FullDetailsXlsx));
+
+        Assert.Equal(transactionCount, result.Manifest.TotalMatchedRows);
+        Assert.Equal(transactionCount, result.Manifest.ExportedDetailRows);
+        Assert.False(result.Manifest.DetailRowsTruncated);
     }
 
     private static ReportExportRequestDto CreateExportRequest(DetailOverflowAction overflowAction) => new()

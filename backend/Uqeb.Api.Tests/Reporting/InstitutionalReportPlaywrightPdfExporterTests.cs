@@ -9,6 +9,9 @@ namespace Uqeb.Api.Tests.Reporting;
 
 public class InstitutionalReportPlaywrightPdfExporterTests
 {
+    private static bool RequirePlaywrightInCi =>
+        string.Equals(Environment.GetEnvironmentVariable("REQUIRE_PLAYWRIGHT_TESTS"), "1", StringComparison.Ordinal);
+
     private static async Task<bool> IsPlaywrightAvailableAsync()
     {
         try
@@ -23,9 +26,19 @@ public class InstitutionalReportPlaywrightPdfExporterTests
         }
     }
 
+    private static async Task EnsurePlaywrightAvailableAsync()
+    {
+        if (await IsPlaywrightAvailableAsync())
+            return;
+
+        if (RequirePlaywrightInCi)
+            Assert.Fail("Playwright Chromium is required in CI but is not available.");
+    }
+
     [Fact]
     public async Task ExportAsync_ProducesSearchablePdf_WithArabicTableStructure()
     {
+        await EnsurePlaywrightAvailableAsync();
         if (!await IsPlaywrightAvailableAsync())
             return;
 
@@ -51,6 +64,7 @@ public class InstitutionalReportPlaywrightPdfExporterTests
     [Fact]
     public async Task ExportAsync_PartialManifest_HasCorrectPageNumberingInHtml()
     {
+        await EnsurePlaywrightAvailableAsync();
         if (!await IsPlaywrightAvailableAsync())
             return;
 

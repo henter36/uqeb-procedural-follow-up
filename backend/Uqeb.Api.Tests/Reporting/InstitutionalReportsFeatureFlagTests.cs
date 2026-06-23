@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
+using Uqeb.Api.Reporting.Exporters;
 using Uqeb.Api.Reporting.Services;
 using Xunit;
 
@@ -133,8 +134,21 @@ internal static class InstitutionalReportsTestHostBuilder
         IWebHostBuilder builder,
         bool institutionalReportsEnabled,
         bool useRealInstitutionalReportService = false,
-        Action<IServiceCollection>? configureServices = null)
+        Action<IServiceCollection>? configureServices = null,
+        Dictionary<string, string?>? extraConfig = null,
+        string? inMemoryDatabaseName = null)
     {
+        var config = new Dictionary<string, string?>
+        {
+            ["FeatureFlags:InstitutionalReports"] = institutionalReportsEnabled ? "true" : "false",
+        };
+
+        if (extraConfig is not null)
+        {
+            foreach (var entry in extraConfig)
+                config[entry.Key] = entry.Value;
+        }
+
         HealthTestHostBuilder.Configure(
             builder,
             services =>
@@ -144,13 +158,18 @@ internal static class InstitutionalReportsTestHostBuilder
                     services.RemoveAll(typeof(IInstitutionalReportService));
                     services.AddSingleton<IInstitutionalReportService, StubInstitutionalReportService>();
                 }
+                else
+                {
+                    services.RemoveAll<IInstitutionalReportNumberAllocator>();
+                    services.AddSingleton<IInstitutionalReportNumberAllocator, TestInstitutionalReportNumberAllocator>();
+                    services.RemoveAll<IInstitutionalReportPdfExporter>();
+                    services.AddSingleton<IInstitutionalReportPdfExporter, TestInstitutionalReportPdfExporter>();
+                }
 
                 configureServices?.Invoke(services);
             },
-            extraConfig: new Dictionary<string, string?>
-            {
-                ["FeatureFlags:InstitutionalReports"] = institutionalReportsEnabled ? "true" : "false",
-            });
+            extraConfig: config,
+            inMemoryDatabaseName: inMemoryDatabaseName);
     }
 }
 

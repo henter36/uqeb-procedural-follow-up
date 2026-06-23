@@ -5,23 +5,58 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   backend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@11bd71901bbe5b1630cea7d8aed3829fb41b6761 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573fc0b693ab7adac09d2628c6b790abfde # v4.3.1
         with:
           dotnet-version: '10.0.x'
       - run: dotnet restore backend/Uqeb.Api/Uqeb.Api.csproj
       - run: dotnet build backend/Uqeb.Api/Uqeb.Api.csproj --no-restore
-      - run: dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --no-restore
+      - run: dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --no-restore --filter "FullyQualifiedName!~InstitutionalReportPlaywrightPdfExporterTests"
+
+  pdf-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630cea7d8aed3829fb41b6761 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573fc0b693ab7adac09d2628c6b790abfde # v4.3.1
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet restore backend/Uqeb.Api/Uqeb.Api.csproj
+      - run: dotnet build backend/Uqeb.Api/Uqeb.Api.csproj -c Release --no-restore
+      - run: pwsh backend/Uqeb.Api/bin/Release/net10.0/playwright.ps1 install --with-deps chromium
+        continue-on-error: false
+      - name: Install Playwright browsers via CLI
+        run: |
+          dotnet tool install --global Microsoft.Playwright.CLI || true
+          playwright install --with-deps chromium
+      - run: dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName~InstitutionalReportPlaywrightPdfExporterTests"
+        env:
+          REQUIRE_PLAYWRIGHT_TESTS: "1"
+      - name: Upload PDF artifact on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pdf-linux-failure-artifacts
+          path: backend/Uqeb.Api.Tests/TestResults
+          if-no-files-found: ignore
 
   frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630cea7d8aed3829fb41b6761 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '24'
           cache: npm
@@ -32,3 +67,15 @@ jobs:
         working-directory: frontend/uqeb-ui
       - run: npm test -- --run
         working-directory: frontend/uqeb-ui
+
+  zizmor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630cea7d8aed3829fb41b6761 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@83679a5e617bcc5e9f35bfea6cbea396cfe66a49 # v6.1.0
+        with:
+          python-version: '3.13'
+      - run: pip install zizmor
+      - run: zizmor --persona regular .github/workflows/ci.yml
