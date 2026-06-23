@@ -172,3 +172,32 @@ export const securityApi = {
   markAlertRead: (id: number) => api.post(`/security/alerts/${id}/read`),
   markAllAlertsRead: () => api.post<{ marked: number }>('/security/alerts/mark-all-read'),
 };
+
+export type InstitutionalReportPage = {
+  renderedPageNumber: number;
+  originalPageNumber: number;
+  sectionId: number;
+  sectionName: string;
+  pageTitle: string;
+  htmlContent: string;
+  isSelectable: boolean;
+};
+
+export type InstitutionalReportManifest = {
+  reportId: string;
+  totalPages: number;
+  pages: InstitutionalReportPage[];
+  isPartialExport?: boolean;
+  partialExportNote?: string;
+};
+
+export const institutionalReportsApi = {
+  preview: (payload: Record<string, unknown>) =>
+    api.post<InstitutionalReportManifest>('/institutional-reports/preview', payload),
+  export: (payload: Record<string, unknown>) =>
+    api.post('/institutional-reports/export', payload, { responseType: 'blob' }),
+  getTemplates: () => api.get<Array<Record<string, unknown>>>('/institutional-reports/templates'),
+  saveTemplate: (payload: Record<string, unknown>) =>
+    api.post<Record<string, unknown>>('/institutional-reports/templates', payload),
+  deleteTemplate: (id: number) => api.delete(`/institutional-reports/templates/${id}`),
+};

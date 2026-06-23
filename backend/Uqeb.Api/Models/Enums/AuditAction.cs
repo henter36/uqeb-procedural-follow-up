@@ -14,5 +14,6 @@ public enum AuditAction
     Archive = 10,
     CloseAttemptFailed = 11,
     CompleteResponse = 12,
-    ResetPassword = 13
+    ResetPassword = 13,
+    ExportReport = 14
 }

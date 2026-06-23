@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { APP_DISPLAY_NAME, APP_SUBTITLE } from '../../constants/app';
-import { navSections, isNavActive, type NavItem } from './navConfig';
+import { buildNavSections, isNavActive, type NavItem } from './navConfig';
 import { IconChevron } from '../ui/icons';
 import { getStorageItem, setStorageItem } from '../../utils/safeStorage';
 
@@ -61,7 +61,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
       </div>
 
       <nav className="sidebar-nav">
-        {navSections.map((section) => {
+        {buildNavSections().map((section) => {
           const visibleItems = section.items.filter(isVisible);
           if (visibleItems.length === 0) return null;
 

@@ -11,12 +11,14 @@ using Uqeb.Api.Configuration;
 using Uqeb.Api.Data;
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Middleware;
+using Uqeb.Api.Reporting.Services;
 using Uqeb.Api.Services;
 using Uqeb.Api.Services.Health;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));
+builder.Services.Configure<FeatureFlagsSettings>(builder.Configuration.GetSection(FeatureFlagsSettings.SectionName));
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
@@ -33,6 +35,7 @@ builder.Services.AddScoped<ITransactionService, TransactionService>();
 builder.Services.AddScoped<IExcelTransactionImportService, ExcelTransactionImportService>();
 builder.Services.AddScoped<IAttachmentService, AttachmentService>();
 builder.Services.AddScoped<IReportService, ReportService>();
+builder.Services.AddScoped<IInstitutionalReportService, InstitutionalReportService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IDepartmentService, DepartmentService>();
 builder.Services.AddScoped<IExternalPartyService, ExternalPartyService>();
@@ -152,6 +155,7 @@ app.UseCors();
 app.UseResponseCompression();
 app.UseRateLimiter();
 app.UseMiddleware<Uqeb.Api.Middleware.UnauthorizedAccessLoggingMiddleware>();
+app.UseMiddleware<InstitutionalReportsFeatureGateMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

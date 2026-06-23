@@ -9,10 +9,16 @@ import TransactionsList from './pages/TransactionsList';
 import TransactionForm from './pages/TransactionForm';
 import TransactionDetail from './pages/TransactionDetail';
 import Reports from './pages/Reports';
+import ReportBuilder from './pages/ReportBuilder';
 import { UsersPage, DepartmentsPage, ExternalPartiesPage, CategoriesPage } from './pages/AdminPages';
 import LetterTemplatePage from './pages/LetterTemplatePage';
 import SecurityPage from './pages/SecurityPage';
 import TransactionImport from './pages/TransactionImport';
+import { isInstitutionalReportsEnabled } from './config/featureFlags';
+
+const institutionalReportsEnabled = isInstitutionalReportsEnabled();
+
+export { institutionalReportsEnabled };
 
 export default function App() {
   return (
@@ -41,6 +47,16 @@ export default function App() {
             <Route path="transactions/:id" element={<TransactionDetail />} />
             <Route path="transactions/:id/edit" element={<TransactionForm mode="edit" />} />
             <Route path="reports" element={<Reports />} />
+            {institutionalReportsEnabled && (
+              <Route
+                path="report-builder"
+                element={(
+                  <ProtectedRoute requiredRoles={['Admin', 'Supervisor']}>
+                    <ReportBuilder />
+                  </ProtectedRoute>
+                )}
+              />
+            )}
             <Route path="letter-template" element={<LetterTemplatePage />} />
             <Route
               path="users"

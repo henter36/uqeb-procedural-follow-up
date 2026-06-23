@@ -23,6 +23,7 @@ public class AppDbContext : DbContext
     public DbSet<LetterTemplate> LetterTemplates => Set<LetterTemplate>();
     public DbSet<LoginAttemptLog> LoginAttemptLogs => Set<LoginAttemptLog>();
     public DbSet<SecurityAlert> SecurityAlerts => Set<SecurityAlert>();
+    public DbSet<ReportExportTemplate> ReportExportTemplates => Set<ReportExportTemplate>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
