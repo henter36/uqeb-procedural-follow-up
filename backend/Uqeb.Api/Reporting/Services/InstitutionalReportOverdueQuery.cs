@@ -22,14 +22,12 @@ internal static class InstitutionalReportOverdueQuery
                 || (t.ResponseDueDate.HasValue
                     && t.ResponseDueDate.Value.Date < todayDate
                     && !t.ResponseCompleted)
-                || (
-                    t.Assignments.Any(a =>
-                        a.Status == AssignmentStatus.Active
-                        && a.RequiresReply
-                        && a.ReplyStatus != ReplyStatus.Replied)
-                    && t.Assignments
-                        .Where(a => a.Status == AssignmentStatus.Active && a.DueDate.HasValue)
-                        .Min(a => a.DueDate)!.Value.Date < todayDate)
+                || t.Assignments.Any(a =>
+                    a.Status == AssignmentStatus.Active
+                    && a.RequiresReply
+                    && a.ReplyStatus != ReplyStatus.Replied
+                    && a.DueDate.HasValue
+                    && a.DueDate.Value.Date < todayDate)
             ));
     }
 }

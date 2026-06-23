@@ -106,8 +106,8 @@ public static class InstitutionalReportMetricsCalculator
         if (snapshot.ResponseDueDate.HasValue && snapshot.ResponseDueDate.Value.Date < today.Date && !snapshot.ResponseCompleted)
             return true;
 
-        if (snapshot.LastAssignmentDueDate.HasValue && snapshot.LastAssignmentDueDate.Value.Date < today.Date
-            && snapshot.PendingReplyAssignmentCount > 0)
+        if (snapshot.EarliestPendingReplyDueDate.HasValue
+            && snapshot.EarliestPendingReplyDueDate.Value.Date < today.Date)
             return true;
 
         return snapshot.Status == TransactionStatus.Overdue;

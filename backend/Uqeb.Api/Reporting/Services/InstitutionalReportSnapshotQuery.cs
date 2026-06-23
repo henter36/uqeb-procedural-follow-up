@@ -212,6 +212,14 @@ internal static class InstitutionalReportSnapshotQuery
             .Select(g => g.First())
             .ToList();
 
+        var pendingReplyAssignments = activeAssignments
+            .Where(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied)
+            .ToList();
+        var pendingReplyDueDates = pendingReplyAssignments
+            .Where(a => a.DueDate.HasValue)
+            .Select(a => a.DueDate!.Value)
+            .ToList();
+
         var snapshot = new TransactionReportSnapshot
         {
             TransactionId = row.Id,
@@ -239,9 +247,9 @@ internal static class InstitutionalReportSnapshotQuery
             OutgoingDepartmentNames = uniqueOutgoingDepartments.Select(o => o.DepartmentName).ToList(),
             ActiveAssignmentCount = activeAssignments.Count,
             RepliedAssignmentCount = activeAssignments.Count(a => a.ReplyStatus == ReplyStatus.Replied),
-            PendingReplyAssignmentCount = activeAssignments.Count(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied),
+            PendingReplyAssignmentCount = pendingReplyAssignments.Count,
             LastFollowUpDate = row.LastFollowUpDate?.Date,
-            LastAssignmentDueDate = activeAssignments.Where(a => a.DueDate.HasValue).Select(a => a.DueDate!.Value).OrderBy(d => d).FirstOrDefault(),
+            EarliestPendingReplyDueDate = pendingReplyDueDates.Count > 0 ? pendingReplyDueDates.Min() : null,
             IsClosed = row.Status == TransactionStatus.Closed,
             IsOpen = InstitutionalReportMetricsCalculator.IsOpenStatus(row.Status),
             ElapsedDays = Math.Max(0, (today - row.IncomingDate.Date).Days)

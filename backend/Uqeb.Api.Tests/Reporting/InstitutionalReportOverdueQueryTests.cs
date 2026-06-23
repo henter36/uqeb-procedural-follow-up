@@ -136,4 +136,74 @@ public class InstitutionalReportOverdueQueryTests
         Assert.DoesNotContain("IN-open-not-overdue", filteredIds);
         Assert.DoesNotContain("IN-closed-old-due", filteredIds);
     }
+
+    [Fact]
+    public async Task OverdueFilter_IgnoresOldDueDateOnNonReplyAssignment_WhenPendingReplyIsFuture()
+    {
+        var dbName = $"overdue-mixed-{Guid.NewGuid():N}";
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(dbName)
+            .Options;
+
+        await using var db = new AppDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+
+        var user = new User
+        {
+            Username = "overdue-mixed",
+            PasswordHash = "hash",
+            FullName = "Overdue Mixed",
+            Role = UserRole.Admin,
+            IsActive = true,
+        };
+        db.Users.Add(user);
+        var dept = new Department { Name = "إدارة", IsActive = true };
+        db.Departments.Add(dept);
+        await db.SaveChangesAsync();
+
+        var today = DateTime.UtcNow.Date;
+        var tx = new Transaction
+        {
+            InternalTrackingNumber = "INT-MIX",
+            IncomingNumber = "IN-MIX",
+            IncomingDate = today,
+            Subject = "mixed",
+            Status = TransactionStatus.New,
+            CreatedById = user.Id,
+        };
+        db.Transactions.Add(tx);
+        await db.SaveChangesAsync();
+
+        db.Assignments.AddRange(
+            new Assignment
+            {
+                TransactionId = tx.Id,
+                DepartmentId = dept.Id,
+                Status = AssignmentStatus.Active,
+                RequiresReply = false,
+                ReplyStatus = ReplyStatus.Pending,
+                DueDate = today.AddDays(-10),
+                AssignedDate = today.AddDays(-10),
+                CreatedById = user.Id,
+            },
+            new Assignment
+            {
+                TransactionId = tx.Id,
+                DepartmentId = dept.Id,
+                Status = AssignmentStatus.Active,
+                RequiresReply = true,
+                ReplyStatus = ReplyStatus.Pending,
+                DueDate = today.AddDays(5),
+                AssignedDate = today.AddDays(-1),
+                CreatedById = user.Id,
+            });
+        await db.SaveChangesAsync();
+
+        var filtered = await InstitutionalReportOverdueQuery
+            .ApplyOverdueFilter(db.Transactions.AsNoTracking(), today)
+            .Select(t => t.IncomingNumber)
+            .ToListAsync();
+
+        Assert.DoesNotContain("IN-MIX", filtered);
+    }
 }

@@ -32,7 +32,11 @@ public sealed class TransactionReportSnapshot
     public int RepliedAssignmentCount { get; set; }
     public int PendingReplyAssignmentCount { get; set; }
     public DateTime? LastFollowUpDate { get; set; }
-    public DateTime? LastAssignmentDueDate { get; set; }
+    /// <summary>
+    /// Earliest due date among active assignments that require a reply and have not been replied to.
+    /// Used with strict &lt; today comparison for overdue assignment detection.
+    /// </summary>
+    public DateTime? EarliestPendingReplyDueDate { get; set; }
     public bool IsClosed { get; set; }
     public bool IsOpen { get; set; }
     public bool IsOverdue { get; set; }
