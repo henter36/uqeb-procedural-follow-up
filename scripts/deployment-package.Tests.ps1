@@ -249,45 +249,86 @@ UPDATE Departments SET NameNormalized = LOWER(Name);
 }
 
 Describe 'Recent log error scanning' {
-    It 'returns matching log lines' {
+    It 'does not return errors before Since' {
         $log = Join-Path (New-TempDirectory) 'api.log'
+        $oldTs = (Get-Date).ToUniversalTime().AddHours(-2).ToString('o')
+        $recentTs = (Get-Date).ToUniversalTime().AddMinutes(-5).ToString('o')
         @(
-            'info line'
-            'SqlException: timeout'
-            'another SqlException: deadlock'
+            "$oldTs fail: SqlException: old error"
+            "$recentTs fail: SqlException: recent error"
         ) | Set-Content -LiteralPath $log -Encoding UTF8
 
-        $result = Test-RecentLogErrors -LogPath $log -Since (Get-Date).AddHours(-1)
+        $result = Test-RecentLogErrors -LogPath $log -Since (Get-Date).ToUniversalTime().AddHours(-1)
+        @($result).Count | Should -Be 1
+        $result[0] | Should -Match 'recent error'
+        $result[0] | Should -Not -Match 'old error'
+    }
+
+    It 'returns matching log lines after Since' {
+        $log = Join-Path (New-TempDirectory) 'api.log'
+        $recentTs = (Get-Date).ToUniversalTime().AddMinutes(-5).ToString('o')
+        @(
+            "$recentTs info line"
+            "$recentTs fail: SqlException: timeout"
+            "$recentTs fail: SqlException: deadlock"
+        ) | Set-Content -LiteralPath $log -Encoding UTF8
+
+        $result = Test-RecentLogErrors -LogPath $log -Since (Get-Date).ToUniversalTime().AddHours(-1)
         $result.Count | Should -Be 2
         ($result -join ' ') | Should -Match 'timeout'
         ($result -join ' ') | Should -Match 'deadlock'
     }
 
-    It 'removes duplicate matching lines' {
+    It 'includes stack trace lines for a recent timestamped event' {
         $log = Join-Path (New-TempDirectory) 'api.log'
+        $recentTs = (Get-Date).ToUniversalTime().AddMinutes(-1).ToString('o')
         @(
-            'SqlException: same'
-            'SqlException: same'
+            "$recentTs fail: Unhandled exception: boom"
+            '   at Contoso.Service.Worker()'
         ) | Set-Content -LiteralPath $log -Encoding UTF8
 
-        $result = Test-RecentLogErrors -LogPath $log -Since (Get-Date).AddHours(-1)
+        $result = Test-RecentLogErrors -LogPath $log -Since (Get-Date).ToUniversalTime().AddHours(-1)
+        @($result).Count | Should -Be 2
+        ($result -join ' ') | Should -Match 'Unhandled exception'
+        ($result -join ' ') | Should -Match 'at Contoso'
+    }
+
+    It 'does not treat historical errors as deployment failures' {
+        $log = Join-Path (New-TempDirectory) 'api.log'
+        $oldTs = (Get-Date).ToUniversalTime().AddDays(-2).ToString('o')
+        "$oldTs fail: SqlException: ancient" | Set-Content -LiteralPath $log -Encoding UTF8
+
+        $result = Test-RecentLogErrors -LogPath $log -Since (Get-Date).ToUniversalTime().AddHours(-1)
+        @($result).Count | Should -Be 0
+    }
+
+    It 'removes duplicate matching lines' {
+        $log = Join-Path (New-TempDirectory) 'api.log'
+        $recentTs = (Get-Date).ToUniversalTime().AddMinutes(-1).ToString('o')
+        @(
+            "$recentTs fail: SqlException: same"
+            "$recentTs fail: SqlException: same"
+        ) | Set-Content -LiteralPath $log -Encoding UTF8
+
+        $result = Test-RecentLogErrors -LogPath $log -Since (Get-Date).ToUniversalTime().AddHours(-1)
         @($result).Count | Should -Be 1
-        $result[0] | Should -Be 'SqlException: same'
+        $result[0] | Should -Match 'SqlException: same'
     }
 
     It 'returns an empty array when the log file is missing' {
         $missing = Join-Path (New-TempDirectory) 'missing.log'
-        $result = Test-RecentLogErrors -LogPath $missing -Since (Get-Date).AddHours(-1)
+        $result = Test-RecentLogErrors -LogPath $missing -Since (Get-Date).ToUniversalTime().AddHours(-1)
         @($result).Count | Should -Be 0
     }
 
     It 'does not use the automatic $Matches variable' {
         $log = Join-Path (New-TempDirectory) 'api.log'
-        'Unhandled exception in pipeline' | Set-Content -LiteralPath $log -Encoding UTF8
+        $recentTs = (Get-Date).ToUniversalTime().AddMinutes(-1).ToString('o')
+        "$recentTs fail: Unhandled exception in pipeline" | Set-Content -LiteralPath $log -Encoding UTF8
         $script:Matches = @('stale')
 
         try {
-            $result = Test-RecentLogErrors -LogPath $log -Since (Get-Date).AddHours(-1)
+            $result = Test-RecentLogErrors -LogPath $log -Since (Get-Date).ToUniversalTime().AddHours(-1)
             @($result).Count | Should -Be 1
             $result[0] | Should -Match 'Unhandled exception'
             $script:Matches | Should -Be @('stale')
@@ -296,10 +337,49 @@ Describe 'Recent log error scanning' {
             Remove-Variable -Name Matches -Scope Script -ErrorAction SilentlyContinue
         }
     }
+
+    It 'parses ISO timestamps in log lines' {
+        $log = Join-Path (New-TempDirectory) 'api.log'
+        $iso = '2026-06-11T10:15:30.1234567Z fail: SqlException: iso'
+        $iso | Set-Content -LiteralPath $log -Encoding UTF8
+
+        $result = Test-RecentLogErrors -LogPath $log -Since ([datetime]'2026-06-11T10:15:00Z')
+        @($result).Count | Should -Be 1
+        $result[0] | Should -Match 'iso'
+    }
+
+    It 'uses LastWriteTimeUtc fallback when log has no timestamps' {
+        $log = Join-Path (New-TempDirectory) 'api.log'
+        'fail: SqlException: no timestamp' | Set-Content -LiteralPath $log -Encoding UTF8
+        (Get-Item -LiteralPath $log).LastWriteTimeUtc = (Get-Date).ToUniversalTime().AddDays(-2)
+
+        $result = Test-RecentLogErrors -LogPath $log -Since (Get-Date).ToUniversalTime().AddHours(-1)
+        @($result).Count | Should -Be 0
+
+        (Get-Item -LiteralPath $log).LastWriteTimeUtc = (Get-Date).ToUniversalTime()
+        $result = Test-RecentLogErrors -LogPath $log -Since (Get-Date).ToUniversalTime().AddHours(-1)
+        @($result).Count | Should -Be 1
+    }
 }
 
 Describe 'Application file copy policy' {
-    It 'does not use robocopy /MIR' {
+    It 'rejects robocopy /MIR for API targets' {
+        { Invoke-RobocopySafe -Source 'C:\src' -Destination 'C:\dst' -TargetType Api -ExtraArguments @('/MIR') } |
+            Should -Throw '*API*'
+    }
+
+    It 'allows robocopy /MIR for Web targets' {
+        Mock robocopy {
+            param($args)
+            ($args -join ' ') | Should -Match '/MIR'
+            $global:LASTEXITCODE = 1
+        }
+
+        { Invoke-RobocopySafe -Source 'C:\src' -Destination 'C:\dst' -TargetType Web -ExtraArguments @('/MIR') } |
+            Should -Not -Throw
+    }
+
+    It 'copies API and Web without /MIR in default payload flow' {
         $sourceApi = New-TempDirectory
         $sourceWeb = New-TempDirectory
         $targetApi = New-TempDirectory
@@ -381,11 +461,15 @@ Describe 'install-production-package.ps1 scenarios' {
         Mock Get-NetTCPConnection { return @() }
         Mock Move-Item {}
         Mock Test-RecentLogErrors { return @() }
-        Mock Invoke-RobocopyWithoutMirror {}
+        Mock Invoke-RobocopySafe {}
         Mock Copy-ApplicationPayload {}
         Mock Invoke-DatabaseBackupRetentionPolicy { return @() }
         Mock Get-SqlConnectionInfoFromSettings {
-            return [pscustomobject]@{ Server = '.'; Database = 'UqebDb' }
+            return [pscustomobject]@{
+                Server = '.'
+                Database = 'UqebDb'
+                ConnectionString = 'Server=.;Database=UqebDb;Integrated Security=True;TrustServerCertificate=True'
+            }
         }
         Mock Invoke-ProductionDatabaseBackup {
             $backupFile = Join-Path $TestDrive ("UqebDb-before-mock.bak")
@@ -446,7 +530,7 @@ Describe 'install-production-package.ps1 scenarios' {
 
         $pkgRoot = New-TempDirectory
         New-TestPackage -Root $pkgRoot
-        'exit 1' | Set-Content (Join-Path $pkgRoot 'scripts\apply-migrations.ps1') -Encoding ASCII
+        'throw "migration failed"' | Set-Content (Join-Path $pkgRoot 'scripts\apply-migrations.ps1') -Encoding ASCII
         $zip = Join-Path $incoming 'Uqeb-test.zip'
         New-ZipFromDirectory -Source $pkgRoot -ZipPath $zip
         $hash = Get-FileSha256Hex -Path $zip
@@ -455,7 +539,7 @@ Describe 'install-production-package.ps1 scenarios' {
         New-TestProductionSettingsJson | Set-Content (Join-Path $installRoot 'config\appsettings.Production.json') -Encoding UTF8
 
         $apply = Join-Path $tools 'apply-migrations.ps1'
-        'exit 1' | Set-Content $apply -Encoding ASCII
+        'throw "migration failed"' | Set-Content $apply -Encoding ASCII
 
         { & $script:InstallScript `
             -PackagePath $zip `
@@ -706,9 +790,62 @@ Describe 'install-production-package.ps1 scenarios' {
 
         ($output -join [Environment]::NewLine) | Should -Match 'RESTORE DATABASE'
     }
+
+    It 'succeeds when stale LASTEXITCODE is set before migration' {
+        $global:LASTEXITCODE = 1
+
+        $root = New-TempDirectory
+        $installRoot = Join-Path $root 'install'
+        $tools = Join-Path $root 'tools'
+        $incoming = Join-Path $installRoot 'incoming'
+        Ensure-Directory $incoming
+        Ensure-Directory $tools
+        Ensure-Directory (Join-Path $tools 'deployment')
+        Copy-Item $script:CommonPath (Join-Path $tools 'deployment\Common.ps1') -Force
+
+        $pkgRoot = New-TempDirectory
+        New-TestPackage -Root $pkgRoot
+        $zip = Join-Path $incoming 'Uqeb-test.zip'
+        New-ZipFromDirectory -Source $pkgRoot -ZipPath $zip
+        $hash = Get-FileSha256Hex -Path $zip
+        Set-Content (Join-Path $incoming 'Uqeb-test.sha256.txt') "$hash  Uqeb-test.zip" -Encoding ASCII
+        Ensure-Directory (Join-Path $installRoot 'config')
+        $configPath = Join-Path $installRoot 'config\appsettings.Production.json'
+        New-TestProductionSettingsJson | Set-Content $configPath -Encoding UTF8
+
+        $apply = Join-Path $tools 'apply-migrations.ps1'
+        'exit 0' | Set-Content $apply -Encoding ASCII
+        $health = Join-Path $tools 'verify-deployment-health.ps1'
+        'exit 0' | Set-Content $health -Encoding ASCII
+
+        { & $script:InstallScript `
+            -PackagePath $zip `
+            -InstallRoot $installRoot `
+            -ToolsRoot $tools `
+            -ApiPort 5001 `
+            -ApiPath (Join-Path $installRoot 'publish\api') `
+            -WebPath (Join-Path $installRoot 'publish\web') `
+            -ConfigPath $configPath } | Should -Not -Throw
+    }
+
+    It 'derives ApiBaseUrl from ApiPort when URL is omitted' {
+        $errors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            $script:InstallScript,
+            [ref]$null,
+            [ref]$errors)
+        $errors | Should -BeNullOrEmpty
+        $content = Get-Content -LiteralPath $script:InstallScript -Raw
+        $content | Should -Match 'IsNullOrWhiteSpace\(\$ApiBaseUrl\)'
+        $content | Should -Match 'http://localhost:\$ApiPort'
+    }
 }
 
 Describe 'Production database backup functions' {
+    BeforeAll {
+        $script:TestConnectionString = 'Server=.;Database=UqebDb;Integrated Security=True;TrustServerCertificate=True'
+    }
+
     AfterEach {
         $global:SqlDeploymentCommandHandler = $null
     }
@@ -789,6 +926,7 @@ Describe 'Production database backup functions' {
         $result = Invoke-ProductionDatabaseBackup `
             -Server '.' `
             -Database 'UqebDb' `
+            -ConnectionString $script:TestConnectionString `
             -BackupDirectory $backupDir `
             -Timestamp 'sql-test'
 
@@ -800,7 +938,7 @@ Describe 'Production database backup functions' {
     It 'fails when BACKUP DATABASE command fails' {
         $global:SqlDeploymentCommandHandler = { throw 'backup error' }
 
-        { Invoke-ProductionDatabaseBackup -Server '.' -Database 'UqebDb' -BackupDirectory (New-TempDirectory) -Timestamp 'fail' } |
+        { Invoke-ProductionDatabaseBackup -Server '.' -Database 'UqebDb' -ConnectionString $script:TestConnectionString -BackupDirectory (New-TempDirectory) -Timestamp 'fail' } |
             Should -Throw '*BACKUP DATABASE*'
     }
 
@@ -824,7 +962,7 @@ Describe 'Production database backup functions' {
             return $null
         }
 
-        { Invoke-ProductionDatabaseBackup -Server '.' -Database 'UqebDb' -BackupDirectory $backupDir -Timestamp 'verifyfail' } |
+        { Invoke-ProductionDatabaseBackup -Server '.' -Database 'UqebDb' -ConnectionString $script:TestConnectionString -BackupDirectory $backupDir -Timestamp 'verifyfail' } |
             Should -Throw '*RESTORE VERIFYONLY*'
     }
 
@@ -868,7 +1006,7 @@ Describe 'Production database backup functions' {
             throw "Unexpected SQL: $CommandText"
         }
 
-        Invoke-ProductionDatabaseBackup -Server '.' -Database 'UqebDb' -BackupDirectory $backupDir -Timestamp 'mkdir' | Out-Null
+        Invoke-ProductionDatabaseBackup -Server '.' -Database 'UqebDb' -ConnectionString $script:TestConnectionString -BackupDirectory $backupDir -Timestamp 'mkdir' | Out-Null
         Test-Path -LiteralPath $backupDir | Should -BeTrue
     }
 
@@ -903,7 +1041,7 @@ Describe 'Production database backup functions' {
             return $null
         }
 
-        Invoke-ProductionDatabaseBackup -Server '.' -Database 'UqebDb' -BackupDirectory $backupDir -Timestamp 'checksum' | Out-Null
+        Invoke-ProductionDatabaseBackup -Server '.' -Database 'UqebDb' -ConnectionString $script:TestConnectionString -BackupDirectory $backupDir -Timestamp 'checksum' | Out-Null
         ($commands | Where-Object { $_ -like 'BACKUP DATABASE*' } | Select-Object -First 1) | Should -Match 'WITH CHECKSUM'
         ($commands | Where-Object { $_ -like 'RESTORE VERIFYONLY*' } | Select-Object -First 1) | Should -Match 'WITH CHECKSUM'
     }
@@ -930,5 +1068,152 @@ Describe 'Production database backup functions' {
         $deleted.Count | Should -Be 2
         Test-Path -LiteralPath $files[0] | Should -BeTrue
         (Get-ChildItem -LiteralPath $backupDir -Filter '*.bak').Count | Should -Be 10
+    }
+}
+
+Describe 'Protected database backup paths' {
+    It 'returns flat string paths from release manifests' {
+        $installRoot = New-TempDirectory
+        $protectedPath = 'C:\Uqeb\backup\db\UqebDb-before-protected.bak'
+        $manifest = [ordered]@{
+            databaseBackup = [ordered]@{ path = $protectedPath }
+        }
+        Ensure-Directory (Join-Path $installRoot 'publish')
+        $manifest | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $installRoot 'publish\release-manifest.json') -Encoding UTF8
+
+        $paths = @(Get-ProtectedDatabaseBackupPaths -InstallRoot $installRoot)
+        @($paths).Count | Should -Be 1
+        [string]$paths[0] | Should -Be $protectedPath
+    }
+
+    It 'does not delete protected backup paths during retention' {
+        $installRoot = New-TempDirectory
+        $backupDir = Join-Path $installRoot 'backup\db'
+        Ensure-Directory $backupDir
+
+        $protectedPath = Join-Path $backupDir 'UqebDb-before-protected.bak'
+        $files = @()
+        for ($i = 0; $i -lt 12; $i++) {
+            $path = Join-Path $backupDir ("UqebDb-before-20260101-12000$i.bak")
+            Set-Content -LiteralPath $path -Value ('x' * 10) -Encoding ASCII
+            (Get-Item -LiteralPath $path).LastWriteTime = (Get-Date).AddHours(-$i)
+            $files += $path
+        }
+        Set-Content -LiteralPath $protectedPath -Value ('x' * 10) -Encoding ASCII
+        (Get-Item -LiteralPath $protectedPath).LastWriteTime = (Get-Date).AddHours(-20)
+
+        $manifest = [ordered]@{
+            databaseBackup = [ordered]@{ path = $protectedPath }
+        }
+        Ensure-Directory (Join-Path $installRoot 'publish')
+        $manifest | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $installRoot 'publish\release-manifest.json') -Encoding UTF8
+
+        $deleted = Invoke-DatabaseBackupRetentionPolicy `
+            -BackupDirectory $backupDir `
+            -InstallRoot $installRoot `
+            -MinimumKeepCount 10 `
+            -LatestSuccessfulBackupPath $files[0]
+
+        $deleted | Should -Not -Contain $protectedPath
+        Test-Path -LiteralPath $protectedPath | Should -BeTrue
+    }
+
+    It 'compares protected paths case-insensitively' {
+        Test-BackupPathIsProtected `
+            -CandidatePath 'C:\Uqeb\backup\db\file.bak' `
+            -ProtectedPaths @('c:\uqeb\backup\db\file.bak') | Should -BeTrue
+    }
+}
+
+Describe 'SQL connection settings' {
+    It 'preserves Integrated Security from production settings' {
+        $settings = Join-Path (New-TempDirectory) 'appsettings.Production.json'
+        (@{
+            ConnectionStrings = @{
+                DefaultConnection = 'Server=.;Database=UqebDb;Integrated Security=True;TrustServerCertificate=True'
+            }
+        } | ConvertTo-Json -Compress) | Set-Content $settings -Encoding UTF8
+
+        $info = Get-SqlConnectionInfoFromSettings -SettingsPath $settings
+        $builder = New-Object System.Data.SqlClient.SqlConnectionStringBuilder $info.ConnectionString
+        $builder.IntegratedSecurity | Should -BeTrue
+    }
+
+    It 'preserves SQL login authentication from production settings' {
+        $settings = Join-Path (New-TempDirectory) 'appsettings.Production.json'
+        (@{
+            ConnectionStrings = @{
+                DefaultConnection = 'Server=.;Database=UqebDb;User ID=uqeb;Password=Secret123!;TrustServerCertificate=True'
+            }
+        } | ConvertTo-Json -Compress) | Set-Content $settings -Encoding UTF8
+
+        $info = Get-SqlConnectionInfoFromSettings -SettingsPath $settings
+        $builder = New-Object System.Data.SqlClient.SqlConnectionStringBuilder $info.ConnectionString
+        $builder.UserID | Should -Be 'uqeb'
+        $builder.Password | Should -Be 'Secret123!'
+    }
+
+    It 'switches database to master without changing authentication' {
+        $connectionString = 'Server=.;Database=UqebDb;User ID=uqeb;Password=Secret123!;TrustServerCertificate=True'
+        $connection = New-SqlDeploymentConnection -ConnectionString $connectionString -Database 'master'
+        $builder = New-Object System.Data.SqlClient.SqlConnectionStringBuilder $connection.ConnectionString
+        if ($builder.ContainsKey('Database')) {
+            $builder.Database | Should -Be 'master'
+        }
+        else {
+            $builder['Initial Catalog'] | Should -Be 'master'
+        }
+        $builder.UserID | Should -Be 'uqeb'
+        $builder.Password | Should -Be 'Secret123!'
+        $connection.Dispose()
+    }
+
+    It 'does not print passwords in redacted connection labels' {
+        $label = Get-SqlRedactedConnectionLabel -Server '.' -Database 'UqebDb'
+        $label | Should -Not -Match 'Password'
+        $label | Should -Match 'Server=\.'
+    }
+
+    It 'fails clearly when connection string is missing' {
+        $settings = Join-Path (New-TempDirectory) 'appsettings.Production.json'
+        (@{ ConnectionStrings = @{} } | ConvertTo-Json -Compress) | Set-Content $settings -Encoding UTF8
+        { Get-SqlConnectionInfoFromSettings -SettingsPath $settings } | Should -Throw '*DefaultConnection*'
+    }
+}
+
+Describe 'apply-migrations.ps1 encoding' {
+    It 'reads migration SQL as UTF-8 without corrupting Unicode text' {
+        $migration = Join-Path (New-TempDirectory) 'migrations-idempotent.sql'
+        $arabicBytes = [byte[]](0xD9, 0x82, 0xD8, 0xB3, 0xD9, 0x85, 0x20, 0xD8, 0xA7, 0xD9, 0x84, 0xD9, 0x85, 0xD8, 0xA7, 0xD9, 0x84, 0xD9, 0x8A, 0xD8, 0xA9)
+        $arabicText = [System.Text.Encoding]::UTF8.GetString($arabicBytes)
+        $sqlText = "SELECT N'$arabicText';"
+        Set-Content -LiteralPath $migration -Value $sqlText -Encoding UTF8
+        $sql = Get-Content -LiteralPath $migration -Raw -Encoding UTF8
+        $sql | Should -Match $arabicText
+    }
+}
+
+Describe 'build-production-package.ps1 policy' {
+    It 'does not use invalid dotnet test no-restore syntax' {
+        $content = Get-Content (Join-Path $PSScriptRoot 'build-production-package.ps1') -Raw
+        $content | Should -Not -Match '--no-restore:\$false'
+        $content | Should -Match 'dotnet test \$backendTests -c Release'
+    }
+
+    It 'runs npm ci and npm test in separate external command steps' {
+        $content = Get-Content (Join-Path $PSScriptRoot 'build-production-package.ps1') -Raw
+        $content | Should -Match '(?s)Invoke-ExternalCommand[^\{]+\{[^\}]*npm ci'
+        $content | Should -Match '(?s)Invoke-ExternalCommand[^\{]+\{[^\}]*npm test'
+        $content | Should -Not -Match 'npm ci\s+npm test'
+    }
+
+    It 'uses UTC for package version stamp' {
+        $content = Get-Content (Join-Path $PSScriptRoot 'build-production-package.ps1') -Raw
+        $content | Should -Match '\[DateTime\]::UtcNow\.ToString\("yyyyMMdd-HHmmss"\)'
+    }
+
+    It 'does not rely on LASTEXITCODE after in-process install scripts' {
+        $content = Get-Content (Join-Path $PSScriptRoot 'install-production-package.ps1') -Raw
+        $content | Should -Not -Match '\$LASTEXITCODE'
     }
 }

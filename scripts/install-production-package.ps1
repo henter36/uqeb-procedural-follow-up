@@ -14,7 +14,7 @@ param(
     [string]$ConfigPath = "C:\Uqeb\config\appsettings.Production.json",
     [string]$TaskName = "UqebApi",
     [int]$ApiPort = 5000,
-    [string]$ApiBaseUrl = "http://localhost:5000",
+    [string]$ApiBaseUrl = "",
     [string]$InstallRoot = "C:\Uqeb",
     [string]$ToolsRoot = "C:\UqebTools",
     [switch]$SkipFileBackup,
@@ -32,6 +32,10 @@ if (-not (Test-Path -LiteralPath $commonPath)) {
     throw "تعذر العثور على deployment\Common.ps1"
 }
 . $commonPath
+
+if ([string]::IsNullOrWhiteSpace($ApiBaseUrl)) {
+    $ApiBaseUrl = "http://localhost:$ApiPort"
+}
 
 $deploymentResult = "فشل"
 $backupPath = ""
@@ -110,12 +114,13 @@ try {
     $releaseManifestPath = Join-Path (Split-Path $ApiPath -Parent) "release-manifest.json"
     $configTarget = Join-Path $ApiPath "appsettings.Production.json"
     $logsPath = Join-Path $InstallRoot "logs\api-runtime.log"
-    $deployStartedAt = Get-Date
+    $deployStartedAt = [DateTime]::UtcNow
 
     Write-DeployStep "إنشاء نسخة احتياطية إلزامية لقاعدة البيانات"
     $databaseBackup = Invoke-ProductionDatabaseBackup `
         -Server $sqlInfo.Server `
         -Database $sqlInfo.Database `
+        -ConnectionString $sqlInfo.ConnectionString `
         -BackupDirectory $databaseBackupDirectory `
         -Timestamp $stamp
 
@@ -151,10 +156,10 @@ try {
         Ensure-Directory $backupApi
         Ensure-Directory $backupWeb
         if (Test-DirectoryHasContent $ApiPath) {
-            Invoke-RobocopyWithoutMirror -Source $ApiPath -Destination $backupApi
+            Invoke-RobocopySafe -Source $ApiPath -Destination $backupApi -TargetType Api
         }
         if (Test-DirectoryHasContent $WebPath) {
-            Invoke-RobocopyWithoutMirror -Source $WebPath -Destination $backupWeb
+            Invoke-RobocopySafe -Source $WebPath -Destination $backupWeb -TargetType Web
         }
         if (Test-Path -LiteralPath $releaseManifestPath) {
             Copy-Item -LiteralPath $releaseManifestPath -Destination $backupManifest -Force
@@ -179,14 +184,10 @@ try {
         }
 
         & $migrationScript `
-            -Server $sqlInfo.Server `
-            -Database $sqlInfo.Database `
+            -SettingsPath $ConfigPath `
             -MigrationFile (Join-Path $stagingPath "database\migrations-idempotent.sql") `
             -ExpectedLatestMigration $manifest.minimumDatabaseMigration
 
-        if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) {
-            throw "فشل تطبيق migrations برمز $LASTEXITCODE."
-        }
         $databaseStatus = "نجح"
     }
     else {
@@ -243,9 +244,6 @@ try {
 
     Write-DeployStep "فحص صحة API"
     & $healthScript -ApiBaseUrl $ApiBaseUrl -RetryCount 5 -RetryDelaySec 2
-    if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) {
-        throw "فشل فحص الصحة برمز $LASTEXITCODE."
-    }
     $apiHealth = "نجح"
 
     $logErrors = Test-RecentLogErrors -LogPath $logsPath -Since $deployStartedAt

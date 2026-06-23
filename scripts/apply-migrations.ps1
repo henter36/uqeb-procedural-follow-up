@@ -6,15 +6,12 @@
 
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
     [string]$Server,
-
-    [Parameter(Mandatory = $true)]
     [string]$Database,
-
+    [string]$SettingsPath,
+    [string]$ConnectionString,
     [Parameter(Mandatory = $true)]
     [string]$MigrationFile,
-
     [string]$ExpectedLatestMigration
 )
 
@@ -36,22 +33,44 @@ if (-not (Get-Command Split-SqlBatches -ErrorAction SilentlyContinue)) {
     throw "تعذر تحميل وحدات النشر المشتركة."
 }
 
+if (-not [string]::IsNullOrWhiteSpace($SettingsPath)) {
+    $sqlInfo = Get-SqlConnectionInfoFromSettings -SettingsPath $SettingsPath
+    $ConnectionString = $sqlInfo.ConnectionString
+    $Server = $sqlInfo.Server
+    $Database = $sqlInfo.Database
+}
+elseif ([string]::IsNullOrWhiteSpace($ConnectionString)) {
+    throw "يجب تمرير SettingsPath أو ConnectionString."
+}
+else {
+    $builder = New-Object System.Data.SqlClient.SqlConnectionStringBuilder $ConnectionString
+    if ([string]::IsNullOrWhiteSpace($Server)) {
+        $Server = $builder.DataSource
+    }
+    if ([string]::IsNullOrWhiteSpace($Database)) {
+        $Database = $builder.InitialCatalog
+    }
+}
+
+if ([string]::IsNullOrWhiteSpace($Server) -or [string]::IsNullOrWhiteSpace($Database)) {
+    throw "تعذر تحديد Server/Database من إعدادات الاتصال."
+}
+
 if (-not (Test-Path -LiteralPath $MigrationFile)) {
     throw "ملف migrations غير موجود: $MigrationFile"
 }
 
-$sql = Get-Content -LiteralPath $MigrationFile -Raw
+$sql = Get-Content -LiteralPath $MigrationFile -Raw -Encoding UTF8
 $batches = Split-SqlBatches -SqlContent $sql
 if ($batches.Count -eq 0) {
     throw "ملف migrations فارغ أو غير صالح."
 }
 
-$connectionString = "Server=$Server;Database=$Database;Integrated Security=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
-$connection = New-Object System.Data.SqlClient.SqlConnection $connectionString
+$connection = New-SqlDeploymentConnection -ConnectionString $ConnectionString -Database $Database
 
 try {
     $connection.Open()
-    Write-DeployInfo ("الاتصال بقاعدة البيانات: Server=$Server; Database=$Database")
+    Write-DeployInfo (Get-SqlRedactedConnectionLabel -Server $Server -Database $Database)
 
     $batchNumber = 0
     foreach ($batch in $batches) {
@@ -85,7 +104,7 @@ function Test-TableColumnExists {
         [string]$ColumnName
     )
 
-    $checkConnection = New-Object System.Data.SqlClient.SqlConnection $connectionString
+    $checkConnection = New-SqlDeploymentConnection -ConnectionString $ConnectionString -Database $Database
     try {
         $checkConnection.Open()
         $command = $checkConnection.CreateCommand()
@@ -111,7 +130,7 @@ SELECT CASE WHEN EXISTS (
 function Test-TableExists {
     param([string]$TableName)
 
-    $checkConnection = New-Object System.Data.SqlClient.SqlConnection $connectionString
+    $checkConnection = New-SqlDeploymentConnection -ConnectionString $ConnectionString -Database $Database
     try {
         $checkConnection.Open()
         $command = $checkConnection.CreateCommand()
@@ -132,7 +151,7 @@ SELECT CASE WHEN EXISTS (
 }
 
 function Get-LatestAppliedMigration {
-    $checkConnection = New-Object System.Data.SqlClient.SqlConnection $connectionString
+    $checkConnection = New-SqlDeploymentConnection -ConnectionString $ConnectionString -Database $Database
     try {
         $checkConnection.Open()
         $command = $checkConnection.CreateCommand()

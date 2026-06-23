@@ -58,14 +58,16 @@ if (-not (Test-Path -LiteralPath $backendTests)) {
 }
 
 Invoke-ExternalCommand "تشغيل اختبارات Backend" {
-    dotnet test $backendTests -c Release --no-restore:$false
+    dotnet test $backendTests -c Release
 }
 $testResults.Backend = "نجح"
 
 Push-Location $frontendRoot
 try {
-    Invoke-ExternalCommand "تشغيل اختبارات Frontend" {
+    Invoke-ExternalCommand "تثبيت اعتمادات Frontend" {
         npm ci
+    }
+    Invoke-ExternalCommand "تشغيل اختبارات Frontend" {
         npm test
     }
     $testResults.Frontend = "نجح"
@@ -123,7 +125,7 @@ Ensure-Directory $stagingDatabase
 Ensure-Directory $stagingScripts
 
 Write-DeployStep "تجهيز محتوى الحزمة"
-Invoke-RobocopyWithoutMirror -Source $publishDir -Destination $stagingApi -ExtraArguments @(
+Invoke-RobocopySafe -Source $publishDir -Destination $stagingApi -TargetType Api -ExtraArguments @(
     "/XF", "appsettings.json", "appsettings.Development.json", "appsettings.Production.json"
 )
 
@@ -131,7 +133,7 @@ $distPath = Join-Path $frontendRoot "dist"
 if (-not (Test-Path -LiteralPath (Join-Path $distPath "index.html"))) {
     throw "مخرجات بناء الواجهة غير موجودة."
 }
-Invoke-RobocopyWithoutMirror -Source $distPath -Destination $stagingWeb
+Invoke-RobocopySafe -Source $distPath -Destination $stagingWeb -TargetType Web
 
 Copy-Item -LiteralPath $migrationSqlPath -Destination (Join-Path $stagingDatabase "migrations-idempotent.sql") -Force
 Ensure-Directory (Join-Path $stagingScripts "deployment")
@@ -139,7 +141,8 @@ Copy-Item -LiteralPath (Join-Path $PSScriptRoot "apply-migrations.ps1") -Destina
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot "verify-deployment-health.ps1") -Destination (Join-Path $stagingScripts "verify-deployment-health.ps1") -Force
 Copy-Item -LiteralPath $commonPath -Destination (Join-Path $stagingScripts "deployment\Common.ps1") -Force
 
-$versionStamp = Get-Date -Format "yyyyMMdd-HHmmss"
+# versionStamp بتوقيت UTC
+$versionStamp = [DateTime]::UtcNow.ToString("yyyyMMdd-HHmmss")
 $commitSha = ""
 try {
     $commitSha = (git -C $repoRoot rev-parse HEAD 2>$null).Trim()

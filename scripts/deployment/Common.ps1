@@ -180,14 +180,36 @@ function Get-SqlConnectionInfoFromSettings {
     if ([string]::IsNullOrWhiteSpace($builder.DataSource)) {
         throw "تعذر استخراج اسم خادم SQL من إعداد الإنتاج."
     }
-    if ([string]::IsNullOrWhiteSpace($builder.InitialCatalog)) {
+
+    $databaseName = $null
+    if ($builder.ContainsKey('Database')) {
+        $databaseName = [string]$builder.Database
+    }
+    elseif ($builder.ContainsKey('Initial Catalog')) {
+        $databaseName = [string]$builder['Initial Catalog']
+    }
+    else {
+        $databaseName = [string]$builder.InitialCatalog
+    }
+
+    if ([string]::IsNullOrWhiteSpace($databaseName)) {
         throw "تعذر استخراج اسم قاعدة البيانات من إعداد الإنتاج."
     }
 
     return [pscustomobject]@{
         Server = $builder.DataSource
-        Database = $builder.InitialCatalog
+        Database = $databaseName
+        ConnectionString = $builder.ConnectionString
     }
+}
+
+function Get-SqlRedactedConnectionLabel {
+    param(
+        [string]$Server,
+        [string]$Database
+    )
+
+    return "Server=$Server; Database=$Database"
 }
 
 function Ensure-Directory {
@@ -205,15 +227,24 @@ function Test-DirectoryHasContent {
     return $null -ne (Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue | Select-Object -First 1)
 }
 
-function Invoke-RobocopyWithoutMirror {
+function Invoke-RobocopySafe {
     param(
         [string]$Source,
         [string]$Destination,
+        [ValidateSet('Api', 'Web')]
+        [string]$TargetType,
         [string[]]$ExtraArguments = @()
     )
 
+    $arguments = @($Source, $Destination, '/E', '/R:2', '/W:2') + $ExtraArguments
+    foreach ($argument in $arguments) {
+        if ($TargetType -eq 'Api' -and $argument -match '(?i)^/MIR$') {
+            throw "robocopy /MIR غير مسموح لملفات API."
+        }
+    }
+
     Ensure-Directory $Destination
-    & robocopy $Source $Destination /E /R:2 /W:2 @ExtraArguments
+    & robocopy @arguments
     if ($LASTEXITCODE -ge 8) {
         throw "فشل robocopy برمز: $LASTEXITCODE"
     }
@@ -227,20 +258,17 @@ function Copy-ApplicationPayload {
         [string]$WebTarget
     )
 
-    if ($ApiSource -match '/MIR' -or $WebSource -match '/MIR') {
-        throw "النسخ باستخدام robocopy /MIR غير مسموح."
-    }
-
-    Invoke-RobocopyWithoutMirror `
+    Invoke-RobocopySafe `
         -Source $ApiSource `
         -Destination $ApiTarget `
+        -TargetType Api `
         -ExtraArguments @("/XF", "appsettings.json", "appsettings.Development.json", "appsettings.Production.json")
 
     if (Test-DirectoryHasContent $WebTarget) {
         Get-ChildItem -LiteralPath $WebTarget -Force | Remove-Item -Recurse -Force
     }
 
-    Invoke-RobocopyWithoutMirror -Source $WebSource -Destination $WebTarget
+    Invoke-RobocopySafe -Source $WebSource -Destination $WebTarget -TargetType Web
 }
 
 function Test-PortListener {
@@ -334,6 +362,25 @@ function Get-LatestMigrationId {
     return $last
 }
 
+function Get-LogLineTimestampUtc {
+    param([string]$Line)
+
+    if ($Line -match '(?i)^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)') {
+        try {
+            $parsed = [datetime]::Parse(
+                $Matches[1],
+                [System.Globalization.CultureInfo]::InvariantCulture,
+                [System.Globalization.DateTimeStyles]::AssumeUniversal -bor [System.Globalization.DateTimeStyles]::AdjustToUniversal)
+            return $parsed.ToUniversalTime()
+        }
+        catch {
+            return $null
+        }
+    }
+
+    return $null
+}
+
 function Test-RecentLogErrors {
     param(
         [string]$LogPath,
@@ -343,20 +390,75 @@ function Test-RecentLogErrors {
             'Invalid column',
             'Invalid object',
             'Unhandled exception'
-        )
+        ),
+        [int]$TailLineCount = 500
     )
 
     if (-not (Test-Path -LiteralPath $LogPath)) {
         return ,@()
     }
 
-    $matchedLines = New-Object System.Collections.Generic.List[string]
-    $lines = Get-Content -LiteralPath $LogPath -ErrorAction SilentlyContinue
+    $sinceUtc = $Since.ToUniversalTime()
+    $lines = @(Get-Content -LiteralPath $LogPath -Tail $TailLineCount -ErrorAction SilentlyContinue)
+    if ($lines.Count -eq 0) {
+        return ,@()
+    }
+
+    $hasTimestampedLines = $false
     foreach ($line in $lines) {
+        if (Get-LogLineTimestampUtc -Line $line) {
+            $hasTimestampedLines = $true
+            break
+        }
+    }
+
+    $useFileWriteTimeFallback = -not $hasTimestampedLines
+    if ($useFileWriteTimeFallback) {
+        $fileWriteUtc = (Get-Item -LiteralPath $LogPath).LastWriteTimeUtc
+        if ($fileWriteUtc -lt $sinceUtc) {
+            return ,@()
+        }
+    }
+
+    $matchedLines = New-Object System.Collections.Generic.List[string]
+    $currentEventUtc = $null
+    $captureContinuation = $false
+
+    foreach ($line in $lines) {
+        $lineTimestamp = $null
+        if (-not $useFileWriteTimeFallback) {
+            $lineTimestamp = Get-LogLineTimestampUtc -Line $line
+            if ($lineTimestamp) {
+                $currentEventUtc = $lineTimestamp
+                $captureContinuation = $false
+            }
+        }
+
+        $isRecent = $useFileWriteTimeFallback
+        if (-not $useFileWriteTimeFallback) {
+            if ($null -eq $currentEventUtc -or $currentEventUtc -lt $sinceUtc) {
+                $captureContinuation = $false
+                continue
+            }
+            $isRecent = $true
+        }
+
+        $patternMatched = $false
         foreach ($pattern in $Patterns) {
             if ($line -like "*$pattern*") {
                 $matchedLines.Add($line.Trim()) | Out-Null
+                $captureContinuation = $true
+                $patternMatched = $true
                 break
+            }
+        }
+
+        if (-not $patternMatched -and $captureContinuation -and $isRecent -and -not $lineTimestamp) {
+            if ([string]::IsNullOrWhiteSpace($line)) {
+                $captureContinuation = $false
+            }
+            else {
+                $matchedLines.Add($line.Trim()) | Out-Null
             }
         }
     }
@@ -386,13 +488,13 @@ function Invoke-DeploymentFileRollback {
     Wait-PortReleased -Port $ApiPort -TimeoutSec 20 | Out-Null
 
     if (Test-DirectoryHasContent $BackupApi) {
-        Invoke-RobocopyWithoutMirror -Source $BackupApi -Destination $ApiTarget
+        Invoke-RobocopySafe -Source $BackupApi -Destination $ApiTarget -TargetType Api
     }
     if (Test-DirectoryHasContent $BackupWeb) {
         if (Test-DirectoryHasContent $WebTarget) {
             Get-ChildItem -LiteralPath $WebTarget -Force | Remove-Item -Recurse -Force
         }
-        Invoke-RobocopyWithoutMirror -Source $BackupWeb -Destination $WebTarget
+        Invoke-RobocopySafe -Source $BackupWeb -Destination $WebTarget -TargetType Web
     }
     if (Test-Path -LiteralPath $ConfigSource) {
         Copy-Item -LiteralPath $ConfigSource -Destination $ConfigTarget -Force
@@ -458,18 +560,33 @@ function Get-SqlLiteralPath {
 
 function New-SqlDeploymentConnection {
     param(
-        [string]$Server,
-        [string]$Database = 'master'
+        [Parameter(Mandatory = $true)]
+        [string]$ConnectionString,
+        [string]$Database
     )
 
-    $connectionString = "Server=$Server;Database=$Database;Integrated Security=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
-    return New-Object System.Data.SqlClient.SqlConnection $connectionString
+    if ([string]::IsNullOrWhiteSpace($ConnectionString)) {
+        throw "سلسلة الاتصال مطلوبة."
+    }
+
+    $builder = New-Object System.Data.SqlClient.SqlConnectionStringBuilder $ConnectionString
+    if (-not [string]::IsNullOrWhiteSpace($Database)) {
+        if ($builder.ContainsKey('Database')) {
+            $builder.Database = $Database
+        }
+        else {
+            $builder['Initial Catalog'] = $Database
+        }
+    }
+
+    return New-Object System.Data.SqlClient.SqlConnection ($builder.ConnectionString)
 }
 
 function Invoke-SqlDeploymentCommand {
     param(
         [string]$Server,
         [string]$Database = 'master',
+        [string]$ConnectionString,
         [string]$CommandText,
         [switch]$Scalar,
         [switch]$DataTable
@@ -487,8 +604,11 @@ function Invoke-SqlDeploymentCommand {
     if ([string]::IsNullOrWhiteSpace($CommandText)) {
         throw "أمر SQL فارغ."
     }
+    if ([string]::IsNullOrWhiteSpace($ConnectionString)) {
+        throw "ConnectionString مطلوب لتنفيذ أوامر SQL."
+    }
 
-    $connection = New-SqlDeploymentConnection -Server $Server -Database $Database
+    $connection = New-SqlDeploymentConnection -ConnectionString $ConnectionString -Database $Database
     try {
         $connection.Open()
         $command = $connection.CreateCommand()
@@ -548,6 +668,7 @@ function Confirm-ProductionDatabaseBackupFile {
     param(
         [string]$Server,
         [string]$Database,
+        [string]$ConnectionString,
         [string]$BackupPath
     )
 
@@ -563,14 +684,23 @@ function Confirm-ProductionDatabaseBackupFile {
     $diskLiteral = Get-SqlLiteralPath -Path $BackupPath
     $verifySql = "RESTORE VERIFYONLY FROM DISK = $diskLiteral WITH CHECKSUM;"
     try {
-        [void](Invoke-SqlDeploymentCommand -Server $Server -Database 'master' -CommandText $verifySql)
+        [void](Invoke-SqlDeploymentCommand `
+            -Server $Server `
+            -Database 'master' `
+            -ConnectionString $ConnectionString `
+            -CommandText $verifySql)
     }
     catch {
         throw "فشل RESTORE VERIFYONLY للنسخة الاحتياطية. التفاصيل: $($_.Exception.Message)"
     }
 
     $headerSql = "RESTORE HEADERONLY FROM DISK = $diskLiteral;"
-    $header = Invoke-SqlDeploymentCommand -Server $Server -Database 'master' -CommandText $headerSql -DataTable
+    $header = Invoke-SqlDeploymentCommand `
+        -Server $Server `
+        -Database 'master' `
+        -ConnectionString $ConnectionString `
+        -CommandText $headerSql `
+        -DataTable
     if ($header -is [System.Data.DataRow]) {
         $header = $header.Table
     }
@@ -609,6 +739,7 @@ function Invoke-ProductionDatabaseBackup {
     param(
         [string]$Server,
         [string]$Database,
+        [string]$ConnectionString,
         [string]$BackupDirectory,
         [string]$Timestamp
     )
@@ -630,7 +761,11 @@ function Invoke-ProductionDatabaseBackup {
     }
 
     try {
-        [void](Invoke-SqlDeploymentCommand -Server $Server -Database 'master' -CommandText $backupSql)
+        [void](Invoke-SqlDeploymentCommand `
+            -Server $Server `
+            -Database 'master' `
+            -ConnectionString $ConnectionString `
+            -CommandText $backupSql)
     }
     catch {
         throw "فشل BACKUP DATABASE. التفاصيل: $($_.Exception.Message)"
@@ -639,7 +774,23 @@ function Invoke-ProductionDatabaseBackup {
     return Confirm-ProductionDatabaseBackupFile `
         -Server $Server `
         -Database $Database `
+        -ConnectionString $ConnectionString `
         -BackupPath $backupPath
+}
+
+function Test-BackupPathIsProtected {
+    param(
+        [string]$CandidatePath,
+        [string[]]$ProtectedPaths
+    )
+
+    foreach ($protectedPath in $ProtectedPaths) {
+        if ([string]::Equals([string]$protectedPath, $CandidatePath, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+    }
+
+    return $false
 }
 
 function Get-ProtectedDatabaseBackupPaths {
@@ -671,7 +822,7 @@ function Get-ProtectedDatabaseBackupPaths {
         }
     }
 
-    return ,@($protected)
+    return ,@($protected | ForEach-Object { [string]$_ })
 }
 
 function Invoke-DatabaseBackupRetentionPolicy {
@@ -693,9 +844,9 @@ function Invoke-DatabaseBackupRetentionPolicy {
         return @()
     }
 
-    $protectedPaths = Get-ProtectedDatabaseBackupPaths -InstallRoot $InstallRoot
+    $protectedPaths = @(Get-ProtectedDatabaseBackupPaths -InstallRoot $InstallRoot)
     if ($LatestSuccessfulBackupPath) {
-        $protectedPaths = @($protectedPaths + $LatestSuccessfulBackupPath) | Select-Object -Unique
+        $protectedPaths = @($protectedPaths + [string]$LatestSuccessfulBackupPath) | Select-Object -Unique
     }
 
     $deleted = New-Object System.Collections.Generic.List[string]
@@ -704,7 +855,7 @@ function Invoke-DatabaseBackupRetentionPolicy {
         if ($i -lt $MinimumKeepCount) {
             continue
         }
-        if ($protectedPaths -contains $candidate.FullName) {
+        if (Test-BackupPathIsProtected -CandidatePath $candidate.FullName -ProtectedPaths $protectedPaths) {
             continue
         }
 
