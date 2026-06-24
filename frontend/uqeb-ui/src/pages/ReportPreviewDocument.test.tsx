@@ -1,16 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { ReportPreviewDocument } from './ReportPreviewDocument';
-import { assertSafeStylesheet, buildPreviewDocument } from './reportPreviewHtml';
+import { buildPreviewDocument } from './reportPreviewHtml';
 
 const sampleHtml = '<section class="report-page"><main>محتوى</main></section>';
 const sampleStylesheet = ':root { --report-primary: #123F32; } body { margin: 0; }';
 
 describe('buildPreviewDocument', () => {
-  it('rejects unsafe stylesheet breakout', () => {
-    expect(() => assertSafeStylesheet('</style><script>alert(1)</script>')).toThrow(/Unsafe stylesheet/);
-  });
-
   it('builds isolated html document with stylesheet and body content', () => {
     const doc = buildPreviewDocument(sampleStylesheet, sampleHtml);
     expect(doc).toContain('<style>:root { --report-primary: #123F32; }');

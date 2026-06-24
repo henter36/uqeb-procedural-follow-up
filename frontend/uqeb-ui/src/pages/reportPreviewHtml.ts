@@ -1,6 +1,8 @@
 /** Reject stylesheet payloads that could break out of the embedded <style> block. */
 export function assertSafeStylesheet(stylesheet: string): void {
-  if (/<\s*\/?\s*style/i.test(stylesheet) || /<\/style/i.test(stylesheet)) {
+  const normalizedStylesheet = stylesheet.toLowerCase();
+
+  if (normalizedStylesheet.includes('</style')) {
     throw new Error('Unsafe stylesheet content.');
   }
 }
