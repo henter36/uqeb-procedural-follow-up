@@ -934,7 +934,9 @@ function Get-ProtectedDatabaseBackupPaths {
 
     $protected = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
     $candidates = @(
-        Join-Path $InstallRoot 'publish\release-manifest.json'
+        (Join-Path $InstallRoot 'publish\release-manifest.json')
+        (Join-Path $InstallRoot 'current\release-manifest.json')
+        (Get-RollbackStatePath -InstallRoot $InstallRoot)
     )
 
     $backupRoot = Join-Path $InstallRoot 'backup'
@@ -1304,10 +1306,11 @@ function Test-PlaywrightPackagePreflight {
     }
 }
 
-function Copy-DirectoryAtomically {
+function Swap-DirectoryAtomically {
     param(
         [string]$Source,
-        [string]$Target
+        [string]$Target,
+        [scriptblock]$ValidateStaging = $null
     )
 
     if (-not (Test-Path -LiteralPath $Source)) {
@@ -1323,7 +1326,9 @@ function Copy-DirectoryAtomically {
     }
 
     Invoke-RobocopySafe -Source $Source -Destination $stagingTarget -TargetType Web
-    Test-PlaywrightBrowserPayload -BrowsersRoot $stagingTarget | Out-Null
+    if ($ValidateStaging) {
+        & $ValidateStaging $stagingTarget
+    }
 
     $previousTarget = "$Target.previous"
     $previousPath = $null
@@ -1362,6 +1367,18 @@ function Copy-DirectoryAtomically {
     return $previousPath
 }
 
+function Copy-DirectoryAtomically {
+    param(
+        [string]$Source,
+        [string]$Target
+    )
+
+    return Swap-DirectoryAtomically -Source $Source -Target $Target -ValidateStaging {
+        param($StagingPath)
+        Test-PlaywrightBrowserPayload -BrowsersRoot $StagingPath | Out-Null
+    }
+}
+
 function Restore-PreviousDirectory {
     param(
         [string]$Target,
@@ -1377,6 +1394,261 @@ function Restore-PreviousDirectory {
     }
 
     Move-Item -LiteralPath $PreviousPath -Destination $Target -Force
+    return $true
+}
+
+function Get-ReleaseLayoutPaths {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InstallRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Version
+    )
+
+    $releasesRoot = Join-Path $InstallRoot 'releases'
+    $releaseRoot = Join-Path $releasesRoot $Version
+
+    return [pscustomobject]@{
+        ReleasesRoot = $releasesRoot
+        ReleaseRoot = $releaseRoot
+        ReleaseApi = Join-Path $releaseRoot 'api'
+        ReleaseWeb = Join-Path $releaseRoot 'web'
+        CurrentRoot = Join-Path $InstallRoot 'current'
+        CurrentApi = Join-Path $InstallRoot 'current\api'
+        CurrentWeb = Join-Path $InstallRoot 'current\web'
+        PublishRoot = Join-Path $InstallRoot 'publish'
+        PublishApi = Join-Path $InstallRoot 'publish\api'
+        PublishWeb = Join-Path $InstallRoot 'publish\web'
+    }
+}
+
+function Get-RollbackStatePath {
+    param([Parameter(Mandatory = $true)][string]$InstallRoot)
+    return Join-Path $InstallRoot 'rollback-state.json'
+}
+
+function Read-RollbackState {
+    param([Parameter(Mandatory = $true)][string]$InstallRoot)
+
+    $statePath = Get-RollbackStatePath -InstallRoot $InstallRoot
+    if (-not (Test-Path -LiteralPath $statePath)) {
+        return $null
+    }
+
+    return Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+}
+
+function Write-RollbackState {
+    param(
+        [Parameter(Mandatory = $true)][string]$InstallRoot,
+        [Parameter(Mandatory = $true)][object]$State
+    )
+
+    $statePath = Get-RollbackStatePath -InstallRoot $InstallRoot
+    Ensure-Directory (Split-Path -Parent $statePath)
+    $State | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $statePath -Encoding UTF8
+}
+
+function Remove-ReparsePointSafe {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return
+    }
+
+    $item = Get-Item -LiteralPath $Path -Force
+    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        cmd /c rmdir "$Path" | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "تعذر إزالة الرابط الرمزي: $Path"
+        }
+        return
+    }
+
+    Remove-Item -LiteralPath $Path -Recurse -Force
+}
+
+function Set-PublishDirectoryJunction {
+    param(
+        [Parameter(Mandatory = $true)][string]$LinkPath,
+        [Parameter(Mandatory = $true)][string]$TargetPath
+    )
+
+    Ensure-Directory (Split-Path -Parent $LinkPath)
+    Ensure-Directory $TargetPath
+    Remove-ReparsePointSafe -Path $LinkPath
+
+    cmd /c mklink /J "$LinkPath" "$TargetPath" | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "تعذر إنشاء الرابط الرمزي من $LinkPath إلى $TargetPath"
+    }
+}
+
+function Sync-PublishCompatibilityLinks {
+    param([Parameter(Mandatory = $true)][string]$InstallRoot)
+
+    $paths = Get-ReleaseLayoutPaths -InstallRoot $InstallRoot -Version 'unused'
+    Set-PublishDirectoryJunction -LinkPath $paths.PublishApi -TargetPath $paths.CurrentApi
+    Set-PublishDirectoryJunction -LinkPath $paths.PublishWeb -TargetPath $paths.CurrentWeb
+}
+
+function Initialize-ReleaseLayout {
+    param([Parameter(Mandatory = $true)][string]$InstallRoot)
+
+    $paths = Get-ReleaseLayoutPaths -InstallRoot $InstallRoot -Version 'bootstrap'
+    Ensure-Directory $paths.ReleasesRoot
+    Ensure-Directory $paths.CurrentRoot
+    Ensure-Directory $paths.PublishRoot
+
+    if (-not (Test-DirectoryHasContent $paths.CurrentApi) -and (Test-DirectoryHasContent $paths.PublishApi)) {
+        Ensure-Directory $paths.CurrentApi
+        Invoke-RobocopySafe -Source $paths.PublishApi -Destination $paths.CurrentApi -TargetType Api
+    }
+
+    if (-not (Test-DirectoryHasContent $paths.CurrentWeb) -and (Test-DirectoryHasContent $paths.PublishWeb)) {
+        Ensure-Directory $paths.CurrentWeb
+        Invoke-RobocopySafe -Source $paths.PublishWeb -Destination $paths.CurrentWeb -TargetType Web
+    }
+}
+
+function Copy-ReleaseArtifactsFromStaging {
+    param(
+        [Parameter(Mandatory = $true)][string]$StagingPath,
+        [Parameter(Mandatory = $true)][string]$ReleaseRoot
+    )
+
+    $releaseApi = Join-Path $ReleaseRoot 'api'
+    $releaseWeb = Join-Path $ReleaseRoot 'web'
+    Ensure-Directory $releaseApi
+    Ensure-Directory $releaseWeb
+
+    Invoke-RobocopySafe `
+        -Source (Join-Path $StagingPath 'api') `
+        -Destination $releaseApi `
+        -TargetType Api `
+        -ExtraArguments @('/XF', 'appsettings.json', 'appsettings.Development.json', 'appsettings.Production.json')
+
+    if (Test-DirectoryHasContent $releaseWeb) {
+        Get-ChildItem -LiteralPath $releaseWeb -Force | Remove-Item -Recurse -Force
+    }
+
+    Invoke-RobocopySafe -Source (Join-Path $StagingPath 'web') -Destination $releaseWeb -TargetType Web
+}
+
+function Install-StagedReleaseToProduction {
+    param(
+        [Parameter(Mandatory = $true)][string]$StagingPath,
+        [Parameter(Mandatory = $true)][string]$InstallRoot,
+        [Parameter(Mandatory = $true)][string]$Version,
+        [Parameter(Mandatory = $true)][string]$ConfigPath,
+        [Parameter(Mandatory = $true)][string]$PackagePath,
+        [Parameter(Mandatory = $true)][string]$PackageCommit
+    )
+
+    Initialize-ReleaseLayout -InstallRoot $InstallRoot
+    $paths = Get-ReleaseLayoutPaths -InstallRoot $InstallRoot -Version $Version
+    $previousState = Read-RollbackState -InstallRoot $InstallRoot
+    $previousVersion = if ($previousState) { [string]$previousState.currentRelease } else { '' }
+
+    Ensure-Directory $paths.ReleaseRoot
+    Copy-ReleaseArtifactsFromStaging -StagingPath $StagingPath -ReleaseRoot $paths.ReleaseRoot
+
+    Swap-DirectoryAtomically -Source $paths.ReleaseApi -Target $paths.CurrentApi | Out-Null
+    Swap-DirectoryAtomically -Source $paths.ReleaseWeb -Target $paths.CurrentWeb | Out-Null
+
+    $configTarget = Join-Path $paths.CurrentApi 'appsettings.Production.json'
+    if (-not (Test-Path -LiteralPath $ConfigPath)) {
+        throw "إعداد الإنتاج المعتمد غير موجود: $ConfigPath"
+    }
+
+    Copy-Item -LiteralPath $ConfigPath -Destination $configTarget -Force
+    Sync-PublishCompatibilityLinks -InstallRoot $InstallRoot
+
+    $rollbackState = [ordered]@{
+        updatedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+        currentRelease = $Version
+        previousRelease = $previousVersion
+        package = [System.IO.Path]::GetFileName($PackagePath)
+        commitSha = $PackageCommit
+        releaseRoot = $paths.ReleaseRoot
+        currentApi = $paths.CurrentApi
+        currentWeb = $paths.CurrentWeb
+        publishApi = $paths.PublishApi
+        publishWeb = $paths.PublishWeb
+    }
+    Write-RollbackState -InstallRoot $InstallRoot -State $rollbackState
+
+    return [pscustomobject]@{
+        Paths = $paths
+        PreviousRelease = $previousVersion
+        ConfigTarget = $configTarget
+    }
+}
+
+function Invoke-ReleaseRollbackFromState {
+    param(
+        [Parameter(Mandatory = $true)][string]$InstallRoot,
+        [Parameter(Mandatory = $true)][string]$TaskName,
+        [Parameter(Mandatory = $true)][int]$ApiPort,
+        [string]$ConfigPath = '',
+        [string]$ReleaseManifestPath = ''
+    )
+
+    $state = Read-RollbackState -InstallRoot $InstallRoot
+    if (-not $state -or [string]::IsNullOrWhiteSpace([string]$state.previousRelease)) {
+        Write-DeployInfo 'لا يوجد إصدار سابق محفوظ في rollback-state.json.'
+        return $false
+    }
+
+    $previousVersion = [string]$state.previousRelease
+    $paths = Get-ReleaseLayoutPaths -InstallRoot $InstallRoot -Version $previousVersion
+    if (-not (Test-DirectoryHasContent $paths.ReleaseApi) -and -not (Test-DirectoryHasContent $paths.ReleaseWeb)) {
+        Write-DeployInfo ("إصدار rollback غير موجود: " + $previousVersion)
+        return $false
+    }
+
+    Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    Stop-ApiListenersOnPort -Port $ApiPort | Out-Null
+    Wait-PortReleased -Port $ApiPort -TimeoutSec 20 | Out-Null
+
+    if (Test-DirectoryHasContent $paths.ReleaseApi) {
+        Swap-DirectoryAtomically -Source $paths.ReleaseApi -Target $paths.CurrentApi | Out-Null
+    }
+    if (Test-DirectoryHasContent $paths.ReleaseWeb) {
+        Swap-DirectoryAtomically -Source $paths.ReleaseWeb -Target $paths.CurrentWeb | Out-Null
+    }
+
+    Sync-PublishCompatibilityLinks -InstallRoot $InstallRoot
+
+    $configTarget = Join-Path $paths.CurrentApi 'appsettings.Production.json'
+    if ($ConfigPath -and (Test-Path -LiteralPath $ConfigPath)) {
+        Copy-Item -LiteralPath $ConfigPath -Destination $configTarget -Force
+    }
+
+    if ($ReleaseManifestPath) {
+        $previousManifest = Join-Path $paths.ReleaseRoot 'release-manifest.json'
+        if (Test-Path -LiteralPath $previousManifest) {
+            Copy-Item -LiteralPath $previousManifest -Destination $ReleaseManifestPath -Force
+        }
+    }
+
+    $restoredState = [ordered]@{
+        updatedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+        currentRelease = $previousVersion
+        previousRelease = [string]$state.currentRelease
+        package = [string]$state.package
+        commitSha = [string]$state.commitSha
+        releaseRoot = $paths.ReleaseRoot
+        currentApi = $paths.CurrentApi
+        currentWeb = $paths.CurrentWeb
+        publishApi = $paths.PublishApi
+        publishWeb = $paths.PublishWeb
+        rollbackOf = [string]$state.currentRelease
+    }
+    Write-RollbackState -InstallRoot $InstallRoot -State $restoredState
+
+    Start-ScheduledTask -TaskName $TaskName
     return $true
 }
 
