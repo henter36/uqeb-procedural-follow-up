@@ -134,6 +134,7 @@ internal static class InstitutionalReportsTestHostBuilder
         IWebHostBuilder builder,
         bool institutionalReportsEnabled,
         bool useRealInstitutionalReportService = false,
+        bool useDefaultRoleRollout = true,
         Action<IServiceCollection>? configureServices = null,
         Dictionary<string, string?>? extraConfig = null,
         string? inMemoryDatabaseName = null)
@@ -143,7 +144,7 @@ internal static class InstitutionalReportsTestHostBuilder
             ["FeatureFlags:InstitutionalReports"] = institutionalReportsEnabled ? "true" : "false",
         };
 
-        if (institutionalReportsEnabled)
+        if (institutionalReportsEnabled && useDefaultRoleRollout)
         {
             config["ReportingRollout:EmergencyDisable"] = "false";
             config["ReportingRollout:EnabledForRoles:0"] = "Admin";
@@ -186,10 +187,15 @@ internal sealed class StubInstitutionalReportService : IInstitutionalReportServi
         throw new NotSupportedException();
 
     public Task<RenderedReportManifestDto> RenderPreviewAsync(ReportBuildRequestDto request, CancellationToken ct = default) =>
-        throw new NotSupportedException();
+        Task.FromResult(new RenderedReportManifestDto());
 
     public Task<ReportExportResultDto> ExportAsync(ReportExportRequestDto request, CancellationToken ct = default) =>
-        throw new NotSupportedException();
+        Task.FromResult(new ReportExportResultDto
+        {
+            Content = [0x25, 0x50, 0x44, 0x46],
+            ContentType = "application/pdf",
+            FileName = "stub.pdf",
+        });
 
     public Task<List<ReportTemplateDto>> GetTemplatesAsync(CancellationToken ct = default) =>
         Task.FromResult(new List<ReportTemplateDto>());

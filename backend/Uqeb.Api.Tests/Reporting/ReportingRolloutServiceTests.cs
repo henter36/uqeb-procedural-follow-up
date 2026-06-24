@@ -47,11 +47,46 @@ public class ReportingRolloutServiceTests
         Assert.False(service.IsEnabledForUser(new TestUser(UserRole.Admin, 1, null)));
     }
 
+    [Theory]
+    [InlineData(true, true, 1, false)] // 1. EmergencyDisable blocks allowlisted user
+    [InlineData(false, false, 1, false)] // 2. InstitutionalReports=false blocks allowlisted user
+    [InlineData(false, true, 1, true)] // 3. Allowlisted user allowed
+    [InlineData(false, true, 2, false)] // 4. Non-allowlisted user denied
+    public void IsEnabledForUser_FollowsPhase1DecisionOrder(
+        bool emergencyDisable,
+        bool institutionalReports,
+        int userId,
+        bool expected)
+    {
+        var service = CreateService(
+            institutionalReports: institutionalReports,
+            emergencyDisable: emergencyDisable,
+            userIds: [1],
+            percentage: 0);
+
+        Assert.Equal(expected, service.IsEnabledForUser(new TestUser(UserRole.Admin, userId, null)));
+    }
+
+    [Fact]
+    public void IsEnabledForUser_Phase1AllowlistOnly_DeniesAdminRoleWithoutUserId()
+    {
+        var service = CreateService(
+            institutionalReports: true,
+            emergencyDisable: false,
+            roles: [],
+            userIds: [42],
+            percentage: 0);
+
+        Assert.False(service.IsEnabledForUser(new TestUser(UserRole.Admin, 1, null)));
+        Assert.True(service.IsEnabledForUser(new TestUser(UserRole.Admin, 42, null)));
+    }
+
     private static ReportingRolloutService CreateService(
         bool institutionalReports,
         bool emergencyDisable,
         IReadOnlyList<string>? roles = null,
         IReadOnlyList<int>? userIds = null,
+        IReadOnlyList<int>? departmentIds = null,
         int percentage = 0)
     {
         return new ReportingRolloutService(
@@ -61,6 +96,7 @@ public class ReportingRolloutServiceTests
                 EmergencyDisable = emergencyDisable,
                 EnabledForRoles = roles?.ToList() ?? [],
                 EnabledForUserIds = userIds?.ToList() ?? [],
+                EnabledForDepartments = departmentIds?.ToList() ?? [],
                 Percentage = percentage,
             }));
     }
