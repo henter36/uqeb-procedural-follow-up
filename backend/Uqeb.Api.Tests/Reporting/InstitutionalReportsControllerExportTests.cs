@@ -15,7 +15,7 @@ public class InstitutionalReportsControllerExportTests
     public async Task Export_ReturnsValidationProblem_WhenServiceThrowsFieldValidation()
     {
         var service = new ThrowingInstitutionalReportService();
-        var controller = new InstitutionalReportsController(service)
+        var controller = new InstitutionalReportsController(service, new StubReportingReadinessService())
         {
             ControllerContext = new ControllerContext
             {
@@ -60,5 +60,11 @@ public class InstitutionalReportsControllerExportTests
 
         public Task DeleteTemplateAsync(int id, CancellationToken ct = default) =>
             Task.CompletedTask;
+    }
+
+    private sealed class StubReportingReadinessService : IReportingReadinessService
+    {
+        public ReportingConfigurationDto GetConfiguration() => new();
+        public ReportingReadinessDto GetReadiness() => new();
     }
 }

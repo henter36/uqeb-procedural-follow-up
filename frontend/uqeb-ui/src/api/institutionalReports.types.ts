@@ -22,6 +22,15 @@ export type InstitutionalReportManifest = {
   exportedDetailRows?: number;
   detailRowsTruncated?: boolean;
   detailPartsCount?: number;
+  loadedDetailRows?: number;
+  currentPartNumber?: number | null;
+  rowsFrom?: number | null;
+  rowsTo?: number | null;
+  isSummaryOnly?: boolean;
+  overflowAction?: DetailOverflowAction | null;
+  stylesheet?: string | null;
+  templateVersion?: string | null;
+  fileFingerprint?: string | null;
 };
 
 export type InstitutionalReportType = 1 | 2 | 3 | 4 | 5;

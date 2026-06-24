@@ -21,8 +21,9 @@ public class InstitutionalReportRendererCoverTests
 
         Assert.Equal(2, manifest.TotalPages);
         var cover = Assert.Single(manifest.Pages, p => p.SectionId == ReportSectionId.Cover);
-        Assert.Contains("عدد الصفحات: 2", cover.HtmlContent);
-        Assert.DoesNotContain("عدد الصفحات: 0", cover.HtmlContent);
+        Assert.Contains("إجمالي الصفحات", cover.HtmlContent);
+        Assert.Contains(">2<", cover.HtmlContent);
+        Assert.DoesNotContain("0 من 0", cover.HtmlContent);
     }
 
     [Fact]
@@ -33,7 +34,8 @@ public class InstitutionalReportRendererCoverTests
 
         Assert.Equal(1, manifest.TotalPages);
         var cover = Assert.Single(manifest.Pages);
-        Assert.Contains("عدد الصفحات: 1", cover.HtmlContent);
+        Assert.Contains("إجمالي الصفحات", cover.HtmlContent);
+        Assert.Contains(">1<", cover.HtmlContent);
     }
 
     [Fact]

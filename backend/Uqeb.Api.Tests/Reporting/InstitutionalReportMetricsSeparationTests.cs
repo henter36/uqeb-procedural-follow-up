@@ -14,13 +14,20 @@ public class InstitutionalReportMetricsSeparationTests
 {
     private const int DetailLimit = 2;
 
+    private static ReportingOptions SmallDetailLimits => new()
+    {
+        MaxPreviewDetailRows = DetailLimit,
+        MaxPdfDetailRows = DetailLimit,
+        MaxPdfDetailRowsPerPart = DetailLimit,
+    };
+
     [Fact]
     public async Task BuildReportModelAsync_ComputesKpisFromFullDatasetWhileDetailsRespectLimit()
     {
         var dbFactory = await CreateSeededFactoryAsync(closedCount: 3, openCount: 2);
         var service = InstitutionalReportServiceTestHelpers.CreateService(
             dbFactory,
-            new ReportingOptions { MaxPdfDetailRows = DetailLimit });
+            SmallDetailLimits);
 
         var model = await service.BuildReportModelAsync(new ReportBuildRequestDto
         {
@@ -45,7 +52,7 @@ public class InstitutionalReportMetricsSeparationTests
         var dbFactory = await CreateSeededFactoryAsync(closedCount: 3, openCount: 2);
         var service = InstitutionalReportServiceTestHelpers.CreateService(
             dbFactory,
-            new ReportingOptions { MaxPdfDetailRows = DetailLimit });
+            SmallDetailLimits);
 
         var manifest = await service.RenderPreviewAsync(new ReportBuildRequestDto
         {
@@ -72,7 +79,7 @@ public class InstitutionalReportMetricsSeparationTests
         var dbFactory = await CreateSeededFactoryAsync(closedCount: 3, openCount: 2);
         var service = InstitutionalReportServiceTestHelpers.CreateService(
             dbFactory,
-            new ReportingOptions { MaxPdfDetailRows = DetailLimit });
+            SmallDetailLimits);
 
         var result = await service.ExportAsync(new ReportExportRequestDto
         {

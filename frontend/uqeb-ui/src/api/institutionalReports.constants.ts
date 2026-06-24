@@ -14,10 +14,10 @@ export const ReportSectionId = {
   RisksAndAlerts: 5,
   ExecutiveRecommendations: 6,
   TransactionDetails: 7,
-  Appendix: 8,
-  PartialCover: 9,
-  PartialManifest: 10,
-  ReportMetadata: 11,
+  Appendices: 8,
+  ReportMetadata: 9,
+  PartialCover: 10,
+  PartialManifest: 11,
 } as const;
 
 export const ExportFormat = {

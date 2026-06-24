@@ -16,13 +16,20 @@ public class InstitutionalReportOverflowTests
 {
     private const int DetailLimit = 2;
 
+    private static ReportingOptions SmallDetailLimits => new()
+    {
+        MaxPreviewDetailRows = DetailLimit,
+        MaxPdfDetailRows = DetailLimit,
+        MaxPdfDetailRowsPerPart = DetailLimit,
+    };
+
     [Fact]
     public async Task ExportAsync_ThrowsValidationProblem_WhenOverflowWithoutAction()
     {
         var dbFactory = await CreateSeededFactoryAsync(transactionCount: 5);
         var service = InstitutionalReportServiceTestHelpers.CreateService(
             dbFactory,
-            new ReportingOptions { MaxPdfDetailRows = DetailLimit });
+            new ReportingOptions { MaxPreviewDetailRows = DetailLimit, MaxPdfDetailRows = DetailLimit, MaxPdfDetailRowsPerPart = DetailLimit });
 
         var request = CreateExportRequest(DetailOverflowAction.None);
 
@@ -38,7 +45,7 @@ public class InstitutionalReportOverflowTests
         var dbFactory = await CreateSeededFactoryAsync(transactionCount: 5);
         var service = InstitutionalReportServiceTestHelpers.CreateService(
             dbFactory,
-            new ReportingOptions { MaxPdfDetailRows = DetailLimit });
+            new ReportingOptions { MaxPreviewDetailRows = DetailLimit, MaxPdfDetailRows = DetailLimit, MaxPdfDetailRowsPerPart = DetailLimit });
 
         var manifest = await service.RenderPreviewAsync(new ReportBuildRequestDto
         {
@@ -59,7 +66,7 @@ public class InstitutionalReportOverflowTests
         var audit = new CapturingAuditService();
         var service = InstitutionalReportServiceTestHelpers.CreateService(
             dbFactory,
-            new ReportingOptions { MaxPdfDetailRows = DetailLimit },
+            SmallDetailLimits,
             audit);
 
         var result = await service.ExportAsync(CreateExportRequest(DetailOverflowAction.SummaryOnly));
@@ -78,7 +85,7 @@ public class InstitutionalReportOverflowTests
         var audit = new CapturingAuditService();
         var service = InstitutionalReportServiceTestHelpers.CreateService(
             dbFactory,
-            new ReportingOptions { MaxPdfDetailRows = DetailLimit },
+            SmallDetailLimits,
             audit);
 
         var result = await service.ExportAsync(CreateExportRequest(DetailOverflowAction.SplitPdf));
@@ -96,7 +103,7 @@ public class InstitutionalReportOverflowTests
         var audit = new CapturingAuditService();
         var service = InstitutionalReportServiceTestHelpers.CreateService(
             dbFactory,
-            new ReportingOptions { MaxPdfDetailRows = DetailLimit },
+            SmallDetailLimits,
             audit);
 
         var result = await service.ExportAsync(CreateExportRequest(DetailOverflowAction.FullDetailsXlsx));
@@ -115,7 +122,7 @@ public class InstitutionalReportOverflowTests
         var dbFactory = await CreateSeededFactoryAsync(transactionCount);
         var service = InstitutionalReportServiceTestHelpers.CreateService(
             dbFactory,
-            new ReportingOptions { MaxPdfDetailRows = DetailLimit });
+            new ReportingOptions { MaxPreviewDetailRows = DetailLimit, MaxPdfDetailRows = DetailLimit, MaxPdfDetailRowsPerPart = DetailLimit });
 
         var result = await service.ExportAsync(CreateExportRequest(DetailOverflowAction.FullDetailsXlsx));
 
