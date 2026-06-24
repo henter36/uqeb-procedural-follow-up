@@ -40,7 +40,7 @@ jobs:
         shell: pwsh
         run: |
           Import-Module Pester -MinimumVersion 5.0.0 -ErrorAction Stop
-          Invoke-Pester -Path .\scripts\tests\PlaywrightDeployment.Tests.ps1, .\scripts\tests\ExpandArchiveSafely.Tests.ps1, .\scripts\deployment-package.Tests.ps1, .\scripts\verify-deployment-health.Tests.ps1 -Output Detailed
+          Invoke-Pester -Path .\scripts\tests\MigrationResultNormalization.Tests.ps1, .\scripts\tests\PlaywrightDeployment.Tests.ps1, .\scripts\tests\ExpandArchiveSafely.Tests.ps1, .\scripts\deployment-package.Tests.ps1, .\scripts\verify-deployment-health.Tests.ps1 -Output Detailed
 
   production-package-structure:
     runs-on: windows-latest

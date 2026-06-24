@@ -1370,6 +1370,48 @@ function Get-MigrationIdsFromDataTable {
     return ,$migrationIds.ToArray()
 }
 
+function ConvertTo-TrimmedMigrationIdArray {
+    param([object[]]$Values)
+
+    if ($null -eq $Values) {
+        return ,@()
+    }
+
+    $migrationIds = @(
+        $Values |
+            ForEach-Object {
+                if ($null -ne $_) {
+                    ([string]$_).Trim()
+                }
+            } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    )
+
+    return ,$migrationIds
+}
+
+function Get-MigrationIdsFromResultArray {
+    param([System.Array]$Result)
+
+    if ($Result.Count -eq 0) {
+        return ,@()
+    }
+
+    if ($Result[0] -is [string]) {
+        return ConvertTo-TrimmedMigrationIdArray -Values $Result
+    }
+
+    $table = $Result |
+        Where-Object { $_ -is [System.Data.DataTable] } |
+        Select-Object -First 1
+
+    if ($null -ne $table) {
+        return Get-MigrationIdsFromDataTable -Table $table
+    }
+
+    return ,@()
+}
+
 function Resolve-MigrationIdsFromHandlerResult {
     param($Result)
 
@@ -1378,16 +1420,11 @@ function Resolve-MigrationIdsFromHandlerResult {
     }
 
     if ($Result -is [string]) {
-        $migrationId = $Result.Trim()
-        if ($migrationId) {
-            return ,@($migrationId)
-        }
-
-        return ,@()
+        return ConvertTo-TrimmedMigrationIdArray -Values @($Result)
     }
 
     if ($Result -is [string[]]) {
-        return ,@($Result | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        return ConvertTo-TrimmedMigrationIdArray -Values $Result
     }
 
     if ($Result -is [System.Data.DataTable]) {
@@ -1399,15 +1436,7 @@ function Resolve-MigrationIdsFromHandlerResult {
     }
 
     if ($Result -is [System.Array]) {
-        if ($Result.Count -gt 0 -and ($Result[0] -is [string])) {
-            return ,@($Result | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
-        }
-
-        foreach ($item in $Result) {
-            if ($item -is [System.Data.DataTable]) {
-                return Get-MigrationIdsFromDataTable -Table $item
-            }
-        }
+        return Get-MigrationIdsFromResultArray -Result $Result
     }
 
     return ,@()
