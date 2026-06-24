@@ -29,6 +29,7 @@ internal static class HealthTestHostBuilder
             ["Jwt:Audience"] = "UqebClientTests",
             ["ConnectionStrings:DefaultConnection"] = "Server=(localdb)\\mssqllocaldb;Database=unused;Trusted_Connection=True;",
             ["HealthChecks:DatabaseTimeoutSeconds"] = "5",
+            ["FeatureFlags:InstitutionalReports"] = "false",
         };
 
         if (extraConfig is not null)

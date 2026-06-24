@@ -193,5 +193,8 @@ public class InstitutionalReportExportFormatTests
               LaunchSuccessful = false,
               Summary = "Chromium executable is not installed.",
           });
+
+      public Task<ReportingChromiumProbeResult> ProbeLaunchOnlyAsync(CancellationToken cancellationToken = default) =>
+          ProbeAsync(cancellationToken);
   }
 }

@@ -31,7 +31,8 @@ $directories = @(
     (Join-Path $InstallRoot "logs"),
     (Join-Path $InstallRoot "publish\api"),
     (Join-Path $InstallRoot "publish\web"),
-    (Join-Path $InstallRoot "config")
+    (Join-Path $InstallRoot "config"),
+    (Join-Path $InstallRoot "tools\ms-playwright")
 )
 
 Write-DeployStep "إنشاء مجلدات الإنتاج"
@@ -45,6 +46,7 @@ $filesToCopy = @(
     @{ Source = "install-production-package.ps1"; Target = "install-production-package.ps1" },
     @{ Source = "apply-migrations.ps1"; Target = "apply-migrations.ps1" },
     @{ Source = "verify-deployment-health.ps1"; Target = "verify-deployment-health.ps1" },
+    @{ Source = "verify-playwright-readiness.ps1"; Target = "verify-playwright-readiness.ps1" },
     @{ Source = "deployment\Common.ps1"; Target = "deployment\Common.ps1" }
 )
 

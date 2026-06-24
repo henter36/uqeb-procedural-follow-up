@@ -17,6 +17,7 @@ param(
     [string]$ApiBaseUrl = "",
     [string]$InstallRoot = "C:\Uqeb",
     [string]$ToolsRoot = "C:\UqebTools",
+    [string]$PlaywrightBrowsersPath = "C:\Uqeb\tools\ms-playwright",
     [switch]$SkipFileBackup,
     [switch]$SkipDatabaseMigration
 )
@@ -54,6 +55,12 @@ $rollbackPerformed = $false
 $configTarget = ""
 $manualRestoreCommand = ""
 $sqlInfo = $null
+$playwrightPreflight = $null
+$browserPreviousPath = ""
+$runApiPath = Join-Path $InstallRoot "run-api.cmd"
+$logsPath = Join-Path $InstallRoot "logs\api-runtime.log"
+$releaseManifestPath = Join-Path (Split-Path $ApiPath -Parent) "release-manifest.json"
+$deployStartedAt = [DateTime]::UtcNow
 
 try {
     if (-not (Test-IsAdministrator)) {
@@ -81,14 +88,15 @@ try {
     Ensure-Directory $stagingPath
 
     Write-DeployStep "فك حزمة الإنتاج"
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    [System.IO.Compression.ZipFile]::ExtractToDirectory($PackagePath, $stagingPath)
+    Expand-ArchiveSafely -ArchivePath $PackagePath -DestinationPath $stagingPath
 
     $requiredPaths = @(
         (Join-Path $stagingPath "manifest.json"),
         (Join-Path $stagingPath "api\Uqeb.Api.dll"),
+        (Join-Path $stagingPath "api\playwright.ps1"),
         (Join-Path $stagingPath "web\index.html"),
-        (Join-Path $stagingPath "database\migrations-idempotent.sql")
+        (Join-Path $stagingPath "database\migrations-idempotent.sql"),
+        (Join-Path $stagingPath "browsers\playwright-browser-manifest.json")
     )
     foreach ($required in $requiredPaths) {
         if (-not (Test-Path -LiteralPath $required)) {
@@ -101,9 +109,20 @@ try {
     $packageVersion = [string]$manifest.version
     $packageCommit = [string]$manifest.commitSha
 
+    Write-DeployStep "التحقق من حمولة Chromium قبل إيقاف الخدمة"
+    $playwrightPreflight = Test-PlaywrightPackagePreflight -PackageRoot $stagingPath -Manifest $manifest
+
     $sqlInfo = Get-SqlConnectionInfoFromSettings -SettingsPath $ConfigPath
     Write-DeployInfo ("خادم SQL: " + $sqlInfo.Server)
     Write-DeployInfo ("قاعدة البيانات: " + $sqlInfo.Database)
+
+    if ($SkipDatabaseMigration) {
+        Write-DeployStep "التحقق من migration المطلوبة قبل تخطي التطبيق"
+        Test-RequiredMigrationApplied `
+            -ConnectionString $sqlInfo.ConnectionString `
+            -RequiredMigrationId ([string]$manifest.minimumDatabaseMigration)
+        Write-DeployInfo ("تم السماح بتخطي migrations لأن migration المطلوبة مطبقة: " + $manifest.minimumDatabaseMigration)
+    }
 
     if (-not (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue)) {
         throw "مهمة الجدولة '$TaskName' غير موجودة."
@@ -111,10 +130,7 @@ try {
 
     $backupRoot = Join-Path $InstallRoot "backup"
     $databaseBackupDirectory = Join-Path $backupRoot "db"
-    $releaseManifestPath = Join-Path (Split-Path $ApiPath -Parent) "release-manifest.json"
     $configTarget = Join-Path $ApiPath "appsettings.Production.json"
-    $logsPath = Join-Path $InstallRoot "logs\api-runtime.log"
-    $deployStartedAt = [DateTime]::UtcNow
 
     Write-DeployStep "إنشاء نسخة احتياطية إلزامية لقاعدة البيانات"
     $databaseBackup = Invoke-ProductionDatabaseBackup `
@@ -149,17 +165,22 @@ try {
     $backupPath = Join-Path $backupRoot ("before-" + $stamp)
     $backupApi = Join-Path $backupPath "api"
     $backupWeb = Join-Path $backupPath "web"
+    $backupBrowsers = Join-Path $backupPath "browsers"
     $backupManifest = Join-Path $backupPath "release-manifest.json"
 
     if (-not $SkipFileBackup) {
         Write-DeployStep "إنشاء نسخة احتياطية للملفات"
         Ensure-Directory $backupApi
         Ensure-Directory $backupWeb
+        Ensure-Directory $backupBrowsers
         if (Test-DirectoryHasContent $ApiPath) {
             Invoke-RobocopySafe -Source $ApiPath -Destination $backupApi -TargetType Api
         }
         if (Test-DirectoryHasContent $WebPath) {
             Invoke-RobocopySafe -Source $WebPath -Destination $backupWeb -TargetType Web
+        }
+        if (Test-DirectoryHasContent $PlaywrightBrowsersPath) {
+            Invoke-RobocopySafe -Source $PlaywrightBrowsersPath -Destination $backupBrowsers -TargetType Web
         }
         if (Test-Path -LiteralPath $releaseManifestPath) {
             Copy-Item -LiteralPath $releaseManifestPath -Destination $backupManifest -Force
@@ -191,7 +212,7 @@ try {
         $databaseStatus = "نجح"
     }
     else {
-        Write-DeployInfo "تم تخطي migrations (-SkipDatabaseMigration). نسخة قاعدة البيانات نُفِّذت قبل ذلك."
+        Write-DeployInfo "تم تخطي migrations (-SkipDatabaseMigration) بعد التحقق من وجود migration المطلوبة."
         $databaseStatus = "متخطى"
     }
 
@@ -211,6 +232,26 @@ try {
         throw "إعداد الإنتاج المعتمد غير موجود: $ConfigPath"
     }
 
+    Write-DeployStep "تثبيت Chromium في مسار الإنتاج"
+    $packageBrowsersSource = Join-Path $stagingPath "browsers"
+    $browserPreviousPath = Install-PlaywrightBrowserToProduction `
+        -PackageBrowsersSource $packageBrowsersSource `
+        -PlaywrightBrowsersPath $PlaywrightBrowsersPath
+    $installedExecutable = Test-PlaywrightBrowserPayload `
+        -BrowsersRoot $PlaywrightBrowsersPath `
+        -ExpectedExecutableRelativePath $playwrightPreflight.ExecutableRelativePath `
+        -ExpectedExecutableSha256 ([string]$manifest.playwright.browserExecutableSha256)
+
+    Write-DeployStep "تحديث ملف تشغيل API"
+    Ensure-Directory (Split-Path -Parent $runApiPath)
+    Ensure-Directory (Split-Path -Parent $logsPath)
+    Write-ApiRunScript `
+        -RunScriptPath $runApiPath `
+        -ApiPath $ApiPath `
+        -ApiPort $ApiPort `
+        -PlaywrightBrowsersPath $PlaywrightBrowsersPath `
+        -LogPath $logsPath
+
     $releaseInfo = [ordered]@{
         deployedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
         package = [System.IO.Path]::GetFileName($PackagePath)
@@ -219,14 +260,22 @@ try {
         minimumDatabaseMigration = [string]$manifest.minimumDatabaseMigration
         apiPath = $ApiPath
         webPath = $WebPath
+        runApiScript = $runApiPath
         databaseBackup = [ordered]@{
             path = $databaseBackupPath
             sizeBytes = $databaseBackupSizeBytes
             createdAtUtc = $databaseBackupCreatedAtUtc
             sha256 = $databaseBackupSha256
         }
+        playwright = [ordered]@{
+            browser = "chromium"
+            browserPath = $PlaywrightBrowsersPath
+            executablePath = $installedExecutable.FullPath
+            browserExecutableSha256 = (Get-FileSha256Hex -Path $installedExecutable.FullPath)
+            verifiedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
+        }
     }
-    $releaseInfo | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $releaseManifestPath -Encoding UTF8
+    $releaseInfo | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $releaseManifestPath -Encoding UTF8
 
     Write-DeployStep "تشغيل API"
     Start-ScheduledTask -TaskName $TaskName
@@ -243,13 +292,20 @@ try {
     }
 
     Write-DeployStep "فحص صحة API"
-    & $healthScript -ApiBaseUrl $ApiBaseUrl -RetryCount 5 -RetryDelaySec 2
+    & $healthScript `
+        -ApiBaseUrl $ApiBaseUrl `
+        -PlaywrightBrowsersPath $PlaywrightBrowsersPath `
+        -ExpectedBrowserExecutableSha256 ([string]$manifest.playwright.browserExecutableSha256) `
+        -RetryCount 5 `
+        -RetryDelaySec 2
     $apiHealth = "نجح"
 
     $logErrors = Test-RecentLogErrors -LogPath $logsPath -Since $deployStartedAt
     if (@($logErrors).Count -gt 0) {
         throw ("تم العثور على أخطاء جديدة في السجل: " + ($logErrors -join " | "))
     }
+
+    Remove-DirectoryIfExists -Path $browserPreviousPath
 
     $databaseRetentionDeleted = Invoke-DatabaseBackupRetentionPolicy `
         -BackupDirectory $databaseBackupDirectory `
@@ -294,10 +350,14 @@ catch {
             -ApiTarget $ApiPath `
             -WebTarget $WebPath `
             -ConfigTarget $configTarget `
-            -ConfigSource (Join-Path $backupPath "appsettings.Production.json")
+            -ConfigSource (Join-Path $backupPath "appsettings.Production.json") `
+            -BackupBrowsers (Join-Path $backupPath "browsers") `
+            -PlaywrightBrowsersPath $PlaywrightBrowsersPath `
+            -ReleaseManifestPath $releaseManifestPath `
+            -BackupReleaseManifest (Join-Path $backupPath "release-manifest.json")
 
         if ($rollbackPerformed) {
-            Write-DeployInfo "تم استرجاع ملفات API/Web من النسخة الاحتياطية. لا يوجد rollback تلقائي لقاعدة البيانات."
+            Write-DeployInfo "تم استرجاع ملفات API/Web/Chromium من النسخة الاحتياطية. لا يوجد rollback تلقائي لقاعدة البيانات."
         }
     }
 
@@ -308,6 +368,7 @@ finally {
     Write-DeployInfo ("الحزمة: " + $PackagePath)
     Write-DeployInfo ("الإصدار: " + $(if ($packageVersion) { $packageVersion } else { "غير معروف" }))
     Write-DeployInfo ("Commit SHA: " + $(if ($packageCommit) { $packageCommit } else { "غير متوفر" }))
+    Write-DeployInfo ("PLAYWRIGHT_BROWSERS_PATH: " + $PlaywrightBrowsersPath)
     Write-DeployInfo ("حالة نسخة قاعدة البيانات: " + $databaseBackupStatus)
     Write-DeployInfo ("مسار نسخة قاعدة البيانات: " + $(if ($databaseBackupPath) { $databaseBackupPath } else { "غير متوفر" }))
     if ($databaseBackupPath) {

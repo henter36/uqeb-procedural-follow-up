@@ -181,16 +181,24 @@ Frontend:
 📄 **[docs/simple_offline_deployment.md](docs/simple_offline_deployment.md)**
 
 ```powershell
-# جهاز التطوير
+# جهاز التطوير (يتطلب الإنترنت لتنزيل Chromium المتوافق مع Microsoft.Playwright)
 .\scripts\build-production-package.ps1
 
-# جهاز الإنتاج (بعد نقل ZIP + SHA256 إلى C:\Uqeb\incoming)
+# جهاز الإنتاج (بعد نقل ZIP + SHA256 إلى C:\Uqeb\incoming — offline)
 C:\UqebTools\install-production-package.ps1 -PackagePath C:\Uqeb\incoming\Uqeb-<version>.zip
 ```
 
+الحزمة الرسمية تتضمن `browsers\` (Chromium) و`api\playwright.ps1`. على الإنتاج:
+
+- مسار المتصفح: `C:\Uqeb\tools\ms-playwright`
+- `PLAYWRIGHT_BROWSERS_PATH` يُضبط عبر `C:\Uqeb\run-api.cmd` الذي تستدعيه مهمة `UqebApi`
+- لا تشغّل `playwright install` يدويًا على الإنتاج عند استخدام الحزمة الرسمية
+- PDF يتطلب Chromium؛ HTML وXLSX وDOCX لا تعتمد عليه
+- التحقق: `verify-deployment-health.ps1` و`/health/ready` (بدون تخصيص رقم تقرير)
+
 إعداد أولي: `.\scripts\setup-production-tools.ps1` على جهاز الإنتاج.
 
-> **لا يمكن تنفيذ نشر إنتاج أو migrations دون نسخة قاعدة بيانات مكتملة ومتحقق منها. لا يوجد خيار تجاوز لهذه الخطوة.**
+> **لا يمكن تنفيذ نشر إنتاج أو migrations دون نسخة قاعدة بيانات مكتملة ومتحقق منها. لا يوجد خيار تجاوز لهذه الخطوة.** `-SkipDatabaseMigration` مسموح فقط إذا كانت migration المطلوبة (`manifest.minimumDatabaseMigration`) مطبقة مسبقًا في قاعدة الإنتاج.
 
 قبل أي migrations، يُنشأ تلقائيًا نسخ احتياطي كامل في `C:\Uqeb\backup\db\` مع `WITH CHECKSUM` و`RESTORE VERIFYONLY`.
 
