@@ -1,4 +1,6 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Uqeb.Api.Data;
 using Uqeb.Api.Helpers;
@@ -8,6 +10,7 @@ using Uqeb.Api.Reporting.Configuration;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
 using Uqeb.Api.Reporting.Exporters;
+using Uqeb.Api.Reporting.Operations;
 using Uqeb.Api.Reporting.Services;
 using Uqeb.Api.Services;
 using Xunit;
@@ -110,7 +113,25 @@ internal static class InstitutionalReportServiceTestHelpers
             audit ?? new NoOpAuditService(),
             new FixedReportNumberAllocator(),
             new StubPdfExporter(),
-            Options.Create(reportingOptions ?? new ReportingOptions { MaxPdfDetailRows = 10_000 }));
+            Options.Create(reportingOptions ?? new ReportingOptions { MaxPdfDetailRows = 10_000 }),
+            CreateExportGuard(reportingOptions, audit),
+            new ReportingMetrics(),
+            NullLogger<InstitutionalReportService>.Instance);
+    }
+
+    private static IReportingExportGuard CreateExportGuard(ReportingOptions? reportingOptions, IAuditService? audit = null)
+    {
+        var options = Options.Create(reportingOptions ?? new ReportingOptions { MaxPdfDetailRows = 10_000 });
+        var metrics = new ReportingMetrics();
+        return new ReportingExportGuard(
+            options,
+            new ReportingExportConcurrencyGate(options),
+            new ReportingTempFileManager(options, NullLogger<ReportingTempFileManager>.Instance, metrics),
+            metrics,
+            audit ?? new NoOpAuditService(),
+            new TestCurrentUserService(),
+            new HttpContextAccessor(),
+            NullLogger<ReportingExportGuard>.Instance);
     }
 
     private sealed class TestCurrentUserService : ICurrentUserService

@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import { roleLabels } from '../../utils/labels';
 import { getRouteMeta } from './navConfig';
 import Breadcrumbs from '../ui/Breadcrumbs';

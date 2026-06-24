@@ -1,7 +1,8 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import ReportBuilderPage, { buildReportExportPageSelection, defaultDate } from './ReportBuilder';
+import ReportBuilderPage from './ReportBuilder';
+import { buildReportExportPageSelection, defaultDate } from './reportBuilderHelpers';
 import {
   getPageSelectionSummary,
   getPreviewStatusMessage,

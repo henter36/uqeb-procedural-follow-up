@@ -5,7 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import * as safeStorage from '../../utils/safeStorage';
 
-vi.mock('../../context/AuthContext', () => ({
+vi.mock('../../context/useAuth', () => ({
   useAuth: () => ({
     isAdmin: true,
     canClose: true,

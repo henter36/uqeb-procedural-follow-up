@@ -13,6 +13,7 @@ using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Middleware;
 using Uqeb.Api.Reporting.Exporters;
 using Uqeb.Api.Reporting.Configuration;
+using Uqeb.Api.Reporting.Operations;
 using Uqeb.Api.Reporting.Services;
 using Uqeb.Api.Services;
 using Uqeb.Api.Services.Health;
@@ -21,6 +22,14 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));
 builder.Services.Configure<FeatureFlagsSettings>(builder.Configuration.GetSection(FeatureFlagsSettings.SectionName));
+builder.Services.AddOptions<ReportingRolloutOptions>()
+    .Bind(builder.Configuration.GetSection(ReportingRolloutOptions.SectionName))
+    .Validate(o =>
+    {
+        o.Validate();
+        return true;
+    }, "ReportingRollout configuration is invalid.")
+    .ValidateOnStart();
 builder.Services.AddOptions<ReportingOptions>()
     .Bind(builder.Configuration.GetSection(ReportingOptions.SectionName))
     .Validate(o =>
@@ -52,7 +61,14 @@ builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<IInstitutionalReportService, InstitutionalReportService>();
 builder.Services.AddScoped<IInstitutionalReportNumberAllocator, InstitutionalReportNumberAllocator>();
 builder.Services.AddSingleton<IInstitutionalReportPdfExporter, InstitutionalReportPlaywrightPdfExporter>();
-builder.Services.AddSingleton<IReportingReadinessService, ReportingReadinessService>();
+builder.Services.AddSingleton<IReportingMetrics, ReportingMetrics>();
+builder.Services.AddSingleton<IReportingExportConcurrencyGate, ReportingExportConcurrencyGate>();
+builder.Services.AddSingleton<IReportingChromiumProbe, ReportingChromiumProbe>();
+builder.Services.AddSingleton<IReportingTempFileManager, ReportingTempFileManager>();
+builder.Services.AddScoped<IReportingExportGuard, ReportingExportGuard>();
+builder.Services.AddScoped<IReportingReadinessService, ReportingReadinessService>();
+builder.Services.AddSingleton<IReportingRolloutService, ReportingRolloutService>();
+builder.Services.AddHostedService<ReportingTempFileCleanupHostedService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IDepartmentService, DepartmentService>();
 builder.Services.AddScoped<IExternalPartyService, ExternalPartyService>();
@@ -172,9 +188,9 @@ app.UseCors();
 app.UseResponseCompression();
 app.UseRateLimiter();
 app.UseMiddleware<Uqeb.Api.Middleware.UnauthorizedAccessLoggingMiddleware>();
-app.UseMiddleware<InstitutionalReportsFeatureGateMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseMiddleware<InstitutionalReportsFeatureGateMiddleware>();
 app.MapControllers();
 
 app.Run();

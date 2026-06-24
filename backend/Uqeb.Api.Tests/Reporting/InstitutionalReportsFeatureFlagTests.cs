@@ -143,6 +143,13 @@ internal static class InstitutionalReportsTestHostBuilder
             ["FeatureFlags:InstitutionalReports"] = institutionalReportsEnabled ? "true" : "false",
         };
 
+        if (institutionalReportsEnabled)
+        {
+            config["ReportingRollout:EmergencyDisable"] = "false";
+            config["ReportingRollout:EnabledForRoles:0"] = "Admin";
+            config["ReportingRollout:EnabledForRoles:1"] = "Supervisor";
+        }
+
         if (extraConfig is not null)
         {
             foreach (var entry in extraConfig)

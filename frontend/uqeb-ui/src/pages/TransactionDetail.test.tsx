@@ -15,7 +15,7 @@ const mockUseAuth = vi.fn(() => ({
   isAdmin: true,
 }));
 
-vi.mock('../context/AuthContext', () => ({
+vi.mock('../context/useAuth', () => ({
   useAuth: () => mockUseAuth(),
 }));
 

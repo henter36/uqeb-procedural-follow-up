@@ -18,8 +18,6 @@ import { useReportBuilderExport } from './useReportBuilderExport';
 import { ReportPreviewDocument } from './ReportPreviewDocument';
 import '../styles/institutional-report.css';
 
-export { buildReportExportPageSelection, defaultDate } from './reportBuilderHelpers';
-
 const REPORT_TYPES = [
   { value: InstitutionalReportType.ExecutiveComprehensive, label: 'التقرير التنفيذي الشامل' },
   { value: InstitutionalReportType.OverdueTransactions, label: 'تقرير المعاملات المتأخرة' },

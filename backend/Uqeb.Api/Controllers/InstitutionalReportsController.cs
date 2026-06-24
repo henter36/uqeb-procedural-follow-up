@@ -2,7 +2,9 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Uqeb.Api.Authorization;
 using Uqeb.Api.Helpers;
+using Uqeb.Api.Middleware;
 using Uqeb.Api.Reporting.DTOs;
+using Uqeb.Api.Reporting.Operations;
 using Uqeb.Api.Reporting.Services;
 
 namespace Uqeb.Api.Controllers;
@@ -41,6 +43,18 @@ public class InstitutionalReportsController : ControllerBase
         catch (FieldValidationException ex)
         {
             return ToValidationProblem(ex);
+        }
+        catch (ReportingExportRejectedException ex)
+        {
+            if (ex.RetryAfterSeconds is int retryAfter)
+                Response.Headers.RetryAfter = retryAfter.ToString();
+
+            var correlationId = HttpContext.Items[CorrelationIdMiddleware.ItemKey] as string;
+            return StatusCode(ex.StatusCode, new
+            {
+                errorCode = ex.ErrorCode,
+                correlationId,
+            });
         }
     }
 

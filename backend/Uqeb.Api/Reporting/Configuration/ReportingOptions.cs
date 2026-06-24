@@ -22,6 +22,18 @@ public sealed class ReportingOptions
     public int MaxExportFileSizeMb { get; set; } = 100;
     public int MaxExportDurationSeconds { get; set; } = 120;
 
+    public int MaxConcurrentReportBuilds { get; set; } = 4;
+    public int MaxConcurrentPdfExports { get; set; } = 2;
+    public int MaxConcurrentNonPdfExports { get; set; } = 4;
+    public int ExportConcurrencyWaitSeconds { get; set; } = 30;
+    public int MinFreeTempSpaceMb { get; set; } = 512;
+    public long MaxTempBytesPerExport { get; set; } = 500_000_000;
+    public long MaxTotalTempBytes { get; set; } = 2_000_000_000;
+    public int TempFileMaxAgeMinutes { get; set; } = 120;
+    public string TempFileRoot { get; set; } = string.Empty;
+    public int ReadinessCacheSeconds { get; set; } = 45;
+    public int ChromiumProbeTimeoutSeconds { get; set; } = 15;
+
     public int ResolvePdfPartDetailLimit() =>
         MaxPdfDetailRowsPerPart > 0 ? MaxPdfDetailRowsPerPart : MaxPdfDetailRows;
 
@@ -50,6 +62,39 @@ public sealed class ReportingOptions
 
         if (MaxExportDurationSeconds <= 0)
             throw new InvalidOperationException("Reporting:MaxExportDurationSeconds must be greater than zero.");
+
+        if (MaxConcurrentReportBuilds <= 0)
+            throw new InvalidOperationException("Reporting:MaxConcurrentReportBuilds must be greater than zero.");
+
+        if (MaxConcurrentPdfExports <= 0)
+            throw new InvalidOperationException("Reporting:MaxConcurrentPdfExports must be greater than zero.");
+
+        if (MaxConcurrentNonPdfExports <= 0)
+            throw new InvalidOperationException("Reporting:MaxConcurrentNonPdfExports must be greater than zero.");
+
+        if (ExportConcurrencyWaitSeconds <= 0)
+            throw new InvalidOperationException("Reporting:ExportConcurrencyWaitSeconds must be greater than zero.");
+
+        if (MinFreeTempSpaceMb <= 0)
+            throw new InvalidOperationException("Reporting:MinFreeTempSpaceMb must be greater than zero.");
+
+        if (MaxTempBytesPerExport <= 0)
+            throw new InvalidOperationException("Reporting:MaxTempBytesPerExport must be greater than zero.");
+
+        if (MaxTotalTempBytes < MaxTempBytesPerExport)
+            throw new InvalidOperationException("Reporting:MaxTotalTempBytes must be greater than or equal to MaxTempBytesPerExport.");
+
+        if (TempFileMaxAgeMinutes <= 0)
+            throw new InvalidOperationException("Reporting:TempFileMaxAgeMinutes must be greater than zero.");
+
+        if (ReadinessCacheSeconds <= 0)
+            throw new InvalidOperationException("Reporting:ReadinessCacheSeconds must be greater than zero.");
+
+        if (ChromiumProbeTimeoutSeconds <= 0)
+            throw new InvalidOperationException("Reporting:ChromiumProbeTimeoutSeconds must be greater than zero.");
+
+        if (MaxXlsxDetailRows < MaxPdfDetailRows)
+            throw new InvalidOperationException("Reporting:MaxXlsxDetailRows must be greater than or equal to MaxPdfDetailRows.");
     }
 
     public static void ValidateDetailLimit(int detailLimit)

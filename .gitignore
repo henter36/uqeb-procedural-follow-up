@@ -50,3 +50,6 @@ tmp_report.*
 # Test results
 TestResults/
 coverage/
+
+# Reporting acceptance benchmark JSON (CI artifacts)
+artifacts/reporting-acceptance/*.json

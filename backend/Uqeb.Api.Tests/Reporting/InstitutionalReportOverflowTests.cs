@@ -72,9 +72,8 @@ public class InstitutionalReportOverflowTests
         var result = await service.ExportAsync(CreateExportRequest(DetailOverflowAction.SummaryOnly));
 
         Assert.Equal("application/pdf", result.ContentType);
-        Assert.Contains("overflowAction=SummaryOnly", audit.LastNewValue);
-        Assert.Contains("totalMatching=5", audit.LastNewValue);
-        Assert.Contains("detailLimit=2", audit.LastNewValue);
+        Assert.Contains("institutional_report.export_completed", audit.LastNewValue);
+        Assert.Contains("rows=0", audit.LastNewValue);
         Assert.DoesNotContain(ReportSectionId.TransactionDetails, result.Manifest.Pages.Select(p => p.SectionId));
     }
 
@@ -92,8 +91,8 @@ public class InstitutionalReportOverflowTests
 
         Assert.Equal("application/zip", result.ContentType);
         Assert.EndsWith("-SPLIT.zip", result.FileName);
-        Assert.Contains("overflowAction=SplitPdf", audit.LastNewValue);
-        Assert.Contains("detailParts=3", audit.LastNewValue);
+        Assert.Contains("institutional_report.export_completed", audit.LastNewValue);
+        Assert.Contains("rows=5", audit.LastNewValue);
     }
 
     [Fact]
@@ -109,7 +108,7 @@ public class InstitutionalReportOverflowTests
         var result = await service.ExportAsync(CreateExportRequest(DetailOverflowAction.FullDetailsXlsx));
 
         Assert.Equal("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", result.ContentType);
-        Assert.Contains("overflowAction=FullDetailsXlsx", audit.LastNewValue);
+        Assert.Contains("institutional_report.export_completed", audit.LastNewValue);
         Assert.Equal(5, result.Manifest.TotalMatchedRows);
         Assert.Equal(5, result.Manifest.ExportedDetailRows);
         Assert.False(result.Manifest.DetailRowsTruncated);

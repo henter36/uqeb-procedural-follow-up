@@ -30,7 +30,11 @@ function isFollowUpFormDirty(current: FollowUpFormState, initial: FollowUpFormSt
     || !areSortedIdsEqual(current.departmentIds, initial.departmentIds);
 }
 
-export default function FollowUpFormPanel({
+export default function FollowUpFormPanel(props: FollowUpFormPanelProps) {
+  return <FollowUpFormPanelBody key={props.transactionId} {...props} />;
+}
+
+function FollowUpFormPanelBody({
   transactionId,
   daysSinceLastFollowUp,
   onDirtyChange,
@@ -46,13 +50,6 @@ export default function FollowUpFormPanel({
 
   useEffect(() => {
     let active = true;
-
-    setLoading(true);
-    setError('');
-    setOptions([]);
-    initialFormRef.current = null;
-    setForm(createInitialFollowUpForm([]));
-    onDirtyChange(false);
 
     const load = async () => {
       try {
