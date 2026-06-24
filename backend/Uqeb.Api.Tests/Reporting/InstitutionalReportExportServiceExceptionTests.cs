@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Uqeb.Api.Helpers;
 using Uqeb.Api.Middleware;
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Reporting.Configuration;
@@ -60,17 +62,43 @@ public class InstitutionalReportExportServiceExceptionTests
     }
 
     [Fact]
-    public async Task ExportAsync_UnexpectedException_LogsExportFailedAndRethrows()
+    public async Task ExportAsync_FieldValidationException_PassesThroughWithoutExportFailedLog()
     {
         var lifecycle = new RecordingLifecycleObserver();
-        var expected = new InvalidOperationException("boom");
+        var expected = new FieldValidationException(new Dictionary<string, string>
+        {
+            ["selectedPages"] = "يجب تحديد الصفحة الحالية للتصدير.",
+        });
         var service = CreateService(new ThrowingBuildSupport(expected), lifecycle);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(
             () => service.ExportAsync(ValidRequest));
 
         Assert.Same(expected, ex);
+        Assert.DoesNotContain("export_failed", lifecycle.FailedResults);
+    }
+
+    [Fact]
+    public async Task ExportAsync_UnexpectedException_WrapsInInstitutionalReportExportException()
+    {
+        var lifecycle = new RecordingLifecycleObserver();
+        var logger = new RecordingLogger<InstitutionalReportExportService>();
+        var expected = new InvalidOperationException("boom");
+        var service = CreateService(
+            new ThrowingBuildSupport(expected),
+            lifecycle,
+            logger: logger,
+            correlationId: "corr-export-wrap");
+
+        var ex = await Assert.ThrowsAsync<InstitutionalReportExportException>(
+            () => service.ExportAsync(ValidRequest));
+
+        Assert.Same(expected, ex.InnerException);
+        Assert.Contains("ExportFormat=", ex.Message);
+        Assert.Contains("ReportType=", ex.Message);
+        Assert.Contains("corr-export-wrap", ex.Message);
         Assert.Contains("export_failed", lifecycle.FailedResults);
+        Assert.DoesNotContain(logger.Entries, e => e.Level == LogLevel.Error);
     }
 
     [Fact]
@@ -91,12 +119,7 @@ public class InstitutionalReportExportServiceExceptionTests
         Assert.Same(expected, ex);
         Assert.Equal(1, lifecycle.CancelledCount);
         Assert.DoesNotContain("export_failed", lifecycle.FailedResults);
-
-        var cancellationLog = Assert.Single(
-            logger.Entries,
-            e => e.Level == LogLevel.Debug && e.Message.Contains("ExportStage=cancelled"));
-        Assert.Contains("corr-export-cancel", cancellationLog.Message);
-        Assert.Same(expected, cancellationLog.Exception);
+        Assert.DoesNotContain(logger.Entries, e => e.Level == LogLevel.Error);
     }
 
     [Fact]
@@ -115,11 +138,11 @@ public class InstitutionalReportExportServiceExceptionTests
 
         Assert.Equal(1, lifecycle.CancelledCount);
         Assert.DoesNotContain("export_failed", lifecycle.FailedResults);
-        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Debug && e.Message.Contains("corr-token-cancel"));
+        Assert.DoesNotContain(logger.Entries, e => e.Level == LogLevel.Error);
     }
 
     [Fact]
-    public async Task ExportAsync_ExportTimeout_LogsTimeoutCodeAndThrowsRejectedException()
+    public async Task ExportAsync_ExportTimeout_LogsTimeoutCodeAndThrowsRejectedExceptionWithInnerCancellation()
     {
         var lifecycle = new RecordingLifecycleObserver();
         var service = CreateService(
@@ -132,6 +155,8 @@ public class InstitutionalReportExportServiceExceptionTests
 
         Assert.Equal(ReportingErrorCodes.ExportTimeout, ex.ErrorCode);
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, ex.StatusCode);
+        Assert.Equal("انتهت مهلة تصدير التقرير.", ex.Message);
+        Assert.IsAssignableFrom<OperationCanceledException>(ex.InnerException);
         Assert.Contains(ReportingErrorCodes.ExportTimeout, lifecycle.FailedResults);
         Assert.DoesNotContain("export_failed", lifecycle.FailedResults);
         Assert.Equal(0, lifecycle.CancelledCount);

@@ -8,8 +8,9 @@ public sealed class ReportingExportRejectedException : Exception
         string errorCode,
         string message,
         int statusCode = StatusCodes.Status429TooManyRequests,
-        int? retryAfterSeconds = null)
-        : base(message)
+        int? retryAfterSeconds = null,
+        Exception? innerException = null)
+        : base(message, innerException)
     {
         ErrorCode = errorCode;
         StatusCode = statusCode;

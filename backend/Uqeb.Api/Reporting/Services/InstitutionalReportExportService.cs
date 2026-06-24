@@ -166,40 +166,29 @@ public sealed class InstitutionalReportExportService : IInstitutionalReportExpor
 
             return result;
         }
-        catch (OperationCanceledException) when (exportToken.IsCancellationRequested && !ct.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (exportToken.IsCancellationRequested && !ct.IsCancellationRequested)
         {
             await exportScope.LogFailedAsync(ReportingErrorCodes.ExportTimeout);
             throw new ReportingExportRejectedException(
                 ReportingErrorCodes.ExportTimeout,
                 "انتهت مهلة تصدير التقرير.",
-                StatusCodes.Status503ServiceUnavailable);
+                StatusCodes.Status503ServiceUnavailable,
+                innerException: ex);
         }
-        catch (OperationCanceledException ex)
+        catch (OperationCanceledException)
         {
             await exportScope.LogCancelledAsync();
-
-            _logger.LogDebug(
-                ex,
-                "Institutional report export cancelled. ExportFormat={ExportFormat} ReportType={ReportType} ExportStage=cancelled CorrelationId={CorrelationId}",
-                effectiveRequest.ExportFormat,
-                effectiveRequest.BuildRequest.ReportType,
-                correlationId);
-
             throw;
         }
         catch (Exception ex) when (
             ex is not ReportingExportRejectedException &&
-            ex is not ReportingConfigurationException)
+            ex is not ReportingConfigurationException &&
+            ex is not FieldValidationException)
         {
             await exportScope.LogFailedAsync("export_failed");
-            _logger.LogError(
-                ex,
-                "Institutional report export failed. ExportFormat={ExportFormat} ReportType={ReportType} ExportStage=failed ExceptionType={ExceptionType} CorrelationId={CorrelationId}",
-                effectiveRequest.ExportFormat,
-                effectiveRequest.BuildRequest.ReportType,
-                ex.GetType().Name,
-                correlationId);
-            throw;
+            throw new InstitutionalReportExportException(
+                $"Institutional report export failed. ExportFormat={effectiveRequest.ExportFormat}; ReportType={effectiveRequest.BuildRequest.ReportType}; CorrelationId={correlationId}.",
+                ex);
         }
     }
 
@@ -521,5 +510,13 @@ public sealed class InstitutionalReportExportService : IInstitutionalReportExpor
                 : $"{baseName}-PAGES-{Guid.NewGuid().ToString("N")[..8]}.{extension}",
             _ => $"{baseName}-FULL.{extension}",
         };
+    }
+}
+
+internal sealed class InstitutionalReportExportException : Exception
+{
+    public InstitutionalReportExportException(string message, Exception innerException)
+        : base(message, innerException)
+    {
     }
 }
