@@ -127,11 +127,17 @@ public class InstitutionalReportExportServiceExceptionTests
     {
         var lifecycle = new RecordingLifecycleObserver();
         var logger = new RecordingLogger<InstitutionalReportExportService>();
-        var service = CreateService(new SlowBuildSupport(), lifecycle, logger: logger, correlationId: "corr-token-cancel");
+        var buildSupport = new SlowBuildSupport();
+        var service = CreateService(
+            buildSupport,
+            lifecycle,
+            logger: logger,
+            correlationId: "corr-token-cancel");
         using var cts = new CancellationTokenSource();
 
         var exportTask = service.ExportAsync(ValidRequest, cts.Token);
-        await Task.Delay(50);
+
+        await buildSupport.Started.WaitAsync(TimeSpan.FromSeconds(5));
         await cts.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await exportTask);
@@ -229,9 +235,18 @@ public class InstitutionalReportExportServiceExceptionTests
 
     private sealed class SlowBuildSupport : IInstitutionalReportBuildSupport
     {
-        public async Task<int> CountMatchingTransactionsAsync(ReportBuildRequestDto request, CancellationToken ct)
+        private readonly TaskCompletionSource<bool> _started =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Started => _started.Task;
+
+        public async Task<int> CountMatchingTransactionsAsync(
+            ReportBuildRequestDto request,
+            CancellationToken ct)
         {
-            await Task.Delay(Timeout.Infinite, ct);
+            _started.TrySetResult(true);
+
+            await Task.Delay(Timeout.InfiniteTimeSpan, ct);
             return 0;
         }
 
@@ -239,7 +254,8 @@ public class InstitutionalReportExportServiceExceptionTests
             ReportBuildRequestDto request,
             CancellationToken ct,
             ReportAssemblyOptions options) =>
-            Task.FromException<InstitutionalReportModel>(new InvalidOperationException("unreachable"));
+            Task.FromException<InstitutionalReportModel>(
+                new InvalidOperationException("unreachable"));
     }
 
     private sealed class RecordingLifecycleObserver : IReportingExportLifecycleObserver

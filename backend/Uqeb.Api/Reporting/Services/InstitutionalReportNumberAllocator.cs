@@ -1,5 +1,4 @@
 using System.Data;
-using System.Data.Common;
 using System.Globalization;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -26,21 +25,38 @@ public sealed class InstitutionalReportNumberAllocator : IInstitutionalReportNum
 
     private const string AllocateNextNumberSql = """
         SET NOCOUNT ON;
-        DECLARE @Next TABLE (NextNumber INT);
 
-        UPDATE r WITH (UPDLOCK, ROWLOCK)
+        DECLARE @Next TABLE ([Value] int NOT NULL);
+
+        UPDATE dbo.ReportNumberSequences WITH (UPDLOCK, HOLDLOCK)
         SET LastNumber = LastNumber + 1
-        OUTPUT INSERTED.LastNumber INTO @Next(NextNumber)
-        FROM ReportNumberSequences r
-        WHERE r.Year = @year;
+        OUTPUT inserted.LastNumber INTO @Next ([Value])
+        WHERE [Year] = @year;
 
         IF NOT EXISTS (SELECT 1 FROM @Next)
         BEGIN
-            INSERT INTO ReportNumberSequences (Year, LastNumber) VALUES (@year, 1);
-            INSERT INTO @Next VALUES (1);
+            BEGIN TRY
+                INSERT INTO dbo.ReportNumberSequences ([Year], LastNumber)
+                OUTPUT inserted.LastNumber INTO @Next ([Value])
+                VALUES (@year, 1);
+            END TRY
+            BEGIN CATCH
+                IF ERROR_NUMBER() IN (2601, 2627)
+                BEGIN
+                    UPDATE dbo.ReportNumberSequences WITH (UPDLOCK, HOLDLOCK)
+                    SET LastNumber = LastNumber + 1
+                    OUTPUT inserted.LastNumber INTO @Next ([Value])
+                    WHERE [Year] = @year;
+                END
+                ELSE
+                BEGIN
+                    THROW;
+                END
+            END CATCH
         END
 
-        SELECT NextNumber FROM @Next;
+        SELECT TOP (1) [Value]
+        FROM @Next;
         """;
 
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
@@ -89,26 +105,48 @@ public sealed class InstitutionalReportNumberAllocator : IInstitutionalReportNum
             lastRetryable);
     }
 
-    private static async Task<int> ExecuteAllocateNextNumberAsync(AppDbContext db, int year, CancellationToken ct)
+    private static async Task<int> ExecuteAllocateNextNumberAsync(
+        AppDbContext db,
+        int year,
+        CancellationToken ct)
     {
-        var connection = db.Database.GetDbConnection();
+        var connection = db.Database.GetDbConnection() as SqlConnection
+            ?? throw new InvalidOperationException(
+                "يتطلب تخصيص رقم التقرير اتصال SQL Server.");
+
         if (connection.State != ConnectionState.Open)
+        {
             await connection.OpenAsync(ct);
+        }
+
+        var transaction =
+            db.Database.CurrentTransaction?.GetDbTransaction()
+            as SqlTransaction;
 
         await using var command = connection.CreateCommand();
-        command.CommandText = AllocateNextNumberSql;
-        command.Transaction = db.Database.CurrentTransaction?.GetDbTransaction();
 
-        var yearParameter = command.CreateParameter();
-        yearParameter.ParameterName = "@year";
-        yearParameter.Value = year;
-        command.Parameters.Add(yearParameter);
+        command.Transaction = transaction;
+        command.CommandType = CommandType.Text;
+        command.CommandText = AllocateNextNumberSql;
+
+        command.Parameters.Add(
+            new SqlParameter("@year", SqlDbType.Int)
+            {
+                Direction = ParameterDirection.Input,
+                Value = year,
+            });
 
         var result = await command.ExecuteScalarAsync(ct);
-        if (result is null or DBNull)
-            throw new InvalidOperationException("تعذر قراءة رقم التقرير التالي من قاعدة البيانات.");
 
-        return Convert.ToInt32(result, CultureInfo.InvariantCulture);
+        if (result is null or DBNull)
+        {
+            throw new InvalidOperationException(
+                "تعذر قراءة رقم التقرير التالي من قاعدة البيانات.");
+        }
+
+        return Convert.ToInt32(
+            result,
+            CultureInfo.InvariantCulture);
     }
 
     private static async Task<string> AllocateWithEfCoreAsync(AppDbContext db, int year, CancellationToken ct)

@@ -5,14 +5,8 @@ import { MemoryRouter } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import * as safeStorage from '../../utils/safeStorage';
 
-const mockUseAuth = vi.fn(() => ({
-  isAdmin: true,
-  canClose: true,
-  user: { fullName: 'مختبر', role: 'Admin' },
-  logout: vi.fn(),
-  login: vi.fn(),
-  canEdit: true,
-  isDepartmentUser: false,
+const { mockUseAuth } = vi.hoisted(() => ({
+  mockUseAuth: vi.fn(),
 }));
 
 vi.mock('../../context/useAuth', () => ({
@@ -23,6 +17,18 @@ vi.mock('../../utils/safeStorage', () => ({
   getStorageItem: vi.fn(() => null),
   setStorageItem: vi.fn(() => true),
 }));
+
+function createAdminAuthState() {
+  return {
+    isAdmin: true,
+    canClose: true,
+    user: { fullName: 'مختبر', role: 'Admin' },
+    logout: vi.fn(),
+    login: vi.fn(),
+    canEdit: true,
+    isDepartmentUser: false,
+  };
+}
 
 function renderSidebar(mobileOpen = false, onMobileClose = vi.fn()) {
   return render(
@@ -36,15 +42,9 @@ describe('Sidebar', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
-    mockUseAuth.mockReturnValue({
-      isAdmin: true,
-      canClose: true,
-      user: { fullName: 'مختبر', role: 'Admin' },
-      logout: vi.fn(),
-      login: vi.fn(),
-      canEdit: true,
-      isDepartmentUser: false,
-    });
+
+    mockUseAuth.mockReset();
+    mockUseAuth.mockReturnValue(createAdminAuthState());
   });
 
   afterEach(() => {
@@ -59,13 +59,12 @@ describe('Sidebar', () => {
 
   it('hides report builder link for non-admin users', () => {
     mockUseAuth.mockReturnValue({
+      ...createAdminAuthState(),
       isAdmin: false,
-      canClose: true,
-      user: { fullName: 'مشرف', role: 'Supervisor' },
-      logout: vi.fn(),
-      login: vi.fn(),
-      canEdit: true,
-      isDepartmentUser: false,
+      user: {
+        fullName: 'مشرف',
+        role: 'Supervisor',
+      },
     });
 
     renderSidebar();
