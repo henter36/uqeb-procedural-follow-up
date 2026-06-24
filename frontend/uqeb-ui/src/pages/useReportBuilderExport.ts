@@ -8,7 +8,7 @@ import {
   PageNumberingMode,
   ReportSectionId,
 } from '../api/institutionalReports.constants';
-import { getApiErrorDetails, parseApiErrorResponseData } from '../utils/apiHelpers';
+import { getApiErrorDetails, parseApiErrorResponseData, type ApiErrorDetails } from '../utils/apiHelpers';
 import { downloadBlob } from '../utils/downloadBlob';
 import {
   buildReportExportPageSelection,
@@ -16,6 +16,67 @@ import {
   resolveExportFileExtension,
   type PageSelectionMode,
 } from './reportBuilderHelpers';
+
+type DetailOverflowActionValue = typeof DetailOverflowAction[keyof typeof DetailOverflowAction];
+type ExportFormatValue = typeof ExportFormat[keyof typeof ExportFormat];
+
+export function getExportPreconditionError(
+  requiresOverflowChoice: boolean,
+  detailOverflowAction: DetailOverflowActionValue,
+  exportFormat: ExportFormatValue,
+): string | null {
+  if (!requiresOverflowChoice) {
+    return null;
+  }
+
+  if (detailOverflowAction === DetailOverflowAction.None) {
+    return 'يتجاوز التقرير حد صفوف التفاصيل. اختر كيفية التعامل مع التفاصيل قبل التصدير.';
+  }
+
+  if (
+    detailOverflowAction === DetailOverflowAction.SplitPdf
+    && exportFormat !== ExportFormat.Pdf
+  ) {
+    return 'تقسيم التفاصيل إلى عدة ملفات PDF متاح فقط عند اختيار صيغة PDF.';
+  }
+
+  return null;
+}
+
+export async function getExportErrorDetails(error: unknown): Promise<ApiErrorDetails> {
+  const axiosDetails = getApiErrorDetails(error);
+
+  const blobDetails =
+    axios.isAxiosError(error)
+    && error.response?.data instanceof Blob
+      ? await parseApiErrorResponseData(error.response.data)
+      : null;
+
+  if (!blobDetails) {
+    return axiosDetails;
+  }
+
+  return {
+    ...blobDetails,
+    correlationId: blobDetails.correlationId || axiosDetails.correlationId,
+    httpStatus: axiosDetails.httpStatus,
+  };
+}
+
+export function resolveExportErrorMessage(details: ApiErrorDetails): string {
+  const overflowMessage = details.validationErrors.detailOverflowAction;
+
+  if (overflowMessage) {
+    return overflowMessage;
+  }
+
+  const defaultMessage = 'تعذر تصدير التقرير.';
+  const backendMessage = details.message?.trim();
+
+  return backendMessage && backendMessage !== defaultMessage
+    ? `${defaultMessage} ${backendMessage}`
+    : defaultMessage;
+}
 
 export type UseReportBuilderExportParams = {
   buildRequest: () => ReportBuildRequest;
@@ -46,8 +107,8 @@ export type UseReportBuilderExportResult = {
   setIncludePartialCover: (value: boolean) => void;
   includePartialManifest: boolean;
   setIncludePartialManifest: (value: boolean) => void;
-  detailOverflowAction: typeof DetailOverflowAction[keyof typeof DetailOverflowAction];
-  setDetailOverflowAction: (action: typeof DetailOverflowAction[keyof typeof DetailOverflowAction]) => void;
+  detailOverflowAction: DetailOverflowActionValue;
+  setDetailOverflowAction: (action: DetailOverflowActionValue) => void;
   requiresOverflowChoice: boolean;
   runExport: () => Promise<void>;
 };
@@ -68,13 +129,13 @@ export function useReportBuilderExport({
   const [exportDialogManifestId, setExportDialogManifestId] = useState<string | null>(null);
   const exportOpen = manifest !== null && exportDialogManifestId === manifest.reportId;
   const [exportMode, setExportMode] = useState<typeof ExportMode[keyof typeof ExportMode]>(ExportMode.FullReport);
-  const [exportFormat, setExportFormat] = useState<typeof ExportFormat[keyof typeof ExportFormat]>(ExportFormat.Pdf);
+  const [exportFormat, setExportFormat] = useState<ExportFormatValue>(ExportFormat.Pdf);
   const [pageNumberingMode, setPageNumberingMode] = useState<typeof PageNumberingMode[keyof typeof PageNumberingMode]>(
     PageNumberingMode.Restart,
   );
   const [includePartialCover, setIncludePartialCover] = useState(true);
   const [includePartialManifest, setIncludePartialManifest] = useState(true);
-  const [detailOverflowAction, setDetailOverflowAction] = useState<typeof DetailOverflowAction[keyof typeof DetailOverflowAction]>(
+  const [detailOverflowAction, setDetailOverflowAction] = useState<DetailOverflowActionValue>(
     DetailOverflowAction.None,
   );
 
@@ -115,13 +176,14 @@ export function useReportBuilderExport({
     setError('');
     setErrorCorrelationId?.('');
     try {
-      if (requiresOverflowChoice && detailOverflowAction === DetailOverflowAction.None) {
-        setError('يتجاوز التقرير حد صفوف التفاصيل. اختر كيفية التعامل مع التفاصيل قبل التصدير.');
-        return;
-      }
+      const preconditionError = getExportPreconditionError(
+        requiresOverflowChoice,
+        detailOverflowAction,
+        exportFormat,
+      );
 
-      if (requiresOverflowChoice && detailOverflowAction === DetailOverflowAction.SplitPdf && exportFormat !== ExportFormat.Pdf) {
-        setError('تقسيم التفاصيل إلى عدة ملفات PDF متاح فقط عند اختيار صيغة PDF.');
+      if (preconditionError) {
+        setError(preconditionError);
         return;
       }
 
@@ -159,36 +221,9 @@ export function useReportBuilderExport({
       const blob = new Blob([response.data], { type: contentType });
       downloadBlob(blob, `institutional-report.${ext}`);
       closeExportDialog();
-    } catch (err) {
-      const axiosDetails = getApiErrorDetails(err);
-
-      const blobDetails =
-        axios.isAxiosError(err) && err.response?.data instanceof Blob
-          ? await parseApiErrorResponseData(err.response.data)
-          : null;
-
-      const details = blobDetails
-        ? {
-            ...blobDetails,
-            correlationId: blobDetails.correlationId || axiosDetails.correlationId,
-            httpStatus: axiosDetails.httpStatus,
-          }
-        : axiosDetails;
-      const overflowMessage = details.validationErrors.detailOverflowAction;
-
-      if (overflowMessage) {
-        setError(overflowMessage);
-        setErrorCorrelationId?.(details.correlationId);
-        return;
-      }
-
-      const defaultMessage = 'تعذر تصدير التقرير.';
-      const backendMessage = details.message?.trim();
-      setError(
-        backendMessage && backendMessage !== defaultMessage
-          ? `${defaultMessage} ${backendMessage}`
-          : defaultMessage,
-      );
+    } catch (error) {
+      const details = await getExportErrorDetails(error);
+      setError(resolveExportErrorMessage(details));
       setErrorCorrelationId?.(details.correlationId);
     } finally {
       setLoading(false);
