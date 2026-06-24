@@ -101,7 +101,8 @@ internal static class InstitutionalReportServiceTestHelpers
     internal static InstitutionalReportService CreateService(
         IDbContextFactory<AppDbContext>? dbFactory = null,
         ReportingOptions? reportingOptions = null,
-        IAuditService? audit = null)
+        IAuditService? audit = null,
+        IInstitutionalReportNumberAllocator? reportNumberAllocator = null)
     {
         dbFactory ??= new TestDbContextFactory(new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"export-validation-{Guid.NewGuid():N}")
@@ -110,7 +111,7 @@ internal static class InstitutionalReportServiceTestHelpers
         return new InstitutionalReportService(
             dbFactory,
             new TestCurrentUserService(),
-            new FixedReportNumberAllocator(),
+            reportNumberAllocator ?? new FixedReportNumberAllocator(),
             new StubPdfExporter(),
             Options.Create(reportingOptions ?? new ReportingOptions { MaxPdfDetailRows = 10_000 }),
             CreateExportGuard(reportingOptions, audit),

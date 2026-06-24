@@ -171,6 +171,34 @@ public class InstitutionalReportPreviewIntegrationTests : IClassFixture<Institut
         Assert.NotNull(manifest);
         Assert.False(string.IsNullOrWhiteSpace(manifest!.Stylesheet));
         Assert.True(manifest.Pages.Count > 0);
+        Assert.StartsWith("PREVIEW-", manifest.ReportId);
+    }
+
+    [Fact]
+    public async Task Preview_DoesNotAllocateOfficialNumber()
+    {
+        var allocator = _factory.Services.GetRequiredService<TrackingInstitutionalReportNumberAllocator>();
+        var callsBefore = allocator.AllocateCallCount;
+
+        using var request = CreateAuthorizedRequest("Admin", BuildRegressionRequest());
+        var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(callsBefore, allocator.AllocateCallCount);
+    }
+
+    [Fact]
+    public async Task Preview_DoesNotCreateSequenceRow()
+    {
+        using var request = CreateAuthorizedRequest("Admin", BuildRegressionRequest());
+        var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+        await using var db = await dbFactory.CreateDbContextAsync();
+        Assert.Empty(db.ReportNumberSequences);
     }
 
     private static HttpRequestMessage CreateAuthorizedRequest(

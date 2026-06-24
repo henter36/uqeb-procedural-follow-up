@@ -40,9 +40,9 @@ public class SqlExceptionHelperTests
     }
 
     [Fact]
-    public void ShouldFallbackReportNumberAllocationToEf_ReturnsTrue_ForInvalidOperationException()
+    public void IsMissingReportNumberSequenceSchema_ReturnsFalse_ForUnrelatedExceptions()
     {
-        Assert.True(SqlExceptionHelper.ShouldFallbackReportNumberAllocationToEf(new InvalidOperationException("invalid object")));
+        Assert.False(SqlExceptionHelper.IsMissingReportNumberSequenceSchema(new InvalidOperationException("network")));
     }
 
     [Fact]

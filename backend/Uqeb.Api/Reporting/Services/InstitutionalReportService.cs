@@ -86,26 +86,26 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
         var stopwatch = Stopwatch.StartNew();
 
         _logger.LogInformation(
-            "Institutional report preview build started. ReportType={ReportType} CorrelationId={CorrelationId}",
+            "Institutional report preview validate_request completed. ReportType={ReportType} CorrelationId={CorrelationId}",
             request.ReportType,
             correlationId);
 
         var detailLimit = _reportingOptions.MaxPreviewDetailRows;
 
         _logger.LogDebug(
-            "Institutional report preview count_matching_started. CorrelationId={CorrelationId}",
+            "Institutional report preview count_matching started. PreviewStage=count_matching CorrelationId={CorrelationId}",
             correlationId);
         var totalMatching = await CountMatchingTransactionsAsync(request, ct);
         stopwatch.Stop();
         _logger.LogInformation(
-            "Institutional report preview count_matching_completed. MatchedRows={MatchedRows} DurationMs={DurationMs} CorrelationId={CorrelationId}",
+            "Institutional report preview count_matching completed. PreviewStage=count_matching MatchedRows={MatchedRows} DurationMs={DurationMs} CorrelationId={CorrelationId}",
             totalMatching,
             stopwatch.Elapsed.TotalMilliseconds,
             correlationId);
 
         stopwatch.Restart();
         _logger.LogDebug(
-            "Institutional report preview build_model_started. CorrelationId={CorrelationId}",
+            "Institutional report preview build_model started. PreviewStage=build_model CorrelationId={CorrelationId}",
             correlationId);
         var model = await BuildInternalAsync(
             request,
@@ -113,31 +113,31 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
             ReportAssemblyOptions.ForPreview(totalMatching, detailLimit));
         stopwatch.Stop();
         _logger.LogInformation(
-            "Institutional report preview build_model_completed. DurationMs={DurationMs} CorrelationId={CorrelationId}",
+            "Institutional report preview build_model completed. PreviewStage=build_model DurationMs={DurationMs} CorrelationId={CorrelationId}",
             stopwatch.Elapsed.TotalMilliseconds,
             correlationId);
 
         var sections = ResolveSections(request);
         _logger.LogDebug(
-            "Institutional report preview resolve_sections_completed. SectionCount={SectionCount} CorrelationId={CorrelationId}",
+            "Institutional report preview resolve_sections completed. SectionCount={SectionCount} CorrelationId={CorrelationId}",
             sections.Count,
             correlationId);
 
         stopwatch.Restart();
         _logger.LogDebug(
-            "Institutional report preview render_manifest_started. CorrelationId={CorrelationId}",
+            "Institutional report preview render_manifest started. PreviewStage=render_manifest CorrelationId={CorrelationId}",
             correlationId);
         var manifest = _renderer.RenderManifest(model, sections);
         stopwatch.Stop();
         _logger.LogInformation(
-            "Institutional report preview render_manifest_completed. PageCount={PageCount} DurationMs={DurationMs} CorrelationId={CorrelationId}",
+            "Institutional report preview render_manifest completed. PreviewStage=render_manifest PageCount={PageCount} DurationMs={DurationMs} CorrelationId={CorrelationId}",
             manifest.Pages.Count,
             stopwatch.Elapsed.TotalMilliseconds,
             correlationId);
 
         var enriched = EnrichManifest(manifest, model, isSummaryOnly: false, overflowAction: null);
         _logger.LogInformation(
-            "Institutional report preview enrich_manifest_completed. CorrelationId={CorrelationId}",
+            "Institutional report preview enrich_manifest completed. PreviewStage=enrich_manifest CorrelationId={CorrelationId}",
             correlationId);
 
         return enriched;
@@ -246,6 +246,10 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
             throw;
         }
         catch (ReportingExportRejectedException)
+        {
+            throw;
+        }
+        catch (ReportingConfigurationException)
         {
             throw;
         }
@@ -585,7 +589,16 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
         }
 
         var detailRowsTruncated = options.DetailRowsTruncated || totalMatched > exportedDetailRows || options.DetailPartsCount > 1;
-        var reportNumber = await _reportNumberAllocator.AllocateAsync(ct);
+        string reportNumber;
+        if (options.Purpose == ReportBuildPurpose.Preview)
+        {
+            reportNumber = $"PREVIEW-{DateTime.UtcNow:yyyyMMddHHmmss}";
+        }
+        else
+        {
+            reportNumber = await _reportNumberAllocator.AllocateAsync(ct);
+        }
+
         var verificationId = Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
 
         var model = new InstitutionalReportModel

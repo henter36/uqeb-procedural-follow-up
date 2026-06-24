@@ -46,7 +46,8 @@ public class InstitutionalReportsController : ControllerBase
 
             _logger.LogError(
                 ex,
-                "Institutional report preview failed. CorrelationId={CorrelationId}",
+                "Institutional report preview failed. PreviewStage=unknown ExceptionType={ExceptionType} CorrelationId={CorrelationId}",
+                ex.GetType().Name,
                 correlationId);
 
             return StatusCode(
@@ -81,6 +82,16 @@ public class InstitutionalReportsController : ControllerBase
             return StatusCode(ex.StatusCode, new
             {
                 errorCode = ex.ErrorCode,
+                correlationId,
+            });
+        }
+        catch (ReportingConfigurationException ex)
+        {
+            var correlationId = HttpContext.Items[CorrelationIdMiddleware.ItemKey] as string;
+            return StatusCode(ex.StatusCode, new
+            {
+                errorCode = ex.ErrorCode,
+                message = ex.Message,
                 correlationId,
             });
         }

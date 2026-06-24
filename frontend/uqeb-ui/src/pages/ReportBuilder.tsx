@@ -130,10 +130,13 @@ export default function ReportBuilderPage() {
     } catch (error) {
       const apiError = getApiErrorDetails(error);
 
+      const defaultMessage = 'تعذر إنشاء معاينة التقرير.';
+      const backendMessage = apiError.message?.trim();
+
       setError(
-        apiError.message
-          ? `تعذر إنشاء معاينة التقرير: ${apiError.message}`
-          : 'تعذر إنشاء معاينة التقرير.',
+        backendMessage && backendMessage !== defaultMessage
+          ? `${defaultMessage} ${backendMessage}`
+          : defaultMessage,
       );
       setErrorCorrelationId(apiError.correlationId);
       setManifest(null);

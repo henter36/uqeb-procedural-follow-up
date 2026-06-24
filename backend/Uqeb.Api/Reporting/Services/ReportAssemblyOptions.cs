@@ -22,11 +22,14 @@ internal sealed record ReportAssemblyOptions
     /// <summary>Rows actually exported/embedded in detail output (may span multiple parts).</summary>
     public int? ExportedDetailRowsOverride { get; init; }
 
+    public ReportBuildPurpose Purpose { get; init; } = ReportBuildPurpose.Export;
+
     internal static ReportAssemblyOptions ForPreview(int totalMatched, int detailLimit)
     {
         ReportingOptions.ValidateDetailLimit(detailLimit);
         return new()
         {
+            Purpose = ReportBuildPurpose.Preview,
             TotalMatchedOverride = totalMatched,
             DetailRowLimit = detailLimit,
             DetailRowsToLoad = detailLimit,

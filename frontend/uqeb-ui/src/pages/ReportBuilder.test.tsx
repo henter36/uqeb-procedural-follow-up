@@ -130,8 +130,12 @@ describe('ReportBuilderPage export dialog', () => {
     await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
 
     await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent(/تعذر إنشاء معاينة التقرير/);
+      const alert = screen.getByRole('alert');
+      expect(alert.querySelector(':scope > div:first-child')).toHaveTextContent('تعذر إنشاء معاينة التقرير.');
     });
+
+    expect(screen.getByRole('alert')).not.toHaveTextContent(/تعذر إنشاء معاينة التقرير: تعذر إنشاء معاينة التقرير/);
+    expect(screen.getByText(/رقم التتبع: corr-1/)).toBeInTheDocument();
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'تصدير' })).toBeDisabled();

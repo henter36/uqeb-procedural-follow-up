@@ -27,4 +27,5 @@ public static class ReportingErrorCodes
     public const string TempSpaceInsufficient = "REPORTING_TEMP_SPACE_INSUFFICIENT";
     public const string ExportTimeout = "REPORTING_EXPORT_TIMEOUT";
     public const string ExportCancelled = "REPORTING_EXPORT_CANCELLED";
+    public const string ReportNumberSequenceSchemaMissing = "report_number_sequence_schema_missing";
 }

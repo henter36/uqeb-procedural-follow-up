@@ -47,7 +47,7 @@ public class InstitutionalReportNumberAllocatorSqlServerIntegrationTests
             await db.Database.EnsureCreatedAsync();
 
         var allocators = Enumerable.Range(0, 20)
-            .Select(_ => new InstitutionalReportNumberAllocator(dbFactory, NullLogger<InstitutionalReportNumberAllocator>.Instance))
+            .Select(_ => new InstitutionalReportNumberAllocator(dbFactory))
             .ToList();
 
         var numbers = await Task.WhenAll(allocators.Select(a => a.AllocateAsync()));
@@ -85,9 +85,7 @@ public class InstitutionalReportNumberAllocatorSqlServerIntegrationTests
             await db.SaveChangesAsync();
         }
 
-        var number = await new InstitutionalReportNumberAllocator(
-            dbFactory,
-            NullLogger<InstitutionalReportNumberAllocator>.Instance).AllocateAsync();
+        var number = await new InstitutionalReportNumberAllocator(dbFactory).AllocateAsync();
         Assert.Equal($"REP-{year}-000101", number);
     }
 
@@ -108,7 +106,7 @@ public class InstitutionalReportNumberAllocatorSqlServerIntegrationTests
             await db.Database.EnsureCreatedAsync();
 
         var numbers = await Task.WhenAll(Enumerable.Range(0, 20)
-            .Select(_ => new InstitutionalReportNumberAllocator(dbFactory, NullLogger<InstitutionalReportNumberAllocator>.Instance).AllocateAsync()));
+            .Select(_ => new InstitutionalReportNumberAllocator(dbFactory).AllocateAsync()));
 
         Assert.Equal(20, numbers.Distinct().Count());
 

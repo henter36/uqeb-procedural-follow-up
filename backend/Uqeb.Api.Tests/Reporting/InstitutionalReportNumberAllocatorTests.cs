@@ -15,9 +15,7 @@ public class InstitutionalReportNumberAllocatorTests
             .UseInMemoryDatabase($"report-number-inmemory-{Guid.NewGuid():N}")
             .Options;
         IDbContextFactory<AppDbContext> dbFactory = new TestDbContextFactory(options);
-        var allocator = new InstitutionalReportNumberAllocator(
-            dbFactory,
-            NullLogger<InstitutionalReportNumberAllocator>.Instance);
+        var allocator = new InstitutionalReportNumberAllocator(dbFactory);
 
         var first = await allocator.AllocateAsync();
         var second = await allocator.AllocateAsync();

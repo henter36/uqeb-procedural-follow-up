@@ -60,6 +60,7 @@ builder.Services.AddScoped<IAttachmentService, AttachmentService>();
 builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<IInstitutionalReportService, InstitutionalReportService>();
 builder.Services.AddScoped<IInstitutionalReportNumberAllocator, InstitutionalReportNumberAllocator>();
+builder.Services.AddScoped<IReportNumberSequenceSchemaProbe, ReportNumberSequenceSchemaProbe>();
 builder.Services.AddSingleton<IInstitutionalReportPdfExporter, InstitutionalReportPlaywrightPdfExporter>();
 builder.Services.AddSingleton<IReportingMetrics, ReportingMetrics>();
 builder.Services.AddSingleton<IReportingExportConcurrencyGate, ReportingExportConcurrencyGate>();

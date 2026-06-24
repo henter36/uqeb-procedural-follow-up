@@ -20,16 +20,17 @@ public class ReportingReadinessStateTests
     }
 
     [Theory]
-    [InlineData(false, false, false, false, false, ReportingReadinessState.Unavailable)]
-    [InlineData(true, false, false, false, false, ReportingReadinessState.Degraded)]
-    [InlineData(true, true, true, false, true, ReportingReadinessState.Degraded)]
-    [InlineData(true, true, true, true, true, ReportingReadinessState.Ready)]
+    [InlineData(false, false, false, false, false, false, ReportingReadinessState.Unavailable)]
+    [InlineData(true, false, false, false, false, false, ReportingReadinessState.Degraded)]
+    [InlineData(true, true, true, false, true, true, ReportingReadinessState.Degraded)]
+    [InlineData(true, true, true, true, true, true, ReportingReadinessState.Ready)]
     public void ResolveReadinessState_MapsDependencySignals(
         bool configurationValid,
         bool stylesheetAvailable,
         bool tempWritable,
         bool chromiumLaunchSuccessful,
         bool databaseReachable,
+        bool reportNumberSequenceTableAvailable,
         ReportingReadinessState expected)
     {
         var state = ReportingReadinessService.ResolveReadinessState(
@@ -38,7 +39,8 @@ public class ReportingReadinessStateTests
             tempWritable,
             chromiumLaunchSuccessful,
             databaseReachable,
-            exportConcurrencyAvailable: true);
+            exportConcurrencyAvailable: true,
+            reportNumberSequenceTableAvailable);
 
         Assert.Equal(expected, state);
     }
@@ -52,7 +54,8 @@ public class ReportingReadinessStateTests
             tempWritable: true,
             chromiumLaunchSuccessful: true,
             databaseReachable: true,
-            exportConcurrencyAvailable: true);
+            exportConcurrencyAvailable: true,
+            reportNumberSequenceTableAvailable: true);
 
         Assert.Equal(ReportingReadinessState.Unavailable, state);
     }

@@ -227,8 +227,9 @@ internal static class InstitutionalReportsTestHostBuilder
                 }
                 else
                 {
-                    services.RemoveAll<IInstitutionalReportNumberAllocator>();
-                    services.AddSingleton<IInstitutionalReportNumberAllocator, TestInstitutionalReportNumberAllocator>();
+                    services.AddSingleton<TrackingInstitutionalReportNumberAllocator>();
+                    services.AddSingleton<IInstitutionalReportNumberAllocator>(sp =>
+                        sp.GetRequiredService<TrackingInstitutionalReportNumberAllocator>());
                     services.RemoveAll<IInstitutionalReportPdfExporter>();
                     services.AddSingleton<IInstitutionalReportPdfExporter, TestInstitutionalReportPdfExporter>();
                 }
