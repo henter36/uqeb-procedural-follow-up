@@ -24,6 +24,7 @@ public class ReportingReadinessStateTests
     [InlineData(true, false, false, false, false, false, ReportingReadinessState.Degraded)]
     [InlineData(true, true, true, false, true, true, ReportingReadinessState.Degraded)]
     [InlineData(true, true, true, true, true, true, ReportingReadinessState.Ready)]
+    [InlineData(true, true, true, true, true, false, ReportingReadinessState.Degraded)]
     public void ResolveReadinessState_MapsDependencySignals(
         bool configurationValid,
         bool stylesheetAvailable,

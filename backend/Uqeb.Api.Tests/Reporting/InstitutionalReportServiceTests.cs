@@ -96,6 +96,90 @@ public class InstitutionalReportServiceExportValidationTests
     }
 }
 
+public class InstitutionalReportServiceBuildValidationTests
+{
+    [Fact]
+    public async Task RenderPreviewAsync_ThrowsValidationProblem_WhenSectionIdsEmpty()
+    {
+        var service = InstitutionalReportServiceTestHelpers.CreateService();
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.RenderPreviewAsync(new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [],
+        }));
+
+        Assert.Contains("sectionIds", ex.FieldErrors.Keys);
+    }
+
+    [Fact]
+    public async Task BuildReportModelAsync_ThrowsValidationProblem_WhenSectionIdsEmpty()
+    {
+        var service = InstitutionalReportServiceTestHelpers.CreateService();
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.BuildReportModelAsync(new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [],
+        }));
+
+        Assert.Contains("sectionIds", ex.FieldErrors.Keys);
+    }
+
+    [Fact]
+    public async Task ExportAsync_ThrowsValidationProblem_WhenSectionIdsEmpty()
+    {
+        var service = InstitutionalReportServiceTestHelpers.CreateService();
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.ExportAsync(new ReportExportRequestDto
+        {
+            ExportFormat = ExportFormat.Html,
+            BuildRequest = new ReportBuildRequestDto
+            {
+                ReportType = InstitutionalReportType.ExecutiveComprehensive,
+                SectionIds = [],
+            },
+        }));
+
+        Assert.Contains("sectionIds", ex.FieldErrors.Keys);
+    }
+
+    [Fact]
+    public async Task RenderPreviewAsync_ThrowsValidationProblem_WhenDateRangeInvalid()
+    {
+        var service = InstitutionalReportServiceTestHelpers.CreateService();
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.RenderPreviewAsync(new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [ReportSectionId.Cover],
+            Filters = new ReportFiltersDto
+            {
+                DateFrom = DateTime.UtcNow.Date,
+                DateTo = DateTime.UtcNow.Date.AddDays(-1),
+            },
+        }));
+
+        Assert.Contains("filters.dateFrom", ex.FieldErrors.Keys);
+        Assert.Contains("filters.dateTo", ex.FieldErrors.Keys);
+    }
+
+    [Fact]
+    public async Task BuildReportModelAsync_ThrowsValidationProblem_WhenFiltersNull()
+    {
+        var service = InstitutionalReportServiceTestHelpers.CreateService();
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.BuildReportModelAsync(new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [ReportSectionId.Cover],
+            Filters = null!,
+        }));
+
+        Assert.Contains("filters", ex.FieldErrors.Keys);
+    }
+}
+
 internal static class InstitutionalReportServiceTestHelpers
 {
     internal static InstitutionalReportService CreateService(

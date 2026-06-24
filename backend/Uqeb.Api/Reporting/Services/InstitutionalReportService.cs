@@ -74,6 +74,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
 
     private async Task<InstitutionalReportModel> BuildForApiAsync(ReportBuildRequestDto request, CancellationToken ct)
     {
+        ValidateBuildRequest(request);
         var detailLimit = _reportingOptions.MaxPreviewDetailRows;
         var totalMatching = await CountMatchingTransactionsAsync(request, ct);
         return await BuildInternalAsync(request, ct, ReportAssemblyOptions.ForPreview(totalMatching, detailLimit));
@@ -152,6 +153,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
         {
             var exportOptions = InstitutionalReportExportOptionsResolver.Resolve(request);
             var effectiveRequest = InstitutionalReportExportOptionsResolver.WithResolvedValues(request, exportOptions);
+            ValidateBuildRequest(effectiveRequest.BuildRequest);
             var detailLimit = _reportingOptions.ResolveDetailLimit(exportOptions.Format);
             var pdfPartLimit = _reportingOptions.ResolvePdfPartDetailLimit();
 
@@ -1012,13 +1014,23 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
         return warnings;
     }
 
-    private static void ValidateBuildRequest(ReportBuildRequestDto request)
+    private static void ValidateBuildRequest(ReportBuildRequestDto? request)
     {
-        if (request.SectionIds.Count == 0)
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (request.SectionIds is null || request.SectionIds.Count == 0)
         {
             throw new FieldValidationException(new Dictionary<string, string>
             {
                 ["sectionIds"] = "يجب تحديد قسم واحد على الأقل في التقرير.",
+            });
+        }
+
+        if (request.Filters is null)
+        {
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                ["filters"] = "الفلاتر مطلوبة.",
             });
         }
 
@@ -1036,44 +1048,36 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
 
     private static DateTime ResolvePeriodStart<T>(
         DateTime? requested,
-        IReadOnlyList<T> snapshots,
+        IReadOnlyList<T> snapshotsDescendingByIncomingDate,
         Func<T, DateTime> selector,
         DateTime fallback)
     {
         if (requested.HasValue)
             return requested.Value;
 
-        return snapshots.Count == 0 ? fallback : snapshots.Min(selector);
+        return snapshotsDescendingByIncomingDate.Count == 0
+            ? fallback
+            : selector(snapshotsDescendingByIncomingDate[^1]);
     }
 
     private static DateTime ResolvePeriodEnd<T>(
         DateTime? requested,
-        IReadOnlyList<T> snapshots,
+        IReadOnlyList<T> snapshotsDescendingByIncomingDate,
         Func<T, DateTime> selector,
         DateTime fallback)
     {
         if (requested.HasValue)
             return requested.Value;
 
-        return snapshots.Count == 0 ? fallback : snapshots.Max(selector);
+        return snapshotsDescendingByIncomingDate.Count == 0
+            ? fallback
+            : selector(snapshotsDescendingByIncomingDate[0]);
     }
 
     private static List<ReportSectionId> ResolveSections(ReportBuildRequestDto request)
     {
-        if (request.SectionIds.Count > 0)
-            return request.SectionIds.Distinct().ToList();
-
-        return
-        [
-            ReportSectionId.Cover,
-            ReportSectionId.ExecutiveSummary,
-            ReportSectionId.IndicatorsDashboard,
-            ReportSectionId.DepartmentPerformance,
-            ReportSectionId.RisksAndAlerts,
-            ReportSectionId.ExecutiveRecommendations,
-            ReportSectionId.TransactionDetails,
-            ReportSectionId.ReportMetadata
-        ];
+        ValidateBuildRequest(request);
+        return request.SectionIds.Distinct().ToList();
     }
 
     private static List<int> ResolveSelectedPages(ReportExportRequestDto request, RenderedReportManifestDto manifest)

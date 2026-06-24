@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { institutionalReportsApi, type InstitutionalReportManifest, type ReportBuildRequest } from '../api/services';
 import {
   DetailOverflowAction,
@@ -55,13 +55,18 @@ export default function ReportBuilderPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [errorCorrelationId, setErrorCorrelationId] = useState('');
+  const [correlationCopied, setCorrelationCopied] = useState(false);
+  const previewRequestIdRef = useRef(0);
 
   const includesTransactionDetails = sectionIds.includes(ReportSectionId.TransactionDetails);
 
   const invalidatePreview = useCallback(() => {
+    previewRequestIdRef.current += 1;
     setManifest(null);
+    setLoading(false);
     setError('');
     setErrorCorrelationId('');
+    setCorrelationCopied(false);
     setCurrentPage(1);
     setSelectedPages([]);
     setPageRange('');
@@ -119,15 +124,20 @@ export default function ReportBuilderPage() {
   });
 
   const loadPreview = async () => {
+    const requestId = previewRequestIdRef.current + 1;
+    previewRequestIdRef.current = requestId;
     setLoading(true);
     setError('');
     setErrorCorrelationId('');
+    setCorrelationCopied(false);
     try {
       const { data } = await institutionalReportsApi.preview(buildRequest());
+      if (requestId !== previewRequestIdRef.current) return;
       setManifest(data);
       setCurrentPage(1);
       setSelectedPages([]);
     } catch (error) {
+      if (requestId !== previewRequestIdRef.current) return;
       const apiError = getApiErrorDetails(error);
 
       const defaultMessage = 'تعذر إنشاء معاينة التقرير.';
@@ -141,15 +151,23 @@ export default function ReportBuilderPage() {
       setErrorCorrelationId(apiError.correlationId);
       setManifest(null);
     } finally {
-      setLoading(false);
+      if (requestId === previewRequestIdRef.current) {
+        setLoading(false);
+      }
     }
   };
 
   const copyCorrelationId = async () => {
-    if (!errorCorrelationId || !navigator.clipboard?.writeText)
+    if (!errorCorrelationId)
       return;
 
-    await navigator.clipboard.writeText(errorCorrelationId);
+    try {
+      await navigator.clipboard.writeText(errorCorrelationId);
+      setCorrelationCopied(true);
+      globalThis.setTimeout(() => setCorrelationCopied(false), 2000);
+    } catch {
+      setCorrelationCopied(false);
+    }
   };
 
   const activePage = useMemo(
@@ -206,7 +224,7 @@ export default function ReportBuilderPage() {
             <div className="report-error-meta">
               <span>رقم التتبع: {errorCorrelationId}</span>
               <button type="button" className="btn btn-sm btn-outline" onClick={copyCorrelationId}>
-                نسخ رقم التتبع
+                {correlationCopied ? 'تم النسخ' : 'نسخ رقم التتبع'}
               </button>
             </div>
           ) : null}

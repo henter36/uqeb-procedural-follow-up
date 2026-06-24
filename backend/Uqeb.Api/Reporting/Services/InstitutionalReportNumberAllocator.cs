@@ -1,3 +1,4 @@
+using System.Data;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Uqeb.Api.Data;
@@ -91,15 +92,31 @@ public sealed class InstitutionalReportNumberAllocator : IInstitutionalReportNum
 
     private static async Task<string> AllocateWithEfCoreAsync(AppDbContext db, int year, CancellationToken ct)
     {
-        if (db.Database.IsRelational())
+        Exception? lastRetryable = null;
+
+        for (var attempt = 0; attempt < MaxAttempts; attempt++)
         {
-            await using var transaction = await db.Database.BeginTransactionAsync(ct);
-            var number = await AllocateWithEfCoreCoreAsync(db, year, ct);
-            await transaction.CommitAsync(ct);
-            return number;
+            try
+            {
+                if (db.Database.IsRelational())
+                {
+                    await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+                    var number = await AllocateWithEfCoreCoreAsync(db, year, ct);
+                    await transaction.CommitAsync(ct);
+                    return number;
+                }
+
+                return await AllocateWithEfCoreCoreAsync(db, year, ct);
+            }
+            catch (Exception ex) when (attempt < MaxAttempts - 1 && SqlExceptionHelper.ShouldRetryReportNumberAllocation(ex))
+            {
+                lastRetryable = ex;
+            }
         }
 
-        return await AllocateWithEfCoreCoreAsync(db, year, ct);
+        throw new InvalidOperationException(
+            "تعذر تخصيص رقم تقرير فريد.",
+            lastRetryable);
     }
 
     private static async Task<string> AllocateWithEfCoreCoreAsync(AppDbContext db, int year, CancellationToken ct)
@@ -109,14 +126,15 @@ public sealed class InstitutionalReportNumberAllocator : IInstitutionalReportNum
 
         if (sequence is null)
         {
-            sequence = new ReportNumberSequence { Year = year, LastNumber = 0 };
+            sequence = new ReportNumberSequence { Year = year, LastNumber = 1 };
             db.ReportNumberSequences.Add(sequence);
-            await db.SaveChangesAsync(ct);
+        }
+        else
+        {
+            sequence.LastNumber++;
         }
 
-        sequence.LastNumber++;
         await db.SaveChangesAsync(ct);
-
         return $"REP-{year}-{sequence.LastNumber:D6}";
     }
 }

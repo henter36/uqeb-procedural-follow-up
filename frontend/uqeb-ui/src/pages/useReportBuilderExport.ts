@@ -62,7 +62,8 @@ export function useReportBuilderExport({
   setError,
 }: UseReportBuilderExportParams): UseReportBuilderExportResult {
   const exportDialogRef = useRef<HTMLDialogElement>(null);
-  const [exportOpen, setExportOpen] = useState(false);
+  const [exportDialogRequested, setExportDialogRequested] = useState(false);
+  const exportOpen = exportDialogRequested && manifest !== null;
   const [exportMode, setExportMode] = useState<typeof ExportMode[keyof typeof ExportMode]>(ExportMode.FullReport);
   const [exportFormat, setExportFormat] = useState<typeof ExportFormat[keyof typeof ExportFormat]>(ExportFormat.Pdf);
   const [pageNumberingMode, setPageNumberingMode] = useState<typeof PageNumberingMode[keyof typeof PageNumberingMode]>(
@@ -85,9 +86,9 @@ export function useReportBuilderExport({
     if (!manifest)
       return;
 
-    setExportOpen(true);
+    setExportDialogRequested(true);
   }, [manifest]);
-  const closeExportDialog = useCallback(() => setExportOpen(false), []);
+  const closeExportDialog = useCallback(() => setExportDialogRequested(false), []);
 
   const handleExportDialogCancel = useCallback((event: SyntheticEvent) => {
     event.preventDefault();

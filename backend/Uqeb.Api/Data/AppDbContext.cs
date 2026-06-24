@@ -181,9 +181,6 @@ public class AppDbContext : DbContext
 
             e.Property(s => s.Year)
                 .ValueGeneratedNever();
-
-            e.Property(s => s.LastNumber)
-                .IsRequired();
         });
     }
 }

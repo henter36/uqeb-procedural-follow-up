@@ -47,11 +47,18 @@ public class InstitutionalReportPreviewSqlServerIntegrationTests
         if (!IsSqlServerAvailable())
             return;
 
-        var (dbFactory, service) = await CreateServiceWithoutSequenceTableAsync();
-        var manifest = await service.RenderPreviewAsync(BuildRegressionRequest());
+        var context = await CreateServiceWithoutSequenceTableAsync();
+        try
+        {
+            var manifest = await context.Service.RenderPreviewAsync(BuildRegressionRequest());
 
-        Assert.True(manifest.Pages.Count > 0);
-        Assert.StartsWith("PREVIEW-", manifest.ReportId);
+            Assert.True(manifest.Pages.Count > 0);
+            Assert.StartsWith("PREVIEW-", manifest.ReportId);
+        }
+        finally
+        {
+            await SqlServerTestDatabaseHelper.DropDatabaseAsync(ConnectionString!, context.DatabaseName);
+        }
     }
 
     [Fact]
@@ -60,11 +67,18 @@ public class InstitutionalReportPreviewSqlServerIntegrationTests
         if (!IsSqlServerAvailable())
             return;
 
-        var (dbFactory, service) = await CreateServiceWithoutSequenceTableAsync();
-        await service.RenderPreviewAsync(BuildRegressionRequest());
+        var context = await CreateServiceWithoutSequenceTableAsync();
+        try
+        {
+            await context.Service.RenderPreviewAsync(BuildRegressionRequest());
 
-        await using var db = dbFactory.CreateDbContext();
-        Assert.False(await TableExistsAsync(db));
+            await using var db = context.DbFactory.CreateDbContext();
+            Assert.False(await TableExistsAsync(db));
+        }
+        finally
+        {
+            await SqlServerTestDatabaseHelper.DropDatabaseAsync(ConnectionString!, context.DatabaseName);
+        }
     }
 
     [Fact]
@@ -73,11 +87,18 @@ public class InstitutionalReportPreviewSqlServerIntegrationTests
         if (!IsSqlServerAvailable())
             return;
 
-        var (dbFactory, service) = await CreateServiceWithSequenceTableAsync();
-        await service.RenderPreviewAsync(BuildRegressionRequest());
+        var context = await CreateServiceWithSequenceTableAsync();
+        try
+        {
+            await context.Service.RenderPreviewAsync(BuildRegressionRequest());
 
-        await using var db = dbFactory.CreateDbContext();
-        Assert.Empty(db.ReportNumberSequences);
+            await using var db = context.DbFactory.CreateDbContext();
+            Assert.Empty(db.ReportNumberSequences);
+        }
+        finally
+        {
+            await SqlServerTestDatabaseHelper.DropDatabaseAsync(ConnectionString!, context.DatabaseName);
+        }
     }
 
     [Fact]
@@ -86,12 +107,19 @@ public class InstitutionalReportPreviewSqlServerIntegrationTests
         if (!IsSqlServerAvailable())
             return;
 
-        var (_, service) = await CreateServiceWithSequenceTableAsync();
-        var manifest = await service.RenderPreviewAsync(BuildRegressionRequest());
+        var context = await CreateServiceWithSequenceTableAsync();
+        try
+        {
+            var manifest = await context.Service.RenderPreviewAsync(BuildRegressionRequest());
 
-        Assert.True(manifest.Pages.Count > 0);
-        Assert.False(string.IsNullOrWhiteSpace(manifest.Stylesheet));
-        Assert.StartsWith("PREVIEW-", manifest.ReportId);
+            Assert.True(manifest.Pages.Count > 0);
+            Assert.False(string.IsNullOrWhiteSpace(manifest.Stylesheet));
+            Assert.StartsWith("PREVIEW-", manifest.ReportId);
+        }
+        finally
+        {
+            await SqlServerTestDatabaseHelper.DropDatabaseAsync(ConnectionString!, context.DatabaseName);
+        }
     }
 
     [Fact]
@@ -100,15 +128,22 @@ public class InstitutionalReportPreviewSqlServerIntegrationTests
         if (!IsSqlServerAvailable())
             return;
 
-        var (_, service) = await CreateServiceWithoutSequenceTableAsync();
-        var ex = await Assert.ThrowsAsync<ReportingConfigurationException>(() =>
-            service.ExportAsync(new ReportExportRequestDto
-            {
-                ExportFormat = ExportFormat.Html,
-                BuildRequest = BuildRegressionRequest(),
-            }));
+        var context = await CreateServiceWithoutSequenceTableAsync();
+        try
+        {
+            var ex = await Assert.ThrowsAsync<ReportingConfigurationException>(() =>
+                context.Service.ExportAsync(new ReportExportRequestDto
+                {
+                    ExportFormat = ExportFormat.Html,
+                    BuildRequest = BuildRegressionRequest(),
+                }));
 
-        Assert.Equal(ReportingErrorCodes.ReportNumberSequenceSchemaMissing, ex.ErrorCode);
+            Assert.Equal(ReportingErrorCodes.ReportNumberSequenceSchemaMissing, ex.ErrorCode);
+        }
+        finally
+        {
+            await SqlServerTestDatabaseHelper.DropDatabaseAsync(ConnectionString!, context.DatabaseName);
+        }
     }
 
     [Fact]
@@ -117,18 +152,25 @@ public class InstitutionalReportPreviewSqlServerIntegrationTests
         if (!IsSqlServerAvailable())
             return;
 
-        var (dbFactory, service) = await CreateServiceWithSequenceTableAsync();
-        var result = await service.ExportAsync(new ReportExportRequestDto
+        var context = await CreateServiceWithSequenceTableAsync();
+        try
         {
-            ExportFormat = ExportFormat.Html,
-            BuildRequest = BuildRegressionRequest(),
-        });
+            var result = await context.Service.ExportAsync(new ReportExportRequestDto
+            {
+                ExportFormat = ExportFormat.Html,
+                BuildRequest = BuildRegressionRequest(),
+            });
 
-        Assert.StartsWith($"REP-{DateTime.UtcNow.Year}-", result.Manifest!.ReportId);
+            Assert.StartsWith($"REP-{DateTime.UtcNow.Year}-", result.Manifest!.ReportId);
 
-        await using var db = dbFactory.CreateDbContext();
-        var sequence = Assert.Single(db.ReportNumberSequences);
-        Assert.Equal(1, sequence.LastNumber);
+            await using var db = context.DbFactory.CreateDbContext();
+            var sequence = Assert.Single(db.ReportNumberSequences);
+            Assert.Equal(1, sequence.LastNumber);
+        }
+        finally
+        {
+            await SqlServerTestDatabaseHelper.DropDatabaseAsync(ConnectionString!, context.DatabaseName);
+        }
     }
 
     [Fact]
@@ -137,14 +179,26 @@ public class InstitutionalReportPreviewSqlServerIntegrationTests
         if (!IsSqlServerAvailable())
             return;
 
-        var (dbFactory, _) = await CreateServiceWithoutSequenceTableAsync();
-        var allocator = new InstitutionalReportNumberAllocator(dbFactory);
+        var context = await CreateServiceWithoutSequenceTableAsync();
+        try
+        {
+            var allocator = new InstitutionalReportNumberAllocator(context.DbFactory);
 
-        var ex = await Assert.ThrowsAsync<ReportingConfigurationException>(() => allocator.AllocateAsync());
-        Assert.Equal(ReportingErrorCodes.ReportNumberSequenceSchemaMissing, ex.ErrorCode);
+            var ex = await Assert.ThrowsAsync<ReportingConfigurationException>(() => allocator.AllocateAsync());
+            Assert.Equal(ReportingErrorCodes.ReportNumberSequenceSchemaMissing, ex.ErrorCode);
+        }
+        finally
+        {
+            await SqlServerTestDatabaseHelper.DropDatabaseAsync(ConnectionString!, context.DatabaseName);
+        }
     }
 
-    private static async Task<(IDbContextFactory<AppDbContext> DbFactory, InstitutionalReportService Service)> CreateServiceWithoutSequenceTableAsync()
+    private sealed record SqlServerPreviewTestContext(
+        string DatabaseName,
+        IDbContextFactory<AppDbContext> DbFactory,
+        InstitutionalReportService Service);
+
+    private static async Task<SqlServerPreviewTestContext> CreateServiceWithoutSequenceTableAsync()
     {
         var databaseName = $"Uqeb_Preview_NoSeq_{Guid.NewGuid():N}";
         var builder = new SqlConnectionStringBuilder(ConnectionString!) { InitialCatalog = databaseName };
@@ -160,10 +214,10 @@ public class InstitutionalReportPreviewSqlServerIntegrationTests
             await SeedMinimalDataAsync(db);
         }
 
-        return (dbFactory, CreateReportingService(dbFactory));
+        return new SqlServerPreviewTestContext(databaseName, dbFactory, CreateReportingService(dbFactory));
     }
 
-    private static async Task<(IDbContextFactory<AppDbContext> DbFactory, InstitutionalReportService Service)> CreateServiceWithSequenceTableAsync()
+    private static async Task<SqlServerPreviewTestContext> CreateServiceWithSequenceTableAsync()
     {
         var databaseName = $"Uqeb_Preview_WithSeq_{Guid.NewGuid():N}";
         var builder = new SqlConnectionStringBuilder(ConnectionString!) { InitialCatalog = databaseName };
@@ -178,7 +232,7 @@ public class InstitutionalReportPreviewSqlServerIntegrationTests
             await SeedMinimalDataAsync(db);
         }
 
-        return (dbFactory, CreateReportingService(dbFactory));
+        return new SqlServerPreviewTestContext(databaseName, dbFactory, CreateReportingService(dbFactory));
     }
 
     private static InstitutionalReportService CreateReportingService(IDbContextFactory<AppDbContext> dbFactory)
