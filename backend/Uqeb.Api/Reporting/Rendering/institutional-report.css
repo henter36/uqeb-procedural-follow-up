@@ -50,30 +50,6 @@
   margin: 12mm 10mm 14mm;
 }
 
-@media print {
-  .report-page {
-    width: auto;
-    padding: 0;
-  }
-
-  .report-page + .report-page {
-    break-before: page;
-  }
-
-  .kpi-card,
-  .chart-card,
-  .info-card,
-  .risk-group,
-  tr {
-    break-inside: avoid;
-  }
-
-  thead {
-    display: table-header-group;
-  }
-
-}
-
 * {
   box-sizing: border-box;
 }
@@ -90,8 +66,9 @@ body {
 
 .report-page {
   width: var(--report-page-width);
-  min-height: auto;
+  min-height: var(--report-page-height);
   padding: var(--report-page-padding);
+  break-after: page;
   position: relative;
   background: #fff;
   display: flex;
@@ -137,6 +114,31 @@ body {
 .report-content {
   flex: 1 1 auto;
   padding-bottom: 8mm;
+}
+
+@media print {
+  .report-page {
+    break-after: page;
+    width: auto;
+    min-height: auto;
+    padding: 0;
+  }
+
+  .report-page:last-child {
+    break-after: auto;
+  }
+
+  .kpi-card,
+  .chart-card,
+  .info-card,
+  .risk-group,
+  tr {
+    break-inside: avoid;
+  }
+
+  thead {
+    display: table-header-group;
+  }
 }
 
 .report-header {

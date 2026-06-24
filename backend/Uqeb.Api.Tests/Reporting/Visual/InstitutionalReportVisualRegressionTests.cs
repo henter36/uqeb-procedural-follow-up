@@ -1,4 +1,5 @@
 using Microsoft.Playwright;
+using System.Text.RegularExpressions;
 using Uqeb.Api.Reporting.Enums;
 using Uqeb.Api.Reporting.Rendering;
 using Uqeb.Api.Reporting.Services;
@@ -249,5 +250,91 @@ public class InstitutionalReportStylesTests
         Assert.Contains(".report-table--transactions", css);
         Assert.DoesNotContain("word-break: break-all", css);
         Assert.DoesNotContain("overflow-wrap: anywhere", css);
+    }
+
+    [Fact]
+    public void BuildDocumentStylesheet_KeepsScreenPageHeightAndPrintOverride()
+    {
+        var css = InstitutionalReportStyles.LayoutStylesheet;
+        var baseReportPage = ExtractCssBlock(css, ".report-page");
+        var printReportPage = ExtractNestedCssBlock(css, "@media print", ".report-page");
+
+        Assert.Equal(1, Regex.Matches(css, @"min-height:\s*var\(--report-page-height\)").Count);
+        Assert.Contains("min-height: var(--report-page-height);", baseReportPage);
+        Assert.DoesNotContain("min-height: auto;", baseReportPage);
+        Assert.Contains("break-after: page;", baseReportPage);
+        Assert.Contains("min-height: auto;", printReportPage);
+        Assert.Contains("width: auto;", printReportPage);
+        Assert.Contains("padding: 0;", printReportPage);
+    }
+
+    [Fact]
+    public void FrontendAndBackendStylesheets_KeepCriticalPageRulesInSync()
+    {
+        var backendCss = InstitutionalReportStyles.LayoutStylesheet;
+        var frontendCss = File.ReadAllText(ResolveFrontendReportStylesheetPath());
+
+        Assert.Equal(ExtractCssBlock(backendCss, ".report-page"), ExtractCssBlock(frontendCss, ".report-page"));
+        Assert.Equal(ExtractNestedCssBlock(backendCss, "@media print", ".report-page"), ExtractNestedCssBlock(frontendCss, "@media print", ".report-page"));
+        Assert.Equal(ExtractCssBlock(backendCss, ".report-page--standard-portrait"), ExtractCssBlock(frontendCss, ".report-page--standard-portrait"));
+        Assert.Equal(ExtractCssBlock(backendCss, ".report-page--standard-landscape"), ExtractCssBlock(frontendCss, ".report-page--standard-landscape"));
+        Assert.Equal(ExtractCssBlock(backendCss, ".report-page--wide-landscape"), ExtractCssBlock(frontendCss, ".report-page--wide-landscape"));
+        Assert.Equal(ExtractCssBlock(backendCss, ".report-page--extra-wide-landscape"), ExtractCssBlock(frontendCss, ".report-page--extra-wide-landscape"));
+    }
+
+    private static string ExtractCssBlock(string css, string selector)
+    {
+        var match = Regex.Match(
+            css,
+            $@"(?m)^{Regex.Escape(selector)}\s*\{{(?<body>.*?)^\}}",
+            RegexOptions.Singleline);
+        Assert.True(match.Success, $"CSS block not found: {selector}");
+        return NormalizeCssBlock(match.Groups["body"].Value);
+    }
+
+    private static string ExtractNestedCssBlock(string css, string parentSelector, string childSelector)
+    {
+        var parentStart = css.IndexOf(parentSelector, StringComparison.Ordinal);
+        Assert.True(parentStart >= 0, $"CSS parent block not found: {parentSelector}");
+        var childStart = css.IndexOf(childSelector, parentStart, StringComparison.Ordinal);
+        Assert.True(childStart >= 0, $"CSS child block not found: {childSelector}");
+        var blockStart = css.IndexOf('{', childStart);
+        Assert.True(blockStart >= 0, $"CSS child block start not found: {childSelector}");
+
+        var depth = 0;
+        for (var i = blockStart; i < css.Length; i++)
+        {
+            if (css[i] == '{')
+                depth++;
+            else if (css[i] == '}')
+            {
+                depth--;
+                if (depth == 0)
+                    return NormalizeCssBlock(css.Substring(blockStart + 1, i - blockStart - 1));
+            }
+        }
+
+        throw new InvalidOperationException($"CSS child block end not found: {childSelector}");
+    }
+
+    private static string NormalizeCssBlock(string block) =>
+        string.Join(
+            "\n",
+            block.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => line.Trim()));
+
+    private static string ResolveFrontendReportStylesheetPath()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null)
+        {
+            var candidate = Path.Combine(dir.FullName, "frontend", "uqeb-ui", "src", "styles", "institutional-report", "report.css");
+            if (File.Exists(candidate))
+                return candidate;
+
+            dir = dir.Parent;
+        }
+
+        throw new InvalidOperationException("Unable to locate frontend institutional report stylesheet.");
     }
 }

@@ -156,6 +156,40 @@ public class InstitutionalReportRendererTests
         Assert.True(InstitutionalReportPdfProfiles.ExtraWideLandscape.TableFontSizePx >= 9);
     }
 
+    [Fact]
+    public void WidestProfile_SelectsLandscapeOverPortraitByWidth()
+    {
+        var profile = InstitutionalReportPdfProfiles.WidestProfile(
+        [
+            InstitutionalReportPdfProfiles.StandardPortrait.Name,
+            InstitutionalReportPdfProfiles.StandardLandscape.Name,
+        ]);
+
+        Assert.Same(InstitutionalReportPdfProfiles.StandardLandscape, profile);
+    }
+
+    [Theory]
+    [InlineData("WideLandscape", "ExtraWideLandscape")]
+    [InlineData("ExtraWideLandscape", "WideLandscape")]
+    public void WidestProfile_SelectsLargestWidthRegardlessOfInputOrder(string first, string second)
+    {
+        var profile = InstitutionalReportPdfProfiles.WidestProfile([first, second]);
+
+        Assert.Same(InstitutionalReportPdfProfiles.ExtraWideLandscape, profile);
+    }
+
+    [Fact]
+    public void WidestProfile_HandlesUnknownAndEmptyInputsDeterministically()
+    {
+        var unknown = InstitutionalReportPdfProfiles.WidestProfile(["does-not-exist"]);
+        var empty = InstitutionalReportPdfProfiles.WidestProfile([]);
+        var tiedFallbacks = InstitutionalReportPdfProfiles.WidestProfile(["unknown-a", "unknown-b"]);
+
+        Assert.Same(InstitutionalReportPdfProfiles.StandardPortrait, unknown);
+        Assert.Same(InstitutionalReportPdfProfiles.StandardPortrait, empty);
+        Assert.Same(InstitutionalReportPdfProfiles.StandardPortrait, tiedFallbacks);
+    }
+
     private static RenderedReportManifestDto CreateSourceManifest(int pageCount)
     {
         var pages = Enumerable.Range(1, pageCount)

@@ -91,7 +91,9 @@ public static class InstitutionalReportPdfProfiles
     public static PdfPageProfile WidestProfile(IEnumerable<string?> profileNames) =>
         profileNames
             .Select(GetByName)
-            .OrderByDescending(profile => profile.WidthMm * profile.HeightMm)
+            .OrderByDescending(profile => profile.WidthMm)
+            .ThenByDescending(profile => profile.HeightMm)
+            .ThenBy(profile => profile.Name, StringComparer.Ordinal)
             .FirstOrDefault()
         ?? StandardPortrait;
 }
