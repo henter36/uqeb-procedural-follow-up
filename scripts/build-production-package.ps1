@@ -165,7 +165,7 @@ Invoke-ExternalCommand "توليد سكربت EF Core idempotent migrations" {
 
 $migrationSql = Get-Content -LiteralPath $migrationSqlPath -Raw
 $migrationSql = Repair-IdempotentMigrationScript -Content $migrationSql
-if ($migrationSql -notmatch '(?is)ALTER TABLE \[Categories\] ADD \[NameNormalized\][^;]*;\s*GO\s*UPDATE\s+Departments') {
+if (-not (Test-IdempotentMigrationScriptRepaired -Content $migrationSql)) {
     throw "فشل إصلاح سكربت migrations: لا يوجد فصل GO بعد أعمدة NameNormalized."
 }
 Set-Content -LiteralPath $migrationSqlPath -Value $migrationSql -Encoding UTF8

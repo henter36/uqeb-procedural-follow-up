@@ -410,7 +410,30 @@ ALTER TABLE [Categories] ADD [NameNormalized] nvarchar(450) NOT NULL DEFAULT N''
 UPDATE Departments SET NameNormalized = LOWER(Name);
 "@
         $fixed = Repair-IdempotentMigrationScript -Content $sql
-        $fixed | Should -Match '(?is)ALTER TABLE \[Categories\].*;\s*GO\s*UPDATE Departments'
+        Test-IdempotentMigrationScriptRepaired -Content $fixed | Should -BeTrue
+    }
+
+    It 'repairs EF idempotent migration blocks with GO before NameNormalized usage' {
+        $sql = @"
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260622062754_AddReferenceDataNormalizedNames'
+)
+BEGIN
+    ALTER TABLE [Categories] ADD [NameNormalized] nvarchar(450) NOT NULL DEFAULT N'';
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260622062754_AddReferenceDataNormalizedNames'
+)
+BEGIN
+    UPDATE Departments
+    SET NameNormalized = LOWER(Name);
+END;
+"@
+        $fixed = Repair-IdempotentMigrationScript -Content $sql
+        Test-IdempotentMigrationScriptRepaired -Content $fixed | Should -BeTrue
     }
 }
 

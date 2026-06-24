@@ -147,6 +147,20 @@ function Split-SqlBatches {
     return ,@($batches.ToArray())
 }
 
+function Test-IdempotentMigrationScriptRepaired {
+    param([string]$Content)
+
+    if ([string]::IsNullOrWhiteSpace($Content)) {
+        return $false
+    }
+
+    if ($Content -match '(?is)ALTER TABLE \[Categories\] ADD \[NameNormalized\][^;]*;\s*GO\s*UPDATE\s+Departments') {
+        return $true
+    }
+
+    return $Content -match '(?is)ALTER TABLE \[Categories\] ADD \[NameNormalized\][^;]*;\s*END;\s*GO[\s\S]*?UPDATE\s+Departments'
+}
+
 function Repair-IdempotentMigrationScript {
     param([string]$Content)
 
@@ -154,13 +168,17 @@ function Repair-IdempotentMigrationScript {
         return $Content
     }
 
-    if ($Content -match '(?is)ALTER TABLE \[Categories\] ADD \[NameNormalized\][^;]*;\s*GO\s*UPDATE\s+Departments') {
+    if (Test-IdempotentMigrationScriptRepaired -Content $Content) {
         return $Content
     }
 
-    $pattern = '(?is)(ALTER TABLE \[Categories\] ADD \[NameNormalized\][^;]*;)(\s*)(?=UPDATE\s+Departments)'
-    $repaired = [regex]::Replace($Content, $pattern, '$1$2GO$2', 1)
-    return $repaired
+    $idempotentPattern = '(?is)(ALTER TABLE \[Categories\] ADD \[NameNormalized\][^;]*;\s*END;)(\s*)(IF NOT EXISTS\s*\(\s*\r?\n\s*SELECT \* FROM \[__EFMigrationsHistory\][\s\S]*?\r?\nBEGIN\s*\r?\n\s*UPDATE\s+Departments)'
+    if ($Content -match $idempotentPattern) {
+        return [regex]::Replace($Content, $idempotentPattern, '$1$2GO$2$3', 1)
+    }
+
+    $flatPattern = '(?is)(ALTER TABLE \[Categories\] ADD \[NameNormalized\][^;]*;)(\s*)(?=UPDATE\s+Departments)'
+    return [regex]::Replace($Content, $flatPattern, '$1$2GO$2', 1)
 }
 
 function Get-SqlConnectionInfoFromSettings {
@@ -1079,6 +1097,23 @@ function Assert-PlaywrightBrowserSourcePathSafe {
     }
 }
 
+function Get-RelativePathFromDirectory {
+    param(
+        [string]$RootDirectory,
+        [string]$FullPath
+    )
+
+    $rootResolved = (Resolve-Path -LiteralPath $RootDirectory).Path
+    $fullResolved = (Resolve-Path -LiteralPath $FullPath).Path
+    $relativePath = [System.IO.Path]::GetRelativePath($rootResolved, $fullResolved)
+
+    if ($relativePath.StartsWith('..', [System.StringComparison]::Ordinal)) {
+        throw "المسار يخرج عن الجذر المتوقع: $FullPath"
+    }
+
+    return ($relativePath -replace '\\', '/').TrimStart('/')
+}
+
 function Get-PlaywrightBrowserExecutable {
     param([string]$BrowsersRoot)
 
@@ -1087,7 +1122,7 @@ function Get-PlaywrightBrowserExecutable {
     }
 
     $candidates = Get-ChildItem -LiteralPath $BrowsersRoot -Recurse -File -Filter 'chrome.exe' -ErrorAction SilentlyContinue |
-        Where-Object { $_.FullName -match '(?i)\\chrome-win(?:64)?\\chrome\.exe$' }
+        Where-Object { $_.FullName -match '(?i)[/\\]chrome-win(?:64)?[/\\]chrome\.exe$' }
 
     if (-not $candidates -or @($candidates).Count -eq 0) {
         throw "لم يتم العثور على Chromium executable داخل: $BrowsersRoot"
@@ -1095,7 +1130,7 @@ function Get-PlaywrightBrowserExecutable {
 
     if (@($candidates).Count -gt 1) {
         $relativeCandidates = $candidates | ForEach-Object {
-            $_.FullName.Substring($BrowsersRoot.Length).TrimStart('\')
+            Get-RelativePathFromDirectory -RootDirectory $BrowsersRoot -FullPath $_.FullName
         }
         throw ("تم العثور على أكثر من Chromium executable غير قابل للحسم: " + ($relativeCandidates -join " | "))
     }
@@ -1105,10 +1140,10 @@ function Get-PlaywrightBrowserExecutable {
         throw "ملف Chromium executable بحجم صفر: $($executable.FullName)"
     }
 
-    $relativePath = $executable.FullName.Substring($BrowsersRoot.Length).TrimStart('\')
+    $relativePath = Get-RelativePathFromDirectory -RootDirectory $BrowsersRoot -FullPath $executable.FullName
     return [pscustomobject]@{
         FullPath = $executable.FullName
-        RelativePath = ($relativePath -replace '\\', '/')
+        RelativePath = $relativePath
         SizeBytes = $executable.Length
     }
 }
