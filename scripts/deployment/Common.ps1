@@ -1099,19 +1099,53 @@ function Assert-PlaywrightBrowserSourcePathSafe {
 
 function Get-RelativePathFromDirectory {
     param(
+        [Parameter(Mandatory = $true)]
         [string]$RootDirectory,
+
+        [Parameter(Mandatory = $true)]
         [string]$FullPath
     )
 
-    $rootResolved = (Resolve-Path -LiteralPath $RootDirectory).Path
-    $fullResolved = (Resolve-Path -LiteralPath $FullPath).Path
-    $relativePath = [System.IO.Path]::GetRelativePath($rootResolved, $fullResolved)
+    $rootResolved = [System.IO.Path]::GetFullPath(
+        (Resolve-Path -LiteralPath $RootDirectory).Path
+    )
 
-    if ($relativePath.StartsWith('..', [System.StringComparison]::Ordinal)) {
+    $fullResolved = [System.IO.Path]::GetFullPath(
+        (Resolve-Path -LiteralPath $FullPath).Path
+    )
+
+    $separator = [System.IO.Path]::DirectorySeparatorChar
+    $alternateSeparator = [System.IO.Path]::AltDirectorySeparatorChar
+
+    $rootWithoutTrailingSeparator = $rootResolved.TrimEnd(
+        [char[]]@($separator, $alternateSeparator)
+    )
+
+    if ($fullResolved.Equals(
+        $rootWithoutTrailingSeparator,
+        [System.StringComparison]::OrdinalIgnoreCase
+    )) {
+        return ""
+    }
+
+    $rootPrefix = $rootWithoutTrailingSeparator + $separator
+
+    if (-not $fullResolved.StartsWith(
+        $rootPrefix,
+        [System.StringComparison]::OrdinalIgnoreCase
+    )) {
         throw "المسار يخرج عن الجذر المتوقع: $FullPath"
     }
 
-    return ($relativePath -replace '\\', '/').TrimStart('/')
+    $relativePath = $fullResolved.Substring($rootPrefix.Length)
+
+    if ($relativePath -match '(^|[/\\])\.\.([/\\]|$)') {
+        throw "المسار يخرج عن الجذر المتوقع: $FullPath"
+    }
+
+    return ($relativePath -replace '\\', '/').TrimStart(
+        [char[]]@('/', '\')
+    )
 }
 
 function Get-PlaywrightBrowserExecutable {

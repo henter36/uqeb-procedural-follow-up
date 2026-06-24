@@ -174,6 +174,158 @@ Describe 'Playwright deployment helpers' {
     }
 }
 
+Describe 'Get-RelativePathFromDirectory' {
+    BeforeAll {
+        $script:IsWindowsPlatform = ($IsWindows -or $env:OS -eq 'Windows_NT')
+
+        function script:New-RelativePathTestRoot {
+            $base = if ([string]::IsNullOrWhiteSpace($env:TEMP)) { '/tmp' } else { $env:TEMP }
+            $path = Join-Path $base ("uqeb-relative-path-" + [Guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Path $path -Force | Out-Null
+            return $path
+        }
+    }
+
+    It 'returns file directly under root' {
+        $root = New-RelativePathTestRoot
+        try {
+            $file = Join-Path $root 'chrome.exe'
+            Set-Content -LiteralPath $file -Value 'fake' -Encoding ASCII
+            Get-RelativePathFromDirectory -RootDirectory $root -FullPath $file |
+                Should -Be 'chrome.exe'
+        }
+        finally {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'returns nested file with forward slashes' {
+        $root = New-RelativePathTestRoot
+        try {
+            $file = Join-Path $root 'chromium-1\chrome-win64\chrome.exe'
+            New-Item -ItemType Directory -Path (Split-Path $file -Parent) -Force | Out-Null
+            Set-Content -LiteralPath $file -Value 'fake' -Encoding ASCII
+            Get-RelativePathFromDirectory -RootDirectory $root -FullPath $file |
+                Should -Be 'chromium-1/chrome-win64/chrome.exe'
+        }
+        finally {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'accepts root with trailing separator' {
+        $root = New-RelativePathTestRoot
+        try {
+            $file = Join-Path $root 'chrome.exe'
+            Set-Content -LiteralPath $file -Value 'fake' -Encoding ASCII
+            $rootWithSeparator = $root + [System.IO.Path]::DirectorySeparatorChar
+            Get-RelativePathFromDirectory -RootDirectory $rootWithSeparator -FullPath $file |
+                Should -Be 'chrome.exe'
+        }
+        finally {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'accepts root without trailing separator' {
+        $root = New-RelativePathTestRoot
+        try {
+            $file = Join-Path $root 'chrome.exe'
+            Set-Content -LiteralPath $file -Value 'fake' -Encoding ASCII
+            Get-RelativePathFromDirectory -RootDirectory $root.TrimEnd('\', '/') -FullPath $file |
+                Should -Be 'chrome.exe'
+        }
+        finally {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'returns empty string when full path equals root' {
+        $root = New-RelativePathTestRoot
+        try {
+            Get-RelativePathFromDirectory -RootDirectory $root -FullPath $root |
+                Should -Be ''
+        }
+        finally {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'rejects sibling-prefix bypass paths' {
+        $base = if ([string]::IsNullOrWhiteSpace($env:TEMP)) { '/tmp' } else { $env:TEMP }
+        $root = Join-Path $base ("uqeb-relative-foo-" + [Guid]::NewGuid().ToString('N'))
+        $outsideDir = "$root-extra"
+        $outsideFile = Join-Path $outsideDir 'chrome.exe'
+        try {
+            New-Item -ItemType Directory -Path $root -Force | Out-Null
+            New-Item -ItemType Directory -Path $outsideDir -Force | Out-Null
+            Set-Content -LiteralPath $outsideFile -Value 'fake' -Encoding ASCII
+            { Get-RelativePathFromDirectory -RootDirectory $root -FullPath $outsideFile } |
+                Should -Throw '*يخرج عن الجذر*'
+        }
+        finally {
+            Remove-Item -LiteralPath $outsideDir -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'rejects paths outside root' {
+        $root = New-RelativePathTestRoot
+        $outsideRoot = New-RelativePathTestRoot
+        try {
+            $outsideFile = Join-Path $outsideRoot 'chrome.exe'
+            Set-Content -LiteralPath $outsideFile -Value 'fake' -Encoding ASCII
+            { Get-RelativePathFromDirectory -RootDirectory $root -FullPath $outsideFile } |
+                Should -Throw '*يخرج عن الجذر*'
+        }
+        finally {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $outsideRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'accepts differing path casing on Windows' -Skip:(-not $script:IsWindowsPlatform) {
+        $root = New-RelativePathTestRoot
+        try {
+            $mixedCaseRoot = $root.Substring(0, 1).ToUpperInvariant() + $root.Substring(1)
+            $file = Join-Path $root 'chrome.exe'
+            Set-Content -LiteralPath $file -Value 'fake' -Encoding ASCII
+            Get-RelativePathFromDirectory -RootDirectory $mixedCaseRoot -FullPath $file |
+                Should -Be 'chrome.exe'
+        }
+        finally {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'does not return a leading separator' {
+        $root = New-RelativePathTestRoot
+        try {
+            $file = Join-Path $root 'chrome.exe'
+            Set-Content -LiteralPath $file -Value 'fake' -Encoding ASCII
+            $result = Get-RelativePathFromDirectory -RootDirectory $root -FullPath $file
+            $result.StartsWith('/') | Should -BeFalse
+            $result.StartsWith('\') | Should -BeFalse
+        }
+        finally {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'does not return parent traversal segments' {
+        $root = New-RelativePathTestRoot
+        try {
+            $file = Join-Path $root 'chrome.exe'
+            Set-Content -LiteralPath $file -Value 'fake' -Encoding ASCII
+            $result = Get-RelativePathFromDirectory -RootDirectory $root -FullPath $file
+            $result | Should -Not -Match '\.\.'
+        }
+        finally {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 Describe 'Playwright package hash validation' {
     It 'accepts matching playwright.ps1 hash' {
         $fixture = New-PlaywrightPackageFixture
