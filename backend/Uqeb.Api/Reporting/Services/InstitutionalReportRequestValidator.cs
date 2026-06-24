@@ -26,17 +26,18 @@ internal static class InstitutionalReportRequestValidator
             });
         }
 
-        if (request.Filters.DateFrom is DateTime from
-            && request.Filters.DateTo is DateTime to
-            && from.Date > to.Date)
-        {
-            throw new FieldValidationException(new Dictionary<string, string>
-            {
-                ["filters.dateFrom"] = "تاريخ البداية يجب أن يسبق أو يساوي تاريخ النهاية.",
-                ["filters.dateTo"] = "تاريخ النهاية يجب أن يلي أو يساوي تاريخ البداية.",
-            });
-        }
+        ValidateFilterDateRange(request.Filters);
+        ValidateAnalyticalOptions(request);
+    }
 
+    internal static List<ReportSectionId> ResolveSections(ReportBuildRequestDto request)
+    {
+        ValidateBuildRequest(request);
+        return request.SectionIds.Distinct().ToList();
+    }
+
+    private static void ValidateAnalyticalOptions(ReportBuildRequestDto request)
+    {
         if (request.ContentLevel.HasValue && !Enum.IsDefined(request.ContentLevel.Value))
             throw InvalidEnum("contentLevel", "مستوى المحتوى غير صالح.");
 
@@ -72,10 +73,18 @@ internal static class InstitutionalReportRequestValidator
         ValidatePositiveLimit(request.MaxRecommendations, "maxRecommendations");
     }
 
-    internal static List<ReportSectionId> ResolveSections(ReportBuildRequestDto request)
+    private static void ValidateFilterDateRange(ReportFiltersDto filters)
     {
-        ValidateBuildRequest(request);
-        return request.SectionIds.Distinct().ToList();
+        if (filters.DateFrom is DateTime from
+            && filters.DateTo is DateTime to
+            && from.Date > to.Date)
+        {
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                ["filters.dateFrom"] = "تاريخ البداية يجب أن يسبق أو يساوي تاريخ النهاية.",
+                ["filters.dateTo"] = "تاريخ النهاية يجب أن يلي أو يساوي تاريخ البداية.",
+            });
+        }
     }
 
     private static FieldValidationException InvalidEnum(string field, string message) =>

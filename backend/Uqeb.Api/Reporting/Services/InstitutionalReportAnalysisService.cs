@@ -67,7 +67,7 @@ internal static class InstitutionalReportAnalysisService
             : BuildTimeSeries(currentSnapshots, timeGrouping);
         var insights = request.IncludeExecutiveSummary == false
             ? []
-            : BuildExecutiveInsights(currentMetrics, kpis, findings, criticalCases, departments, externalParties, options)
+            : BuildExecutiveInsights(currentMetrics, findings, criticalCases, departments, externalParties, options)
                 .Take(options.MaxExecutiveFindings)
                 .ToList();
 
@@ -75,8 +75,8 @@ internal static class InstitutionalReportAnalysisService
         {
             ContentLevel = contentLevel,
             ComparisonMode = comparisonMode,
-            ComparisonFrom = ResolveComparisonFrom(request, metadata),
-            ComparisonTo = ResolveComparisonTo(request, metadata),
+            ComparisonFrom = ResolveComparisonFrom(request),
+            ComparisonTo = ResolveComparisonTo(request),
             Kpis = kpis,
             ExecutiveInsights = insights,
             Findings = findings,
@@ -191,7 +191,6 @@ internal static class InstitutionalReportAnalysisService
         var pendingAssignments = currentSnapshots.Sum(s => s.PendingReplyAssignmentCount);
         var completionMedian = InstitutionalReportStatistics.Median(closedDurations);
         var responseAverage = responseDurations.Count == 0 ? 0 : Math.Round(responseDurations.Average(), 1);
-        var responseMedian = InstitutionalReportStatistics.Median(responseDurations);
         var followUpAverage = current.TotalTransactions == 0
             ? 0
             : Math.Round(currentSnapshots.Count(s => s.LastFollowUpDate.HasValue) / (double)current.TotalTransactions, 2);
@@ -291,13 +290,7 @@ internal static class InstitutionalReportAnalysisService
             ? null
             : Math.Round(absolute / Math.Abs(previous.Value) * 100, 1);
         var absPercent = Math.Abs(percent ?? 0);
-        var classification = !percent.HasValue
-            ? "not_comparable"
-            : absPercent < options.StableChangeThresholdPercent
-                ? "stable"
-                : absPercent >= options.SignificantChangeThresholdPercent
-                    ? "significant"
-                    : "moderate";
+        var classification = ClassifyChange(percent, absPercent, options);
         var trend = ResolveTrend(absolute, percent, direction, options);
 
         return new KpiComparisonDto
@@ -326,9 +319,21 @@ internal static class InstitutionalReportAnalysisService
         };
     }
 
+    private static string ClassifyChange(decimal? percent, decimal absPercent, ReportingAnalysisOptions options)
+    {
+        if (!percent.HasValue)
+            return "not_comparable";
+
+        if (absPercent < options.StableChangeThresholdPercent)
+            return "stable";
+
+        return absPercent >= options.SignificantChangeThresholdPercent
+            ? "significant"
+            : "moderate";
+    }
+
     private static List<ExecutiveInsightDto> BuildExecutiveInsights(
         InstitutionalMetricsResult metrics,
-        IReadOnlyList<AnalyticalKpiDto> kpis,
         IReadOnlyList<SignificantFindingDto> findings,
         IReadOnlyList<CriticalCaseDto> criticalCases,
         IReadOnlyList<DepartmentAnalysisRowDto> departments,
@@ -480,6 +485,7 @@ internal static class InstitutionalReportAnalysisService
                 var key = g.Key.ResponsibleDepartmentId?.ToString(CultureInfo.InvariantCulture) ?? g.Key.Name;
                 previousOpen.TryGetValue(key, out var previousOpenCount);
                 var average = closedDays.Count == 0 ? 0 : Math.Round(closedDays.Average(), 1);
+                var systemComparison = ResolveSystemComparison(average, systemAverageCompletion);
                 return new DepartmentAnalysisRowDto
                 {
                     DepartmentId = g.Key.ResponsibleDepartmentId,
@@ -498,9 +504,7 @@ internal static class InstitutionalReportAnalysisService
                     DataCompletenessRate = CalculateCompletenessRate(g.ToList()),
                     SampleSize = g.Count(),
                     HasSmallSample = g.Count() < options.MinimumRankingSampleSize,
-                    SystemComparison = average == 0 || systemAverageCompletion == 0
-                        ? "غير قابل للمقارنة"
-                        : average <= systemAverageCompletion ? "أفضل من متوسط النظام" : "أعلى من متوسط النظام"
+                    SystemComparison = systemComparison
                 };
             })
             .OrderByDescending(d => d.OverdueCount)
@@ -563,7 +567,7 @@ internal static class InstitutionalReportAnalysisService
                 Count = g.Count(),
                 OpenCount = g.Count(s => s.IsOpen),
                 OverdueCount = g.Count(s => s.IsOverdue),
-                AverageAgeDays = g.Count() == 0 ? 0 : Math.Round(g.Average(s => s.ElapsedDays), 1),
+                AverageAgeDays = g.Any() ? Math.Round(g.Average(s => s.ElapsedDays), 1) : 0,
                 OnTimeRate = CalculateOnTimeRate(g)
             })
             .OrderByDescending(p => p.OverdueCount)
@@ -852,7 +856,7 @@ internal static class InstitutionalReportAnalysisService
             DataPeriod = $"{metadata.PeriodFrom:yyyy-MM-dd} إلى {metadata.PeriodTo:yyyy-MM-dd}",
             ComparisonPeriod = comparisonMode == ReportComparisonMode.None
                 ? "لا توجد مقارنة"
-                : $"{ResolveComparisonFrom(request, metadata):yyyy-MM-dd} إلى {ResolveComparisonTo(request, metadata):yyyy-MM-dd}",
+                : $"{ResolveComparisonFrom(request):yyyy-MM-dd} إلى {ResolveComparisonTo(request):yyyy-MM-dd}",
             Filters = BuildFilterSummary(filters),
             RowLimits = $"DetailLimit={detailLimit:N0}; Truncated={(detailRowsTruncated ? "yes" : "no")}",
             DeferredMetrics = deferred
@@ -879,12 +883,12 @@ internal static class InstitutionalReportAnalysisService
         return parts.Count == 0 ? "بدون فلاتر إضافية" : string.Join("; ", parts);
     }
 
-    private static DateTime? ResolveComparisonFrom(ReportBuildRequestDto request, ReportMetadataDto metadata) =>
+    private static DateTime? ResolveComparisonFrom(ReportBuildRequestDto request) =>
         request.ComparisonMode == ReportComparisonMode.Custom
             ? request.ComparisonDateFrom
             : CreateComparisonRequest(request)?.Filters.DateFrom;
 
-    private static DateTime? ResolveComparisonTo(ReportBuildRequestDto request, ReportMetadataDto metadata) =>
+    private static DateTime? ResolveComparisonTo(ReportBuildRequestDto request) =>
         request.ComparisonMode == ReportComparisonMode.Custom
             ? request.ComparisonDateTo
             : CreateComparisonRequest(request)?.Filters.DateTo;
@@ -933,7 +937,7 @@ internal static class InstitutionalReportAnalysisService
                 CountField(snapshot.ResponseDueDate.HasValue || snapshot.EarliestPendingReplyDueDate.HasValue);
         }
 
-        return expected == 0 ? 100 : Math.Round(present * 100.0 / expected, 1);
+        return Math.Round(present * 100.0 / expected, 1);
 
         void CountField(bool isPresent)
         {
@@ -946,12 +950,25 @@ internal static class InstitutionalReportAnalysisService
     private static decimal Rate(int numerator, int denominator) =>
         denominator == 0 ? 0 : Math.Round(numerator * 100m / denominator, 1);
 
-    private static string FormatValue(decimal value, string unit, string format) =>
-        format == "percent"
-            ? $"{value:N1}%"
-            : string.IsNullOrWhiteSpace(unit)
-                ? value.ToString("N0", CultureInfo.InvariantCulture)
-                : $"{value:N1} {unit}";
+    private static string FormatValue(decimal value, string unit, string format)
+    {
+        if (format == "percent")
+            return $"{value:N1}%";
+
+        return string.IsNullOrWhiteSpace(unit)
+            ? value.ToString("N0", CultureInfo.InvariantCulture)
+            : $"{value:N1} {unit}";
+    }
+
+    private static string ResolveSystemComparison(double average, double systemAverageCompletion)
+    {
+        if (Math.Abs(average) < double.Epsilon || Math.Abs(systemAverageCompletion) < double.Epsilon)
+            return "غير قابل للمقارنة";
+
+        return average <= systemAverageCompletion
+            ? "أفضل من متوسط النظام"
+            : "أعلى من متوسط النظام";
+    }
 
     private static int ResolvePositive(int? requested, int fallback) =>
         requested.HasValue && requested.Value > 0 ? requested.Value : fallback;
