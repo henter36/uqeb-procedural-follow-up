@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Uqeb.Api.Middleware;
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Reporting.Configuration;
 using Uqeb.Api.Reporting.DTOs;
@@ -75,7 +77,34 @@ public class InstitutionalReportExportServiceExceptionTests
     public async Task ExportAsync_ExternalCancellation_LogsCancelledAndRethrowsWithoutExportFailedLog()
     {
         var lifecycle = new RecordingLifecycleObserver();
-        var service = CreateService(new SlowBuildSupport(), lifecycle);
+        var logger = new RecordingLogger<InstitutionalReportExportService>();
+        var expected = new OperationCanceledException("export cancelled by client");
+        var service = CreateService(
+            new ThrowingBuildSupport(expected),
+            lifecycle,
+            logger: logger,
+            correlationId: "corr-export-cancel");
+
+        var ex = await Assert.ThrowsAsync<OperationCanceledException>(
+            () => service.ExportAsync(ValidRequest, CancellationToken.None));
+
+        Assert.Same(expected, ex);
+        Assert.Equal(1, lifecycle.CancelledCount);
+        Assert.DoesNotContain("export_failed", lifecycle.FailedResults);
+
+        var cancellationLog = Assert.Single(
+            logger.Entries,
+            e => e.Level == LogLevel.Debug && e.Message.Contains("ExportStage=cancelled"));
+        Assert.Contains("corr-export-cancel", cancellationLog.Message);
+        Assert.Same(expected, cancellationLog.Exception);
+    }
+
+    [Fact]
+    public async Task ExportAsync_ExternalCancellationViaToken_LogsCancelledOnceAndRethrowsOperationCanceledException()
+    {
+        var lifecycle = new RecordingLifecycleObserver();
+        var logger = new RecordingLogger<InstitutionalReportExportService>();
+        var service = CreateService(new SlowBuildSupport(), lifecycle, logger: logger, correlationId: "corr-token-cancel");
         using var cts = new CancellationTokenSource();
 
         var exportTask = service.ExportAsync(ValidRequest, cts.Token);
@@ -86,6 +115,7 @@ public class InstitutionalReportExportServiceExceptionTests
 
         Assert.Equal(1, lifecycle.CancelledCount);
         Assert.DoesNotContain("export_failed", lifecycle.FailedResults);
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Debug && e.Message.Contains("corr-token-cancel"));
     }
 
     [Fact]
@@ -104,12 +134,15 @@ public class InstitutionalReportExportServiceExceptionTests
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, ex.StatusCode);
         Assert.Contains(ReportingErrorCodes.ExportTimeout, lifecycle.FailedResults);
         Assert.DoesNotContain("export_failed", lifecycle.FailedResults);
+        Assert.Equal(0, lifecycle.CancelledCount);
     }
 
     private static InstitutionalReportExportService CreateService(
         IInstitutionalReportBuildSupport buildSupport,
         RecordingLifecycleObserver lifecycle,
-        ReportingOptions? reportingOptions = null)
+        ReportingOptions? reportingOptions = null,
+        ILogger<InstitutionalReportExportService>? logger = null,
+        string? correlationId = null)
     {
         var options = Options.Create(reportingOptions ?? new ReportingOptions { MaxPdfDetailRows = 10_000 });
         var metrics = new ReportingMetrics();
@@ -132,7 +165,14 @@ public class InstitutionalReportExportServiceExceptionTests
             tempFileManager,
             lifecycle,
             metrics);
-        var correlationIdProvider = new ReportingCorrelationIdProvider(new HttpContextAccessor());
+        var httpContextAccessor = new HttpContextAccessor();
+        if (correlationId is not null)
+        {
+            httpContextAccessor.HttpContext = new DefaultHttpContext();
+            httpContextAccessor.HttpContext.Items[CorrelationIdMiddleware.ItemKey] = correlationId;
+        }
+
+        var correlationIdProvider = new ReportingCorrelationIdProvider(httpContextAccessor);
         var exportGuard = new ReportingExportGuard(
             admission,
             resourceGuard,
@@ -146,7 +186,7 @@ public class InstitutionalReportExportServiceExceptionTests
             options,
             exportGuard,
             metrics,
-            NullLogger<InstitutionalReportExportService>.Instance,
+            logger ?? NullLogger<InstitutionalReportExportService>.Instance,
             correlationIdProvider);
     }
 
@@ -235,5 +275,22 @@ public class InstitutionalReportExportServiceExceptionTests
             string htmlDocument,
             CancellationToken ct = default) =>
             Task.FromResult("%PDF-1.4"u8.ToArray());
+    }
+
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public List<(LogLevel Level, string Message, Exception? Exception)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter) =>
+            Entries.Add((logLevel, formatter(state, exception), exception));
     }
 }

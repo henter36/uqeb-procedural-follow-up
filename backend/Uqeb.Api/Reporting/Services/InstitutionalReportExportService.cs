@@ -174,9 +174,17 @@ public sealed class InstitutionalReportExportService : IInstitutionalReportExpor
                 "انتهت مهلة تصدير التقرير.",
                 StatusCodes.Status503ServiceUnavailable);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException ex)
         {
             await exportScope.LogCancelledAsync();
+
+            _logger.LogDebug(
+                ex,
+                "Institutional report export cancelled. ExportFormat={ExportFormat} ReportType={ReportType} ExportStage=cancelled CorrelationId={CorrelationId}",
+                effectiveRequest.ExportFormat,
+                effectiveRequest.BuildRequest.ReportType,
+                correlationId);
+
             throw;
         }
         catch (Exception ex) when (
