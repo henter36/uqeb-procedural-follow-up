@@ -23,7 +23,11 @@ builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"))
 builder.Services.Configure<FeatureFlagsSettings>(builder.Configuration.GetSection(FeatureFlagsSettings.SectionName));
 builder.Services.AddOptions<ReportingOptions>()
     .Bind(builder.Configuration.GetSection(ReportingOptions.SectionName))
-    .Validate(o => o.MaxPdfDetailRows > 0, "Reporting:MaxPdfDetailRows must be greater than zero.")
+    .Validate(o =>
+    {
+        o.Validate();
+        return true;
+    }, "Reporting configuration is invalid.")
     .ValidateOnStart();
 
 var useInMemoryDatabase = builder.Configuration.GetValue<bool>("Testing:UseInMemoryDatabase");
@@ -48,6 +52,7 @@ builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<IInstitutionalReportService, InstitutionalReportService>();
 builder.Services.AddScoped<IInstitutionalReportNumberAllocator, InstitutionalReportNumberAllocator>();
 builder.Services.AddSingleton<IInstitutionalReportPdfExporter, InstitutionalReportPlaywrightPdfExporter>();
+builder.Services.AddSingleton<IReportingReadinessService, ReportingReadinessService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IDepartmentService, DepartmentService>();
 builder.Services.AddScoped<IExternalPartyService, ExternalPartyService>();

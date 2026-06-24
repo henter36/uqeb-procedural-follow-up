@@ -11,6 +11,7 @@ using Uqeb.Api.Reporting.Helpers;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
 using Uqeb.Api.Reporting.Models;
+using Uqeb.Api.Reporting.Rendering;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Services;
 
@@ -61,28 +62,30 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
 
     private async Task<InstitutionalReportModel> BuildForApiAsync(ReportBuildRequestDto request, CancellationToken ct)
     {
-        var detailLimit = _reportingOptions.MaxPdfDetailRows;
+        var detailLimit = _reportingOptions.MaxPreviewDetailRows;
         var totalMatching = await CountMatchingTransactionsAsync(request, ct);
         return await BuildInternalAsync(request, ct, ReportAssemblyOptions.ForPreview(totalMatching, detailLimit));
     }
 
     public async Task<RenderedReportManifestDto> RenderPreviewAsync(ReportBuildRequestDto request, CancellationToken ct = default)
     {
-        var detailLimit = _reportingOptions.MaxPdfDetailRows;
+        var detailLimit = _reportingOptions.MaxPreviewDetailRows;
         var totalMatching = await CountMatchingTransactionsAsync(request, ct);
         var model = await BuildInternalAsync(
             request,
             ct,
             ReportAssemblyOptions.ForPreview(totalMatching, detailLimit));
         var sections = ResolveSections(request);
-        return _renderer.RenderManifest(model, sections);
+        var manifest = _renderer.RenderManifest(model, sections);
+        return EnrichManifest(manifest, model, isSummaryOnly: false, overflowAction: null);
     }
 
     public async Task<ReportExportResultDto> ExportAsync(ReportExportRequestDto request, CancellationToken ct = default)
     {
         var exportOptions = InstitutionalReportExportOptionsResolver.Resolve(request);
         var effectiveRequest = InstitutionalReportExportOptionsResolver.WithResolvedValues(request, exportOptions);
-        var detailLimit = _reportingOptions.MaxPdfDetailRows;
+        var detailLimit = _reportingOptions.ResolveDetailLimit(exportOptions.Format);
+        var pdfPartLimit = _reportingOptions.ResolvePdfPartDetailLimit();
         var totalMatching = await CountMatchingTransactionsAsync(effectiveRequest.BuildRequest, ct);
         var overflow = totalMatching > detailLimit;
         var sections = ResolveSections(effectiveRequest.BuildRequest);
@@ -120,7 +123,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
 
         if (overflow && overflowAction == DetailOverflowAction.SplitPdf)
         {
-            return await ExportSplitPdfZipAsync(model, effectiveRequest, sections, overflowAction, totalMatching, detailLimit, ct);
+            return await ExportSplitPdfZipAsync(model, effectiveRequest, sections, overflowAction, totalMatching, pdfPartLimit, ct);
         }
 
         var includeDetailsInDocument = !overflow || overflowAction != DetailOverflowAction.SummaryOnly;
@@ -217,7 +220,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
             ContentType = contentType,
             FileName = BuildFileName(context.Model.Metadata.ReportNumber, context.Request, extension, selectedPages),
             FileFingerprint = fingerprint,
-            Manifest = exportManifest.CloneWithoutHtml()
+            Manifest = EnrichManifest(exportManifest.CloneWithoutHtml(), context.Model, !context.IncludeDetailsInDocument && context.OverflowAction == DetailOverflowAction.SummaryOnly, context.OverflowAction)
         };
     }
 
@@ -239,11 +242,17 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
             [$"{SanitizeFileStem(model.Metadata.ReportNumber)}-summary.pdf"] = summaryPdf
         };
 
-        var chunks = model.Transactions.Chunk(detailLimit).ToList();
+        var chunks = model.Transactions.Chunk(detailLimit).Take(_reportingOptions.MaxPdfParts).ToList();
         for (var i = 0; i < chunks.Count; i++)
         {
-            var partLabel = $"details-{i + 1:D2}";
+            var partNumber = i + 1;
+            var rowsFrom = i * detailLimit + 1;
+            var rowsTo = rowsFrom + chunks[i].Length - 1;
+            var partLabel = $"PART-{partNumber:D2}-OF-{chunks.Count:D2}";
             var partManifest = _renderer.RenderTransactionDetailsManifest(model, chunks[i], partLabel);
+            partManifest.CurrentPartNumber = partNumber;
+            partManifest.RowsFrom = rowsFrom;
+            partManifest.RowsTo = rowsTo;
             var partHtml = InstitutionalReportRenderer.RenderHtmlDocument(partManifest);
             var partPdf = await _pdfExporter.ExportAsync(partManifest, partHtml, ct);
             zipEntries[$"{SanitizeFileStem(model.Metadata.ReportNumber)}-{partLabel}.pdf"] = partPdf;
@@ -449,7 +458,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
         CancellationToken ct,
         ReportAssemblyOptions options)
     {
-        var detailLimit = options.DetailRowLimit > 0 ? options.DetailRowLimit : _reportingOptions.MaxPdfDetailRows;
+        var detailLimit = options.DetailRowLimit > 0 ? options.DetailRowLimit : _reportingOptions.MaxPreviewDetailRows;
         ReportingOptions.ValidateDetailLimit(detailLimit);
         var totalMatched = options.TotalMatchedOverride ?? await CountMatchingTransactionsAsync(request, ct);
 
@@ -978,7 +987,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
 
     private static string BuildFileName(string reportNumber, ReportExportRequestDto request, string extension, List<int> pages)
     {
-        var baseName = reportNumber.Replace('/', '-');
+        var baseName = SanitizeFileStem(reportNumber);
         return request.ExportMode switch
         {
             ExportMode.SelectedSections => $"{baseName}-SECTIONS.{extension}",
@@ -987,6 +996,21 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
                 : $"{baseName}-PAGES-{Guid.NewGuid().ToString("N")[..8]}.{extension}",
             _ => $"{baseName}-FULL.{extension}"
         };
+    }
+
+    private static RenderedReportManifestDto EnrichManifest(
+        RenderedReportManifestDto manifest,
+        InstitutionalReportModel model,
+        bool isSummaryOnly,
+        DetailOverflowAction? overflowAction)
+    {
+        manifest.LoadedDetailRows = model.Transactions.Count;
+        manifest.IsSummaryOnly = isSummaryOnly;
+        manifest.OverflowAction = overflowAction;
+        manifest.Stylesheet = InstitutionalReportStyles.BuildDocumentStylesheet();
+        manifest.TemplateVersion = InstitutionalReportStyles.TemplateVersion;
+        manifest.FileFingerprint = model.Metadata.FileFingerprint;
+        return manifest;
     }
 
     private static string ReportTypeLabel(InstitutionalReportType type) => type switch

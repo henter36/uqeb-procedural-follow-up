@@ -14,10 +14,8 @@ public class InstitutionalReportsController : ControllerBase
 {
     private readonly IInstitutionalReportService _service;
 
-    public InstitutionalReportsController(IInstitutionalReportService service)
-    {
+    public InstitutionalReportsController(IInstitutionalReportService service) =>
         _service = service;
-    }
 
     [HttpPost("preview")]
     public async Task<IActionResult> Preview([FromBody] ReportBuildRequestDto request, CancellationToken ct)

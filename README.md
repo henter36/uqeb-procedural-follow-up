@@ -308,7 +308,64 @@ dotnet ef database update
 
 ---
 
-## 11. اختبارات التحمل (k6)
+## 11. التقارير المؤسسية (معطّلة افتراضيًا)
+
+ميزة **منشئ التقارير المؤسسية** موجودة خلف Feature Flag ولا تُفعَّل في الإنتاج بعد:
+
+```json
+"FeatureFlags": { "InstitutionalReports": false }
+```
+
+### التشغيل المحلي
+
+Backend (`appsettings.Development.json`):
+
+```json
+"FeatureFlags": { "InstitutionalReports": true },
+"Reporting": {
+  "MaxPreviewDetailRows": 500,
+  "MaxPdfDetailRows": 5000,
+  "MaxPdfDetailRowsPerPart": 5000
+}
+```
+
+Frontend (`.env.local`):
+
+```bash
+VITE_ENABLE_INSTITUTIONAL_REPORTS=true
+```
+
+### الاختبارات والمعاينة البصرية
+
+```bash
+dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --filter "FullyQualifiedName!~InstitutionalReportVisualRegressionTests&FullyQualifiedName!~InstitutionalReportPlaywrightPdfExporterTests"
+
+# Playwright (Ubuntu CI أو بعد تثبيت Chromium محليًا)
+# macOS/Linux:
+REQUIRE_PLAYWRIGHT_TESTS=1 dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --filter "FullyQualifiedName~InstitutionalReportVisualRegressionTests|FullyQualifiedName~InstitutionalReportPlaywrightPdfExporterTests|FullyQualifiedName~InstitutionalReportPreviewPdfParityTests"
+
+# PowerShell (Windows):
+# $env:REQUIRE_PLAYWRIGHT_TESTS = "1"
+# dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --filter "FullyQualifiedName~InstitutionalReportVisualRegressionTests|FullyQualifiedName~InstitutionalReportPlaywrightPdfExporterTests|FullyQualifiedName~InstitutionalReportPreviewPdfParityTests"
+```
+
+تثبيت Chromium (أول مرة، Windows/Linux):
+
+```powershell
+pwsh backend/Uqeb.Api/bin/Debug/net10.0/playwright.ps1 install --with-deps chromium
+```
+
+### KPI مقابل التفاصيل
+
+- **KPI والملخص** يُحسبان دائمًا من كامل النتائج المطابقة للفلاتر.
+- **صفوف التفاصيل** في المعاينة/PDF/DOCX قد تُقتطع بحدود قابلة للإعداد مع إعلان صريح في الـ Manifest.
+- **XLSX** هو الخيار الموصى به للبيانات التفصيلية الكبيرة؛ PDF يمكن تقسيمه إلى أجزاء.
+
+بوابة القبول الكاملة: [`docs/institutional_reporting_visual_and_scale_acceptance_gate.md`](docs/institutional_reporting_visual_and_scale_acceptance_gate.md)
+
+---
+
+## 12. اختبارات التحمل (k6)
 
 راجع `performance-tests/README.md` للتفاصيل.
 

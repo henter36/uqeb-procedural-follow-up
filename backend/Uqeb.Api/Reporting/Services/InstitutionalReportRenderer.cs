@@ -1,59 +1,35 @@
+using System.Globalization;
+using System.Net;
 using System.Text;
+using System.Text.RegularExpressions;
 using Uqeb.Api.Reporting.Assets;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
+using Uqeb.Api.Reporting.Rendering;
 
 namespace Uqeb.Api.Reporting.Services;
 
 public sealed class InstitutionalReportRenderer
 {
-    private const string Css = """
-        @page { size: A4 portrait; margin: 18mm 14mm 20mm 14mm; }
-        * { box-sizing: border-box; }
-        body { margin: 0; font-family: 'Uqeb Report Arabic', 'IBM Plex Sans Arabic', 'Noto Sans Arabic', 'Cairo', Tahoma, sans-serif; color: #17211D; background: #fff; direction: rtl; }
-        .report-page { width: 210mm; min-height: 297mm; padding: 14mm; page-break-after: always; position: relative; background: #fff; }
-        .report-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #123F32; padding-bottom: 8px; margin-bottom: 16px; }
-        .report-header .org { color: #123F32; font-weight: 700; font-size: 13px; }
-        .report-header .meta { color: #2F6B58; font-size: 11px; text-align: left; }
-        .report-footer { position: absolute; left: 14mm; right: 14mm; bottom: 10mm; border-top: 1px solid #D9E1DD; padding-top: 6px; display: flex; justify-content: space-between; font-size: 10px; color: #2F6B58; }
-        .section-title { color: #123F32; font-size: 22px; font-weight: 700; margin: 0 0 14px; border-right: 4px solid #C5A253; padding-right: 10px; }
-        .cover { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 20px; align-items: stretch; min-height: 250mm; }
-        .cover-accent { background: linear-gradient(160deg, #123F32 0%, #2F6B58 100%); border-radius: 12px; padding: 24px; color: #fff; position: relative; overflow: hidden; }
-        .cover-accent::after { content: ''; position: absolute; inset-inline-start: -40px; bottom: -40px; width: 180px; height: 180px; border: 3px solid #C5A253; border-radius: 50%; opacity: .35; }
-        .cover-main { display: flex; flex-direction: column; justify-content: center; gap: 12px; padding: 20px 8px; }
-        .cover-title { font-size: 34px; line-height: 1.3; color: #123F32; font-weight: 800; margin: 0; }
-        .cover-period { font-size: 16px; color: #2F6B58; }
-        .info-card { background: #EAF2EE; border: 1px solid #D9E1DD; border-radius: 10px; padding: 14px; }
-        .info-card dt { color: #2F6B58; font-size: 12px; margin-bottom: 2px; }
-        .info-card dd { margin: 0 0 10px; font-weight: 700; color: #123F32; }
-        .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-        .kpi-card { background: #F4F6F5; border: 1px solid #D9E1DD; border-radius: 10px; padding: 12px; min-height: 88px; }
-        .kpi-card .label { font-size: 12px; color: #2F6B58; margin-bottom: 6px; }
-        .kpi-card .value { font-size: 24px; font-weight: 800; color: #123F32; }
-        .kpi-card .delta { font-size: 11px; color: #C5A253; margin-top: 4px; }
-        .narrative { background: #F4F6F5; border-radius: 10px; padding: 14px; line-height: 1.8; font-size: 13px; margin-top: 14px; }
-        .charts-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-        .chart-card { border: 1px solid #D9E1DD; border-radius: 10px; padding: 10px; min-height: 180px; }
-        .chart-title { font-size: 13px; font-weight: 700; color: #123F32; margin-bottom: 8px; }
-        .chart-bars { display: flex; align-items: flex-end; gap: 6px; height: 120px; }
-        .chart-bar { flex: 1; background: #2F6B58; border-radius: 4px 4px 0 0; min-width: 12px; position: relative; }
-        .chart-bar.gold { background: #C5A253; }
-        .chart-bar-label { font-size: 9px; text-align: center; margin-top: 4px; word-break: break-word; }
-        .chart-footnote { font-size: 10px; color: #2F6B58; margin-top: 6px; }
-        table.report-table { width: 100%; border-collapse: collapse; font-size: 11px; }
-        table.report-table th { background: #123F32; color: #fff; padding: 8px 6px; text-align: right; }
-        table.report-table td { border-bottom: 1px solid #D9E1DD; padding: 7px 6px; vertical-align: top; }
-        table.report-table tr:nth-child(even) td { background: #F4F6F5; }
-        table.report-table tfoot td { background: #123F32; color: #fff; font-weight: 700; }
-        .rating-good { color: #123F32; font-weight: 700; }
-        .rating-watch { color: #C5A253; font-weight: 700; }
-        .rating-critical { color: #B42318; font-weight: 700; }
-        .risk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-        .counter-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-        .counter-pill { background: #EAF2EE; border: 1px solid #D9E1DD; border-radius: 999px; padding: 6px 10px; font-size: 11px; }
-        .partial-note { background: #F4EBD7; border: 1px solid #C5A253; border-radius: 8px; padding: 10px; margin-bottom: 12px; font-size: 12px; }
-        .qr-box { width: 88px; height: 88px; border: 1px dashed #C5A253; display: grid; place-items: center; font-size: 10px; color: #2F6B58; }
-        """;
+    private const string DateFormat = "yyyy-MM-dd";
+    private const string DateTimeFormat = "yyyy-MM-dd HH:mm";
+
+    private static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromMilliseconds(250);
+
+    private static readonly Regex JavascriptProtocolRegex = new(
+        @"javascript\s*:",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled,
+        RegexMatchTimeout);
+
+    private static readonly Regex FileProtocolRegex = new(
+        @"file\s*://",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled,
+        RegexMatchTimeout);
+
+    private static readonly Regex ExternalHttpUrlRegex = new(
+        @"https?://[^\s<>&""']+",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled,
+        RegexMatchTimeout);
 
     public RenderedReportManifestDto RenderManifest(
         InstitutionalReportModel model,
@@ -179,6 +155,8 @@ public sealed class InstitutionalReportRenderer
             ExportedDetailRows = model.ExportedDetailRows,
             DetailRowsTruncated = model.DetailRowsTruncated,
             DetailPartsCount = model.DetailPartsCount,
+            LoadedDetailRows = model.Transactions.Count,
+            TemplateVersion = InstitutionalReportStyles.TemplateVersion,
             Pages = numberedPages
         };
     }
@@ -294,6 +272,15 @@ public sealed class InstitutionalReportRenderer
             ExportedDetailRows = source.ExportedDetailRows,
             DetailRowsTruncated = source.DetailRowsTruncated,
             DetailPartsCount = source.DetailPartsCount,
+            LoadedDetailRows = source.LoadedDetailRows,
+            CurrentPartNumber = source.CurrentPartNumber,
+            RowsFrom = source.RowsFrom,
+            RowsTo = source.RowsTo,
+            IsSummaryOnly = source.IsSummaryOnly,
+            OverflowAction = source.OverflowAction,
+            Stylesheet = source.Stylesheet,
+            TemplateVersion = source.TemplateVersion,
+            FileFingerprint = source.FileFingerprint,
             Pages = pages,
             IsPartialExport = isPartial,
             PartialExportNote = isPartial ? "هذه نسخة جزئية من التقرير الأصلي." : null
@@ -337,8 +324,7 @@ public sealed class InstitutionalReportRenderer
     {
         var sb = new StringBuilder();
         sb.Append("<!DOCTYPE html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><style>")
-            .Append(InstitutionalReportFontAssets.BuildFontFaceCss())
-            .Append(Css)
+            .Append(InstitutionalReportStyles.BuildDocumentStylesheet())
             .Append("</style></head><body>");
         foreach (var page in manifest.Pages)
             sb.Append(page.HtmlContent);
@@ -394,28 +380,43 @@ public sealed class InstitutionalReportRenderer
     private static string RenderCover(InstitutionalReportModel model)
     {
         var m = model.Metadata;
+        var partialBadge = model.DetailRowsTruncated
+            ? """<span class="cover-badge">نسخة ملخصة — التفاصيل مقتطعة</span>"""
+            : string.Empty;
+        var scopeNote = string.IsNullOrWhiteSpace(m.DepartmentName)
+            ? string.Empty
+            : $"""<dt>النطاق</dt><dd>{Esc(m.DepartmentName)}</dd>""";
+        var confidentiality = string.IsNullOrWhiteSpace(m.ConfidentialityLabel)
+            ? string.Empty
+            : $"""<dt>مستوى السرية</dt><dd>{Esc(m.ConfidentialityLabel)}</dd>""";
+        var totalPages = Math.Max(1, m.TotalPages);
         return $"""
         <div class="cover">
           <div class="cover-main">
+            <div style="font-size:13px;color:var(--report-secondary);font-weight:700;">{Esc(m.OrganizationName)}</div>
             <h1 class="cover-title">{Esc(m.Title)}</h1>
-            <div class="cover-period">الفترة من {m.PeriodFrom:yyyy-MM-dd} إلى {m.PeriodTo:yyyy-MM-dd}</div>
+            <div class="cover-period">الفترة من {FormatDate(m.PeriodFrom)} إلى {FormatDate(m.PeriodTo)}</div>
+            {partialBadge}
             <dl class="info-card">
               <dt>رقم التقرير</dt><dd>{Esc(m.ReportNumber)}</dd>
               <dt>نوع التقرير</dt><dd>{Esc(m.ReportTypeName)}</dd>
-              <dt>تاريخ الإصدار</dt><dd>{m.IssueDate:yyyy-MM-dd}</dd>
+              <dt>تاريخ الإصدار</dt><dd>{FormatDate(m.IssueDate)}</dd>
+              {scopeNote}
+              {confidentiality}
+              <dt>إجمالي الصفحات</dt><dd>{totalPages}</dd>
             </dl>
             <div style="display:flex;gap:12px;align-items:center;margin-top:auto;">
-              <div class="qr-box">QR<br/>{Esc(m.VerificationId)}</div>
-              <div style="font-size:11px;color:#2F6B58;line-height:1.7;">
+              <div class="qr-box" aria-hidden="true">QR<br/>{Esc(m.VerificationId)}</div>
+              <div style="font-size:11px;color:var(--report-secondary);line-height:1.7;">
                 معرف التحقق: {Esc(m.VerificationId)}<br/>
-                وقت الإنشاء: {m.GeneratedAt:yyyy-MM-dd HH:mm}<br/>
-                عدد الصفحات: {m.TotalPages}<br/>
+                وقت الإنشاء: {FormatDateTime(m.GeneratedAt)}<br/>
+                إجمالي النتائج المطابقة: {model.TotalMatchedRows:N0}<br/>
                 البصمة: {Esc(m.FileFingerprint ?? "—")}
               </div>
             </div>
           </div>
           <div class="cover-accent">
-            <div style="font-size:14px;opacity:.9;">شعار الجهة</div>
+            <div style="font-size:14px;opacity:.9;">المتابعة الإجرائية</div>
             <div style="margin-top:24px;font-size:28px;font-weight:800;line-height:1.5;">تقرير مؤسسي<br/>للمتابعة الإجرائية</div>
           </div>
         </div>
@@ -495,44 +496,78 @@ public sealed class InstitutionalReportRenderer
 
     private static string RenderRisks(InstitutionalReportModel model)
     {
-        var rows = string.Join(string.Empty, model.Risks.Select(r =>
-            $"<tr><td>{r.Sequence}</td><td>{Esc(r.Alert)}</td><td>{Esc(r.DepartmentName)}</td><td>{Esc(r.SeverityLabel)}</td><td>{r.ElapsedDays}</td><td>{Esc(r.SuggestedAction)}</td></tr>"));
         var counters = model.RiskCounters;
-        return $"""
-        <h2 class="section-title">المخاطر والتنبيهات والتوصيات</h2>
-        <div class="risk-grid">
-          <div>
-            <h3>جدول المخاطر والتنبيهات</h3>
-            <table class="report-table"><thead><tr><th>م</th><th>التنبيه</th><th>الإدارة</th><th>الخطورة</th><th>الأيام</th><th>الإجراء</th></tr></thead><tbody>{rows}</tbody></table>
-          </div>
-          <div>
-            <h3>ملخص المؤشرات</h3>
-            <div class="counter-row">
-              <span class="counter-pill">إدارات تحتاج متابعة: {counters.DepartmentsNeedingFollowUp}</span>
-              <span class="counter-pill">معاملات مشتركة مفتوحة: {counters.OpenJointDepartmentTransactions}</span>
-              <span class="counter-pill">ردود جزئية: {counters.PartialResponses}</span>
-              <span class="counter-pill">بلا تحديث: {counters.TransactionsWithoutRecentUpdate}</span>
-              <span class="counter-pill">اختبالات بيانات: {counters.DataIntegrityIssues}</span>
+        var groups = new (string Class, string Title, RiskSeverity MinSeverity)[]
+        {
+            ("critical", "حرج", RiskSeverity.Critical),
+            ("high", "مرتفع", RiskSeverity.High),
+            ("elevated", "متوسط", RiskSeverity.Elevated),
+            ("info", "معلوماتي", RiskSeverity.Informational),
+        };
+
+        var groupedHtml = string.Join(string.Empty, groups.Select(group =>
+        {
+            var items = model.Risks.Where(r => r.Severity == group.MinSeverity).ToList();
+            if (items.Count == 0)
+            {
+                return $"""
+                <div class="risk-group {group.Class}">
+                  <div class="risk-group-title">{group.Title}</div>
+                  <div class="risk-empty">لا توجد تنبيهات في هذا المستوى.</div>
+                </div>
+                """;
+            }
+
+            var rows = string.Join(string.Empty, items.Select(r =>
+                $"<tr><td>{r.Sequence}</td><td>{Esc(r.Alert)}</td><td>{Esc(r.DepartmentName)}</td><td>{r.ElapsedDays}</td><td>{Esc(r.SuggestedAction)}</td></tr>"));
+            return $"""
+            <div class="risk-group {group.Class}">
+              <div class="risk-group-title">{group.Title}</div>
+              <table class="report-table"><thead><tr><th>م</th><th>التنبيه</th><th>الإدارة</th><th>الأيام</th><th>الإجراء</th></tr></thead><tbody>{rows}</tbody></table>
             </div>
-          </div>
+            """;
+        }));
+
+        return $"""
+        <h2 class="section-title">المخاطر والتنبيهات</h2>
+        <div class="risk-grid">{groupedHtml}</div>
+        <div class="counter-row">
+          <span class="counter-pill">إدارات تحتاج متابعة: {counters.DepartmentsNeedingFollowUp}</span>
+          <span class="counter-pill">معاملات مشتركة مفتوحة: {counters.OpenJointDepartmentTransactions}</span>
+          <span class="counter-pill">ردود جزئية: {counters.PartialResponses}</span>
+          <span class="counter-pill">بلا تحديث: {counters.TransactionsWithoutRecentUpdate}</span>
         </div>
         """;
     }
 
     private static string RenderRecommendations(InstitutionalReportModel model)
     {
-        var rows = string.Join(string.Empty, model.Recommendations.Select(r =>
-            $"<tr><td>{Esc(r.Observation)}</td><td>{Esc(r.RequiredAction)}</td><td>{Esc(r.ResponsibleDepartment)}</td><td>{Esc(r.Priority)}</td><td>{Esc(r.TargetDate ?? "—")}</td><td>{Esc(r.SourceLabel)}</td></tr>"));
-        return $"""
-        <h2 class="section-title">التوصيات التنفيذية</h2>
-        <table class="report-table"><thead><tr><th>الملاحظة</th><th>الإجراء</th><th>الإدارة</th><th>الأولوية</th><th>الموعد</th><th>المصدر</th></tr></thead><tbody>{rows}</tbody></table>
-        """;
+        if (model.Recommendations.Count == 0)
+        {
+            return """
+            <h2 class="section-title">التوصيات التنفيذية</h2>
+            <div class="empty-state">لا توجد توصيات مولّدة من نتائج هذا التقرير.</div>
+            """;
+        }
+
+        var cards = string.Join(string.Empty, model.Recommendations.Select(r =>
+            $"""
+            <article class="recommendation-card">
+              <div class="priority">{Esc(r.Priority)}</div>
+              <h3 style="margin:8px 0 6px;font-size:14px;color:var(--report-primary);">{Esc(r.Observation)}</h3>
+              <p style="margin:0 0 8px;">{Esc(r.RequiredAction)}</p>
+              <div style="font-size:11px;color:var(--report-secondary);">
+                الإدارة: {Esc(r.ResponsibleDepartment)} — المصدر: {Esc(r.SourceLabel)} — الموعد: {Esc(r.TargetDate ?? "—")}
+              </div>
+            </article>
+            """));
+        return $"""<h2 class="section-title">التوصيات التنفيذية</h2>{cards}""";
     }
 
     private static string RenderTransactions(InstitutionalReportModel model, List<TransactionDetailRowDto> rows)
     {
         var body = string.Join(string.Empty, rows.Select(r =>
-            $"<tr><td>{r.Sequence}</td><td>{Esc(r.TrackingNumber)}</td><td>{Esc(r.IncomingNumber)}</td><td>{r.IncomingDate:yyyy-MM-dd}</td><td>{Esc(r.Subject)}</td><td>{Esc(r.IncomingParty)}</td><td>{Esc(r.ResponsibleDepartment)}</td><td>{Esc(r.JointDepartments)}</td><td>{Esc(r.Priority)}</td><td>{Esc(r.Status)}</td><td>{Esc(r.FollowUpStage)}</td><td>{r.ElapsedDays}</td><td>{Esc(r.DueDate ?? "—")}</td><td>{Esc(r.LastActionDate ?? "—")}</td><td>{Esc(r.ResponseState)}</td></tr>"));
+            $"<tr><td>{r.Sequence}</td><td>{Esc(r.TrackingNumber)}</td><td>{Esc(r.IncomingNumber)}</td><td>{FormatDate(r.IncomingDate)}</td><td>{Esc(r.Subject)}</td><td>{Esc(r.IncomingParty)}</td><td>{Esc(r.ResponsibleDepartment)}</td><td>{Esc(r.JointDepartments)}</td><td>{Esc(r.Priority)}</td><td>{Esc(r.Status)}</td><td>{Esc(r.FollowUpStage)}</td><td>{r.ElapsedDays}</td><td>{Esc(r.DueDate ?? "—")}</td><td>{Esc(r.LastActionDate ?? "—")}</td><td>{Esc(r.ResponseState)}</td></tr>"));
         var totalResults = model.TotalMatchedRows > 0 ? model.TotalMatchedRows : model.Transactions.Count;
         var pageNote = rows.Count < totalResults
             ? $" — عرض {rows.Count:N0} صف في هذه الصفحة من {model.ExportedDetailRows:N0} صفًا مصدَّرًا"
@@ -543,7 +578,7 @@ public sealed class InstitutionalReportRenderer
         return $"""
         <h2 class="section-title">المعاملات التفصيلية</h2>
         {truncationNote}
-        <p style="font-size:12px;color:#2F6B58;">إجمالي النتائج: {totalResults:N0} معاملة{pageNote} — الفترة {model.Metadata.PeriodFrom:yyyy-MM-dd} إلى {model.Metadata.PeriodTo:yyyy-MM-dd}</p>
+        <p style="font-size:12px;color:#2F6B58;">إجمالي النتائج: {totalResults:N0} معاملة{pageNote} — الفترة {FormatDate(model.Metadata.PeriodFrom)} إلى {FormatDate(model.Metadata.PeriodTo)}</p>
         <table class="report-table"><thead><tr>
           <th>م</th><th>رقم المعاملة</th><th>رقم الوارد</th><th>تاريخ الوارد</th><th>الموضوع</th><th>الجهة</th>
           <th>الإدارة المختصة</th><th>الإدارات المشتركة</th><th>الأولوية</th><th>الحالة</th><th>مرحلة المتابعة</th>
@@ -556,15 +591,45 @@ public sealed class InstitutionalReportRenderer
     {
         var warnings = string.Join(string.Empty, model.IntegrityWarnings.Select(w =>
             $"<li><strong>{Esc(w.Code)}</strong>: {Esc(w.Message)}</li>"));
+        var filterSummary = BuildFilterSummary(model.Filters);
         return $"""
         <h2 class="section-title">بيانات التقرير والفلاتر</h2>
         <dl class="info-card">
           <dt>رقم التقرير</dt><dd>{Esc(model.Metadata.ReportNumber)}</dd>
           <dt>نوع التقرير</dt><dd>{Esc(model.Metadata.ReportTypeName)}</dd>
-          <dt>الفترة</dt><dd>{model.Metadata.PeriodFrom:yyyy-MM-dd} — {model.Metadata.PeriodTo:yyyy-MM-dd}</dd>
+          <dt>الفترة</dt><dd>{FormatDate(model.Metadata.PeriodFrom)} — {FormatDate(model.Metadata.PeriodTo)}</dd>
+          <dt>تاريخ الإنشاء</dt><dd>{FormatDateTime(model.Metadata.GeneratedAt)}</dd>
+          <dt>إجمالي النتائج المطابقة</dt><dd>{model.TotalMatchedRows:N0}</dd>
+          <dt>صفوف التفاصيل المحمّلة</dt><dd>{model.Transactions.Count:N0}</dd>
+          <dt>صفوف التفاصيل المصدرة</dt><dd>{model.ExportedDetailRows:N0}</dd>
+          <dt>هل التفاصيل مقتطعة</dt><dd>{(model.DetailRowsTruncated ? "نعم" : "لا")}</dd>
+          <dt>عدد أجزاء PDF</dt><dd>{(model.DetailPartsCount > 0 ? model.DetailPartsCount.ToString() : "—")}</dd>
+          <dt>إصدار القالب</dt><dd>{Esc(InstitutionalReportStyles.TemplateVersion)}</dd>
+          <dt>البصمة</dt><dd>{Esc(model.Metadata.FileFingerprint ?? "—")}</dd>
+          <dt>الفلاتر</dt><dd>{Esc(filterSummary)}</dd>
         </dl>
         {(warnings.Length > 0 ? $"<h3>تحذيرات سلامة البيانات</h3><ul>{warnings}</ul>" : string.Empty)}
         """;
+    }
+
+    private static string BuildFilterSummary(ReportFiltersDto filters)
+    {
+        var parts = new List<string>();
+        if (filters.DateFrom.HasValue || filters.DateTo.HasValue)
+        {
+            var from = filters.DateFrom.HasValue ? FormatDate(filters.DateFrom.Value) : "—";
+            var to = filters.DateTo.HasValue ? FormatDate(filters.DateTo.Value) : "—";
+            parts.Add($"التاريخ: {from} — {to}");
+        }
+        if (filters.DepartmentIds.Count > 0)
+            parts.Add($"إدارات: {filters.DepartmentIds.Count}");
+        if (filters.PartyIds.Count > 0)
+            parts.Add($"جهات: {filters.PartyIds.Count}");
+        if (filters.CategoryIds.Count > 0)
+            parts.Add($"تصنيفات: {filters.CategoryIds.Count}");
+        if (!string.IsNullOrWhiteSpace(filters.Search))
+            parts.Add($"بحث: {filters.Search.Trim()}");
+        return parts.Count == 0 ? "بدون فلاتر إضافية" : string.Join(" | ", parts);
     }
 
     private static RenderedReportPageDto CreatePartialCoverPage(RenderedReportManifestDto source, List<RenderedReportPageDto> selected) =>
@@ -581,7 +646,7 @@ public sealed class InstitutionalReportRenderer
                 <dl class="info-card">
                   <dt>رقم التقرير الأصلي</dt><dd>{Esc(source.ReportId)}</dd>
                   <dt>الصفحات المضمنة</dt><dd>{string.Join(", ", selected.Select(p => p.OriginalPageNumber))}</dd>
-                  <dt>تاريخ التصدير</dt><dd>{DateTime.UtcNow:yyyy-MM-dd}</dd>
+                  <dt>تاريخ التصدير</dt><dd>{FormatDate(DateTime.UtcNow)}</dd>
                 </dl>
                 """, 0, 0, partial: true)
         };
@@ -603,6 +668,29 @@ public sealed class InstitutionalReportRenderer
                 """, 0, 0, partial: true)
         };
 
-    private static string Esc(string? value) =>
-        System.Net.WebUtility.HtmlEncode(value ?? string.Empty);
+    private static string FormatDate(DateTime value) =>
+        value.ToString(DateFormat, CultureInfo.InvariantCulture);
+
+    private static string FormatDateTime(DateTime value) =>
+        value.ToString(DateTimeFormat, CultureInfo.InvariantCulture);
+
+    private static string Esc(string? value)
+    {
+        var encoded = WebUtility.HtmlEncode(value ?? string.Empty);
+        if (encoded.Length == 0)
+            return encoded;
+
+        try
+        {
+            encoded = JavascriptProtocolRegex.Replace(encoded, "javascript&#58;");
+            encoded = FileProtocolRegex.Replace(encoded, "file&#58;//");
+            encoded = ExternalHttpUrlRegex.Replace(encoded, "[رابط خارجي]");
+            return encoded;
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            throw new InvalidOperationException(
+                "تعذر معالجة نص التقرير بأمان بسبب تجاوز مهلة التحقق.");
+        }
+    }
 }

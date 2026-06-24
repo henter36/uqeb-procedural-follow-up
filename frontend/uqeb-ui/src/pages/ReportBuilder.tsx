@@ -8,7 +8,6 @@ import {
   PageNumberingMode,
   ReportSectionId,
 } from '../api/institutionalReports.constants';
-import { sanitizeReportHtml } from '../utils/sanitizeReportHtml';
 import {
   defaultDate,
   exportFormatLabels,
@@ -16,6 +15,7 @@ import {
   getPreviewStatusMessage,
 } from './reportBuilderHelpers';
 import { useReportBuilderExport } from './useReportBuilderExport';
+import { ReportPreviewDocument } from './ReportPreviewDocument';
 import '../styles/institutional-report.css';
 
 export { buildReportExportPageSelection, defaultDate } from './reportBuilderHelpers';
@@ -127,11 +127,6 @@ export default function ReportBuilderPage() {
   const activePage = useMemo(
     () => manifest?.pages.find((p) => p.originalPageNumber === currentPage) ?? null,
     [manifest, currentPage],
-  );
-
-  const sanitizedActivePageHtml = useMemo(
-    () => (activePage ? sanitizeReportHtml(activePage.htmlContent) : ''),
-    [activePage],
   );
 
   const previewStatusMessage = getPreviewStatusMessage(loading, error, Boolean(manifest));
@@ -270,11 +265,20 @@ export default function ReportBuilderPage() {
               })}
             </div>
             <div className="report-preview-stage">
+              {manifest && (
+                <div className="report-preview-stats" aria-live="polite">
+                  <span>النتائج المطابقة: {(manifest.totalMatchedRows ?? manifest.totalMatchingTransactions ?? 0).toLocaleString('ar-SA')}</span>
+                  <span>صفوف معروضة: {(manifest.loadedDetailRows ?? manifest.exportedDetailRows ?? manifest.includedTransactionCount ?? 0).toLocaleString('ar-SA')}</span>
+                  <span>الصفحات: {manifest.totalPages.toLocaleString('ar-SA')}</span>
+                  {manifest.detailRowsTruncated ? <span className="text-warning">التفاصيل مقتطعة — KPI من كامل النتائج</span> : null}
+                </div>
+              )}
               {activePage ? (
-                <div
-                  className="report-preview-frame"
-                  style={{ transform: `scale(${zoom})` }}
-                  dangerouslySetInnerHTML={{ __html: sanitizedActivePageHtml }}
+                <ReportPreviewDocument
+                  htmlContent={activePage.htmlContent}
+                  stylesheet={manifest?.stylesheet}
+                  zoom={zoom}
+                  title={`${activePage.sectionName} — صفحة ${activePage.renderedPageNumber}`}
                 />
               ) : (
                 <p className="text-muted">{previewStatusMessage}</p>

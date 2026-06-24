@@ -13,6 +13,7 @@ public sealed class ReportMetadataDto
     public string Title { get; set; } = "تقرير المتابعة الإجرائية للمعاملات";
     public string OrganizationName { get; set; } = "الهيئة العامة للمتابعة الإجرائية";
     public string DepartmentName { get; set; } = "إدارة المتابعة والتقارير";
+    public string? ConfidentialityLabel { get; set; }
     public string? Introduction { get; set; }
     public string VerificationId { get; set; } = string.Empty;
     public string? FileFingerprint { get; set; }
@@ -191,6 +192,15 @@ public sealed class RenderedReportManifestDto
     public int ExportedDetailRows { get; set; }
     public bool DetailRowsTruncated { get; set; }
     public int DetailPartsCount { get; set; }
+    public int LoadedDetailRows { get; set; }
+    public int? CurrentPartNumber { get; set; }
+    public int? RowsFrom { get; set; }
+    public int? RowsTo { get; set; }
+    public bool IsSummaryOnly { get; set; }
+    public DetailOverflowAction? OverflowAction { get; set; }
+    public string? Stylesheet { get; set; }
+    public string? TemplateVersion { get; set; }
+    public string? FileFingerprint { get; set; }
 
     public RenderedReportManifestDto CloneWithoutHtml() => new()
     {
@@ -206,6 +216,15 @@ public sealed class RenderedReportManifestDto
         ExportedDetailRows = ExportedDetailRows,
         DetailRowsTruncated = DetailRowsTruncated,
         DetailPartsCount = DetailPartsCount,
+        LoadedDetailRows = LoadedDetailRows,
+        CurrentPartNumber = CurrentPartNumber,
+        RowsFrom = RowsFrom,
+        RowsTo = RowsTo,
+        IsSummaryOnly = IsSummaryOnly,
+        OverflowAction = OverflowAction,
+        Stylesheet = Stylesheet,
+        TemplateVersion = TemplateVersion,
+        FileFingerprint = FileFingerprint,
         Pages = Pages.Select(p => p with { HtmlContent = string.Empty }).ToList()
     };
 }

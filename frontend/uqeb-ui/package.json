@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "lint:css": "stylelint \"src/styles/institutional-report/report.css\" \"../../backend/Uqeb.Api/Reporting/Rendering/institutional-report.css\"",
     "preview": "vite preview",
     "test": "vitest run"
   },
@@ -32,6 +33,8 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.6.0",
     "jsdom": "^29.1.1",
+    "stylelint": "^17.3.0",
+    "stylelint-config-standard": "^40.0.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
     "vite": "^8.0.12",
