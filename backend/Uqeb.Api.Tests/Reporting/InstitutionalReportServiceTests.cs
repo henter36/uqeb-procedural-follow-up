@@ -186,22 +186,36 @@ internal static class InstitutionalReportServiceTestHelpers
         IDbContextFactory<AppDbContext>? dbFactory = null,
         ReportingOptions? reportingOptions = null,
         IAuditService? audit = null,
-        IInstitutionalReportNumberAllocator? reportNumberAllocator = null)
+        IInstitutionalReportNumberAllocator? reportNumberAllocator = null,
+        IInstitutionalReportPdfExporter? pdfExporter = null)
     {
         dbFactory ??= new TestDbContextFactory(new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"export-validation-{Guid.NewGuid():N}")
             .Options);
 
-        return new InstitutionalReportService(
+        var options = Options.Create(reportingOptions ?? new ReportingOptions { MaxPdfDetailRows = 10_000 });
+        var exportGuard = CreateExportGuard(reportingOptions, audit);
+        var metrics = new ReportingMetrics();
+        var correlationIdProvider = new ReportingCorrelationIdProvider(new HttpContextAccessor());
+        var pdf = pdfExporter ?? new StubPdfExporter();
+        InstitutionalReportService? serviceRef = null;
+        serviceRef = new InstitutionalReportService(
             dbFactory,
             new TestCurrentUserService(),
             reportNumberAllocator ?? new FixedReportNumberAllocator(),
-            new StubPdfExporter(),
-            Options.Create(reportingOptions ?? new ReportingOptions { MaxPdfDetailRows = 10_000 }),
-            CreateExportGuard(reportingOptions, audit),
-            new ReportingMetrics(),
+            options,
             NullLogger<InstitutionalReportService>.Instance,
-            new ReportingCorrelationIdProvider(new HttpContextAccessor()));
+            correlationIdProvider,
+            () => new InstitutionalReportExportService(
+                serviceRef!,
+                pdf,
+                options,
+                exportGuard,
+                metrics,
+                NullLogger<InstitutionalReportExportService>.Instance,
+                correlationIdProvider));
+
+        return serviceRef;
     }
 
     private static IReportingExportGuard CreateExportGuard(ReportingOptions? reportingOptions, IAuditService? audit = null)

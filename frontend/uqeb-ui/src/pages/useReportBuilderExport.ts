@@ -8,6 +8,7 @@ import {
   PageNumberingMode,
   ReportSectionId,
 } from '../api/institutionalReports.constants';
+import { getApiErrorDetails, parseApiErrorResponseData } from '../utils/apiHelpers';
 import { downloadBlob } from '../utils/downloadBlob';
 import {
   buildReportExportPageSelection,
@@ -26,6 +27,7 @@ export type UseReportBuilderExportParams = {
   currentPage: number;
   setLoading: (loading: boolean) => void;
   setError: (error: string) => void;
+  setErrorCorrelationId?: (correlationId: string) => void;
 };
 
 export type UseReportBuilderExportResult = {
@@ -60,6 +62,7 @@ export function useReportBuilderExport({
   currentPage,
   setLoading,
   setError,
+  setErrorCorrelationId,
 }: UseReportBuilderExportParams): UseReportBuilderExportResult {
   const exportDialogRef = useRef<HTMLDialogElement>(null);
   const [exportDialogRequested, setExportDialogRequested] = useState(false);
@@ -110,6 +113,7 @@ export function useReportBuilderExport({
   const runExport = useCallback(async () => {
     setLoading(true);
     setError('');
+    setErrorCorrelationId?.('');
     try {
       if (requiresOverflowChoice && detailOverflowAction === DetailOverflowAction.None) {
         setError('يتجاوز التقرير حد صفوف التفاصيل. اختر كيفية التعامل مع التفاصيل قبل التصدير.');
@@ -156,20 +160,26 @@ export function useReportBuilderExport({
       downloadBlob(blob, `institutional-report.${ext}`);
       closeExportDialog();
     } catch (err) {
-      if (axios.isAxiosError(err) && err.response?.data instanceof Blob) {
-        try {
-          const text = await err.response.data.text();
-          const body = JSON.parse(text) as { errors?: Record<string, string[]> };
-          const overflowMessage = body.errors?.detailOverflowAction?.[0];
-          if (overflowMessage) {
-            setError(overflowMessage);
-            return;
-          }
-        } catch {
-          // fall through to generic message
-        }
+      const blobDetails = axios.isAxiosError(err) && err.response?.data instanceof Blob
+        ? await parseApiErrorResponseData(err.response.data)
+        : null;
+      const details = blobDetails ?? getApiErrorDetails(err);
+      const overflowMessage = details.validationErrors.detailOverflowAction;
+
+      if (overflowMessage) {
+        setError(overflowMessage);
+        setErrorCorrelationId?.(details.correlationId);
+        return;
       }
-      setError('تعذر تصدير التقرير.');
+
+      const defaultMessage = 'تعذر تصدير التقرير.';
+      const backendMessage = details.message?.trim();
+      setError(
+        backendMessage && backendMessage !== defaultMessage
+          ? `${defaultMessage} ${backendMessage}`
+          : defaultMessage,
+      );
+      setErrorCorrelationId?.(details.correlationId);
     } finally {
       setLoading(false);
     }
@@ -190,6 +200,7 @@ export function useReportBuilderExport({
     sectionIds,
     selectedPages,
     setError,
+    setErrorCorrelationId,
     setLoading,
   ]);
 

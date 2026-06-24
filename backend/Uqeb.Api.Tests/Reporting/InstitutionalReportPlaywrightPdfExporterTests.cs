@@ -1,7 +1,9 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Playwright;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
 using Uqeb.Api.Reporting.Exporters;
+using Uqeb.Api.Reporting.Operations;
 using Uqeb.Api.Reporting.Services;
 using Xunit;
 
@@ -50,7 +52,7 @@ public class InstitutionalReportPlaywrightPdfExporterTests
         Assert.Contains("أداء الإدارات", html);
         Assert.Contains("Uqeb Report Arabic", html);
 
-        await using var exporter = new InstitutionalReportPlaywrightPdfExporter();
+        await using var exporter = CreateExporter();
         var pdf = await exporter.ExportAsync(manifest, html);
 
         Assert.NotEmpty(pdf);
@@ -80,9 +82,26 @@ public class InstitutionalReportPlaywrightPdfExporterTests
         Assert.DoesNotContain("الصفحة 0 من 0", exportManifest.Pages[0].HtmlContent);
         Assert.Equal(1, exportManifest.Pages[0].RenderedPageNumber);
 
-        await using var exporter = new InstitutionalReportPlaywrightPdfExporter();
+        await using var exporter = CreateExporter();
         var pdf = await exporter.ExportAsync(exportManifest, InstitutionalReportRenderer.RenderHtmlDocument(exportManifest));
         Assert.True(pdf.Length > 1_000);
+    }
+
+    private static InstitutionalReportPlaywrightPdfExporter CreateExporter() =>
+        new(
+            new ReadyChromiumProbe(),
+            NullLogger<InstitutionalReportPlaywrightPdfExporter>.Instance);
+
+    private sealed class ReadyChromiumProbe : IReportingChromiumProbe
+    {
+        public Task<ReportingChromiumProbeResult> ProbeAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new ReportingChromiumProbeResult
+            {
+                State = ReportingChromiumProbeState.Ready,
+                ExecutableAvailable = true,
+                LaunchSuccessful = true,
+                Summary = "Ready for tests.",
+            });
     }
 
     private static RenderedReportManifestDto BuildManifestWithDepartmentTable()

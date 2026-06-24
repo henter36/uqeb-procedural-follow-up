@@ -3,7 +3,7 @@ using Uqeb.Api.Reporting.Configuration;
 namespace Uqeb.Api.Reporting.Services;
 
 /// <summary>Controls how aggregate metrics vs. transaction detail rows are assembled.</summary>
-internal sealed record ReportAssemblyOptions
+public sealed record ReportAssemblyOptions
 {
     public int? TotalMatchedOverride { get; init; }
 

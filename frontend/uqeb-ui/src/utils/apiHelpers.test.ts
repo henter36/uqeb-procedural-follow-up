@@ -48,7 +48,7 @@ describe('getApiErrorDetails', () => {
     expect(getApiErrorDetails(error).correlationId).toBe('header-correlation');
   });
 
-  it('flattens validation errors without object stringification', () => {
+  it('flattens validation errors without object stringification', async () => {
     const error = new axios.AxiosError(
       'Request failed',
       'ERR_BAD_REQUEST',
@@ -72,5 +72,39 @@ describe('getApiErrorDetails', () => {
 
     expect(details.message).toBe('يجب تحديد قسم واحد على الأقل في التقرير.');
     expect(details.validationErrors.sectionIds).toBe('يجب تحديد قسم واحد على الأقل في التقرير.');
+  });
+
+  it('parses structured export error from blob response', async () => {
+    const { parseApiErrorResponseData } = await import('./apiHelpers');
+    const blob = new Blob([
+      JSON.stringify({
+        errorCode: 'reporting_chromium_unavailable',
+        message: 'متصفح Chromium غير متاح لتصدير PDF.',
+        correlationId: 'corr-blob-1',
+      }),
+    ], { type: 'application/json' });
+
+    const details = await parseApiErrorResponseData(blob);
+
+    expect(details?.message).toBe('متصفح Chromium غير متاح لتصدير PDF.');
+    expect(details?.errorCode).toBe('reporting_chromium_unavailable');
+    expect(details?.correlationId).toBe('corr-blob-1');
+  });
+
+  it('does not expose stack trace fields from blob error payload', async () => {
+    const { parseApiErrorResponseData } = await import('./apiHelpers');
+    const blob = new Blob([
+      JSON.stringify({
+        errorCode: 'institutional_report_export_failed',
+        message: 'تعذر تصدير التقرير.',
+        correlationId: 'corr-safe-1',
+        stackTrace: 'System.InvalidOperationException: hidden',
+      }),
+    ], { type: 'application/json' });
+
+    const serialized = JSON.stringify(await parseApiErrorResponseData(blob));
+
+    expect(serialized).not.toContain('stackTrace');
+    expect(serialized).not.toContain('InvalidOperationException');
   });
 });

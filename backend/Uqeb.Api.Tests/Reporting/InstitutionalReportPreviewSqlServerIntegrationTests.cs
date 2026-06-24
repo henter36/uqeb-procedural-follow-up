@@ -275,17 +275,25 @@ public class InstitutionalReportPreviewSqlServerIntegrationTests
             scopeFactory,
             correlationIdProvider,
             concurrencyGate);
-
-        return new InstitutionalReportService(
+        var pdfExporter = new TestInstitutionalReportPdfExporter();
+        InstitutionalReportService? serviceRef = null;
+        serviceRef = new InstitutionalReportService(
             dbFactory,
             currentUser,
             new InstitutionalReportNumberAllocator(dbFactory),
-            new TestInstitutionalReportPdfExporter(),
             reportingOptions,
-            exportGuard,
-            metrics,
             NullLogger<InstitutionalReportService>.Instance,
-            correlationIdProvider);
+            correlationIdProvider,
+            () => new InstitutionalReportExportService(
+                serviceRef!,
+                pdfExporter,
+                reportingOptions,
+                exportGuard,
+                metrics,
+                NullLogger<InstitutionalReportExportService>.Instance,
+                correlationIdProvider));
+
+        return serviceRef;
     }
 
     private static async Task SeedMinimalDataAsync(AppDbContext db)

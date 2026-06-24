@@ -64,6 +64,8 @@ public class InstitutionalReportsController : ControllerBase
     [HttpPost("export")]
     public async Task<IActionResult> Export([FromBody] ReportExportRequestDto request, CancellationToken ct)
     {
+        var correlationId = HttpContext.Items[CorrelationIdMiddleware.ItemKey] as string;
+
         try
         {
             var result = await _service.ExportAsync(request, ct);
@@ -73,27 +75,49 @@ public class InstitutionalReportsController : ControllerBase
         {
             return ToValidationProblem(ex);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (ReportingExportRejectedException ex)
         {
             if (ex.RetryAfterSeconds is int retryAfter)
                 Response.Headers.RetryAfter = retryAfter.ToString();
 
-            var correlationId = HttpContext.Items[CorrelationIdMiddleware.ItemKey] as string;
-            return StatusCode(ex.StatusCode, new
-            {
-                errorCode = ex.ErrorCode,
-                correlationId,
-            });
-        }
-        catch (ReportingConfigurationException ex)
-        {
-            var correlationId = HttpContext.Items[CorrelationIdMiddleware.ItemKey] as string;
             return StatusCode(ex.StatusCode, new
             {
                 errorCode = ex.ErrorCode,
                 message = ex.Message,
                 correlationId,
             });
+        }
+        catch (ReportingConfigurationException ex)
+        {
+            return StatusCode(ex.StatusCode, new
+            {
+                errorCode = ex.ErrorCode,
+                message = ex.Message,
+                correlationId,
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Institutional report export failed. ExportFormat={ExportFormat} ReportType={ReportType} ExceptionType={ExceptionType} CorrelationId={CorrelationId}",
+                request.ExportFormat,
+                request.BuildRequest.ReportType,
+                ex.GetType().Name,
+                correlationId);
+
+            return StatusCode(
+                StatusCodes.Status500InternalServerError,
+                new
+                {
+                    errorCode = "institutional_report_export_failed",
+                    message = "تعذر تصدير التقرير.",
+                    correlationId,
+                });
         }
     }
 

@@ -121,6 +121,7 @@ export default function ReportBuilderPage() {
     currentPage,
     setLoading,
     setError,
+    setErrorCorrelationId,
   });
 
   const loadPreview = async () => {

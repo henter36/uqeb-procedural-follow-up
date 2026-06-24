@@ -56,7 +56,7 @@ public sealed class InstitutionalReportNumberAllocator : IInstitutionalReportNum
         return await AllocateWithEfCoreAsync(db, year, ct);
     }
 
-    private async Task<string> AllocateWithSqlServerAsync(AppDbContext db, int year, CancellationToken ct)
+    private static async Task<string> AllocateWithSqlServerAsync(AppDbContext db, int year, CancellationToken ct)
     {
         Exception? lastRetryable = null;
 

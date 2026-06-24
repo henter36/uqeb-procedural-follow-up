@@ -173,6 +173,45 @@ function readValidationErrors(record: Record<string, unknown>): Record<string, s
   );
 }
 
+export async function parseApiErrorResponseData(data: unknown): Promise<ApiErrorDetails | null> {
+  if (data instanceof Blob) {
+    try {
+      const text = await data.text();
+      if (!text.trim())
+        return null;
+
+      return getApiErrorDetailsFromRecord(JSON.parse(text) as unknown);
+    } catch {
+      return null;
+    }
+  }
+
+  return getApiErrorDetailsFromRecord(data);
+}
+
+function getApiErrorDetailsFromRecord(data: unknown): ApiErrorDetails | null {
+  const responseRecord = asRecord(data);
+  if (!responseRecord)
+    return null;
+
+  const validationErrors = readValidationErrors(responseRecord);
+  const validationMessage = Object.values(validationErrors).filter(Boolean).join(' — ');
+  const message = readString(responseRecord, 'message')
+    || validationMessage
+    || readString(responseRecord, 'title')
+    || readString(responseRecord, 'detail');
+
+  return {
+    message,
+    title: readString(responseRecord, 'title'),
+    detail: readString(responseRecord, 'detail'),
+    errorCode: readString(responseRecord, 'errorCode'),
+    correlationId: readString(responseRecord, 'correlationId'),
+    validationErrors,
+    httpStatus: null,
+  };
+}
+
 export function getApiErrorDetails(err: unknown): ApiErrorDetails {
   const empty: ApiErrorDetails = {
     message: '',

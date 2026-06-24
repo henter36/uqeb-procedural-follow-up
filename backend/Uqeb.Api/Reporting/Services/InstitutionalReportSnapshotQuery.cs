@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 using Uqeb.Api.DTOs.Reports;
 using Uqeb.Api.Models.Entities;
@@ -54,6 +55,48 @@ internal static class InstitutionalReportSnapshotQuery
         public int DepartmentId { get; init; }
         public string DepartmentName { get; init; } = string.Empty;
     }
+
+    internal static readonly Expression<Func<Transaction, SnapshotRow>> SnapshotRowProjection = t => new SnapshotRow
+    {
+        Id = t.Id,
+        InternalTrackingNumber = t.InternalTrackingNumber,
+        IncomingNumber = t.IncomingNumber,
+        IncomingDate = t.IncomingDate,
+        Subject = t.Subject,
+        IncomingSourceType = t.IncomingSourceType,
+        IncomingFromRaw = t.IncomingFrom,
+        IncomingDepartmentName = t.IncomingFromDepartment != null ? t.IncomingFromDepartment.Name : null,
+        IncomingPartyName = t.IncomingFromParty != null ? t.IncomingFromParty.Name : null,
+        CategoryEntityName = t.CategoryEntity != null ? t.CategoryEntity.Name : null,
+        CategoryRaw = t.Category,
+        Priority = t.Priority,
+        Status = t.Status,
+        RequiresResponse = t.RequiresResponse,
+        ResponseCompleted = t.ResponseCompleted,
+        ResponseDueDate = t.ResponseDueDate,
+        ClosedAt = t.ClosedAt,
+        UpdatedAt = t.UpdatedAt,
+        CreatedAt = t.CreatedAt,
+        OutgoingNumber = t.OutgoingNumber,
+        OutgoingDate = t.OutgoingDate,
+        Assignments = t.Assignments.Select(a => new AssignmentRow
+        {
+            DepartmentId = a.DepartmentId,
+            DepartmentName = a.Department != null ? a.Department.Name : string.Empty,
+            RequiresReply = a.RequiresReply,
+            ReplyStatus = a.ReplyStatus,
+            Status = a.Status,
+            DueDate = a.DueDate,
+        }).ToList(),
+        OutgoingDepartments = t.OutgoingDepartments.Select(o => new DepartmentRow
+        {
+            DepartmentId = o.DepartmentId,
+            DepartmentName = o.Department.Name,
+        }).ToList(),
+        LastFollowUpDate = t.FollowUps.Any()
+            ? t.FollowUps.Max(f => f.CreatedAt > f.FollowUpDate ? f.CreatedAt : f.FollowUpDate)
+            : (DateTime?)null,
+    };
 
     internal static IQueryable<Transaction> ApplyReportTypeFilter(
         IQueryable<Transaction> query,

@@ -72,7 +72,7 @@ public class InstitutionalReportSecurityExportTests
     [Fact]
     public void BuildFileName_SanitizesReportNumberPathCharacters()
     {
-        var fileName = typeof(InstitutionalReportService)
+        var fileName = typeof(InstitutionalReportExportService)
             .GetMethod("BuildFileName", BindingFlags.NonPublic | BindingFlags.Static)!
             .Invoke(null, new object[] { "REP/2026\\0001", new ReportExportRequestDto(), "pdf", new List<int> { 1 } })!
             .ToString();
