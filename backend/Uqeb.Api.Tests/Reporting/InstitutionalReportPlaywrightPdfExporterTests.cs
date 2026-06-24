@@ -102,6 +102,9 @@ public class InstitutionalReportPlaywrightPdfExporterTests
                 LaunchSuccessful = true,
                 Summary = "Ready for tests.",
             });
+
+        public Task<ReportingChromiumProbeResult> ProbeLaunchOnlyAsync(CancellationToken cancellationToken = default) =>
+            ProbeAsync(cancellationToken);
     }
 
     private static RenderedReportManifestDto BuildManifestWithDepartmentTable()

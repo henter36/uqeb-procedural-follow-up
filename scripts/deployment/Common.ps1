@@ -147,6 +147,20 @@ function Split-SqlBatches {
     return ,@($batches.ToArray())
 }
 
+function Test-IdempotentMigrationScriptRepaired {
+    param([string]$Content)
+
+    if ([string]::IsNullOrWhiteSpace($Content)) {
+        return $false
+    }
+
+    if ($Content -match '(?is)ALTER TABLE \[Categories\] ADD \[NameNormalized\][^;]*;\s*GO\s*UPDATE\s+Departments') {
+        return $true
+    }
+
+    return $Content -match '(?is)ALTER TABLE \[Categories\] ADD \[NameNormalized\][^;]*;\s*END;\s*GO[\s\S]*?UPDATE\s+Departments'
+}
+
 function Repair-IdempotentMigrationScript {
     param([string]$Content)
 
@@ -154,13 +168,17 @@ function Repair-IdempotentMigrationScript {
         return $Content
     }
 
-    if ($Content -match '(?is)ALTER TABLE \[Categories\] ADD \[NameNormalized\][^;]*;\s*GO\s*UPDATE\s+Departments') {
+    if (Test-IdempotentMigrationScriptRepaired -Content $Content) {
         return $Content
     }
 
-    $pattern = '(?is)(ALTER TABLE \[Categories\] ADD \[NameNormalized\][^;]*;)(\s*)(?=UPDATE\s+Departments)'
-    $repaired = [regex]::Replace($Content, $pattern, '$1$2GO$2', 1)
-    return $repaired
+    $idempotentPattern = '(?is)(ALTER TABLE \[Categories\] ADD \[NameNormalized\][^;]*;\s*END;)(\s*)(IF NOT EXISTS\s*\(\s*\r?\n\s*SELECT \* FROM \[__EFMigrationsHistory\][\s\S]*?\r?\nBEGIN\s*\r?\n\s*UPDATE\s+Departments)'
+    if ($Content -match $idempotentPattern) {
+        return [regex]::Replace($Content, $idempotentPattern, '$1$2GO$2$3', 1)
+    }
+
+    $flatPattern = '(?is)(ALTER TABLE \[Categories\] ADD \[NameNormalized\][^;]*;)(\s*)(?=UPDATE\s+Departments)'
+    return [regex]::Replace($Content, $flatPattern, '$1$2GO$2', 1)
 }
 
 function Get-SqlConnectionInfoFromSettings {
@@ -231,7 +249,7 @@ function Invoke-RobocopySafe {
     param(
         [string]$Source,
         [string]$Destination,
-        [ValidateSet('Api', 'Web')]
+        [ValidateSet('Api', 'Web', 'Generic')]
         [string]$TargetType,
         [string[]]$ExtraArguments = @()
     )
@@ -244,7 +262,7 @@ function Invoke-RobocopySafe {
     }
 
     Ensure-Directory $Destination
-    & robocopy @arguments
+    $null = & robocopy @arguments
     if ($LASTEXITCODE -ge 8) {
         throw "فشل robocopy برمز: $LASTEXITCODE"
     }
@@ -583,10 +601,14 @@ function Invoke-DeploymentFileRollback {
         [string]$ApiTarget,
         [string]$WebTarget,
         [string]$ConfigTarget,
-        [string]$ConfigSource
+        [string]$ConfigSource,
+        [string]$BackupBrowsers = "",
+        [string]$PlaywrightBrowsersPath = "",
+        [string]$ReleaseManifestPath = "",
+        [string]$BackupReleaseManifest = ""
     )
 
-    if (-not (Test-DirectoryHasContent $BackupApi) -and -not (Test-DirectoryHasContent $BackupWeb)) {
+    if (-not (Test-DirectoryHasContent $BackupApi) -and -not (Test-DirectoryHasContent $BackupWeb) -and -not (Test-DirectoryHasContent $BackupBrowsers)) {
         Write-DeployInfo "لا توجد نسخة ملفات سابقة لاسترجاعها."
         return $false
     }
@@ -606,6 +628,12 @@ function Invoke-DeploymentFileRollback {
     }
     if (Test-Path -LiteralPath $ConfigSource) {
         Copy-Item -LiteralPath $ConfigSource -Destination $ConfigTarget -Force
+    }
+    if ($PlaywrightBrowsersPath -and (Test-DirectoryHasContent $BackupBrowsers)) {
+        Restore-PreviousDirectory -Target $PlaywrightBrowsersPath -PreviousPath $BackupBrowsers | Out-Null
+    }
+    if ($ReleaseManifestPath -and (Test-Path -LiteralPath $BackupReleaseManifest)) {
+        Copy-Item -LiteralPath $BackupReleaseManifest -Destination $ReleaseManifestPath -Force
     }
 
     Start-ScheduledTask -TaskName $TaskName
@@ -972,4 +1000,789 @@ function Invoke-DatabaseBackupRetentionPolicy {
     }
 
     return ,@($deleted)
+}
+
+function Get-PlaywrightPackageVersionFromProject {
+    param([string]$ProjectPath)
+
+    if (-not (Test-Path -LiteralPath $ProjectPath)) {
+        throw "ملف المشروع غير موجود: $ProjectPath"
+    }
+
+    $content = Get-Content -LiteralPath $ProjectPath -Raw
+    if ($content -match 'Include="Microsoft\.Playwright"\s+Version="([^"]+)"') {
+        return $Matches[1]
+    }
+
+    throw "تعذر استخراج إصدار Microsoft.Playwright من: $ProjectPath"
+}
+
+function Test-SafeRelativePackagePath {
+    param(
+        [string]$RelativePath,
+        [string]$Label = "المسار النسبي"
+    )
+
+    if ([string]::IsNullOrWhiteSpace($RelativePath)) {
+        throw "$Label فارغ."
+    }
+
+    $normalized = $RelativePath.Replace('/', '\').Trim()
+    if ($normalized.StartsWith('\') -or $normalized.Contains(':')) {
+        throw "$Label يحتوي مسارًا مطلقًا غير مسموح: $RelativePath"
+    }
+
+    if ($normalized -match '(^|[\\/])\.\.([\\/]|$)') {
+        throw "$Label يحتوي اجتياز مسار غير مسموح: $RelativePath"
+    }
+
+    return $normalized
+}
+
+function Resolve-SafePackagePath {
+    param(
+        [string]$PackageRoot,
+        [string]$RelativePath
+    )
+
+    $safeRelative = Test-SafeRelativePackagePath -RelativePath $RelativePath
+    $fullPath = [System.IO.Path]::GetFullPath((Join-Path $PackageRoot $safeRelative))
+    $rootFull = [System.IO.Path]::GetFullPath($PackageRoot)
+    if (-not $fullPath.StartsWith($rootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "المسار يخرج عن جذر الحزمة: $RelativePath"
+    }
+
+    return $fullPath
+}
+
+function Get-DirectorySizeBytes {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return 0
+    }
+
+    return (Get-ChildItem -LiteralPath $Path -Recurse -File -Force -ErrorAction SilentlyContinue |
+        Measure-Object -Property Length -Sum).Sum
+}
+
+function Assert-PlaywrightBrowserSourcePathSafe {
+    param(
+        [string]$SourcePath,
+        [string]$StagingBrowsersPath,
+        [string]$TempStagingRoot
+    )
+
+    $sourceFull = [System.IO.Path]::GetFullPath($SourcePath)
+    $destinationFull = [System.IO.Path]::GetFullPath($StagingBrowsersPath)
+    if ($sourceFull.Equals($destinationFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'مصدر Chromium يطابق مجلد الوجهة في الحزمة.'
+    }
+
+    $tempFull = [System.IO.Path]::GetFullPath($TempStagingRoot)
+    $separator = [System.IO.Path]::DirectorySeparatorChar
+    if (-not $tempFull.EndsWith([string]$separator)) {
+        $tempFull += $separator
+    }
+
+    if ($sourceFull.StartsWith($tempFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'مصدر Chromium داخل مجلد staging المؤقت الذي سيُحذف.'
+    }
+
+    if (Test-Path -LiteralPath $sourceFull) {
+        $sourceItem = Get-Item -LiteralPath $sourceFull -Force
+        if (($sourceItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "مصدر Chromium غير موثوق (reparse point): $sourceFull"
+        }
+    }
+}
+
+function Get-RelativePathFromDirectory {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RootDirectory,
+
+        [Parameter(Mandatory = $true)]
+        [string]$FullPath
+    )
+
+    $rootResolved = [System.IO.Path]::GetFullPath(
+        (Resolve-Path -LiteralPath $RootDirectory).Path
+    )
+
+    $fullResolved = [System.IO.Path]::GetFullPath(
+        (Resolve-Path -LiteralPath $FullPath).Path
+    )
+
+    $separator = [System.IO.Path]::DirectorySeparatorChar
+    $alternateSeparator = [System.IO.Path]::AltDirectorySeparatorChar
+
+    $rootWithoutTrailingSeparator = $rootResolved.TrimEnd(
+        [char[]]@($separator, $alternateSeparator)
+    )
+
+    if ($fullResolved.Equals(
+        $rootWithoutTrailingSeparator,
+        [System.StringComparison]::OrdinalIgnoreCase
+    )) {
+        return ""
+    }
+
+    $rootPrefix = $rootWithoutTrailingSeparator + $separator
+
+    if (-not $fullResolved.StartsWith(
+        $rootPrefix,
+        [System.StringComparison]::OrdinalIgnoreCase
+    )) {
+        throw "المسار يخرج عن الجذر المتوقع: $FullPath"
+    }
+
+    $relativePath = $fullResolved.Substring($rootPrefix.Length)
+
+    if ($relativePath -match '(^|[/\\])\.\.([/\\]|$)') {
+        throw "المسار يخرج عن الجذر المتوقع: $FullPath"
+    }
+
+    return ($relativePath -replace '\\', '/').TrimStart(
+        [char[]]@('/', '\')
+    )
+}
+
+function Get-PlaywrightBrowserExecutable {
+    param([string]$BrowsersRoot)
+
+    if (-not (Test-Path -LiteralPath $BrowsersRoot)) {
+        throw "مجلد متصفحات Playwright غير موجود: $BrowsersRoot"
+    }
+
+    $candidates = @(
+        Get-ChildItem `
+            -LiteralPath $BrowsersRoot `
+            -Recurse `
+            -File `
+            -Filter 'chrome.exe' `
+            -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.FullName -match '(?i)[/\\]chrome-win(?:64)?[/\\]chrome\.exe$'
+            }
+    )
+
+    if ($candidates.Count -eq 0) {
+        throw "لم يتم العثور على Chromium executable داخل: $BrowsersRoot"
+    }
+
+    if ($candidates.Count -gt 1) {
+        $relativeCandidates = $candidates | ForEach-Object {
+            Get-RelativePathFromDirectory -RootDirectory $BrowsersRoot -FullPath $_.FullName
+        }
+        throw ("تم العثور على أكثر من Chromium executable غير قابل للحسم: " + ($relativeCandidates -join " | "))
+    }
+
+    $executable = $candidates[0]
+    if ($executable.Length -le 0) {
+        throw "ملف Chromium executable بحجم صفر: $($executable.FullName)"
+    }
+
+    $relativePath = Get-RelativePathFromDirectory -RootDirectory $BrowsersRoot -FullPath $executable.FullName
+    return [pscustomobject]@{
+        FullPath = $executable.FullName
+        RelativePath = $relativePath
+        SizeBytes = $executable.Length
+    }
+}
+
+function Test-PlaywrightBrowserPayload {
+    param(
+        [string]$BrowsersRoot,
+        [string]$ExpectedExecutableRelativePath = "",
+        [string]$ExpectedExecutableSha256 = ""
+    )
+
+    $executable = Get-PlaywrightBrowserExecutable -BrowsersRoot $BrowsersRoot
+    if ($ExpectedExecutableRelativePath) {
+        $expected = ($ExpectedExecutableRelativePath -replace '\\', '/').TrimStart('/')
+        $actual = $executable.RelativePath
+        if ($expected -ne $actual) {
+            throw "مسار Chromium غير مطابق. المتوقع: $expected الفعلي: $actual"
+        }
+    }
+
+    if ($ExpectedExecutableSha256) {
+        $actualHash = Get-FileSha256Hex -Path $executable.FullPath
+        if ($actualHash -ne $ExpectedExecutableSha256.ToLowerInvariant()) {
+            throw "تجزئة SHA256 لـ Chromium غير مطابقة."
+        }
+    }
+
+    return $executable
+}
+
+function New-PlaywrightBrowserManifest {
+    param(
+        [string]$BrowsersRoot,
+        [string]$PlaywrightScriptPath
+    )
+
+    $executable = Get-PlaywrightBrowserExecutable -BrowsersRoot $BrowsersRoot
+    return [ordered]@{
+        browser = 'chromium'
+        installedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+        executableRelativePath = $executable.RelativePath
+        playwrightScriptSha256 = (Get-FileSha256Hex -Path $PlaywrightScriptPath)
+        browserExecutableSha256 = (Get-FileSha256Hex -Path $executable.FullPath)
+        browserDirectorySizeBytes = [long](Get-DirectorySizeBytes -Path $BrowsersRoot)
+    }
+}
+
+function Assert-PlaywrightPackageHashes {
+    param(
+        [string]$PlaywrightScriptPath,
+        [string]$ChromiumExecutablePath,
+        [object]$PlaywrightManifest
+    )
+
+    $expectedScriptHash = [string]$PlaywrightManifest.playwrightScriptSha256
+    if ($expectedScriptHash) {
+        $actualScriptHash = Get-FileSha256Hex -Path $PlaywrightScriptPath
+        if ($actualScriptHash -ne $expectedScriptHash.ToLowerInvariant()) {
+            throw 'تجزئة SHA256 لملف playwright.ps1 غير مطابقة.'
+        }
+    }
+
+    $expectedBrowserHash = [string]$PlaywrightManifest.browserExecutableSha256
+    if ($expectedBrowserHash) {
+        $actualBrowserHash = Get-FileSha256Hex -Path $ChromiumExecutablePath
+        if ($actualBrowserHash -ne $expectedBrowserHash.ToLowerInvariant()) {
+            throw 'تجزئة SHA256 لملف Chromium غير مطابقة.'
+        }
+    }
+}
+
+function Test-PlaywrightPackagePreflight {
+    param(
+        [string]$PackageRoot,
+        [object]$Manifest
+    )
+
+    if (-not $Manifest.playwright) {
+        throw 'manifest.json لا يحتوي قسم playwright.'
+    }
+
+    if (-not $Manifest.playwright.required) {
+        throw 'حزمة الإنتاج تتطلب Chromium لكن playwright.required=false.'
+    }
+
+    $playwrightScript = Join-Path $PackageRoot 'api\playwright.ps1'
+    if (-not (Test-Path -LiteralPath $playwrightScript)) {
+        throw "ملف Playwright غير موجود في الحزمة: api\playwright.ps1"
+    }
+
+    $browserManifestPath = Join-Path $PackageRoot 'browsers\playwright-browser-manifest.json'
+    if (-not (Test-Path -LiteralPath $browserManifestPath)) {
+        throw 'ملف browsers\playwright-browser-manifest.json مفقود من الحزمة.'
+    }
+
+    $browserManifest = Get-Content -LiteralPath $browserManifestPath -Raw | ConvertFrom-Json
+    $relativeExecutable = [string]$browserManifest.executableRelativePath
+    $safeRelative = Test-SafeRelativePackagePath -RelativePath $relativeExecutable -Label 'executableRelativePath'
+    $browsersRoot = Join-Path $PackageRoot 'browsers'
+    $executablePath = Resolve-SafePackagePath -PackageRoot $browsersRoot -RelativePath $safeRelative
+
+    if (-not (Test-Path -LiteralPath $executablePath)) {
+        throw "ملف Chromium المشار إليه غير موجود: $relativeExecutable"
+    }
+
+    Assert-PlaywrightPackageHashes `
+        -PlaywrightScriptPath $playwrightScript `
+        -ChromiumExecutablePath $executablePath `
+        -PlaywrightManifest $Manifest.playwright
+
+    return [pscustomobject]@{
+        BrowserManifest = $browserManifest
+        ExecutablePath = $executablePath
+        ExecutableRelativePath = $safeRelative
+    }
+}
+
+function Copy-DirectoryAtomically {
+    param(
+        [string]$Source,
+        [string]$Target
+    )
+
+    if (-not (Test-Path -LiteralPath $Source)) {
+        throw "مصدر النسخ غير موجود: $Source"
+    }
+
+    $parent = Split-Path -Parent $Target
+    Ensure-Directory $parent
+    $stagingTarget = "$Target.next"
+
+    if (Test-Path -LiteralPath $stagingTarget) {
+        Remove-Item -LiteralPath $stagingTarget -Recurse -Force
+    }
+
+    Invoke-RobocopySafe -Source $Source -Destination $stagingTarget -TargetType Web
+    Test-PlaywrightBrowserPayload -BrowsersRoot $stagingTarget | Out-Null
+
+    $previousTarget = "$Target.previous"
+    $previousPath = $null
+    if (Test-Path -LiteralPath $Target) {
+        if (Test-Path -LiteralPath $previousTarget) {
+            Remove-Item -LiteralPath $previousTarget -Recurse -Force
+        }
+
+        Move-Item -LiteralPath $Target -Destination $previousTarget -Force
+        $previousPath = $previousTarget
+    }
+
+    try {
+        Move-Item -LiteralPath $stagingTarget -Destination $Target -Force
+    }
+    catch {
+        $swapError = $_
+
+        try {
+            if (Test-Path -LiteralPath $Target) {
+                Remove-Item -LiteralPath $Target -Recurse -Force
+            }
+
+            if ($previousPath -and (Test-Path -LiteralPath $previousPath)) {
+                Move-Item -LiteralPath $previousPath -Destination $Target -Force
+            }
+        }
+        catch {
+            $restoreError = $_
+            throw "فشل استبدال المجلد وفشل استعادة النسخة السابقة. Swap: $($swapError.Exception.Message) Restore: $($restoreError.Exception.Message)"
+        }
+
+        throw $swapError
+    }
+
+    return $previousPath
+}
+
+function Restore-PreviousDirectory {
+    param(
+        [string]$Target,
+        [string]$PreviousPath
+    )
+
+    if (-not $PreviousPath -or -not (Test-Path -LiteralPath $PreviousPath)) {
+        return $false
+    }
+
+    if (Test-Path -LiteralPath $Target) {
+        Remove-Item -LiteralPath $Target -Recurse -Force
+    }
+
+    Move-Item -LiteralPath $PreviousPath -Destination $Target -Force
+    return $true
+}
+
+function Remove-DirectoryIfExists {
+    param([string]$Path)
+
+    if ($Path -and (Test-Path -LiteralPath $Path)) {
+        Remove-Item -LiteralPath $Path -Recurse -Force
+    }
+}
+
+function Get-MigrationIdsFromDataTable {
+    param([System.Data.DataTable]$Table)
+
+    $migrationIds = New-Object System.Collections.Generic.List[string]
+    foreach ($row in $Table.Rows) {
+        $migrationId = ([string]$row.MigrationId).Trim()
+        if ($migrationId) {
+            [void]$migrationIds.Add($migrationId)
+        }
+    }
+
+    return ,$migrationIds.ToArray()
+}
+
+function ConvertTo-TrimmedMigrationIdArray {
+    param([object[]]$Values)
+
+    if ($null -eq $Values) {
+        return ,@()
+    }
+
+    $migrationIds = @(
+        $Values |
+            ForEach-Object {
+                if ($null -ne $_) {
+                    ([string]$_).Trim()
+                }
+            } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    )
+
+    return ,$migrationIds
+}
+
+function Get-MigrationIdsFromResultArray {
+    param([System.Array]$Result)
+
+    if ($Result.Count -eq 0) {
+        return ,@()
+    }
+
+    if ($Result[0] -is [string]) {
+        return ConvertTo-TrimmedMigrationIdArray -Values $Result
+    }
+
+    $table = $Result |
+        Where-Object { $_ -is [System.Data.DataTable] } |
+        Select-Object -First 1
+
+    if ($null -ne $table) {
+        return Get-MigrationIdsFromDataTable -Table $table
+    }
+
+    return ,@()
+}
+
+function Resolve-MigrationIdsFromHandlerResult {
+    param($Result)
+
+    if ($null -eq $Result) {
+        return ,@()
+    }
+
+    if ($Result -is [string]) {
+        return ConvertTo-TrimmedMigrationIdArray -Values @($Result)
+    }
+
+    if ($Result -is [string[]]) {
+        return ConvertTo-TrimmedMigrationIdArray -Values $Result
+    }
+
+    if ($Result -is [System.Data.DataTable]) {
+        return Get-MigrationIdsFromDataTable -Table $Result
+    }
+
+    if ($Result -is [System.Data.DataRow]) {
+        return Get-MigrationIdsFromDataTable -Table $Result.Table
+    }
+
+    if ($Result -is [System.Array]) {
+        return Get-MigrationIdsFromResultArray -Result $Result
+    }
+
+    return ,@()
+}
+
+function Get-AppliedMigrationIds {
+    param([string]$ConnectionString)
+
+    if ($null -ne $global:SqlDeploymentCommandHandler) {
+        $result = & $global:SqlDeploymentCommandHandler `
+            -ConnectionString $ConnectionString `
+            -CommandText 'SELECT [MigrationId] FROM [dbo].[__EFMigrationsHistory] ORDER BY [MigrationId];' `
+            -DataTable:$true
+
+        return Resolve-MigrationIdsFromHandlerResult -Result $result
+    }
+
+    $sql = 'SELECT [MigrationId] FROM [dbo].[__EFMigrationsHistory] ORDER BY [MigrationId];'
+    $connection = New-SqlDeploymentConnection -ConnectionString $ConnectionString
+    try {
+        $connection.Open()
+        $command = $connection.CreateCommand()
+        $command.CommandText = $sql
+        $command.CommandTimeout = 0
+        $adapter = New-Object System.Data.SqlClient.SqlDataAdapter $command
+        $table = New-Object System.Data.DataTable
+        [void]$adapter.Fill($table)
+        $migrationIds = New-Object System.Collections.Generic.List[string]
+        foreach ($row in $table.Rows) {
+            $migrationId = ([string]$row.MigrationId).Trim()
+            if ($migrationId) {
+                [void]$migrationIds.Add($migrationId)
+            }
+        }
+        return ,$migrationIds.ToArray()
+    }
+    finally {
+        if ($connection.State -eq 'Open') {
+            $connection.Close()
+        }
+        $connection.Dispose()
+    }
+}
+
+function Test-RequiredMigrationApplied {
+    param(
+        [string]$ConnectionString,
+        [string]$RequiredMigrationId
+    )
+
+    if ([string]::IsNullOrWhiteSpace($RequiredMigrationId)) {
+        throw 'معرّف migration المطلوب فارغ.'
+    }
+
+    $appliedIds = Get-AppliedMigrationIds -ConnectionString $ConnectionString
+    if ($null -eq $appliedIds) {
+        $appliedList = @()
+    }
+    elseif ($appliedIds -is [string]) {
+        $appliedList = @($appliedIds)
+    }
+    else {
+        $appliedList = @($appliedIds | ForEach-Object { [string]$_ })
+    }
+
+    $normalizedRequired = $RequiredMigrationId.Trim()
+    $found = $false
+    foreach ($appliedId in $appliedList) {
+        if ($appliedId.Trim() -ceq $normalizedRequired) {
+            $found = $true
+            break
+        }
+    }
+
+    if (-not $found) {
+        throw "لا يمكن تخطي migrations: قاعدة الإنتاج لا تحتوي migration المطلوبة $RequiredMigrationId."
+    }
+}
+
+function Get-SafeArchiveDestinationRoot {
+    param([string]$DestinationPath)
+
+    $destinationFull = [System.IO.Path]::GetFullPath($DestinationPath)
+    $separator = [System.IO.Path]::DirectorySeparatorChar
+    if (-not $destinationFull.EndsWith([string]$separator)) {
+        $destinationFull += $separator
+    }
+
+    Ensure-Directory $destinationFull
+    return $destinationFull
+}
+
+function Test-ArchiveEntryNameIsUnsafe {
+    param([string]$EntryName)
+
+    if ([string]::IsNullOrWhiteSpace($EntryName)) {
+        return $true
+    }
+
+    $normalized = $EntryName.Replace('/', '\')
+    if ($normalized -match '(^|[\\/])\.\.([\\/]|$)') {
+        return $true
+    }
+
+    if ($EntryName.StartsWith('/') -or $EntryName.StartsWith('\')) {
+        return $true
+    }
+
+    if ($EntryName.Contains(':')) {
+        return $true
+    }
+
+    if ($normalized.StartsWith('\\')) {
+        return $true
+    }
+
+    if ($EntryName -match ':') {
+        return $true
+    }
+
+    return $false
+}
+
+function Resolve-SafeArchiveTargetPath {
+    param(
+        [string]$DestinationRoot,
+        [string]$EntryName
+    )
+
+    if (Test-ArchiveEntryNameIsUnsafe -EntryName $EntryName) {
+        throw "تم رفض مسار غير آمن داخل ZIP: $EntryName"
+    }
+
+    $targetFull = [System.IO.Path]::GetFullPath((Join-Path $DestinationRoot $EntryName))
+    if (-not $targetFull.StartsWith($DestinationRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "تم رفض مسار غير آمن داخل ZIP: $EntryName"
+    }
+
+    return $targetFull
+}
+
+function Test-ArchiveEntryIsReparsePoint {
+    param([string]$TargetPath)
+
+    if (-not (Test-Path -LiteralPath $TargetPath)) {
+        return $false
+    }
+
+    $item = Get-Item -LiteralPath $TargetPath -Force
+    return ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0
+}
+
+function Expand-SafeArchiveEntry {
+    param(
+        [System.IO.Compression.ZipArchiveEntry]$Entry,
+        [string]$DestinationRoot
+    )
+
+    $entryName = $Entry.FullName
+    if ([string]::IsNullOrWhiteSpace($entryName)) {
+        throw 'تم رفض إدخال ZIP باسم فارغ.'
+    }
+
+    $targetPath = Resolve-SafeArchiveTargetPath -DestinationRoot $DestinationRoot -EntryName $entryName
+    if (Test-ArchiveEntryIsReparsePoint -TargetPath $targetPath) {
+        throw "تم رفض reparse point داخل ZIP: $entryName"
+    }
+
+    if ($entryName.EndsWith('/') -or $entryName.EndsWith('\')) {
+        Ensure-Directory $targetPath
+        return
+    }
+
+    if ($Entry.Name -match ':') {
+        throw "تم رفض alternate data stream داخل ZIP: $entryName"
+    }
+
+    $targetDirectory = Split-Path -Parent $targetPath
+    Ensure-Directory $targetDirectory
+    [System.IO.Compression.ZipFileExtensions]::ExtractToFile($Entry, $targetPath, $true)
+}
+
+function Expand-ArchiveSafely {
+    param(
+        [string]$ArchivePath,
+        [string]$DestinationPath
+    )
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($ArchivePath)
+    try {
+        $destinationRoot = Get-SafeArchiveDestinationRoot -DestinationPath $DestinationPath
+
+        foreach ($entry in $archive.Entries) {
+            Expand-SafeArchiveEntry -Entry $entry -DestinationRoot $destinationRoot
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
+}
+
+function Write-ApiRunScript {
+    param(
+        [string]$RunScriptPath,
+        [string]$ApiPath,
+        [int]$ApiPort,
+        [string]$ApiBindAddress = '0.0.0.0',
+        [string]$PlaywrightBrowsersPath,
+        [string]$LogPath
+    )
+
+    $apiExecutable = Join-Path $ApiPath 'Uqeb.Api.exe'
+    $apiDll = Join-Path $ApiPath 'Uqeb.Api.dll'
+    $launchCommand = if (Test-Path -LiteralPath $apiExecutable) {
+        "`"$apiExecutable`""
+    }
+    else {
+        "dotnet `"$apiDll`""
+    }
+
+    $content = @(
+        '@echo off'
+        "cd /d `"$ApiPath`""
+        'set ASPNETCORE_ENVIRONMENT=Production'
+        'set DOTNET_ENVIRONMENT=Production'
+        "set ASPNETCORE_URLS=http://${ApiBindAddress}:$ApiPort"
+        "set PLAYWRIGHT_BROWSERS_PATH=$PlaywrightBrowsersPath"
+        "$launchCommand >> `"$LogPath`" 2>&1"
+    ) -join "`r`n"
+
+    Set-Content -LiteralPath $RunScriptPath -Value $content -Encoding ASCII
+}
+
+function Install-PlaywrightBrowserToProduction {
+    param(
+        [string]$PackageBrowsersSource,
+        [string]$PlaywrightBrowsersPath
+    )
+
+    $parent = Split-Path -Parent $PlaywrightBrowsersPath
+    Ensure-Directory $parent
+    return Copy-DirectoryAtomically -Source $PackageBrowsersSource -Target $PlaywrightBrowsersPath
+}
+
+function Invoke-PlaywrightExecutableSmokeTest {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ExecutablePath,
+
+        [int]$TimeoutMs = 15000
+    )
+
+    $process = $null
+    try {
+        $process = Start-Process -FilePath $ExecutablePath `
+            -ArgumentList @('--headless', '--disable-gpu', '--no-sandbox', '--dump-dom', 'about:blank') `
+            -PassThru `
+            -WindowStyle Hidden
+
+        if (-not $process.WaitForExit($TimeoutMs)) {
+            throw "انتهت مهلة تشغيل Chromium أثناء smoke test."
+        }
+
+        if ($process.ExitCode -ne 0) {
+            throw ("Chromium smoke test exited with code " + $process.ExitCode)
+        }
+    }
+    finally {
+        if ($null -ne $process -and -not $process.HasExited) {
+            Stop-Process `
+                -Id $process.Id `
+                -Force `
+                -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Invoke-PlaywrightChromiumInstall {
+    param(
+        [string]$PlaywrightScriptPath,
+        [string]$BrowsersRoot
+    )
+
+    if (-not (Test-Path -LiteralPath $PlaywrightScriptPath)) {
+        throw "ملف Playwright غير موجود بعد نشر API: $PlaywrightScriptPath"
+    }
+
+    $hadPreviousBrowsersPath = Test-Path -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH'
+    $previousBrowsersPath = if ($hadPreviousBrowsersPath) {
+        $env:PLAYWRIGHT_BROWSERS_PATH
+    }
+    else {
+        $null
+    }
+
+    $env:PLAYWRIGHT_BROWSERS_PATH = $BrowsersRoot
+    try {
+        Ensure-Directory $BrowsersRoot
+        $null = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $PlaywrightScriptPath install chromium 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "فشل تنزيل Chromium المتوافق مع Playwright برمز: $LASTEXITCODE"
+        }
+    }
+    finally {
+        if ($hadPreviousBrowsersPath) {
+            $env:PLAYWRIGHT_BROWSERS_PATH = $previousBrowsersPath
+        }
+        else {
+            Remove-Item `
+                -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH' `
+                -ErrorAction SilentlyContinue
+        }
+    }
+
+    return Get-PlaywrightBrowserExecutable -BrowsersRoot $BrowsersRoot
 }

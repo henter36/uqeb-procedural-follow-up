@@ -22,23 +22,44 @@ BeforeAll {
         $web = Join-Path $Root 'web'
         $database = Join-Path $Root 'database'
         $scripts = Join-Path $Root 'scripts'
+        $browsers = Join-Path $Root 'browsers'
         $deployment = Join-Path $scripts 'deployment'
         Ensure-Directory $api
         Ensure-Directory $web
         Ensure-Directory $database
+        Ensure-Directory $browsers
         Ensure-Directory $deployment
 
         Set-Content (Join-Path $api 'Uqeb.Api.dll') 'dll' -Encoding ASCII
+        Set-Content (Join-Path $api 'playwright.ps1') 'exit 0' -Encoding ASCII
         Set-Content (Join-Path $web 'index.html') '<html></html>' -Encoding ASCII
         Set-Content (Join-Path $database 'migrations-idempotent.sql') 'SELECT 1;' -Encoding ASCII
         'exit 0' | Set-Content (Join-Path $scripts 'apply-migrations.ps1') -Encoding ASCII
         'exit 0' | Set-Content (Join-Path $scripts 'verify-deployment-health.ps1') -Encoding ASCII
         Copy-Item $script:CommonPath (Join-Path $deployment 'Common.ps1') -Force
 
+        $executableDir = Join-Path $browsers 'chromium-1\chrome-win64'
+        Ensure-Directory $executableDir
+        $executablePath = Join-Path $executableDir 'chrome.exe'
+        Set-Content -LiteralPath $executablePath -Value 'fake-chromium' -Encoding ASCII
+
+        $playwrightScriptPath = Join-Path $api 'playwright.ps1'
+        $browserManifest = New-PlaywrightBrowserManifest `
+            -BrowsersRoot $browsers `
+            -PlaywrightScriptPath $playwrightScriptPath
+        $browserManifest | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $browsers 'playwright-browser-manifest.json') -Encoding UTF8
+
         $files = [ordered]@{}
-        foreach ($relative in @('api/Uqeb.Api.dll', 'web/index.html', 'database/migrations-idempotent.sql')) {
+        foreach ($relative in @(
+            'api/Uqeb.Api.dll',
+            'api/playwright.ps1',
+            'web/index.html',
+            'database/migrations-idempotent.sql',
+            'browsers/playwright-browser-manifest.json',
+            ('browsers/' + ($browserManifest.executableRelativePath -replace '\\', '/'))
+        )) {
             $full = Join-Path $Root ($relative -replace '/', '\')
-            $files[$relative] = Get-FileSha256Hex -Path $full
+            $files[($relative -replace '\\', '/')] = Get-FileSha256Hex -Path $full
         }
 
         $manifest = [ordered]@{
@@ -47,9 +68,41 @@ BeforeAll {
             buildTimestampUtc = (Get-Date).ToUniversalTime().ToString('o')
             commitSha = 'testsha'
             minimumDatabaseMigration = '20260622062754_AddReferenceDataNormalizedNames'
+            playwright = [ordered]@{
+                required = $true
+                browser = 'chromium'
+                browserPayloadIncluded = $true
+                browserRoot = 'browsers'
+                browserExecutableRelativePath = $browserManifest.executableRelativePath
+                browserExecutableSha256 = $browserManifest.browserExecutableSha256
+                playwrightScriptSha256 = $browserManifest.playwrightScriptSha256
+            }
             files = $files
         }
-        $manifest | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $Root 'manifest.json') -Encoding UTF8
+        $manifest | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $Root 'manifest.json') -Encoding UTF8
+    }
+
+    function Invoke-TestInstallScript {
+        param(
+            [Parameter(Mandatory = $true)]
+            [psobject]$Environment,
+            [hashtable]$AdditionalParameters = @{}
+        )
+
+        $params = @{
+            PackagePath = $Environment.ZipPath
+            InstallRoot = $Environment.InstallRoot
+            ToolsRoot = $Environment.ToolsRoot
+            ApiPath = $Environment.ApiPath
+            WebPath = $Environment.WebPath
+            ConfigPath = $Environment.ConfigPath
+            PlaywrightBrowsersPath = $Environment.PlaywrightBrowsersPath
+        }
+        foreach ($key in $AdditionalParameters.Keys) {
+            $params[$key] = $AdditionalParameters[$key]
+        }
+
+        & $script:InstallScript @params
     }
 
     function New-ZipFromDirectory {
@@ -163,6 +216,7 @@ BeforeAll {
             ConfigPath = $configPath
             ApiPath = Join-Path $installRoot 'publish\api'
             WebPath = Join-Path $installRoot 'publish\web'
+            PlaywrightBrowsersPath = Join-Path $installRoot 'tools\ms-playwright'
         }
     }
 
@@ -356,7 +410,30 @@ ALTER TABLE [Categories] ADD [NameNormalized] nvarchar(450) NOT NULL DEFAULT N''
 UPDATE Departments SET NameNormalized = LOWER(Name);
 "@
         $fixed = Repair-IdempotentMigrationScript -Content $sql
-        $fixed | Should -Match '(?is)ALTER TABLE \[Categories\].*;\s*GO\s*UPDATE Departments'
+        Test-IdempotentMigrationScriptRepaired -Content $fixed | Should -BeTrue
+    }
+
+    It 'repairs EF idempotent migration blocks with GO before NameNormalized usage' {
+        $sql = @"
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260622062754_AddReferenceDataNormalizedNames'
+)
+BEGIN
+    ALTER TABLE [Categories] ADD [NameNormalized] nvarchar(450) NOT NULL DEFAULT N'';
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260622062754_AddReferenceDataNormalizedNames'
+)
+BEGIN
+    UPDATE Departments
+    SET NameNormalized = LOWER(Name);
+END;
+"@
+        $fixed = Repair-IdempotentMigrationScript -Content $sql
+        Test-IdempotentMigrationScriptRepaired -Content $fixed | Should -BeTrue
     }
 }
 
@@ -625,9 +702,7 @@ Describe 'install-production-package.ps1 scenarios' {
         Mock Test-PortListener { $true }
         Mock Stop-Process {}
         Mock Get-NetTCPConnection { return @() }
-        Mock Move-Item {}
         Mock Test-RecentLogErrors { return @() }
-        Mock Invoke-RobocopySafe {}
         Mock Copy-ApplicationPayload {}
         Mock Invoke-DatabaseBackupRetentionPolicy { return @() }
         Mock Get-SqlConnectionInfoFromSettings {
@@ -688,13 +763,7 @@ Describe 'install-production-package.ps1 scenarios' {
         $env = New-InstallTestEnvironment -PackageMigrationContent 'throw "migration failed"'
         'throw "migration failed"' | Set-Content (Join-Path $env.ToolsRoot 'apply-migrations.ps1') -Encoding ASCII
 
-        { & $script:InstallScript `
-            -PackagePath $env.ZipPath `
-            -InstallRoot $env.InstallRoot `
-            -ToolsRoot $env.ToolsRoot `
-            -ApiPath $env.ApiPath `
-            -WebPath $env.WebPath `
-            -ConfigPath $env.ConfigPath } |
+        { Invoke-TestInstallScript -Environment $env } |
             Should -Throw
     }
 
@@ -702,13 +771,7 @@ Describe 'install-production-package.ps1 scenarios' {
         $env = New-InstallTestEnvironment
         'throw "health failed"' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
-        { & $script:InstallScript `
-            -PackagePath $env.ZipPath `
-            -InstallRoot $env.InstallRoot `
-            -ToolsRoot $env.ToolsRoot `
-            -ApiPath $env.ApiPath `
-            -WebPath $env.WebPath `
-            -ConfigPath $env.ConfigPath } |
+        { Invoke-TestInstallScript -Environment $env } |
             Should -Throw
     }
 
@@ -717,13 +780,7 @@ Describe 'install-production-package.ps1 scenarios' {
         'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'apply-migrations.ps1') -Encoding ASCII
         'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
-        { & $script:InstallScript `
-            -PackagePath $env.ZipPath `
-            -InstallRoot $env.InstallRoot `
-            -ToolsRoot $env.ToolsRoot `
-            -ApiPath $env.ApiPath `
-            -WebPath $env.WebPath `
-            -ConfigPath $env.ConfigPath } | Should -Not -Throw
+        { Invoke-TestInstallScript -Environment $env } | Should -Not -Throw
     }
 
     It 'does not declare success when API port never opens' {
@@ -731,13 +788,7 @@ Describe 'install-production-package.ps1 scenarios' {
         $env = New-InstallTestEnvironment
         'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'apply-migrations.ps1') -Encoding ASCII
 
-        { & $script:InstallScript `
-            -PackagePath $env.ZipPath `
-            -InstallRoot $env.InstallRoot `
-            -ToolsRoot $env.ToolsRoot `
-            -ApiPath $env.ApiPath `
-            -WebPath $env.WebPath `
-            -ConfigPath $env.ConfigPath } |
+        { Invoke-TestInstallScript -Environment $env } |
             Should -Throw '*API*'
     }
 
@@ -748,13 +799,7 @@ Describe 'install-production-package.ps1 scenarios' {
 
         $env = New-InstallTestEnvironment
 
-        { & $script:InstallScript `
-            -PackagePath $env.ZipPath `
-            -InstallRoot $env.InstallRoot `
-            -ToolsRoot $env.ToolsRoot `
-            -ApiPath $env.ApiPath `
-            -WebPath $env.WebPath `
-            -ConfigPath $env.ConfigPath } |
+        { Invoke-TestInstallScript -Environment $env } |
             Should -Throw
 
         $global:deployOrder | Should -Not -Contain 'stop-api'
@@ -780,13 +825,7 @@ Describe 'install-production-package.ps1 scenarios' {
         $env = New-InstallTestEnvironment
         'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
-        & $script:InstallScript `
-            -PackagePath $env.ZipPath `
-            -InstallRoot $env.InstallRoot `
-            -ToolsRoot $env.ToolsRoot `
-            -ApiPath $env.ApiPath `
-            -WebPath $env.WebPath `
-            -ConfigPath $env.ConfigPath | Out-Null
+        Invoke-TestInstallScript -Environment $env | Out-Null
 
         $global:deployOrder[0] | Should -Be 'db-backup'
         ($global:deployOrder.IndexOf('db-backup') -lt $global:deployOrder.IndexOf('stop-api')) | Should -BeTrue
@@ -810,13 +849,7 @@ Describe 'install-production-package.ps1 scenarios' {
 
         $output = @()
         try {
-            & $script:InstallScript `
-                -PackagePath $env.ZipPath `
-                -InstallRoot $env.InstallRoot `
-                -ToolsRoot $env.ToolsRoot `
-                -ApiPath $env.ApiPath `
-                -WebPath $env.WebPath `
-                -ConfigPath $env.ConfigPath *>&1 |
+            Invoke-TestInstallScript -Environment $env *>&1 |
                 ForEach-Object { $output += $_.ToString() }
         }
         catch {
@@ -833,14 +866,7 @@ Describe 'install-production-package.ps1 scenarios' {
         'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'apply-migrations.ps1') -Encoding ASCII
         'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
-        { & $script:InstallScript `
-            -PackagePath $env.ZipPath `
-            -InstallRoot $env.InstallRoot `
-            -ToolsRoot $env.ToolsRoot `
-            -ApiPort 5001 `
-            -ApiPath $env.ApiPath `
-            -WebPath $env.WebPath `
-            -ConfigPath $env.ConfigPath } | Should -Not -Throw
+        { Invoke-TestInstallScript -Environment $env -AdditionalParameters @{ ApiPort = 5001 } } | Should -Not -Throw
     }
 
     It 'derives ApiBaseUrl from ApiPort when URL is omitted' {

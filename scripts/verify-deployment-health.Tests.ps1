@@ -2,6 +2,22 @@
 
 BeforeAll {
     $script:HealthScript = Join-Path $PSScriptRoot 'verify-deployment-health.ps1'
+    $script:CommonPath = Join-Path $PSScriptRoot 'deployment\Common.ps1'
+
+    function Invoke-TestHealthScript {
+        param(
+            [string]$ApiBaseUrl,
+            [int]$RetryCount = 1,
+            [int]$RetryDelaySec = 2
+        )
+
+        & $script:HealthScript `
+            -ApiBaseUrl $ApiBaseUrl `
+            -RetryCount $RetryCount `
+            -RetryDelaySec $RetryDelaySec `
+            -SkipPlaywrightFilesystemChecks `
+            -SkipPlaywrightProcessSmokeTest
+    }
 
     function Test-ValidCorrelationId {
         param([string]$Value)
@@ -23,7 +39,12 @@ BeforeAll {
 
         $body = @{ status = $HealthStatus }
         if ($HealthStatus -eq 'healthy') {
-            $body.checks = @{ database = $DatabaseCheck }
+            $body.checks = @{
+                database = $DatabaseCheck
+                playwrightChromium = 'pass'
+                reportNumberSequence = 'pass'
+                institutionalReporting = 'pass'
+            }
         }
 
         return [pscustomobject]@{
@@ -82,7 +103,7 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
     It 'PASS: /health/live succeeds on first attempt' {
         Mock-HealthyApi
 
-        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
             Should -Not -Throw
     }
 
@@ -92,12 +113,12 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
             $path = ([uri]$Uri).AbsolutePath
 
             if ($path -eq '/health/live') {
-                if (-not $script:liveAttemptCount) {
-                    $script:liveAttemptCount = 0
+                if (-not $global:liveAttemptCount) {
+                    $global:liveAttemptCount = 0
                 }
 
-                $script:liveAttemptCount++
-                if ($script:liveAttemptCount -lt 2) {
+                $global:liveAttemptCount++
+                if ($global:liveAttemptCount -lt 2) {
                     throw 'starting'
                 }
 
@@ -115,9 +136,9 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
             throw "Unexpected path $path"
         }
 
-        $script:liveAttemptCount = 0
+        $global:liveAttemptCount = 0
 
-        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 3 -RetryDelaySec 1 } |
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 3 -RetryDelaySec 1 } |
             Should -Not -Throw
 
         Assert-MockCalled Invoke-WebRequest -ParameterFilter { $Uri -like '*/health/live' } -Times 2 -Exactly
@@ -127,7 +148,7 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
     It 'FAIL: endpoint fails through final retry' {
         Mock Invoke-WebRequest { throw 'connection refused' }
 
-        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 2 -RetryDelaySec 1 } |
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 2 -RetryDelaySec 1 } |
             Should -Throw '*liveness failed after 2 attempts*'
     }
 
@@ -136,7 +157,7 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
             return (New-HealthResponse -Status 503 -HealthStatus 'not_ready')
         }
 
-        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
             Should -Throw '*unexpected status 503*'
     }
 
@@ -149,7 +170,7 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
             }
         }
 
-        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
             Should -Throw '*invalid JSON*'
     }
 
@@ -158,7 +179,7 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
             return (New-HealthResponse -Status 200 -HealthStatus 'degraded')
         }
 
-        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
             Should -Throw "*instead of 'live'*"
     }
 
@@ -171,7 +192,7 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
             }
         }
 
-        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
             Should -Throw '*did not return X-Correlation-ID header*'
     }
 
@@ -184,7 +205,7 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
             }
         }
 
-        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
             Should -Throw '*multiple X-Correlation-ID header values*'
     }
 
@@ -197,7 +218,7 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
             }
         }
 
-        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
             Should -Throw '*invalid X-Correlation-ID header*'
     }
 
@@ -218,14 +239,14 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
             return (New-HealthResponse -Status 200 -HealthStatus 'healthy')
         }
 
-        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000/' -RetryCount 1 } |
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000/' -RetryCount 1 } |
             Should -Not -Throw
     }
 
     It 'PASS: base URL without trailing slash' {
         Mock-HealthyApi
 
-        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
             Should -Not -Throw
     }
 
@@ -239,7 +260,7 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
             throw [System.Net.WebException]::new('503')
         }
 
-        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
             Should -Throw
     }
 
@@ -275,7 +296,7 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
         }
 
         {
-            & $script:HealthScript `
+            Invoke-TestHealthScript `
                 -ApiBaseUrl 'http://localhost:5000' `
                 -RetryCount 1
         } | Should -Throw '*summary failed with unexpected status 503*'
@@ -308,13 +329,90 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
             switch ($path) {
                 '/health/live' { return (New-HealthResponse -Status 200 -HealthStatus 'live') }
                 '/health/ready' { return (New-HealthResponse -Status 200 -HealthStatus 'ready') }
-                '/health' { return (New-HealthResponse -Status 200 -HealthStatus 'healthy' -DatabaseCheck 'fail') }
+                '/health' {
+                    return (New-HealthResponse -Status 200 -HealthStatus 'healthy' -DatabaseCheck 'fail')
+                }
                 default { throw "Unexpected path $path" }
             }
         }
 
-        { & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
             Should -Throw "*database check 'fail' instead of 'pass'*"
+    }
+
+    It 'FAIL: summary missing required reporting check' {
+        Mock Invoke-WebRequest {
+            param($Uri)
+            $path = ([uri]$Uri).AbsolutePath
+            switch ($path) {
+                '/health/live' { return (New-HealthResponse -Status 200 -HealthStatus 'live') }
+                '/health/ready' { return (New-HealthResponse -Status 200 -HealthStatus 'ready') }
+                '/health' {
+                    return [pscustomobject]@{
+                        StatusCode = 200
+                        Content = (@{
+                            status = 'healthy'
+                            checks = @{ database = 'pass' }
+                        } | ConvertTo-Json -Compress)
+                        Headers = @{ 'X-Correlation-ID' = 'abc123' }
+                    }
+                }
+                default { throw "Unexpected path $path" }
+            }
+        }
+
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
+            Should -Throw "*required check 'playwrightChromium'*"
+    }
+}
+
+Describe 'verify-deployment-health Common.ps1 requirements' {
+    It 'fails when Common.ps1 is missing from script and tools roots' {
+        $root = Join-Path $env:TEMP ("uqeb-health-common-" + [Guid]::NewGuid().ToString('N'))
+        $isolatedScript = Join-Path $root 'verify-deployment-health.ps1'
+        $sourceScript = Join-Path $PSScriptRoot 'verify-deployment-health.ps1'
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        Copy-Item -LiteralPath $sourceScript -Destination $isolatedScript -Force
+
+        {
+            & $isolatedScript `
+                -ApiBaseUrl 'http://localhost:5000' `
+                -ToolsRoot (Join-Path $root 'missing-tools') `
+                -SkipPlaywrightFilesystemChecks `
+                -SkipPlaywrightProcessSmokeTest `
+                -RetryCount 1
+        } | Should -Throw '*Common.ps1*'
+    }
+
+    It 'loads Common.ps1 from deployment folder beside script' {
+        $root = Join-Path $env:TEMP ("uqeb-health-common-ok-" + [Guid]::NewGuid().ToString('N'))
+        $deploymentDir = Join-Path $root 'deployment'
+        $isolatedScript = Join-Path $root 'verify-deployment-health.ps1'
+        $sourceScript = Join-Path $PSScriptRoot 'verify-deployment-health.ps1'
+        New-Item -ItemType Directory -Path $deploymentDir -Force | Out-Null
+        Copy-Item -LiteralPath $script:CommonPath -Destination (Join-Path $deploymentDir 'Common.ps1') -Force
+        Copy-Item -LiteralPath $sourceScript -Destination $isolatedScript -Force
+
+        Mock Invoke-WebRequest {
+            param($Uri)
+            $path = ([uri]$Uri).AbsolutePath
+            switch ($path) {
+                '/health/live' { return (New-HealthResponse -Status 200 -HealthStatus 'live') }
+                '/health/ready' { return (New-HealthResponse -Status 200 -HealthStatus 'ready') }
+                '/health' {
+                    return (New-HealthResponse -Status 200 -HealthStatus 'healthy')
+                }
+                default { throw "Unexpected path $path" }
+            }
+        }
+
+        {
+            & $isolatedScript `
+                -ApiBaseUrl 'http://localhost:5000' `
+                -SkipPlaywrightFilesystemChecks `
+                -SkipPlaywrightProcessSmokeTest `
+                -RetryCount 1
+        } | Should -Not -Throw
     }
 }
 
@@ -324,7 +422,7 @@ Describe 'deploy script health verifier integration pattern' {
 
         {
             try {
-                & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1
+                Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1
             }
             catch {
                 throw "Post-deploy health verification failed. Details: $($_.Exception.Message)"
@@ -337,7 +435,7 @@ Describe 'deploy script health verifier integration pattern' {
 
         $deploySucceeded = $false
         try {
-            & $script:HealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1
+            Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1
             $deploySucceeded = $true
         }
         catch {

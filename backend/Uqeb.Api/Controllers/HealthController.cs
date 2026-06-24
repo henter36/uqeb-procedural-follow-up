@@ -10,13 +10,16 @@ namespace Uqeb.Api.Controllers;
 public class HealthController : ControllerBase
 {
     private readonly IHealthDatabaseProbe _databaseProbe;
+    private readonly IDeploymentReportingHealthContributor _reportingHealth;
     private readonly ILogger<HealthController> _logger;
 
     public HealthController(
         IHealthDatabaseProbe databaseProbe,
+        IDeploymentReportingHealthContributor reportingHealth,
         ILogger<HealthController> logger)
     {
         _databaseProbe = databaseProbe;
+        _reportingHealth = reportingHealth;
         _logger = logger;
     }
 
@@ -33,39 +36,114 @@ public class HealthController : ControllerBase
     [HttpGet("ready")]
     public async Task<IActionResult> Ready(CancellationToken cancellationToken)
     {
-        var result = await CheckDatabaseSafelyAsync(
+        var databaseResult = await CheckDatabaseSafelyAsync(
             cancellationToken,
             "Health readiness check");
+        var reportingResult = await CheckReportingSafelyAsync(cancellationToken);
 
-        return MapDatabaseResult(
-            result,
-            readySuccessStatus: "ready",
-            notReadyStatus: "not_ready");
+        if (databaseResult.Status != HealthDatabaseStatus.Ready)
+        {
+            return MapDatabaseResult(
+                databaseResult,
+                readySuccessStatus: "ready",
+                notReadyStatus: "not_ready");
+        }
+
+        if (!reportingResult.IsReady)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                status = "not_ready",
+                reason = "reporting_not_ready",
+                checks = ToCheckDictionary(reportingResult.Checks),
+                timestampUtc = DateTime.UtcNow,
+            });
+        }
+
+        return Ok(new
+        {
+            status = "ready",
+            checks = ToCheckDictionary(reportingResult.Checks),
+            timestampUtc = DateTime.UtcNow,
+        });
     }
 
     [HttpGet]
     public async Task<IActionResult> Summary(CancellationToken cancellationToken)
     {
-        var result = await CheckDatabaseSafelyAsync(
+        var databaseResult = await CheckDatabaseSafelyAsync(
             cancellationToken,
             "Health summary check");
+        var reportingResult = await CheckReportingSafelyAsync(cancellationToken);
 
-        var databaseReady = result.Status == HealthDatabaseStatus.Ready;
+        var databaseReady = databaseResult.Status == HealthDatabaseStatus.Ready;
+        var reportingReady = reportingResult.IsReady;
+        var checks = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["live"] = "pass",
+            ["database"] = databaseReady ? "pass" : "fail",
+        };
+
+        foreach (var check in reportingResult.Checks)
+        {
+            checks[check.Name] = check.Status;
+        }
+
+        var healthy = databaseReady && reportingReady;
         var payload = new
         {
-            status = databaseReady ? "healthy" : "degraded",
-            checks = new
-            {
-                live = "pass",
-                database = databaseReady ? "pass" : "fail",
-            },
+            status = healthy ? "healthy" : "degraded",
+            checks,
             timestampUtc = DateTime.UtcNow,
         };
 
-        return databaseReady
+        return healthy
             ? Ok(payload)
             : StatusCode(StatusCodes.Status503ServiceUnavailable, payload);
     }
+
+    private async Task<DeploymentReportingHealthResult> CheckReportingSafelyAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _reportingHealth.EvaluateAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                exception,
+                "Reporting readiness check timed out.");
+
+            return new DeploymentReportingHealthResult(
+                FeatureEnabled: true,
+                IsReady: false,
+                Checks:
+                [
+                    new DeploymentReportingHealthCheck("institutionalReporting", "fail", "reporting_timeout"),
+                ]);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(
+                exception,
+                "Reporting readiness check failed.");
+
+            return new DeploymentReportingHealthResult(
+                FeatureEnabled: true,
+                IsReady: false,
+                Checks:
+                [
+                    new DeploymentReportingHealthCheck("institutionalReporting", "fail", "reporting_error"),
+                ]);
+        }
+    }
+
+    private static Dictionary<string, string> ToCheckDictionary(IReadOnlyList<DeploymentReportingHealthCheck> checks) =>
+        checks.ToDictionary(check => check.Name, check => check.Status, StringComparer.OrdinalIgnoreCase);
 
     private async Task<HealthDatabaseCheckResult> CheckDatabaseSafelyAsync(
         CancellationToken cancellationToken,

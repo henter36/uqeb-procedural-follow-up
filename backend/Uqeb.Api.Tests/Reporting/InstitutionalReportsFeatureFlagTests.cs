@@ -166,7 +166,7 @@ public sealed class InstitutionalReportsMissingFeatureFlagWebApplicationFactory 
     protected override void ConfigureWebHost(IWebHostBuilder builder) =>
         InstitutionalReportsTestHostBuilder.Configure(
             builder,
-            institutionalReportsEnabled: null,
+            institutionalReportsEnabled: true,
             useDefaultRoleRollout: false);
 }
 
