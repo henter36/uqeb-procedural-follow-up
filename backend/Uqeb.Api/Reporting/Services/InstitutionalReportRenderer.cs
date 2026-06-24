@@ -54,7 +54,14 @@ public sealed class InstitutionalReportRenderer
         if (coverPageIndex >= 0)
         {
             var coverPage = pages[coverPageIndex];
-            pages[coverPageIndex] = coverPage with { HtmlContent = RenderCover(model) };
+            pages[coverPageIndex] = coverPage with
+            {
+                HtmlContent = WrapPage(
+                    RenderCover(model),
+                    pageNumber: coverPageIndex + 1,
+                    totalPages: pages.Count,
+                    partial: false),
+            };
         }
 
         return BuildManifestResult(model, pages);
