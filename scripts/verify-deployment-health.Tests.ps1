@@ -2,6 +2,7 @@
 
 BeforeAll {
     $script:HealthScript = Join-Path $PSScriptRoot 'verify-deployment-health.ps1'
+    $script:CommonPath = Join-Path $PSScriptRoot 'deployment\Common.ps1'
 
     function Invoke-TestHealthScript {
         param(
@@ -38,7 +39,12 @@ BeforeAll {
 
         $body = @{ status = $HealthStatus }
         if ($HealthStatus -eq 'healthy') {
-            $body.checks = @{ database = $DatabaseCheck }
+            $body.checks = @{
+                database = $DatabaseCheck
+                playwrightChromium = 'pass'
+                reportNumberSequence = 'pass'
+                institutionalReporting = 'pass'
+            }
         }
 
         return [pscustomobject]@{
@@ -323,13 +329,90 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
             switch ($path) {
                 '/health/live' { return (New-HealthResponse -Status 200 -HealthStatus 'live') }
                 '/health/ready' { return (New-HealthResponse -Status 200 -HealthStatus 'ready') }
-                '/health' { return (New-HealthResponse -Status 200 -HealthStatus 'healthy' -DatabaseCheck 'fail') }
+                '/health' {
+                    return (New-HealthResponse -Status 200 -HealthStatus 'healthy' -DatabaseCheck 'fail')
+                }
                 default { throw "Unexpected path $path" }
             }
         }
 
         { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
             Should -Throw "*database check 'fail' instead of 'pass'*"
+    }
+
+    It 'FAIL: summary missing required reporting check' {
+        Mock Invoke-WebRequest {
+            param($Uri)
+            $path = ([uri]$Uri).AbsolutePath
+            switch ($path) {
+                '/health/live' { return (New-HealthResponse -Status 200 -HealthStatus 'live') }
+                '/health/ready' { return (New-HealthResponse -Status 200 -HealthStatus 'ready') }
+                '/health' {
+                    return [pscustomobject]@{
+                        StatusCode = 200
+                        Content = (@{
+                            status = 'healthy'
+                            checks = @{ database = 'pass' }
+                        } | ConvertTo-Json -Compress)
+                        Headers = @{ 'X-Correlation-ID' = 'abc123' }
+                    }
+                }
+                default { throw "Unexpected path $path" }
+            }
+        }
+
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
+            Should -Throw "*required check 'playwrightChromium'*"
+    }
+}
+
+Describe 'verify-deployment-health Common.ps1 requirements' {
+    It 'fails when Common.ps1 is missing from script and tools roots' {
+        $root = Join-Path $env:TEMP ("uqeb-health-common-" + [Guid]::NewGuid().ToString('N'))
+        $isolatedScript = Join-Path $root 'verify-deployment-health.ps1'
+        $sourceScript = Join-Path $PSScriptRoot 'verify-deployment-health.ps1'
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        Copy-Item -LiteralPath $sourceScript -Destination $isolatedScript -Force
+
+        {
+            & $isolatedScript `
+                -ApiBaseUrl 'http://localhost:5000' `
+                -ToolsRoot (Join-Path $root 'missing-tools') `
+                -SkipPlaywrightFilesystemChecks `
+                -SkipPlaywrightProcessSmokeTest `
+                -RetryCount 1
+        } | Should -Throw '*Common.ps1*'
+    }
+
+    It 'loads Common.ps1 from deployment folder beside script' {
+        $root = Join-Path $env:TEMP ("uqeb-health-common-ok-" + [Guid]::NewGuid().ToString('N'))
+        $deploymentDir = Join-Path $root 'deployment'
+        $isolatedScript = Join-Path $root 'verify-deployment-health.ps1'
+        $sourceScript = Join-Path $PSScriptRoot 'verify-deployment-health.ps1'
+        New-Item -ItemType Directory -Path $deploymentDir -Force | Out-Null
+        Copy-Item -LiteralPath $script:CommonPath -Destination (Join-Path $deploymentDir 'Common.ps1') -Force
+        Copy-Item -LiteralPath $sourceScript -Destination $isolatedScript -Force
+
+        Mock Invoke-WebRequest {
+            param($Uri)
+            $path = ([uri]$Uri).AbsolutePath
+            switch ($path) {
+                '/health/live' { return (New-HealthResponse -Status 200 -HealthStatus 'live') }
+                '/health/ready' { return (New-HealthResponse -Status 200 -HealthStatus 'ready') }
+                '/health' {
+                    return (New-HealthResponse -Status 200 -HealthStatus 'healthy')
+                }
+                default { throw "Unexpected path $path" }
+            }
+        }
+
+        {
+            & $isolatedScript `
+                -ApiBaseUrl 'http://localhost:5000' `
+                -SkipPlaywrightFilesystemChecks `
+                -SkipPlaywrightProcessSmokeTest `
+                -RetryCount 1
+        } | Should -Not -Throw
     }
 }
 

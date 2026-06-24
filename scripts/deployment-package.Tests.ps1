@@ -216,7 +216,7 @@ BeforeAll {
             ConfigPath = $configPath
             ApiPath = Join-Path $installRoot 'publish\api'
             WebPath = Join-Path $installRoot 'publish\web'
-            PlaywrightBrowsersPath = Join-Path $tools 'ms-playwright'
+            PlaywrightBrowsersPath = Join-Path $installRoot 'tools\ms-playwright'
         }
     }
 

@@ -1048,6 +1048,37 @@ function Get-DirectorySizeBytes {
         Measure-Object -Property Length -Sum).Sum
 }
 
+function Assert-PlaywrightBrowserSourcePathSafe {
+    param(
+        [string]$SourcePath,
+        [string]$StagingBrowsersPath,
+        [string]$TempStagingRoot
+    )
+
+    $sourceFull = [System.IO.Path]::GetFullPath($SourcePath)
+    $destinationFull = [System.IO.Path]::GetFullPath($StagingBrowsersPath)
+    if ($sourceFull.Equals($destinationFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'مصدر Chromium يطابق مجلد الوجهة في الحزمة.'
+    }
+
+    $tempFull = [System.IO.Path]::GetFullPath($TempStagingRoot)
+    $separator = [System.IO.Path]::DirectorySeparatorChar
+    if (-not $tempFull.EndsWith([string]$separator)) {
+        $tempFull += $separator
+    }
+
+    if ($sourceFull.StartsWith($tempFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'مصدر Chromium داخل مجلد staging المؤقت الذي سيُحذف.'
+    }
+
+    if (Test-Path -LiteralPath $sourceFull) {
+        $sourceItem = Get-Item -LiteralPath $sourceFull -Force
+        if (($sourceItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "مصدر Chromium غير موثوق (reparse point): $sourceFull"
+        }
+    }
+}
+
 function Get-PlaywrightBrowserExecutable {
     param([string]$BrowsersRoot)
 
@@ -1243,6 +1274,63 @@ function Remove-DirectoryIfExists {
     }
 }
 
+function Get-MigrationIdsFromDataTable {
+    param([System.Data.DataTable]$Table)
+
+    $migrationIds = New-Object System.Collections.Generic.List[string]
+    foreach ($row in $Table.Rows) {
+        $migrationId = ([string]$row.MigrationId).Trim()
+        if ($migrationId) {
+            [void]$migrationIds.Add($migrationId)
+        }
+    }
+
+    return ,$migrationIds.ToArray()
+}
+
+function Resolve-MigrationIdsFromHandlerResult {
+    param($Result)
+
+    if ($null -eq $Result) {
+        return ,@()
+    }
+
+    if ($Result -is [string]) {
+        $migrationId = $Result.Trim()
+        if ($migrationId) {
+            return ,@($migrationId)
+        }
+
+        return ,@()
+    }
+
+    if ($Result -is [string[]]) {
+        return ,@($Result | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    }
+
+    if ($Result -is [System.Data.DataTable]) {
+        return Get-MigrationIdsFromDataTable -Table $Result
+    }
+
+    if ($Result -is [System.Data.DataRow]) {
+        return Get-MigrationIdsFromDataTable -Table $Result.Table
+    }
+
+    if ($Result -is [System.Array]) {
+        if ($Result.Count -gt 0 -and ($Result[0] -is [string])) {
+            return ,@($Result | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
+        }
+
+        foreach ($item in $Result) {
+            if ($item -is [System.Data.DataTable]) {
+                return Get-MigrationIdsFromDataTable -Table $item
+            }
+        }
+    }
+
+    return ,@()
+}
+
 function Get-AppliedMigrationIds {
     param([string]$ConnectionString)
 
@@ -1252,50 +1340,7 @@ function Get-AppliedMigrationIds {
             -CommandText 'SELECT [MigrationId] FROM [dbo].[__EFMigrationsHistory] ORDER BY [MigrationId];' `
             -DataTable:$true
 
-        $resolvedTable = $null
-        if ($result -is [string]) {
-            $migrationId = $result.Trim()
-            if ($migrationId) {
-                return ,@($migrationId)
-            }
-            return ,@()
-        }
-
-        if ($result -is [string[]]) {
-            return ,@($result | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-        }
-
-        if ($result -is [System.Data.DataTable]) {
-            $resolvedTable = $result
-        }
-        elseif ($result -is [System.Data.DataRow]) {
-            $resolvedTable = $result.Table
-        }
-        elseif ($result -is [System.Array]) {
-            if ($result.Count -gt 0 -and ($result[0] -is [string])) {
-                return ,@($result | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
-            }
-
-            foreach ($item in $result) {
-                if ($item -is [System.Data.DataTable]) {
-                    $resolvedTable = $item
-                    break
-                }
-            }
-        }
-
-        if ($null -ne $resolvedTable) {
-            $migrationIds = New-Object System.Collections.Generic.List[string]
-            foreach ($row in $resolvedTable.Rows) {
-                $migrationId = ([string]$row.MigrationId).Trim()
-                if ($migrationId) {
-                    [void]$migrationIds.Add($migrationId)
-                }
-            }
-            return ,$migrationIds.ToArray()
-        }
-
-        return ,@()
+        return Resolve-MigrationIdsFromHandlerResult -Result $result
     }
 
     $sql = 'SELECT [MigrationId] FROM [dbo].[__EFMigrationsHistory] ORDER BY [MigrationId];'
@@ -1360,6 +1405,109 @@ function Test-RequiredMigrationApplied {
     }
 }
 
+function Get-SafeArchiveDestinationRoot {
+    param([string]$DestinationPath)
+
+    $destinationFull = [System.IO.Path]::GetFullPath($DestinationPath)
+    $separator = [System.IO.Path]::DirectorySeparatorChar
+    if (-not $destinationFull.EndsWith([string]$separator)) {
+        $destinationFull += $separator
+    }
+
+    Ensure-Directory $destinationFull
+    return $destinationFull
+}
+
+function Test-ArchiveEntryNameIsUnsafe {
+    param([string]$EntryName)
+
+    if ([string]::IsNullOrWhiteSpace($EntryName)) {
+        return $true
+    }
+
+    $normalized = $EntryName.Replace('/', '\')
+    if ($normalized -match '(^|[\\/])\.\.([\\/]|$)') {
+        return $true
+    }
+
+    if ($EntryName.StartsWith('/') -or $EntryName.StartsWith('\')) {
+        return $true
+    }
+
+    if ($EntryName.Contains(':')) {
+        return $true
+    }
+
+    if ($normalized.StartsWith('\\')) {
+        return $true
+    }
+
+    if ($EntryName -match ':') {
+        return $true
+    }
+
+    return $false
+}
+
+function Resolve-SafeArchiveTargetPath {
+    param(
+        [string]$DestinationRoot,
+        [string]$EntryName
+    )
+
+    if (Test-ArchiveEntryNameIsUnsafe -EntryName $EntryName) {
+        throw "تم رفض مسار غير آمن داخل ZIP: $EntryName"
+    }
+
+    $targetFull = [System.IO.Path]::GetFullPath((Join-Path $DestinationRoot $EntryName))
+    if (-not $targetFull.StartsWith($DestinationRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "تم رفض مسار غير آمن داخل ZIP: $EntryName"
+    }
+
+    return $targetFull
+}
+
+function Test-ArchiveEntryIsReparsePoint {
+    param([string]$TargetPath)
+
+    if (-not (Test-Path -LiteralPath $TargetPath)) {
+        return $false
+    }
+
+    $item = Get-Item -LiteralPath $TargetPath -Force
+    return ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0
+}
+
+function Expand-SafeArchiveEntry {
+    param(
+        [System.IO.Compression.ZipArchiveEntry]$Entry,
+        [string]$DestinationRoot
+    )
+
+    $entryName = $Entry.FullName
+    if ([string]::IsNullOrWhiteSpace($entryName)) {
+        throw 'تم رفض إدخال ZIP باسم فارغ.'
+    }
+
+    $targetPath = Resolve-SafeArchiveTargetPath -DestinationRoot $DestinationRoot -EntryName $entryName
+    if (Test-ArchiveEntryIsReparsePoint -TargetPath $targetPath) {
+        throw "تم رفض reparse point داخل ZIP: $entryName"
+    }
+
+    if ($entryName.EndsWith('/') -or $entryName.EndsWith('\')) {
+        Ensure-Directory $targetPath
+        return
+    }
+
+    if ($Entry.Name -match ':') {
+        throw "تم رفض alternate data stream داخل ZIP: $entryName"
+    }
+
+    $targetDirectory = Split-Path -Parent $targetPath
+    Ensure-Directory $targetDirectory
+    [System.IO.Compression.ZipFileExtensions]::ExtractToFile($Entry, $targetPath, $true)
+}
+
 function Expand-ArchiveSafely {
     param(
         [string]$ArchivePath,
@@ -1369,32 +1517,10 @@ function Expand-ArchiveSafely {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $archive = [System.IO.Compression.ZipFile]::OpenRead($ArchivePath)
     try {
-        $destinationFull = [System.IO.Path]::GetFullPath($DestinationPath)
-        Ensure-Directory $destinationFull
+        $destinationRoot = Get-SafeArchiveDestinationRoot -DestinationPath $DestinationPath
 
         foreach ($entry in $archive.Entries) {
-            $entryName = $entry.FullName
-            if ([string]::IsNullOrWhiteSpace($entryName)) {
-                continue
-            }
-
-            if ($entryName -match '(^|[\\/])\.\.([\\/]|$)' -or $entryName.Contains(':')) {
-                throw "إدخال ZIP غير آمن: $entryName"
-            }
-
-            $targetPath = [System.IO.Path]::GetFullPath((Join-Path $destinationFull $entryName))
-            if (-not $targetPath.StartsWith($destinationFull, [System.StringComparison]::OrdinalIgnoreCase)) {
-                throw "إدخال ZIP يخرج عن مجلد الاستخراج: $entryName"
-            }
-
-            if ($entryName.EndsWith('/')) {
-                Ensure-Directory $targetPath
-                continue
-            }
-
-            $targetDirectory = Split-Path -Parent $targetPath
-            Ensure-Directory $targetDirectory
-            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $targetPath, $true)
+            Expand-SafeArchiveEntry -Entry $entry -DestinationRoot $destinationRoot
         }
     }
     finally {

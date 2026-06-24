@@ -13,6 +13,7 @@ param(
 
     [string]$PlaywrightBrowsersPath = "C:\Uqeb\tools\ms-playwright",
     [string]$ExpectedBrowserExecutableSha256 = "",
+    [string]$ToolsRoot = "C:\UqebTools",
     [switch]$SkipPlaywrightProcessSmokeTest,
     [switch]$SkipPlaywrightFilesystemChecks
 )
@@ -20,8 +21,23 @@ param(
 $ErrorActionPreference = "Stop"
 
 $commonPath = Join-Path $PSScriptRoot "deployment\Common.ps1"
-if (Test-Path -LiteralPath $commonPath) {
-    . $commonPath
+if (-not (Test-Path -LiteralPath $commonPath)) {
+    $commonPath = Join-Path $ToolsRoot "deployment\Common.ps1"
+}
+
+if (-not (Test-Path -LiteralPath $commonPath)) {
+    throw "سكربت deployment\Common.ps1 المطلوب غير موجود."
+}
+
+. $commonPath
+
+foreach ($requiredCommand in @(
+    "Test-PlaywrightBrowserPayload",
+    "Get-FileSha256Hex"
+)) {
+    if (-not (Get-Command $requiredCommand -ErrorAction SilentlyContinue)) {
+        throw "الدالة المطلوبة غير متاحة: $requiredCommand"
+    }
 }
 
 function Test-ValidCorrelationId {
@@ -105,11 +121,13 @@ function Assert-SummaryChecks {
     }
 
     foreach ($checkName in @('playwrightChromium', 'reportNumberSequence', 'institutionalReporting')) {
-        if ($payload.checks.PSObject.Properties.Name -contains $checkName) {
-            $value = [string]$payload.checks.$checkName
-            if ($value -notin @('pass', 'not_applicable')) {
-                throw "$Label reported $checkName='$value'."
-            }
+        if ($payload.checks.PSObject.Properties.Name -notcontains $checkName) {
+            throw "$Label did not return required check '$checkName'."
+        }
+
+        $value = [string]$payload.checks.$checkName
+        if ($value -notin @('pass', 'not_applicable')) {
+            throw "$Label reported $checkName='$value'."
         }
     }
 }
@@ -206,7 +224,7 @@ function Invoke-HealthEndpoint {
     }
 }
 
-if (-not $SkipPlaywrightFilesystemChecks -and (Get-Command Test-PlaywrightBrowserPayload -ErrorAction SilentlyContinue)) {
+if (-not $SkipPlaywrightFilesystemChecks) {
     Write-Output "Checking local Playwright browser payload => $PlaywrightBrowsersPath"
     $manifestPath = Join-Path $PlaywrightBrowsersPath "playwright-browser-manifest.json"
     if (-not (Test-Path -LiteralPath $manifestPath)) {
@@ -218,14 +236,16 @@ if (-not $SkipPlaywrightFilesystemChecks -and (Get-Command Test-PlaywrightBrowse
         -ExpectedExecutableSha256 $ExpectedBrowserExecutableSha256 | Out-Null
 }
 
-if (-not $SkipPlaywrightProcessSmokeTest -and (Get-Command Test-PlaywrightBrowserPayload -ErrorAction SilentlyContinue)) {
+if (-not $SkipPlaywrightProcessSmokeTest) {
     $readinessScript = Join-Path $PSScriptRoot "verify-playwright-readiness.ps1"
-    if (Test-Path -LiteralPath $readinessScript) {
-        & $readinessScript `
-            -PlaywrightBrowsersPath $PlaywrightBrowsersPath `
-            -ExpectedBrowserExecutableSha256 $ExpectedBrowserExecutableSha256 `
-            -SkipProcessSmokeTest:$false
+    if (-not (Test-Path -LiteralPath $readinessScript)) {
+        throw "verify-playwright-readiness.ps1 is required but missing."
     }
+
+    & $readinessScript `
+        -PlaywrightBrowsersPath $PlaywrightBrowsersPath `
+        -ExpectedBrowserExecutableSha256 $ExpectedBrowserExecutableSha256 `
+        -SkipProcessSmokeTest:$false
 }
 
 Invoke-HealthEndpoint `

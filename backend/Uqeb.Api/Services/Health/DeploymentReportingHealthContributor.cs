@@ -22,6 +22,10 @@ public interface IDeploymentReportingHealthContributor
 
 public sealed class DeploymentReportingHealthContributor : IDeploymentReportingHealthContributor
 {
+    private const string StatusNotApplicable = "not_applicable";
+    private const string StatusPass = "pass";
+    private const string StatusFail = "fail";
+
     private readonly FeatureFlagsSettings _featureFlags;
     private readonly IReportingChromiumProbe _chromiumProbe;
     private readonly IReportNumberSequenceSchemaProbe _sequenceSchemaProbe;
@@ -45,18 +49,18 @@ public sealed class DeploymentReportingHealthContributor : IDeploymentReportingH
                 IsReady: true,
                 Checks:
                 [
-                    new DeploymentReportingHealthCheck("institutionalReporting", "not_applicable"),
-                    new DeploymentReportingHealthCheck("playwrightChromium", "not_applicable"),
-                    new DeploymentReportingHealthCheck("reportNumberSequence", "not_applicable"),
+                    new DeploymentReportingHealthCheck("institutionalReporting", StatusNotApplicable),
+                    new DeploymentReportingHealthCheck("playwrightChromium", StatusNotApplicable),
+                    new DeploymentReportingHealthCheck("reportNumberSequence", StatusNotApplicable),
                 ]);
         }
 
         var chromium = await _chromiumProbe.ProbeLaunchOnlyAsync(cancellationToken);
         var sequenceAvailable = await _sequenceSchemaProbe.IsTableAvailableAsync(cancellationToken);
 
-        var chromiumStatus = chromium.LaunchSuccessful ? "pass" : "fail";
-        var sequenceStatus = sequenceAvailable ? "pass" : "fail";
-        var reportingStatus = chromium.LaunchSuccessful && sequenceAvailable ? "pass" : "fail";
+        var chromiumStatus = chromium.LaunchSuccessful ? StatusPass : StatusFail;
+        var sequenceStatus = sequenceAvailable ? StatusPass : StatusFail;
+        var reportingStatus = chromium.LaunchSuccessful && sequenceAvailable ? StatusPass : StatusFail;
 
         var checks = new List<DeploymentReportingHealthCheck>
         {
@@ -67,7 +71,7 @@ public sealed class DeploymentReportingHealthContributor : IDeploymentReportingH
         };
 
         var isReady = checks.All(check =>
-            check.Status is "pass" or "not_applicable");
+            check.Status is StatusPass or StatusNotApplicable);
 
         return new DeploymentReportingHealthResult(
             FeatureEnabled: true,

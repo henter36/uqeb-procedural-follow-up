@@ -31,7 +31,7 @@ Describe 'Playwright deployment helpers' {
             $executable = New-FakeChromiumTree -Root $root
             $found = Get-PlaywrightBrowserExecutable -BrowsersRoot $root
             $found.FullPath | Should -Be $executable
-            $found.RelativePath | Should -Be 'chromium-1/chrome-win64/chrome.exe'
+            ($found.RelativePath -replace '\\', '/') | Should -Be 'chromium-1/chrome-win64/chrome.exe'
         }
         finally {
             Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
@@ -133,13 +133,69 @@ Describe 'build-production-package.ps1 playwright policy' {
         $content | Should -Match 'Invoke-PlaywrightChromiumInstall'
         $content | Should -Match 'playwright\.ps1'
         $content | Should -Match 'SkipPlaywrightBrowserDownload'
+        $content | Should -Match 'PlaywrightBrowsersSourcePath'
         $content | Should -Not -Match 'npx playwright install'
+    }
+
+    It 'requires PlaywrightBrowsersSourcePath when skip download is enabled' {
+        $content = Get-Content (Join-Path (Split-Path $PSScriptRoot -Parent) 'build-production-package.ps1') -Raw
+        $content | Should -Match 'PlaywrightBrowsersSourcePath'
+        $content | Should -Match 'Assert-PlaywrightBrowserSourcePathSafe'
+    }
+
+    It 'prefixes browser executable path with browsers folder in manifest files' {
+        $content = Get-Content (Join-Path (Split-Path $PSScriptRoot -Parent) 'build-production-package.ps1') -Raw
+        $content | Should -Match "browserRelativePath = 'browsers\\'"
     }
 
     It 'includes browsers folder in package manifest' {
         $content = Get-Content (Join-Path (Split-Path $PSScriptRoot -Parent) 'build-production-package.ps1') -Raw
         $content | Should -Match 'browsers\\playwright-browser-manifest\.json'
         $content | Should -Match 'playwright'
+    }
+}
+
+Describe 'Playwright browser source copy policy' {
+    It 'rejects skip download without source path at parameter validation time' {
+        $buildScript = Join-Path (Split-Path $PSScriptRoot -Parent) 'build-production-package.ps1'
+        $content = Get-Content -LiteralPath $buildScript -Raw
+        $content | Should -Match 'يجب تحديد PlaywrightBrowsersSourcePath'
+    }
+
+    It 'copies valid source into staging browsers without deleting source' {
+        $root = New-PlaywrightTestDirectory
+        $source = Join-Path $root 'cache-browsers'
+        $staging = Join-Path $root 'staging\browsers'
+        try {
+            New-FakeChromiumTree -Root $source | Out-Null
+            Ensure-Directory $staging
+            Invoke-RobocopySafe -Source $source -Destination $staging -TargetType Generic
+            $executable = Get-PlaywrightBrowserExecutable -BrowsersRoot $staging
+            $executable.RelativePath | Should -Not -BeNullOrEmpty
+            Test-Path -LiteralPath (Join-Path $source 'chromium-1\chrome-win64\chrome.exe') | Should -BeTrue
+        }
+        finally {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'rejects source inside temp staging root' {
+        $root = New-PlaywrightTestDirectory
+        $stagingRoot = Join-Path $root 'temp-staging'
+        $source = Join-Path $stagingRoot 'cache'
+        $destination = Join-Path $stagingRoot 'browsers'
+        try {
+            New-Item -ItemType Directory -Path $source -Force | Out-Null
+            {
+                Assert-PlaywrightBrowserSourcePathSafe `
+                    -SourcePath $source `
+                    -StagingBrowsersPath $destination `
+                    -TempStagingRoot $stagingRoot
+            } | Should -Throw '*staging*'
+        }
+        finally {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 

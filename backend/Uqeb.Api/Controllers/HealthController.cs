@@ -108,9 +108,16 @@ public class HealthController : ControllerBase
         {
             return await _reportingHealth.EvaluateAsync(cancellationToken);
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            _logger.LogWarning("Health reporting check timed out.");
+            throw;
+        }
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                exception,
+                "Reporting readiness check timed out.");
+
             return new DeploymentReportingHealthResult(
                 FeatureEnabled: true,
                 IsReady: false,
@@ -121,7 +128,10 @@ public class HealthController : ControllerBase
         }
         catch (Exception exception)
         {
-            _logger.LogError(exception, "Health reporting check failed.");
+            _logger.LogError(
+                exception,
+                "Reporting readiness check failed.");
+
             return new DeploymentReportingHealthResult(
                 FeatureEnabled: true,
                 IsReady: false,

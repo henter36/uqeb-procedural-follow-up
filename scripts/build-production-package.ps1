@@ -9,6 +9,8 @@ param(
     [string]$ProductionApiBaseUrl = "http://10.0.177.17:5000/api",
     [string]$OutputRoot = "artifacts\production",
     [switch]$SkipPlaywrightBrowserDownload,
+    [string]$PlaywrightBrowsersSourcePath = "",
+    [ValidateSet("chromium")]
     [string]$PlaywrightBrowserName = "chromium",
     [switch]$SkipBackendTests,
     [switch]$SkipFrontendTests
@@ -49,6 +51,19 @@ function Invoke-ExternalCommand {
     }
 }
 
+function Ensure-DotNetEfToolAvailable {
+    & dotnet ef --version *> $null
+    if ($LASTEXITCODE -eq 0) {
+        return
+    }
+
+    Write-DeployInfo "تثبيت dotnet-ef global tool..."
+    dotnet tool install --global dotnet-ef
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet-ef غير متوفر ولم ينجح التثبيت."
+    }
+}
+
 Write-DeployStep "التحقق من المتطلبات"
 foreach ($tool in @("dotnet", "node", "npm", "powershell")) {
     if (-not (Test-CommandAvailable $tool)) {
@@ -56,6 +71,8 @@ foreach ($tool in @("dotnet", "node", "npm", "powershell")) {
     }
     Write-DeployInfo "تم العثور على $tool"
 }
+
+Ensure-DotNetEfToolAvailable
 
 $playwrightVersion = Get-PlaywrightPackageVersionFromProject -ProjectPath $backendProject
 Write-DeployInfo ("إصدار Microsoft.Playwright: " + $playwrightVersion)
@@ -65,7 +82,13 @@ if ($drive.Free -and $drive.Free -lt 2GB) {
     throw "مساحة القرص المتاحة منخفضة لبناء الحزمة (أقل من 2GB)."
 }
 
-if (-not $SkipPlaywrightBrowserDownload) {
+if ($SkipPlaywrightBrowserDownload) {
+    if ([string]::IsNullOrWhiteSpace($PlaywrightBrowsersSourcePath)) {
+        throw "يجب تحديد PlaywrightBrowsersSourcePath عند تخطي تنزيل Chromium."
+    }
+    Write-DeployInfo ("سيتم نسخ Chromium من المصدر: " + $PlaywrightBrowsersSourcePath)
+}
+else {
     Write-DeployInfo "سيتم تنزيل Chromium أثناء البناء (يتطلب الإنترنت على جهاز البناء)."
 }
 
@@ -162,6 +185,8 @@ Ensure-Directory $stagingDatabase
 Ensure-Directory $stagingScripts
 Ensure-Directory $stagingBrowsers
 
+$browserPayloadIncluded = $false
+
 try {
     Write-DeployStep "تجهيز محتوى الحزمة"
     Invoke-RobocopySafe -Source $publishDir -Destination $stagingApi -TargetType Api -ExtraArguments @(
@@ -184,10 +209,23 @@ try {
     $browserExecutable = $null
     if ($SkipPlaywrightBrowserDownload) {
         Write-DeployInfo "تم تخطي تنزيل Chromium (-SkipPlaywrightBrowserDownload)."
-        if (-not (Test-DirectoryHasContent $stagingBrowsers)) {
-            throw "لا يوجد محتوى في مجلد browsers وتم تخطي تنزيل Chromium."
+        $sourcePath = [System.IO.Path]::GetFullPath($PlaywrightBrowsersSourcePath)
+        Assert-PlaywrightBrowserSourcePathSafe `
+            -SourcePath $sourcePath `
+            -StagingBrowsersPath $stagingBrowsers `
+            -TempStagingRoot $tempStagingRoot
+
+        if (-not (Test-DirectoryHasContent $sourcePath)) {
+            throw "مجلد Chromium المصدر غير موجود أو فارغ: $sourcePath"
         }
+
+        Invoke-RobocopySafe `
+            -Source $sourcePath `
+            -Destination $stagingBrowsers `
+            -TargetType Generic
+
         $browserExecutable = Get-PlaywrightBrowserExecutable -BrowsersRoot $stagingBrowsers
+        $browserPayloadIncluded = $true
     }
     else {
         Write-DeployStep "تنزيل Chromium المتوافق مع Playwright"
@@ -195,6 +233,7 @@ try {
             -PlaywrightScriptPath $playwrightScript `
             -BrowsersRoot $stagingBrowsers
         Write-DeployInfo ("Chromium executable: " + $browserExecutable.RelativePath)
+        $browserPayloadIncluded = $true
     }
 
     $browserManifest = New-PlaywrightBrowserManifest `
@@ -213,6 +252,7 @@ try {
     }
 
     $minimumMigration = Get-LatestMigrationId -MigrationsDirectory $migrationsDir
+    $browserRelativePath = 'browsers\' + ($browserExecutable.RelativePath -replace '/', '\')
     $manifestFiles = [ordered]@{}
     $importantFiles = @(
         "api\Uqeb.Api.dll",
@@ -222,7 +262,7 @@ try {
         "scripts\apply-migrations.ps1",
         "scripts\verify-deployment-health.ps1",
         "browsers\playwright-browser-manifest.json",
-        ($browserExecutable.RelativePath -replace '/', '\')
+        $browserRelativePath
     )
 
     foreach ($relative in $importantFiles) {
@@ -242,7 +282,7 @@ try {
         playwright = [ordered]@{
             required = $true
             browser = $PlaywrightBrowserName
-            browserPayloadIncluded = (-not $SkipPlaywrightBrowserDownload)
+            browserPayloadIncluded = $browserPayloadIncluded
             packageVersion = $playwrightVersion
             browserRoot = "browsers"
             browserExecutableRelativePath = $browserExecutable.RelativePath
