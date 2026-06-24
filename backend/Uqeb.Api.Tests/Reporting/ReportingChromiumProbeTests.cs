@@ -8,6 +8,7 @@ using Xunit;
 
 namespace Uqeb.Api.Tests.Reporting;
 
+[Collection(PlaywrightTestCollection.Name)]
 public class ReportingChromiumProbeTests
 {
     private static bool RequirePlaywrightInCi =>

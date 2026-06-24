@@ -18,6 +18,16 @@ export const ReportSectionId = {
   ReportMetadata: 9,
   PartialCover: 10,
   PartialManifest: 11,
+  KeyPerformanceIndicators: 12,
+  SignificantFindings: 13,
+  CriticalCases: 14,
+  TimeTrends: 15,
+  ExternalPartyAnalysis: 16,
+  ClassificationAndPriorityAnalysis: 17,
+  DelayAndBottleneckAnalysis: 18,
+  DataQuality: 19,
+  RecommendationsAndActionPlan: 20,
+  MethodologyAndDefinitions: 21,
 } as const;
 
 export const ExportFormat = {
@@ -44,4 +54,24 @@ export const DetailOverflowAction = {
   SummaryOnly: 1,
   SplitPdf: 2,
   FullDetailsXlsx: 3,
+} as const;
+
+export const ReportContentLevel = {
+  Executive: 1,
+  Analytical: 2,
+  Detailed: 3,
+} as const;
+
+export const ReportComparisonMode = {
+  None: 0,
+  PreviousEquivalentPeriod: 1,
+  YearOverYear: 2,
+  Custom: 3,
+} as const;
+
+export const ReportTimeGrouping = {
+  Daily: 1,
+  Weekly: 2,
+  Monthly: 3,
+  Quarterly: 4,
 } as const;

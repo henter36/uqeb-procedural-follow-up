@@ -21,7 +21,17 @@ public enum ReportSectionId
     Appendices = 8,
     ReportMetadata = 9,
     PartialCover = 10,
-    PartialManifest = 11
+    PartialManifest = 11,
+    KeyPerformanceIndicators = 12,
+    SignificantFindings = 13,
+    CriticalCases = 14,
+    TimeTrends = 15,
+    ExternalPartyAnalysis = 16,
+    ClassificationAndPriorityAnalysis = 17,
+    DelayAndBottleneckAnalysis = 18,
+    DataQuality = 19,
+    RecommendationsAndActionPlan = 20,
+    MethodologyAndDefinitions = 21
 }
 
 public enum ExportFormat
@@ -74,6 +84,52 @@ public enum RecommendationSource
 {
     Automated = 1,
     Manual = 2
+}
+
+public enum ReportContentLevel
+{
+    Executive = 1,
+    Analytical = 2,
+    Detailed = 3
+}
+
+public enum ReportComparisonMode
+{
+    None = 0,
+    PreviousEquivalentPeriod = 1,
+    YearOverYear = 2,
+    Custom = 3
+}
+
+public enum ReportTimeGrouping
+{
+    Daily = 1,
+    Weekly = 2,
+    Monthly = 3,
+    Quarterly = 4
+}
+
+public enum KpiDirection
+{
+    HigherIsBetter = 1,
+    LowerIsBetter = 2,
+    Neutral = 3
+}
+
+public enum TrendDirection
+{
+    Improved = 1,
+    Declined = 2,
+    Stable = 3,
+    NotComparable = 4
+}
+
+public enum AnalyticalSeverity
+{
+    Low = 1,
+    Medium = 2,
+    High = 3,
+    Critical = 4
 }
 
 /// <summary>How to handle exports when matching transactions exceed <see cref="Configuration.ReportingOptions.MaxPdfDetailRows"/>.</summary>

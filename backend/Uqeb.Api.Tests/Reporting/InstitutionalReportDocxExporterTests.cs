@@ -3,6 +3,7 @@ using DocumentFormat.OpenXml.Wordprocessing;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
 using Uqeb.Api.Reporting.Exporters;
+using Uqeb.Api.Tests.Reporting.Visual;
 using Xunit;
 
 namespace Uqeb.Api.Tests.Reporting;
@@ -108,5 +109,31 @@ public class InstitutionalReportDocxExporterTests
         var body = document.MainDocumentPart?.Document.Body;
         Assert.NotNull(body);
         Assert.NotEmpty(body!.Elements<Paragraph>());
+    }
+
+    [Fact]
+    public void Export_IncludesAnalyticalSectionsFromUnifiedModel()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        var manifest = InstitutionalReportVisualFixtures.RenderSections(
+            model,
+            ReportSectionId.KeyPerformanceIndicators,
+            ReportSectionId.SignificantFindings,
+            ReportSectionId.CriticalCases,
+            ReportSectionId.RecommendationsAndActionPlan,
+            ReportSectionId.MethodologyAndDefinitions);
+
+        var bytes = InstitutionalReportDocxExporter.Export(model, manifest, new ReportExportRequestDto());
+
+        using var zip = new System.IO.Compression.ZipArchive(new MemoryStream(bytes));
+        var entry = zip.GetEntry("word/document.xml");
+        Assert.NotNull(entry);
+        using var reader = new StreamReader(entry!.Open());
+        var xml = reader.ReadToEnd();
+        Assert.Contains("مؤشرات الأداء الرئيسية", xml);
+        Assert.Contains("ارتفاع نسبة التأخر", xml);
+        Assert.Contains("معاملة حرجة متأخرة", xml);
+        Assert.Contains("مراجعة المعاملات المتأخرة حسب الإدارات الأعلى أثرًا", xml);
+        Assert.Contains("AverageFirstActionHours", xml);
     }
 }

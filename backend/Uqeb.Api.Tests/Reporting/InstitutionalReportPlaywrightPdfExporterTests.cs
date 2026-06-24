@@ -11,6 +11,7 @@ using Xunit;
 
 namespace Uqeb.Api.Tests.Reporting;
 
+[Collection(PlaywrightTestCollection.Name)]
 public class InstitutionalReportPlaywrightPdfExporterTests
 {
     private static bool RequirePlaywrightInCi =>

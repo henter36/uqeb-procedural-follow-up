@@ -86,11 +86,35 @@ public sealed class InstitutionalReportRenderer
             case ReportSectionId.ExecutiveSummary:
                 pages.Add(MakePage(section, "الملخص التنفيذي", RenderExecutiveSummary(model)));
                 break;
+            case ReportSectionId.KeyPerformanceIndicators:
+                pages.Add(MakePage(section, "مؤشرات الأداء الرئيسية", RenderAnalyticalKpis(model)));
+                break;
+            case ReportSectionId.SignificantFindings:
+                pages.Add(MakePage(section, "النتائج المهمة", RenderSignificantFindings(model)));
+                break;
+            case ReportSectionId.CriticalCases:
+                pages.Add(MakePage(section, "الحالات الحرجة", RenderCriticalCases(model)));
+                break;
+            case ReportSectionId.TimeTrends:
+                pages.Add(MakePage(section, "التحليل الزمني", RenderTimeTrends(model)));
+                break;
             case ReportSectionId.IndicatorsDashboard:
                 pages.Add(MakePage(section, "لوحة المؤشرات والاتجاهات", RenderCharts(model)));
                 break;
             case ReportSectionId.DepartmentPerformance:
                 pages.Add(MakePage(section, "أداء الإدارات", RenderDepartments(model)));
+                break;
+            case ReportSectionId.ExternalPartyAnalysis:
+                pages.Add(MakePage(section, "تحليل الجهات الخارجية", RenderExternalParties(model)));
+                break;
+            case ReportSectionId.ClassificationAndPriorityAnalysis:
+                pages.Add(MakePage(section, "تحليل التصنيفات والأولويات", RenderClassificationAndPriority(model)));
+                break;
+            case ReportSectionId.DelayAndBottleneckAnalysis:
+                pages.Add(MakePage(section, "تحليل الاختناقات والتأخر", RenderBottlenecks(model)));
+                break;
+            case ReportSectionId.DataQuality:
+                pages.Add(MakePage(section, "جودة البيانات", RenderDataQuality(model)));
                 break;
             case ReportSectionId.RisksAndAlerts:
                 pages.Add(MakePage(section, "المخاطر والتنبيهات", RenderRisks(model)));
@@ -98,8 +122,17 @@ public sealed class InstitutionalReportRenderer
             case ReportSectionId.ExecutiveRecommendations:
                 pages.Add(MakePage(section, "التوصيات التنفيذية", RenderRecommendations(model)));
                 break;
+            case ReportSectionId.RecommendationsAndActionPlan:
+                pages.Add(MakePage(section, "التوصيات وخطة الإجراءات", RenderActionPlan(model)));
+                break;
             case ReportSectionId.TransactionDetails:
                 AppendTransactionDetailPages(model, includeTransactionDetails, pages);
+                break;
+            case ReportSectionId.Appendices:
+                pages.Add(MakePage(section, "الجداول التفصيلية والملاحق", RenderAppendices(model)));
+                break;
+            case ReportSectionId.MethodologyAndDefinitions:
+                pages.Add(MakePage(section, "المنهجية والتعريفات", RenderMethodology(model)));
                 break;
             case ReportSectionId.ReportMetadata:
                 pages.Add(MakePage(section, "بيانات التقرير والفلاتر", RenderMetadata(model)));
@@ -176,6 +209,7 @@ public sealed class InstitutionalReportRenderer
             DetailPartsCount = model.DetailPartsCount,
             LoadedDetailRows = model.Transactions.Count,
             TemplateVersion = InstitutionalReportStyles.TemplateVersion,
+            Analysis = model.Analysis,
             Pages = numberedPages
         };
     }
@@ -505,11 +539,98 @@ public sealed class InstitutionalReportRenderer
     {
         var cards = string.Join(string.Empty, model.Summary.KpiCards.Select(c =>
             $"""<div class="kpi-card"><div class="label">{Esc(c.Title)}</div><div class="value">{Esc(c.Value)}</div>{(c.Delta != null ? $"<div class='delta'>{Esc(c.Delta)}</div>" : string.Empty)}</div>"""));
+        var insights = model.Analysis.ExecutiveInsights.Count == 0
+            ? string.Empty
+            : "<h3 style=\"color:#123F32;margin-top:16px;\">أبرز القراءات التحليلية</h3><ul class=\"insight-list\">"
+              + string.Join(string.Empty, model.Analysis.ExecutiveInsights.Select(i => $"<li><strong>{Esc(SeverityLabel(i.Severity))}</strong> — {Esc(i.Text)}</li>"))
+              + "</ul>";
         return $"""
         <h2 class="section-title">الملخص التنفيذي</h2>
         <div class="kpi-grid">{cards}</div>
         <h3 style="color:#123F32;margin-top:16px;">التقييم التنفيذي</h3>
         <div class="narrative">{Esc(model.Summary.ExecutiveNarrative)}</div>
+        {insights}
+        """;
+    }
+
+    private static string RenderAnalyticalKpis(InstitutionalReportModel model)
+    {
+        var available = model.Analysis.Kpis.Where(k => k.IsAvailable).ToList();
+        if (available.Count == 0)
+            return """<h2 class="section-title">مؤشرات الأداء الرئيسية</h2><div class="empty-state">لا توجد مؤشرات قابلة للحساب ضمن البيانات الحالية.</div>""";
+
+        var rows = string.Join(string.Empty, available.Select(k =>
+            $"""
+            <tr>
+              <td>{Esc(k.Title)}</td>
+              <td class="cell--number">{Esc(k.DisplayValue)}</td>
+              <td>{Esc(k.Comparison.TrendDirection == TrendDirection.NotComparable ? "غير قابلة للمقارنة" : TrendLabel(k.Comparison.TrendDirection))}</td>
+              <td>{Esc(k.Comparison.ComparisonLabel ?? "—")}</td>
+              <td>{Esc(k.Definition)}</td>
+            </tr>
+            """));
+        return $"""
+        <h2 class="section-title">مؤشرات الأداء الرئيسية</h2>
+        <table class="report-table">
+          <thead><tr><th>المؤشر</th><th>القيمة</th><th>الاتجاه</th><th>المقارنة</th><th>التعريف</th></tr></thead>
+          <tbody>{rows}</tbody>
+        </table>
+        """;
+    }
+
+    private static string RenderSignificantFindings(InstitutionalReportModel model)
+    {
+        if (model.Analysis.Findings.Count == 0)
+            return """<h2 class="section-title">النتائج المهمة</h2><div class="empty-state">لا توجد نتائج مهمة وفق عتبات التحليل الحالية.</div>""";
+
+        var cards = string.Join(string.Empty, model.Analysis.Findings.Select(f =>
+            $"""
+            <article class="recommendation-card">
+              <div class="priority">{Esc(SeverityLabel(f.Severity))}</div>
+              <h3 style="margin:8px 0 6px;font-size:14px;color:var(--report-primary);">{Esc(f.Title)}</h3>
+              <p style="margin:0 0 8px;">{Esc(f.Description)}</p>
+              <div style="font-size:11px;color:var(--report-secondary);">الدليل: {Esc(f.Evidence)} — النطاق: {Esc(f.AffectedScope)}</div>
+            </article>
+            """));
+        return $"""<h2 class="section-title">النتائج المهمة</h2>{cards}""";
+    }
+
+    private static string RenderCriticalCases(InstitutionalReportModel model)
+    {
+        if (model.Analysis.CriticalCases.Count == 0)
+            return """<h2 class="section-title">الحالات الحرجة</h2><div class="empty-state">لا توجد حالات حرجة وفق القواعد الحالية.</div>""";
+
+        var rows = string.Join(string.Empty, model.Analysis.CriticalCases.Select(c =>
+            $"""
+            <tr>
+              <td class="cell--id">{c.TransactionId}</td><td class="cell--id">{Esc(c.IncomingNumber)}</td><td class="cell--subject">{Esc(c.Subject)}</td>
+              <td>{Esc(c.Department)}</td><td>{Esc(c.ExternalParty)}</td><td>{Esc(c.Priority)}</td>
+              <td class="cell--number">{c.AgeDays}</td><td class="cell--number">{(c.DaysOverdue?.ToString() ?? "—")}</td>
+              <td>{Esc(c.ReasonLabel)}</td><td>{Esc(c.RequiredAction)}</td><td>{Esc(SeverityLabel(c.Severity))}</td>
+            </tr>
+            """));
+        return $"""
+        <h2 class="section-title">الحالات الحرجة</h2>
+        <table class="report-table report-table--transactions">
+          <thead><tr><th>المعرف</th><th>رقم الوارد</th><th>الموضوع</th><th>الإدارة</th><th>الجهة</th><th>الأولوية</th><th>العمر</th><th>أيام التأخر</th><th>السبب</th><th>الإجراء المطلوب</th><th>الخطورة</th></tr></thead>
+          <tbody>{rows}</tbody>
+        </table>
+        """;
+    }
+
+    private static string RenderTimeTrends(InstitutionalReportModel model)
+    {
+        if (model.Analysis.TimeSeries.Count == 0)
+            return """<h2 class="section-title">التحليل الزمني</h2><div class="empty-state">لا توجد نقاط زمنية كافية للعرض.</div>""";
+
+        var rows = string.Join(string.Empty, model.Analysis.TimeSeries.Select(p =>
+            $"<tr><td>{Esc(p.PeriodLabel)}</td><td class=\"cell--number\">{p.Incoming}</td><td class=\"cell--number\">{p.Closed}</td><td class=\"cell--number\">{p.OpenBalance}</td><td class=\"cell--number\">{p.Overdue}</td><td class=\"cell--number\">{p.OnTimeRate:N1}%</td><td class=\"cell--number\">{p.BacklogGrowth}</td></tr>"));
+        return $"""
+        <h2 class="section-title">التحليل الزمني</h2>
+        <table class="report-table">
+          <thead><tr><th>الفترة</th><th>وارد</th><th>مغلق</th><th>رصيد مفتوح</th><th>متأخر</th><th>ضمن المهلة</th><th>تغير التراكم</th></tr></thead>
+          <tbody>{rows}</tbody>
+        </table>
         """;
     }
 
@@ -568,6 +689,92 @@ public sealed class InstitutionalReportRenderer
             <td class="cell--number">{totals.Waiting}</td><td class="cell--number">{totals.Overdue}</td><td class="cell--number">{totals.Joint}</td>
             <td>—</td><td>—</td><td>—</td>
           </tr></tbody>
+        </table>
+        """;
+    }
+
+    private static string RenderExternalParties(InstitutionalReportModel model)
+    {
+        if (model.Analysis.ExternalParties.Count == 0)
+            return """<h2 class="section-title">تحليل الجهات الخارجية</h2><div class="empty-state">لا توجد بيانات جهات خارجية ذات معنى ضمن نطاق التقرير.</div>""";
+
+        var rows = string.Join(string.Empty, model.Analysis.ExternalParties.Select(p =>
+            $"""
+            <tr>
+              <td>{Esc(p.ExternalPartyName)}</td><td class="cell--number">{p.IncomingCount}</td><td class="cell--number">{p.OutgoingCount}</td>
+              <td class="cell--number">{p.PendingResponseCount}</td><td class="cell--number">{p.OverdueResponseCount}</td>
+              <td class="cell--number">{p.AverageResponseDays:N1}</td><td class="cell--number">{p.MedianResponseDays:N1}</td>
+              <td class="cell--number">{p.FollowUpCount}</td><td class="cell--number">{p.OldestPendingResponseDays}</td><td>{Esc(p.TopCategories)}</td>
+            </tr>
+            """));
+        return $"""
+        <h2 class="section-title">تحليل الجهات الخارجية</h2>
+        <p class="section-subtitle">تُعرض هذه النتائج كمعاملات منتظرة من الجهة، ولا تنسب سبب التأخر للجهة دون قاعدة سببية صريحة.</p>
+        <table class="report-table report-table--departments">
+          <thead><tr><th>الجهة</th><th>وارد</th><th>صادر</th><th>منتظر رد</th><th>ردود متأخرة</th><th>متوسط الرد</th><th>وسيط الرد</th><th>متابعات</th><th>أقدم انتظار</th><th>أبرز التصنيفات</th></tr></thead>
+          <tbody>{rows}</tbody>
+        </table>
+        """;
+    }
+
+    private static string RenderClassificationAndPriority(InstitutionalReportModel model)
+    {
+        var categoryRows = model.Analysis.Categories.Count == 0
+            ? """<tr><td colspan="7">لا توجد بيانات تصنيفات.</td></tr>"""
+            : string.Join(string.Empty, model.Analysis.Categories.Select(c =>
+                $"<tr><td>{Esc(c.CategoryName)}</td><td class=\"cell--number\">{c.TransactionCount}</td><td class=\"cell--number\">{c.OpenCount}</td><td class=\"cell--number\">{c.OverdueCount}</td><td class=\"cell--number\">{c.OnTimeCompletionRate:N1}%</td><td class=\"cell--number\">{c.AverageCompletionDays:N1}</td><td class=\"cell--number\">{c.PendingAssignments}</td></tr>"));
+        var priorityRows = model.Analysis.Priorities.Count == 0
+            ? """<tr><td colspan="6">لا توجد بيانات أولويات.</td></tr>"""
+            : string.Join(string.Empty, model.Analysis.Priorities.Select(p =>
+                $"<tr><td>{Esc(p.Priority)}</td><td class=\"cell--number\">{p.Count}</td><td class=\"cell--number\">{p.OpenCount}</td><td class=\"cell--number\">{p.OverdueCount}</td><td class=\"cell--number\">{p.AverageAgeDays:N1}</td><td class=\"cell--number\">{p.OnTimeRate:N1}%</td></tr>"));
+        return $"""
+        <h2 class="section-title">تحليل التصنيفات والأولويات</h2>
+        <h3>التصنيفات</h3>
+        <table class="report-table">
+          <thead><tr><th>التصنيف</th><th>الإجمالي</th><th>مفتوحة</th><th>متأخرة</th><th>ضمن المهلة</th><th>متوسط الإنجاز</th><th>إفادات معلقة</th></tr></thead>
+          <tbody>{categoryRows}</tbody>
+        </table>
+        <h3>الأولويات</h3>
+        <table class="report-table">
+          <thead><tr><th>الأولوية</th><th>الإجمالي</th><th>مفتوحة</th><th>متأخرة</th><th>متوسط العمر</th><th>ضمن المهلة</th></tr></thead>
+          <tbody>{priorityRows}</tbody>
+        </table>
+        """;
+    }
+
+    private static string RenderBottlenecks(InstitutionalReportModel model)
+    {
+        if (model.Analysis.Bottlenecks.Count == 0)
+            return """<h2 class="section-title">تحليل الاختناقات والتأخر</h2><div class="empty-state">لا توجد معاملات مفتوحة كافية لتصنيف الاختناقات.</div>""";
+
+        var rows = string.Join(string.Empty, model.Analysis.Bottlenecks.Select(b =>
+            $"""
+            <tr>
+              <td>{Esc(b.ReasonLabel)}</td><td class="cell--number">{b.Count}</td><td class="cell--number">{b.SharePercent:N1}%</td>
+              <td class="cell--number">{b.AverageDelayDays:N1}</td><td>{Esc(b.TopDepartments)}</td><td>{Esc(b.TopExternalParties)}</td>
+            </tr>
+            """));
+        return $"""
+        <h2 class="section-title">تحليل الاختناقات والتأخر</h2>
+        <table class="report-table">
+          <thead><tr><th>السبب المصنف</th><th>العدد</th><th>النسبة</th><th>متوسط الأيام</th><th>أبرز الإدارات</th><th>أبرز الجهات</th></tr></thead>
+          <tbody>{rows}</tbody>
+        </table>
+        """;
+    }
+
+    private static string RenderDataQuality(InstitutionalReportModel model)
+    {
+        var rows = model.Analysis.DataQualityIssues.Count == 0
+            ? """<tr><td colspan="6">لا توجد ملاحظات جودة بيانات وفق القواعد الحالية.</td></tr>"""
+            : string.Join(string.Empty, model.Analysis.DataQualityIssues.Select(i =>
+                $"<tr><td>{Esc(i.Label)}</td><td class=\"cell--number\">{i.Count}</td><td class=\"cell--number\">{i.SharePercent:N1}%</td><td>{Esc(SeverityLabel(i.Severity))}</td><td>{Esc(i.AffectedFields)}</td><td>{Esc(i.SuggestedCorrection)}</td></tr>"));
+        return $"""
+        <h2 class="section-title">جودة البيانات</h2>
+        <p class="section-subtitle">نسبة اكتمال البيانات: {model.Analysis.DataCompletenessRate:N1}% وفق الحقول المطلوبة والشرطية الموثقة.</p>
+        <table class="report-table">
+          <thead><tr><th>الملاحظة</th><th>العدد</th><th>النسبة</th><th>الخطورة</th><th>الحقول</th><th>التصحيح المقترح</th></tr></thead>
+          <tbody>{rows}</tbody>
         </table>
         """;
     }
@@ -642,6 +849,61 @@ public sealed class InstitutionalReportRenderer
         return $"""<h2 class="section-title">التوصيات التنفيذية</h2>{cards}""";
     }
 
+    private static string RenderActionPlan(InstitutionalReportModel model)
+    {
+        if (model.Analysis.Recommendations.Count == 0)
+            return """<h2 class="section-title">التوصيات وخطة الإجراءات</h2><div class="empty-state">لا توجد توصيات تحليلية قابلة للتنفيذ.</div>""";
+
+        var rows = string.Join(string.Empty, model.Analysis.Recommendations.Select(r =>
+            $"""
+            <tr>
+              <td>{Esc(r.Priority)}</td><td>{Esc(r.SourceFindingCode)}</td><td>{Esc(r.RecommendationText)}</td>
+              <td>{Esc(r.ResponsibleScope)}</td><td class="cell--number">{r.SuggestedDueDays}</td><td>{Esc(r.Status)}</td>
+            </tr>
+            """));
+        return $"""
+        <h2 class="section-title">التوصيات وخطة الإجراءات</h2>
+        <table class="report-table">
+          <thead><tr><th>الأولوية</th><th>النتيجة</th><th>الإجراء</th><th>المسؤول</th><th>المدة المقترحة</th><th>الحالة</th></tr></thead>
+          <tbody>{rows}</tbody>
+        </table>
+        """;
+    }
+
+    private static string RenderAppendices(InstitutionalReportModel model) =>
+        $"""
+        <h2 class="section-title">الجداول التفصيلية والملاحق</h2>
+        <div class="info-card">
+          <dt>صفوف التفاصيل المصدرة</dt><dd>{model.ExportedDetailRows:N0}</dd>
+          <dt>إجمالي النتائج المطابقة</dt><dd>{model.TotalMatchedRows:N0}</dd>
+          <dt>هل التفاصيل مقتطعة</dt><dd>{(model.DetailRowsTruncated ? "نعم" : "لا")}</dd>
+        </div>
+        <p class="section-subtitle">تظهر الجداول التفصيلية في قسم المعاملات التفصيلية وملفات XLSX حسب الصلاحيات وحدود الصفوف.</p>
+        """;
+
+    private static string RenderMethodology(InstitutionalReportModel model)
+    {
+        var m = model.Analysis.Methodology;
+        var deferred = string.Join(string.Empty, m.DeferredMetrics.Select(item => $"<li>{Esc(item)}</li>"));
+        return $"""
+        <h2 class="section-title">المنهجية والتعريفات</h2>
+        <dl class="info-card">
+          <dt>اسم التقرير</dt><dd>{Esc(m.ReportName)}</dd>
+          <dt>إصدار التقرير</dt><dd>{Esc(m.ReportVersion)}</dd>
+          <dt>وقت الإنشاء UTC</dt><dd>{FormatDateTime(m.GeneratedAtUtc)}</dd>
+          <dt>فترة البيانات</dt><dd>{Esc(m.DataPeriod)}</dd>
+          <dt>فترة المقارنة</dt><dd>{Esc(m.ComparisonPeriod)}</dd>
+          <dt>الفلاتر</dt><dd>{Esc(m.Filters)}</dd>
+          <dt>مصدر البيانات</dt><dd>{Esc(m.DataSource)}</dd>
+          <dt>نمط البيانات</dt><dd>{Esc(m.SnapshotMode)}</dd>
+          <dt>حدود الصفوف</dt><dd>{Esc(m.RowLimits)}</dd>
+          <dt>إصدار الحساب</dt><dd>{Esc(m.CalculationVersion)}</dd>
+          <dt>حالة الاعتماد</dt><dd>{Esc(m.ApprovalStatus)}</dd>
+        </dl>
+        {(deferred.Length > 0 ? $"<h3>عناصر مؤجلة أو غير قابلة للحساب</h3><ul>{deferred}</ul>" : string.Empty)}
+        """;
+    }
+
     private static string RenderTransactions(InstitutionalReportModel model, List<TransactionDetailRowDto> rows)
     {
         var body = string.Join(string.Empty, rows.Select(r =>
@@ -709,6 +971,24 @@ public sealed class InstitutionalReportRenderer
             parts.Add($"بحث: {filters.Search.Trim()}");
         return parts.Count == 0 ? "بدون فلاتر إضافية" : string.Join(" | ", parts);
     }
+
+    private static string SeverityLabel(AnalyticalSeverity severity) => severity switch
+    {
+        AnalyticalSeverity.Critical => "حرج",
+        AnalyticalSeverity.High => "مرتفع",
+        AnalyticalSeverity.Medium => "متوسط",
+        AnalyticalSeverity.Low => "منخفض",
+        _ => "—"
+    };
+
+    private static string TrendLabel(TrendDirection direction) => direction switch
+    {
+        TrendDirection.Improved => "تحسن",
+        TrendDirection.Declined => "تراجع",
+        TrendDirection.Stable => "مستقر",
+        TrendDirection.NotComparable => "غير قابل للمقارنة",
+        _ => "—"
+    };
 
     private static RenderedReportPageDto CreatePartialCoverPage(RenderedReportManifestDto source, List<RenderedReportPageDto> selected) =>
         new()

@@ -7,7 +7,10 @@ import {
   ExportMode,
   InstitutionalReportType,
   PageNumberingMode,
+  ReportComparisonMode,
+  ReportContentLevel,
   ReportSectionId,
+  ReportTimeGrouping,
 } from '../api/institutionalReports.constants';
 import { getApiErrorDetails } from '../utils/apiHelpers';
 import {
@@ -32,11 +35,22 @@ const REPORT_TYPES = [
 const SECTIONS = [
   { id: ReportSectionId.Cover, label: 'الغلاف' },
   { id: ReportSectionId.ExecutiveSummary, label: 'الملخص التنفيذي' },
+  { id: ReportSectionId.KeyPerformanceIndicators, label: 'مؤشرات الأداء الرئيسية' },
+  { id: ReportSectionId.SignificantFindings, label: 'النتائج المهمة' },
+  { id: ReportSectionId.CriticalCases, label: 'الحالات الحرجة' },
+  { id: ReportSectionId.TimeTrends, label: 'التحليل الزمني' },
   { id: ReportSectionId.IndicatorsDashboard, label: 'لوحة المؤشرات والاتجاهات' },
   { id: ReportSectionId.DepartmentPerformance, label: 'أداء الإدارات' },
+  { id: ReportSectionId.ExternalPartyAnalysis, label: 'تحليل الجهات الخارجية' },
+  { id: ReportSectionId.ClassificationAndPriorityAnalysis, label: 'التصنيفات والأولويات' },
+  { id: ReportSectionId.DelayAndBottleneckAnalysis, label: 'الاختناقات والتأخر' },
+  { id: ReportSectionId.DataQuality, label: 'جودة البيانات' },
   { id: ReportSectionId.RisksAndAlerts, label: 'المخاطر والتنبيهات' },
   { id: ReportSectionId.ExecutiveRecommendations, label: 'التوصيات التنفيذية' },
+  { id: ReportSectionId.RecommendationsAndActionPlan, label: 'خطة الإجراءات' },
   { id: ReportSectionId.TransactionDetails, label: 'المعاملات التفصيلية' },
+  { id: ReportSectionId.Appendices, label: 'الملاحق' },
+  { id: ReportSectionId.MethodologyAndDefinitions, label: 'المنهجية والتعريفات' },
   { id: ReportSectionId.ReportMetadata, label: 'بيانات التقرير والفلاتر' },
 ] as const;
 
@@ -49,6 +63,13 @@ export default function ReportBuilderPage() {
   const [dateTo, setDateTo] = useState(defaultDate(0));
   const [title, setTitle] = useState('تقرير المتابعة الإجرائية للمعاملات');
   const [sectionIds, setSectionIds] = useState<number[]>(SECTIONS.map((s) => s.id));
+  const [contentLevel, setContentLevel] = useState<typeof ReportContentLevel[keyof typeof ReportContentLevel]>(ReportContentLevel.Analytical);
+  const [comparisonMode, setComparisonMode] = useState<typeof ReportComparisonMode[keyof typeof ReportComparisonMode]>(ReportComparisonMode.PreviousEquivalentPeriod);
+  const [timeGrouping, setTimeGrouping] = useState<typeof ReportTimeGrouping[keyof typeof ReportTimeGrouping]>(ReportTimeGrouping.Monthly);
+  const [includeComparison, setIncludeComparison] = useState(true);
+  const [maxCriticalCases, setMaxCriticalCases] = useState(10);
+  const [maxFindings, setMaxFindings] = useState(5);
+  const [maxRecommendations, setMaxRecommendations] = useState(10);
   const [manifest, setManifest] = useState<InstitutionalReportManifest | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedPages, setSelectedPages] = useState<number[]>([]);
@@ -79,6 +100,23 @@ export default function ReportBuilderPage() {
     reportType,
     title,
     sectionIds: sectionIds as ReportBuildRequest['sectionIds'],
+    contentLevel,
+    comparisonMode: includeComparison ? comparisonMode : ReportComparisonMode.None,
+    timeGrouping,
+    includeExecutiveSummary: sectionIds.includes(ReportSectionId.ExecutiveSummary),
+    includeComparison,
+    includeCriticalCases: sectionIds.includes(ReportSectionId.CriticalCases),
+    includeTimeTrends: sectionIds.includes(ReportSectionId.TimeTrends),
+    includeDepartmentPerformance: sectionIds.includes(ReportSectionId.DepartmentPerformance),
+    includeExternalPartyAnalysis: sectionIds.includes(ReportSectionId.ExternalPartyAnalysis),
+    includeCategoryAnalysis: sectionIds.includes(ReportSectionId.ClassificationAndPriorityAnalysis),
+    includeBottleneckAnalysis: sectionIds.includes(ReportSectionId.DelayAndBottleneckAnalysis),
+    includeDataQuality: sectionIds.includes(ReportSectionId.DataQuality),
+    includeRecommendations: sectionIds.includes(ReportSectionId.ExecutiveRecommendations) || sectionIds.includes(ReportSectionId.RecommendationsAndActionPlan),
+    includeMethodology: sectionIds.includes(ReportSectionId.MethodologyAndDefinitions),
+    maxCriticalCases,
+    maxFindings,
+    maxRecommendations,
     filters: {
       dateFrom: dateFrom || null,
       dateTo: dateTo || null,
@@ -93,7 +131,20 @@ export default function ReportBuilderPage() {
       priorities: [],
       statuses: [],
     },
-  }), [reportType, title, sectionIds, dateFrom, dateTo]);
+  }), [
+    reportType,
+    title,
+    sectionIds,
+    contentLevel,
+    comparisonMode,
+    timeGrouping,
+    includeComparison,
+    maxCriticalCases,
+    maxFindings,
+    maxRecommendations,
+    dateFrom,
+    dateTo,
+  ]);
 
   const {
     openExportDialog,
@@ -272,6 +323,100 @@ export default function ReportBuilderPage() {
           <input id="date-to" type="date" value={dateTo} onChange={(e) => { invalidatePreview(); setDateTo(e.target.value); }} />
           <label htmlFor="report-title">عنوان التقرير</label>
           <input id="report-title" value={title} onChange={(e) => { invalidatePreview(); setTitle(e.target.value); }} />
+
+          <h3 style={{ marginTop: '1rem' }}>المحتوى التحليلي</h3>
+          <label htmlFor="content-level">مستوى المحتوى</label>
+          <select
+            id="content-level"
+            value={contentLevel}
+            onChange={(e) => {
+              invalidatePreview();
+              setContentLevel(Number(e.target.value) as typeof contentLevel);
+            }}
+          >
+            <option value={ReportContentLevel.Executive}>تنفيذي</option>
+            <option value={ReportContentLevel.Analytical}>تحليلي</option>
+            <option value={ReportContentLevel.Detailed}>تفصيلي</option>
+          </select>
+
+          <label htmlFor="include-comparison">
+            <input
+              id="include-comparison"
+              type="checkbox"
+              checked={includeComparison}
+              onChange={(e) => {
+                invalidatePreview();
+                setIncludeComparison(e.target.checked);
+              }}
+            />
+            {' '}تضمين المقارنة بالفترة السابقة
+          </label>
+          <label htmlFor="comparison-mode">نمط المقارنة</label>
+          <select
+            id="comparison-mode"
+            value={comparisonMode}
+            disabled={!includeComparison}
+            onChange={(e) => {
+              invalidatePreview();
+              setComparisonMode(Number(e.target.value) as typeof comparisonMode);
+            }}
+          >
+            <option value={ReportComparisonMode.PreviousEquivalentPeriod}>الفترة السابقة المكافئة</option>
+            <option value={ReportComparisonMode.YearOverYear}>نفس الفترة من العام السابق</option>
+            <option value={ReportComparisonMode.None}>بدون مقارنة</option>
+          </select>
+
+          <label htmlFor="time-grouping">تجميع الاتجاه الزمني</label>
+          <select
+            id="time-grouping"
+            value={timeGrouping}
+            onChange={(e) => {
+              invalidatePreview();
+              setTimeGrouping(Number(e.target.value) as typeof timeGrouping);
+            }}
+          >
+            <option value={ReportTimeGrouping.Daily}>يومي</option>
+            <option value={ReportTimeGrouping.Weekly}>أسبوعي</option>
+            <option value={ReportTimeGrouping.Monthly}>شهري</option>
+            <option value={ReportTimeGrouping.Quarterly}>ربع سنوي</option>
+          </select>
+
+          <label htmlFor="max-findings">الحد الأقصى للنتائج</label>
+          <input
+            id="max-findings"
+            type="number"
+            min="1"
+            max="20"
+            value={maxFindings}
+            onChange={(e) => {
+              invalidatePreview();
+              setMaxFindings(Math.max(1, Number(e.target.value) || 1));
+            }}
+          />
+          <label htmlFor="max-critical-cases">الحد الأقصى للحالات الحرجة</label>
+          <input
+            id="max-critical-cases"
+            type="number"
+            min="1"
+            max="50"
+            value={maxCriticalCases}
+            onChange={(e) => {
+              invalidatePreview();
+              setMaxCriticalCases(Math.max(1, Number(e.target.value) || 1));
+            }}
+          />
+          <label htmlFor="max-recommendations">الحد الأقصى للتوصيات</label>
+          <input
+            id="max-recommendations"
+            type="number"
+            min="1"
+            max="30"
+            value={maxRecommendations}
+            onChange={(e) => {
+              invalidatePreview();
+              setMaxRecommendations(Math.max(1, Number(e.target.value) || 1));
+            }}
+          />
 
           <h3 style={{ marginTop: '1rem' }}>الأقسام المراد تضمينها</h3>
           <div className="report-section-list">

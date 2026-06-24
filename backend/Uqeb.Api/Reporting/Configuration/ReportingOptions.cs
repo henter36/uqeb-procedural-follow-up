@@ -33,6 +33,7 @@ public sealed class ReportingOptions
     public string TempFileRoot { get; set; } = string.Empty;
     public int ReadinessCacheSeconds { get; set; } = 45;
     public int ChromiumProbeTimeoutSeconds { get; set; } = 15;
+    public ReportingAnalysisOptions Analysis { get; set; } = new();
 
     public int ResolvePdfPartDetailLimit() =>
         MaxPdfDetailRowsPerPart > 0 ? MaxPdfDetailRowsPerPart : MaxPdfDetailRows;
@@ -95,6 +96,8 @@ public sealed class ReportingOptions
 
         if (MaxXlsxDetailRows < MaxPdfDetailRows)
             throw new InvalidOperationException("Reporting:MaxXlsxDetailRows must be greater than or equal to MaxPdfDetailRows.");
+
+        Analysis.Validate();
     }
 
     public static void ValidateDetailLimit(int detailLimit)
@@ -106,5 +109,51 @@ public sealed class ReportingOptions
                 detailLimit,
                 "detailLimit must be greater than zero.");
         }
+    }
+}
+
+public sealed class ReportingAnalysisOptions
+{
+    public decimal StableChangeThresholdPercent { get; set; } = 3;
+    public decimal SignificantChangeThresholdPercent { get; set; } = 10;
+    public int CriticalOverdueDays { get; set; } = 10;
+    public int StaleTransactionDays { get; set; } = 7;
+    public int MinimumComparisonSampleSize { get; set; } = 10;
+    public int MinimumRankingSampleSize { get; set; } = 5;
+    public int MaxExecutiveFindings { get; set; } = 5;
+    public int MaxExecutiveCriticalCases { get; set; } = 10;
+    public int MaxRecommendations { get; set; } = 10;
+
+    public void Validate()
+    {
+        if (StableChangeThresholdPercent < 0)
+            throw new InvalidOperationException("Reporting:Analysis:StableChangeThresholdPercent must be zero or greater.");
+
+        if (SignificantChangeThresholdPercent <= 0)
+            throw new InvalidOperationException("Reporting:Analysis:SignificantChangeThresholdPercent must be greater than zero.");
+
+        if (SignificantChangeThresholdPercent < StableChangeThresholdPercent)
+            throw new InvalidOperationException("Reporting:Analysis:SignificantChangeThresholdPercent must be greater than or equal to StableChangeThresholdPercent.");
+
+        if (CriticalOverdueDays <= 0)
+            throw new InvalidOperationException("Reporting:Analysis:CriticalOverdueDays must be greater than zero.");
+
+        if (StaleTransactionDays <= 0)
+            throw new InvalidOperationException("Reporting:Analysis:StaleTransactionDays must be greater than zero.");
+
+        if (MinimumComparisonSampleSize <= 0)
+            throw new InvalidOperationException("Reporting:Analysis:MinimumComparisonSampleSize must be greater than zero.");
+
+        if (MinimumRankingSampleSize <= 0)
+            throw new InvalidOperationException("Reporting:Analysis:MinimumRankingSampleSize must be greater than zero.");
+
+        if (MaxExecutiveFindings <= 0)
+            throw new InvalidOperationException("Reporting:Analysis:MaxExecutiveFindings must be greater than zero.");
+
+        if (MaxExecutiveCriticalCases <= 0)
+            throw new InvalidOperationException("Reporting:Analysis:MaxExecutiveCriticalCases must be greater than zero.");
+
+        if (MaxRecommendations <= 0)
+            throw new InvalidOperationException("Reporting:Analysis:MaxRecommendations must be greater than zero.");
     }
 }

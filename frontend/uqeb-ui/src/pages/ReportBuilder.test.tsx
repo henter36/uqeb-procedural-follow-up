@@ -11,7 +11,15 @@ import {
   resolveEffectiveOverflowAction,
   resolveExportFileExtension,
 } from './reportBuilderHelpers';
-import { ExportMode, ExportFormat, DetailOverflowAction } from '../api/institutionalReports.constants';
+import {
+  DetailOverflowAction,
+  ExportFormat,
+  ExportMode,
+  ReportComparisonMode,
+  ReportContentLevel,
+  ReportSectionId,
+  ReportTimeGrouping,
+} from '../api/institutionalReports.constants';
 import * as services from '../api/services';
 
 const mockUseAuth = vi.fn(() => ({
@@ -208,6 +216,35 @@ describe('ReportBuilderPage export dialog', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
+  });
+
+  it('renders analytical controls and sends analytical preview payload defaults', async () => {
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+
+    expect(screen.getByLabelText('مستوى المحتوى')).toHaveValue(String(ReportContentLevel.Analytical));
+    expect(screen.getByLabelText('نمط المقارنة')).toHaveValue(String(ReportComparisonMode.PreviousEquivalentPeriod));
+    expect(screen.getByLabelText('تجميع الاتجاه الزمني')).toHaveValue(String(ReportTimeGrouping.Monthly));
+    expect(screen.getByLabelText('الحالات الحرجة')).toBeChecked();
+    expect(screen.getByLabelText('جودة البيانات')).toBeChecked();
+
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+
+    await waitFor(() => {
+      expect(services.institutionalReportsApi.preview).toHaveBeenCalled();
+    });
+    const request = vi.mocked(services.institutionalReportsApi.preview).mock.calls[0][0];
+    expect(request.contentLevel).toBe(ReportContentLevel.Analytical);
+    expect(request.comparisonMode).toBe(ReportComparisonMode.PreviousEquivalentPeriod);
+    expect(request.timeGrouping).toBe(ReportTimeGrouping.Monthly);
+    expect(request.includeComparison).toBe(true);
+    expect(request.includeCriticalCases).toBe(true);
+    expect(request.includeDataQuality).toBe(true);
+    expect(request.maxFindings).toBe(5);
+    expect(request.maxCriticalCases).toBe(10);
+    expect(request.maxRecommendations).toBe(10);
+    expect(request.sectionIds).toContain(ReportSectionId.KeyPerformanceIndicators);
+    expect(request.sectionIds).toContain(ReportSectionId.MethodologyAndDefinitions);
   });
 
   it('ignores stale preview response when a newer preview starts', async () => {

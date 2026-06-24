@@ -3,10 +3,12 @@ using System.Text.RegularExpressions;
 using Uqeb.Api.Reporting.Enums;
 using Uqeb.Api.Reporting.Rendering;
 using Uqeb.Api.Reporting.Services;
+using Uqeb.Api.Tests.Reporting;
 using Xunit;
 
 namespace Uqeb.Api.Tests.Reporting.Visual;
 
+[Collection(PlaywrightTestCollection.Name)]
 public class InstitutionalReportVisualRegressionTests
 {
     private static bool RequirePlaywrightInCi =>

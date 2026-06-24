@@ -56,8 +56,32 @@ public static class InstitutionalReportDocxExporter
             case ReportSectionId.ExecutiveSummary:
                 AppendExecutiveSummarySection(body, model);
                 break;
+            case ReportSectionId.KeyPerformanceIndicators:
+                AppendKpisSection(body, model);
+                break;
+            case ReportSectionId.SignificantFindings:
+                AppendFindingsSection(body, model);
+                break;
+            case ReportSectionId.CriticalCases:
+                AppendCriticalCasesSection(body, model);
+                break;
+            case ReportSectionId.TimeTrends:
+                AppendTimeTrendsSection(body, model);
+                break;
             case ReportSectionId.DepartmentPerformance:
                 AppendDepartmentPerformanceSection(body, model);
+                break;
+            case ReportSectionId.ExternalPartyAnalysis:
+                AppendExternalPartiesSection(body, model);
+                break;
+            case ReportSectionId.ClassificationAndPriorityAnalysis:
+                AppendClassificationSection(body, model);
+                break;
+            case ReportSectionId.DelayAndBottleneckAnalysis:
+                AppendBottlenecksSection(body, model);
+                break;
+            case ReportSectionId.DataQuality:
+                AppendDataQualitySection(body, model);
                 break;
             case ReportSectionId.RisksAndAlerts:
                 AppendRisksSection(body, model);
@@ -65,8 +89,17 @@ public static class InstitutionalReportDocxExporter
             case ReportSectionId.ExecutiveRecommendations:
                 AppendRecommendationsSection(body, model);
                 break;
+            case ReportSectionId.RecommendationsAndActionPlan:
+                AppendActionPlanSection(body, model);
+                break;
             case ReportSectionId.TransactionDetails:
                 AppendTransactionDetailsSection(body, model);
+                break;
+            case ReportSectionId.Appendices:
+                AppendAppendicesSection(body, model);
+                break;
+            case ReportSectionId.MethodologyAndDefinitions:
+                AppendMethodologySection(body, model);
                 break;
             case ReportSectionId.ReportMetadata:
                 AppendMetadataSection(body, model);
@@ -90,6 +123,40 @@ public static class InstitutionalReportDocxExporter
             AppendParagraph(body, $"{card.Title}: {card.Value}");
         AppendHeading(body, "التقييم التنفيذي", 2);
         AppendParagraph(body, model.Summary.ExecutiveNarrative);
+        foreach (var insight in model.Analysis.ExecutiveInsights)
+            AppendParagraph(body, $"{insight.Severity}: {insight.Text}");
+    }
+
+    private static void AppendKpisSection(Body body, InstitutionalReportModel model)
+    {
+        AppendHeading(body, "مؤشرات الأداء الرئيسية");
+        foreach (var kpi in model.Analysis.Kpis)
+            AppendParagraph(body, $"{kpi.Title}: {kpi.DisplayValue} — {kpi.Definition}");
+    }
+
+    private static void AppendFindingsSection(Body body, InstitutionalReportModel model)
+    {
+        AppendHeading(body, "النتائج المهمة");
+        if (model.Analysis.Findings.Count == 0)
+            AppendParagraph(body, "لا توجد نتائج مهمة وفق عتبات التحليل الحالية.");
+        foreach (var finding in model.Analysis.Findings)
+            AppendParagraph(body, $"{finding.Title}: {finding.Description} — الدليل: {finding.Evidence}");
+    }
+
+    private static void AppendCriticalCasesSection(Body body, InstitutionalReportModel model)
+    {
+        AppendHeading(body, "الحالات الحرجة");
+        if (model.Analysis.CriticalCases.Count == 0)
+            AppendParagraph(body, "لا توجد حالات حرجة وفق القواعد الحالية.");
+        foreach (var item in model.Analysis.CriticalCases)
+            AppendParagraph(body, $"{item.IncomingNumber} — {item.Subject} — {item.ReasonLabel} — {item.RequiredAction}");
+    }
+
+    private static void AppendTimeTrendsSection(Body body, InstitutionalReportModel model)
+    {
+        AppendHeading(body, "التحليل الزمني");
+        foreach (var point in model.Analysis.TimeSeries)
+            AppendParagraph(body, $"{point.PeriodLabel}: وارد {point.Incoming}، مغلق {point.Closed}، متأخر {point.Overdue}");
     }
 
     private static void AppendDepartmentPerformanceSection(Body body, InstitutionalReportModel model)
@@ -97,6 +164,37 @@ public static class InstitutionalReportDocxExporter
         AppendHeading(body, "أداء الإدارات");
         foreach (var row in model.DepartmentPerformance)
             AppendParagraph(body, $"{row.DepartmentName} — إجمالي {row.TotalTransactions} — التقييم {row.RatingLabel}");
+    }
+
+    private static void AppendExternalPartiesSection(Body body, InstitutionalReportModel model)
+    {
+        AppendHeading(body, "تحليل الجهات الخارجية");
+        foreach (var party in model.Analysis.ExternalParties)
+            AppendParagraph(body, $"{party.ExternalPartyName} — وارد {party.IncomingCount} — منتظر رد {party.PendingResponseCount} — متأخر {party.OverdueResponseCount}");
+    }
+
+    private static void AppendClassificationSection(Body body, InstitutionalReportModel model)
+    {
+        AppendHeading(body, "تحليل التصنيفات والأولويات");
+        foreach (var category in model.Analysis.Categories)
+            AppendParagraph(body, $"تصنيف {category.CategoryName}: إجمالي {category.TransactionCount}، متأخر {category.OverdueCount}");
+        foreach (var priority in model.Analysis.Priorities)
+            AppendParagraph(body, $"أولوية {priority.Priority}: إجمالي {priority.Count}، متأخر {priority.OverdueCount}");
+    }
+
+    private static void AppendBottlenecksSection(Body body, InstitutionalReportModel model)
+    {
+        AppendHeading(body, "تحليل الاختناقات والتأخر");
+        foreach (var bottleneck in model.Analysis.Bottlenecks)
+            AppendParagraph(body, $"{bottleneck.ReasonLabel}: {bottleneck.Count} ({bottleneck.SharePercent:N1}%)");
+    }
+
+    private static void AppendDataQualitySection(Body body, InstitutionalReportModel model)
+    {
+        AppendHeading(body, "جودة البيانات");
+        AppendParagraph(body, $"نسبة اكتمال البيانات: {model.Analysis.DataCompletenessRate:N1}%");
+        foreach (var issue in model.Analysis.DataQualityIssues)
+            AppendParagraph(body, $"{issue.Label}: {issue.Count} ({issue.SharePercent:N1}%) — {issue.SuggestedCorrection}");
     }
 
     private static void AppendRisksSection(Body body, InstitutionalReportModel model)
@@ -113,11 +211,38 @@ public static class InstitutionalReportDocxExporter
             AppendParagraph(body, $"{rec.Observation} — {rec.RequiredAction} [{rec.SourceLabel}]");
     }
 
+    private static void AppendActionPlanSection(Body body, InstitutionalReportModel model)
+    {
+        AppendHeading(body, "التوصيات وخطة الإجراءات");
+        foreach (var rec in model.Analysis.Recommendations)
+            AppendParagraph(body, $"{rec.Priority} — {rec.RecommendationText} — المسؤول: {rec.ResponsibleScope} — الحالة: {rec.Status}");
+    }
+
     private static void AppendTransactionDetailsSection(Body body, InstitutionalReportModel model)
     {
         AppendHeading(body, "المعاملات التفصيلية");
         foreach (var tx in model.Transactions)
             AppendParagraph(body, $"{tx.Sequence}. {tx.IncomingNumber} — {tx.Subject}");
+    }
+
+    private static void AppendAppendicesSection(Body body, InstitutionalReportModel model)
+    {
+        AppendHeading(body, "الجداول التفصيلية والملاحق");
+        AppendParagraph(body, $"صفوف التفاصيل المصدرة: {model.ExportedDetailRows:N0} من {model.TotalMatchedRows:N0}.");
+    }
+
+    private static void AppendMethodologySection(Body body, InstitutionalReportModel model)
+    {
+        var m = model.Analysis.Methodology;
+        AppendHeading(body, "المنهجية والتعريفات");
+        AppendParagraph(body, $"فترة البيانات: {m.DataPeriod}");
+        AppendParagraph(body, $"فترة المقارنة: {m.ComparisonPeriod}");
+        AppendParagraph(body, $"الفلاتر: {m.Filters}");
+        AppendParagraph(body, $"مصدر البيانات: {m.DataSource}");
+        AppendParagraph(body, $"حدود الصفوف: {m.RowLimits}");
+        AppendParagraph(body, $"إصدار الحساب: {m.CalculationVersion}");
+        foreach (var item in m.DeferredMetrics)
+            AppendParagraph(body, $"مؤجل: {item}");
     }
 
     private static void AppendMetadataSection(Body body, InstitutionalReportModel model)

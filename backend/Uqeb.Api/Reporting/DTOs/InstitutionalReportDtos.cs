@@ -71,6 +71,215 @@ public sealed class ChartDto
     public string? Footnote { get; set; }
 }
 
+public sealed class KpiComparisonDto
+{
+    public decimal? CurrentValue { get; set; }
+    public decimal? PreviousValue { get; set; }
+    public decimal? AbsoluteChange { get; set; }
+    public decimal? PercentageChange { get; set; }
+    public TrendDirection TrendDirection { get; set; } = TrendDirection.NotComparable;
+    public string TrendClassification { get; set; } = "not_comparable";
+    public string? ComparisonLabel { get; set; }
+}
+
+public sealed class AnalyticalKpiDto
+{
+    public string Key { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string Definition { get; set; } = string.Empty;
+    public string Formula { get; set; } = string.Empty;
+    public string FieldsUsed { get; set; } = string.Empty;
+    public string DisplayValue { get; set; } = string.Empty;
+    public decimal? NumericValue { get; set; }
+    public string Unit { get; set; } = string.Empty;
+    public string Format { get; set; } = "number";
+    public int SampleSize { get; set; }
+    public int MinimumSampleSize { get; set; }
+    public KpiDirection Direction { get; set; } = KpiDirection.Neutral;
+    public bool IsAvailable { get; set; } = true;
+    public string? UnavailableReason { get; set; }
+    public KpiComparisonDto Comparison { get; set; } = new();
+}
+
+public sealed class ExecutiveInsightDto
+{
+    public string Code { get; set; } = string.Empty;
+    public string Text { get; set; } = string.Empty;
+    public AnalyticalSeverity Severity { get; set; } = AnalyticalSeverity.Medium;
+    public string Evidence { get; set; } = string.Empty;
+}
+
+public sealed class SignificantFindingDto
+{
+    public string Code { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string Evidence { get; set; } = string.Empty;
+    public AnalyticalSeverity Severity { get; set; } = AnalyticalSeverity.Medium;
+    public decimal? CurrentValue { get; set; }
+    public decimal? PreviousValue { get; set; }
+    public string AffectedScope { get; set; } = string.Empty;
+}
+
+public sealed class CriticalCaseDto
+{
+    public int TransactionId { get; set; }
+    public string IncomingNumber { get; set; } = string.Empty;
+    public string Subject { get; set; } = string.Empty;
+    public string Department { get; set; } = string.Empty;
+    public string ExternalParty { get; set; } = string.Empty;
+    public string Priority { get; set; } = string.Empty;
+    public int AgeDays { get; set; }
+    public int? DaysOverdue { get; set; }
+    public string ReasonCode { get; set; } = string.Empty;
+    public string ReasonLabel { get; set; } = string.Empty;
+    public string RequiredAction { get; set; } = string.Empty;
+    public string SuggestedOwner { get; set; } = string.Empty;
+    public AnalyticalSeverity Severity { get; set; } = AnalyticalSeverity.High;
+}
+
+public sealed class DepartmentAnalysisRowDto
+{
+    public int? DepartmentId { get; set; }
+    public string DepartmentName { get; set; } = string.Empty;
+    public int IncomingCount { get; set; }
+    public int ClosedCount { get; set; }
+    public int OpenCount { get; set; }
+    public int OverdueCount { get; set; }
+    public double OnTimeCompletionRate { get; set; }
+    public double AverageCompletionDays { get; set; }
+    public double MedianCompletionDays { get; set; }
+    public int PendingAssignments { get; set; }
+    public int PartialReplies { get; set; }
+    public int BacklogChange { get; set; }
+    public int OldestOpenAgeDays { get; set; }
+    public double DataCompletenessRate { get; set; }
+    public int SampleSize { get; set; }
+    public bool HasSmallSample { get; set; }
+    public string SystemComparison { get; set; } = string.Empty;
+}
+
+public sealed class ExternalPartyAnalysisRowDto
+{
+    public string ExternalPartyName { get; set; } = string.Empty;
+    public int IncomingCount { get; set; }
+    public int OutgoingCount { get; set; }
+    public int PendingResponseCount { get; set; }
+    public int OverdueResponseCount { get; set; }
+    public double AverageResponseDays { get; set; }
+    public double MedianResponseDays { get; set; }
+    public int FollowUpCount { get; set; }
+    public int OldestPendingResponseDays { get; set; }
+    public string TopCategories { get; set; } = string.Empty;
+}
+
+public sealed class CategoryAnalysisRowDto
+{
+    public string CategoryName { get; set; } = string.Empty;
+    public int TransactionCount { get; set; }
+    public int OpenCount { get; set; }
+    public int OverdueCount { get; set; }
+    public double OnTimeCompletionRate { get; set; }
+    public double AverageCompletionDays { get; set; }
+    public int PendingAssignments { get; set; }
+}
+
+public sealed class PriorityAnalysisRowDto
+{
+    public string Priority { get; set; } = string.Empty;
+    public int Count { get; set; }
+    public int OpenCount { get; set; }
+    public int OverdueCount { get; set; }
+    public double AverageAgeDays { get; set; }
+    public double OnTimeRate { get; set; }
+}
+
+public sealed class BottleneckRowDto
+{
+    public string ReasonCode { get; set; } = string.Empty;
+    public string ReasonLabel { get; set; } = string.Empty;
+    public int Count { get; set; }
+    public double SharePercent { get; set; }
+    public double AverageDelayDays { get; set; }
+    public string TopDepartments { get; set; } = string.Empty;
+    public string TopExternalParties { get; set; } = string.Empty;
+    public List<int> ExampleTransactionIds { get; set; } = [];
+}
+
+public sealed class DataQualityIssueDto
+{
+    public string IssueCode { get; set; } = string.Empty;
+    public string Label { get; set; } = string.Empty;
+    public int Count { get; set; }
+    public double SharePercent { get; set; }
+    public AnalyticalSeverity Severity { get; set; } = AnalyticalSeverity.Medium;
+    public string AffectedFields { get; set; } = string.Empty;
+    public string SuggestedCorrection { get; set; } = string.Empty;
+}
+
+public sealed class AnalyticalRecommendationDto
+{
+    public string RecommendationId { get; set; } = string.Empty;
+    public string SourceFindingCode { get; set; } = string.Empty;
+    public string Priority { get; set; } = "medium";
+    public string RecommendationText { get; set; } = string.Empty;
+    public string ResponsibleScope { get; set; } = string.Empty;
+    public int SuggestedDueDays { get; set; }
+    public string EvidenceSummary { get; set; } = string.Empty;
+    public string Status { get; set; } = "Proposed";
+}
+
+public sealed class TimeSeriesPointDto
+{
+    public string PeriodLabel { get; set; } = string.Empty;
+    public DateTime PeriodStart { get; set; }
+    public int Incoming { get; set; }
+    public int Closed { get; set; }
+    public int OpenBalance { get; set; }
+    public int Overdue { get; set; }
+    public double OnTimeRate { get; set; }
+    public double AverageCompletionDays { get; set; }
+    public int BacklogGrowth { get; set; }
+}
+
+public sealed class MethodologyDto
+{
+    public string ReportName { get; set; } = string.Empty;
+    public string ReportVersion { get; set; } = string.Empty;
+    public DateTime GeneratedAtUtc { get; set; }
+    public string DataPeriod { get; set; } = string.Empty;
+    public string ComparisonPeriod { get; set; } = "غير مطبقة";
+    public string Filters { get; set; } = string.Empty;
+    public string DataSource { get; set; } = "Live query";
+    public string SnapshotMode { get; set; } = "Live Preview / Generated Report";
+    public string RowLimits { get; set; } = string.Empty;
+    public string CalculationVersion { get; set; } = "2026.06.analysis.1";
+    public string ApprovalStatus { get; set; } = "Draft";
+    public List<string> DeferredMetrics { get; set; } = [];
+}
+
+public sealed class InstitutionalReportAnalysisResult
+{
+    public ReportContentLevel ContentLevel { get; set; } = ReportContentLevel.Analytical;
+    public ReportComparisonMode ComparisonMode { get; set; } = ReportComparisonMode.PreviousEquivalentPeriod;
+    public DateTime? ComparisonFrom { get; set; }
+    public DateTime? ComparisonTo { get; set; }
+    public List<AnalyticalKpiDto> Kpis { get; set; } = [];
+    public List<ExecutiveInsightDto> ExecutiveInsights { get; set; } = [];
+    public List<SignificantFindingDto> Findings { get; set; } = [];
+    public List<CriticalCaseDto> CriticalCases { get; set; } = [];
+    public List<TimeSeriesPointDto> TimeSeries { get; set; } = [];
+    public List<DepartmentAnalysisRowDto> DepartmentPerformance { get; set; } = [];
+    public List<ExternalPartyAnalysisRowDto> ExternalParties { get; set; } = [];
+    public List<CategoryAnalysisRowDto> Categories { get; set; } = [];
+    public List<PriorityAnalysisRowDto> Priorities { get; set; } = [];
+    public List<BottleneckRowDto> Bottlenecks { get; set; } = [];
+    public List<DataQualityIssueDto> DataQualityIssues { get; set; } = [];
+    public double DataCompletenessRate { get; set; }
+    public List<AnalyticalRecommendationDto> Recommendations { get; set; } = [];
+    public MethodologyDto Methodology { get; set; } = new();
+}
+
 public sealed class DepartmentPerformanceRowDto
 {
     public int DepartmentId { get; set; }
@@ -160,6 +369,7 @@ public sealed class InstitutionalReportModel
     public RiskSummaryCountersDto RiskCounters { get; set; } = new();
     public List<TransactionDetailRowDto> Transactions { get; set; } = [];
     public List<IntegrityWarningDto> IntegrityWarnings { get; set; } = [];
+    public InstitutionalReportAnalysisResult Analysis { get; set; } = new();
     public int TotalMatchedRows { get; set; }
     public int ExportedDetailRows { get; set; }
     public bool DetailRowsTruncated { get; set; }
@@ -203,6 +413,7 @@ public sealed class RenderedReportManifestDto
     public string? Stylesheet { get; set; }
     public string? TemplateVersion { get; set; }
     public string? FileFingerprint { get; set; }
+    public InstitutionalReportAnalysisResult? Analysis { get; set; }
 
     public RenderedReportManifestDto CloneWithoutHtml() => new()
     {
@@ -228,6 +439,7 @@ public sealed class RenderedReportManifestDto
         Stylesheet = Stylesheet,
         TemplateVersion = TemplateVersion,
         FileFingerprint = FileFingerprint,
+        Analysis = Analysis,
         Pages = Pages.Select(p => p with { HtmlContent = string.Empty }).ToList()
     };
 }
@@ -240,6 +452,25 @@ public sealed class ReportBuildRequestDto
     public string? Introduction { get; set; }
     public List<ReportSectionId> SectionIds { get; set; } = [];
     public int? SingleTransactionId { get; set; }
+    public ReportContentLevel? ContentLevel { get; set; }
+    public ReportComparisonMode? ComparisonMode { get; set; }
+    public DateTime? ComparisonDateFrom { get; set; }
+    public DateTime? ComparisonDateTo { get; set; }
+    public ReportTimeGrouping? TimeGrouping { get; set; }
+    public bool? IncludeExecutiveSummary { get; set; }
+    public bool? IncludeComparison { get; set; }
+    public bool? IncludeCriticalCases { get; set; }
+    public bool? IncludeTimeTrends { get; set; }
+    public bool? IncludeDepartmentPerformance { get; set; }
+    public bool? IncludeExternalPartyAnalysis { get; set; }
+    public bool? IncludeCategoryAnalysis { get; set; }
+    public bool? IncludeBottleneckAnalysis { get; set; }
+    public bool? IncludeDataQuality { get; set; }
+    public bool? IncludeRecommendations { get; set; }
+    public bool? IncludeMethodology { get; set; }
+    public int? MaxCriticalCases { get; set; }
+    public int? MaxFindings { get; set; }
+    public int? MaxRecommendations { get; set; }
 }
 
 /// <summary>Export request. Boolean and enum fields default intentionally when omitted (under-posting is valid).</summary>

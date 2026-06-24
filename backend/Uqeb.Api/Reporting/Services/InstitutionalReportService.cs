@@ -208,6 +208,13 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         var metricSnapshots = await LoadSnapshotsAsync(request, ct, takeLimit: null);
         var today = DateTime.UtcNow.Date;
         var metrics = InstitutionalReportMetricsCalculator.Calculate(metricSnapshots, today);
+        var comparisonRequest = InstitutionalReportAnalysisService.CreateComparisonRequest(request);
+        var comparisonSnapshots = comparisonRequest is null
+            ? []
+            : await LoadSnapshotsAsync(comparisonRequest, ct, takeLimit: null);
+        var comparisonMetrics = comparisonSnapshots.Count == 0
+            ? null
+            : InstitutionalReportMetricsCalculator.Calculate(comparisonSnapshots, today);
 
         List<TransactionReportSnapshot> detailSnapshots;
         int exportedDetailRows;
@@ -277,6 +284,18 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             Transactions = BuildTransactionDetails(detailSnapshots),
             IntegrityWarnings = ValidateIntegrity(metrics)
         };
+
+        model.Analysis = InstitutionalReportAnalysisService.Build(
+            request,
+            model.Metadata,
+            model.Filters,
+            metrics,
+            metricSnapshots,
+            comparisonMetrics,
+            comparisonSnapshots,
+            _reportingOptions.Analysis,
+            detailLimit,
+            detailRowsTruncated);
 
         if (detailRowsTruncated && totalMatched > detailSnapshots.Count)
         {
