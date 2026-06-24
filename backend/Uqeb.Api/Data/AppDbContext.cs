@@ -175,10 +175,15 @@ public class AppDbContext : DbContext
             e.HasIndex(t => t.CreatedById);
             e.HasOne(t => t.CreatedBy).WithMany().HasForeignKey(t => t.CreatedById).OnDelete(DeleteBehavior.NoAction);
         });
-
         modelBuilder.Entity<ReportNumberSequence>(e =>
         {
             e.HasKey(s => s.Year);
+
+            e.Property(s => s.Year)
+                .ValueGeneratedNever();
+
+            e.Property(s => s.LastNumber)
+                .IsRequired();
         });
     }
 }
