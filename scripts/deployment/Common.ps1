@@ -1191,6 +1191,30 @@ function New-PlaywrightBrowserManifest {
     }
 }
 
+function Assert-PlaywrightPackageHashes {
+    param(
+        [string]$PlaywrightScriptPath,
+        [string]$ChromiumExecutablePath,
+        [object]$PlaywrightManifest
+    )
+
+    $expectedScriptHash = [string]$PlaywrightManifest.playwrightScriptSha256
+    if ($expectedScriptHash) {
+        $actualScriptHash = Get-FileSha256Hex -Path $PlaywrightScriptPath
+        if ($actualScriptHash -ne $expectedScriptHash.ToLowerInvariant()) {
+            throw 'تجزئة SHA256 لملف playwright.ps1 غير مطابقة.'
+        }
+    }
+
+    $expectedBrowserHash = [string]$PlaywrightManifest.browserExecutableSha256
+    if ($expectedBrowserHash) {
+        $actualBrowserHash = Get-FileSha256Hex -Path $ChromiumExecutablePath
+        if ($actualBrowserHash -ne $expectedBrowserHash.ToLowerInvariant()) {
+            throw 'تجزئة SHA256 لملف Chromium غير مطابقة.'
+        }
+    }
+}
+
 function Test-PlaywrightPackagePreflight {
     param(
         [string]$PackageRoot,
@@ -1225,21 +1249,10 @@ function Test-PlaywrightPackagePreflight {
         throw "ملف Chromium المشار إليه غير موجود: $relativeExecutable"
     }
 
-    $expectedScriptHash = [string]$Manifest.playwright.playwrightScriptSha256
-    if ($expectedScriptHash) {
-        $actualScriptHash = Get-FileSha256Hex -Path $playwrightScript
-        if ($actualScriptHash -ne $expectedScriptHash.ToLowerInvariant()) {
-            throw 'تجزئة SHA256 لملف playwright.ps1 غير مطابقة.'
-        }
-    }
-
-    $expectedBrowserHash = [string]$Manifest.playwright.browserExecutableSha256
-    if ($expectedBrowserHash) {
-        $actualBrowserHash = Get-FileSha256Hex -Path $executablePath
-        if ($actualBrowserHash -ne $expectedBrowserHash.ToLowerInvariant()) {
-            throw 'تجزئة SHA256 لملف Chromium غير مطابقة.'
-        }
-    }
+    Assert-PlaywrightPackageHashes `
+        -PlaywrightScriptPath $playwrightScript `
+        -ChromiumExecutablePath $executablePath `
+        -PlaywrightManifest $Manifest.playwright
 
     return [pscustomobject]@{
         BrowserManifest = $browserManifest

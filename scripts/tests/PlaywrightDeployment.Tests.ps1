@@ -17,6 +17,53 @@ BeforeAll {
         Set-Content -LiteralPath $executable -Value 'fake-chromium' -Encoding ASCII
         return $executable
     }
+
+    function script:New-PlaywrightPackageFixture {
+        $root = New-PlaywrightTestDirectory
+        $apiDir = Join-Path $root 'api'
+        $browsersDir = Join-Path $root 'browsers'
+        New-Item -ItemType Directory -Path $apiDir -Force | Out-Null
+        New-Item -ItemType Directory -Path $browsersDir -Force | Out-Null
+
+        $playwrightScript = Join-Path $apiDir 'playwright.ps1'
+        Set-Content -LiteralPath $playwrightScript -Value 'playwright-script' -Encoding ASCII -NoNewline
+
+        $executableRelativePath = 'chromium-1\chrome-win64\chrome.exe'
+        $executableDir = Join-Path $browsersDir 'chromium-1\chrome-win64'
+        New-Item -ItemType Directory -Path $executableDir -Force | Out-Null
+        $executable = Join-Path $executableDir 'chrome.exe'
+        Set-Content -LiteralPath $executable -Value 'fake-chromium' -Encoding ASCII -NoNewline
+
+        $browserManifest = [ordered]@{
+            executableRelativePath = $executableRelativePath
+        }
+        ($browserManifest | ConvertTo-Json -Depth 3) |
+            Set-Content -LiteralPath (Join-Path $browsersDir 'playwright-browser-manifest.json') -Encoding UTF8
+
+        return [pscustomobject]@{
+            Root = $root
+            PlaywrightScript = $playwrightScript
+            Executable = $executable
+            ScriptHash = (Get-FileSha256Hex -Path $playwrightScript)
+            BrowserHash = (Get-FileSha256Hex -Path $executable)
+        }
+    }
+
+    function script:New-PlaywrightPackageManifest {
+        param(
+            [bool]$Required = $true,
+            [string]$PlaywrightScriptSha256 = '',
+            [string]$BrowserExecutableSha256 = ''
+        )
+
+        return [pscustomobject]@{
+            playwright = [pscustomobject]@{
+                required = $Required
+                playwrightScriptSha256 = $PlaywrightScriptSha256
+                browserExecutableSha256 = $BrowserExecutableSha256
+            }
+        }
+    }
 }
 
 Describe 'Playwright deployment helpers' {
@@ -123,6 +170,160 @@ Describe 'Playwright deployment helpers' {
         }
         finally {
             Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+Describe 'Playwright package hash validation' {
+    It 'accepts matching playwright.ps1 hash' {
+        $fixture = New-PlaywrightPackageFixture
+        try {
+            $manifest = New-PlaywrightPackageManifest -PlaywrightScriptSha256 $fixture.ScriptHash
+            {
+                Assert-PlaywrightPackageHashes `
+                    -PlaywrightScriptPath $fixture.PlaywrightScript `
+                    -ChromiumExecutablePath $fixture.Executable `
+                    -PlaywrightManifest $manifest.playwright
+            } | Should -Not -Throw
+        }
+        finally {
+            Remove-Item -LiteralPath $fixture.Root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'rejects mismatched playwright.ps1 hash' {
+        $fixture = New-PlaywrightPackageFixture
+        try {
+            $manifest = New-PlaywrightPackageManifest -PlaywrightScriptSha256 ('0' * 64)
+            {
+                Assert-PlaywrightPackageHashes `
+                    -PlaywrightScriptPath $fixture.PlaywrightScript `
+                    -ChromiumExecutablePath $fixture.Executable `
+                    -PlaywrightManifest $manifest.playwright
+            } | Should -Throw '*playwright.ps1*'
+        }
+        finally {
+            Remove-Item -LiteralPath $fixture.Root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'accepts matching Chromium hash' {
+        $fixture = New-PlaywrightPackageFixture
+        try {
+            $manifest = New-PlaywrightPackageManifest -BrowserExecutableSha256 $fixture.BrowserHash
+            {
+                Assert-PlaywrightPackageHashes `
+                    -PlaywrightScriptPath $fixture.PlaywrightScript `
+                    -ChromiumExecutablePath $fixture.Executable `
+                    -PlaywrightManifest $manifest.playwright
+            } | Should -Not -Throw
+        }
+        finally {
+            Remove-Item -LiteralPath $fixture.Root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'rejects mismatched Chromium hash' {
+        $fixture = New-PlaywrightPackageFixture
+        try {
+            $manifest = New-PlaywrightPackageManifest -BrowserExecutableSha256 ('f' * 64)
+            {
+                Assert-PlaywrightPackageHashes `
+                    -PlaywrightScriptPath $fixture.PlaywrightScript `
+                    -ChromiumExecutablePath $fixture.Executable `
+                    -PlaywrightManifest $manifest.playwright
+            } | Should -Throw '*Chromium*'
+        }
+        finally {
+            Remove-Item -LiteralPath $fixture.Root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'skips hash validation when optional hashes are absent' {
+        $fixture = New-PlaywrightPackageFixture
+        try {
+            $manifest = New-PlaywrightPackageManifest
+            {
+                Assert-PlaywrightPackageHashes `
+                    -PlaywrightScriptPath $fixture.PlaywrightScript `
+                    -ChromiumExecutablePath $fixture.Executable `
+                    -PlaywrightManifest $manifest.playwright
+            } | Should -Not -Throw
+        }
+        finally {
+            Remove-Item -LiteralPath $fixture.Root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+Describe 'Playwright package preflight' {
+    It 'passes when package layout and hashes are valid' {
+        $fixture = New-PlaywrightPackageFixture
+        try {
+            $manifest = New-PlaywrightPackageManifest `
+                -PlaywrightScriptSha256 $fixture.ScriptHash `
+                -BrowserExecutableSha256 $fixture.BrowserHash
+            $result = Test-PlaywrightPackagePreflight -PackageRoot $fixture.Root -Manifest $manifest
+            $result.ExecutableRelativePath | Should -Be 'chromium-1\chrome-win64\chrome.exe'
+        }
+        finally {
+            Remove-Item -LiteralPath $fixture.Root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'rejects manifest missing playwright section' {
+        $fixture = New-PlaywrightPackageFixture
+        try {
+            $manifest = [pscustomobject]@{ applicationName = 'Uqeb' }
+            { Test-PlaywrightPackagePreflight -PackageRoot $fixture.Root -Manifest $manifest } |
+                Should -Throw '*playwright*'
+        }
+        finally {
+            Remove-Item -LiteralPath $fixture.Root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'rejects missing Chromium executable' {
+        $fixture = New-PlaywrightPackageFixture
+        try {
+            Remove-Item -LiteralPath $fixture.Executable -Force
+            $manifest = New-PlaywrightPackageManifest
+            { Test-PlaywrightPackagePreflight -PackageRoot $fixture.Root -Manifest $manifest } |
+                Should -Throw '*Chromium*'
+        }
+        finally {
+            Remove-Item -LiteralPath $fixture.Root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'rejects unsafe executable path' {
+        $fixture = New-PlaywrightPackageFixture
+        try {
+            $browserManifest = [ordered]@{
+                executableRelativePath = '..\outside\chrome.exe'
+            }
+            ($browserManifest | ConvertTo-Json -Depth 3) |
+                Set-Content -LiteralPath (Join-Path $fixture.Root 'browsers\playwright-browser-manifest.json') -Encoding UTF8
+            $manifest = New-PlaywrightPackageManifest
+            { Test-PlaywrightPackagePreflight -PackageRoot $fixture.Root -Manifest $manifest } |
+                Should -Throw
+        }
+        finally {
+            Remove-Item -LiteralPath $fixture.Root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'rejects mismatched package hashes during preflight' {
+        $fixture = New-PlaywrightPackageFixture
+        try {
+            $manifest = New-PlaywrightPackageManifest `
+                -PlaywrightScriptSha256 $fixture.ScriptHash `
+                -BrowserExecutableSha256 ('a' * 64)
+            { Test-PlaywrightPackagePreflight -PackageRoot $fixture.Root -Manifest $manifest } |
+                Should -Throw '*Chromium*'
+        }
+        finally {
+            Remove-Item -LiteralPath $fixture.Root -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 }
