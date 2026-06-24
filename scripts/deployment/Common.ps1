@@ -231,7 +231,7 @@ function Invoke-RobocopySafe {
     param(
         [string]$Source,
         [string]$Destination,
-        [ValidateSet('Api', 'Web')]
+        [ValidateSet('Api', 'Web', 'Generic')]
         [string]$TargetType,
         [string[]]$ExtraArguments = @()
     )
