@@ -83,7 +83,7 @@ Describe 'Windows installed-artifact promotion proof' {
         Test-Path -LiteralPath $releaseApi | Should -BeTrue
         Test-Path -LiteralPath $currentApi | Should -BeTrue
         Test-Path -LiteralPath $rollbackState | Should -BeTrue
-        (Get-Content -LiteralPath $currentApi -Raw) | Should -Be 'proof-staged'
+        (Get-Content -LiteralPath $currentApi -Raw).Trim() | Should -Be 'proof-staged'
 
         $state = Read-RollbackState -InstallRoot $InstallRoot
         $state.currentRelease | Should -Be $Version
@@ -109,7 +109,7 @@ Describe 'Windows installed-artifact promotion proof' {
         $publishApi = Join-Path $InstallRoot 'publish\api'
         $currentApi = Join-Path $InstallRoot 'current\api'
         (Get-Item -LiteralPath $publishApi).Attributes | Should -Match 'ReparsePoint'
-        (Get-Content -LiteralPath (Join-Path $publishApi 'Uqeb.Api.dll') -Raw) | Should -Be 'proof-staged'
+        (Get-Content -LiteralPath (Join-Path $publishApi 'Uqeb.Api.dll') -Raw).Trim() | Should -Be 'proof-staged'
         (Resolve-Path -LiteralPath $publishApi).Path | Should -Not -Be (Resolve-Path -LiteralPath $currentApi).Path
     }
 }
@@ -210,6 +210,8 @@ Describe 'Windows offline installer artifact proof' {
                 -PackagePath $zip `
                 -InstallRoot $installRoot `
                 -ToolsRoot $tools `
+                -ApiPath (Join-Path $installRoot 'publish\api') `
+                -WebPath (Join-Path $installRoot 'publish\web') `
                 -ConfigPath $configPath `
                 -PlaywrightBrowsersPath (Join-Path $installRoot 'tools\ms-playwright')
 
