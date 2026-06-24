@@ -134,24 +134,97 @@ export function getFieldErrors(err: unknown): Record<string, string> {
   return data?.errors ?? {};
 }
 
-export function getApiErrorMessage(err: unknown): string {
+export type ApiErrorDetails = {
+  message: string;
+  title: string;
+  detail: string;
+  errorCode: string;
+  correlationId: string;
+  validationErrors: Record<string, string>;
+  httpStatus: number | null;
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    return null;
+
+  return value as Record<string, unknown>;
+}
+
+function readString(record: Record<string, unknown>, key: string): string {
+  const value = record[key];
+  return typeof value === 'string' ? value : '';
+}
+
+function readValidationErrors(record: Record<string, unknown>): Record<string, string> {
+  const errors = record.errors;
+  if (!errors || typeof errors !== 'object' || Array.isArray(errors))
+    return {};
+
+  return Object.fromEntries(
+    Object.entries(errors as Record<string, unknown>)
+      .map(([key, value]) => {
+        if (Array.isArray(value))
+          return [key, value.filter((item): item is string => typeof item === 'string').join(' — ')];
+
+        return [key, typeof value === 'string' ? value : ''];
+      })
+      .filter(([, message]) => message.length > 0),
+  );
+}
+
+export function getApiErrorDetails(err: unknown): ApiErrorDetails {
+  const empty: ApiErrorDetails = {
+    message: '',
+    title: '',
+    detail: '',
+    errorCode: '',
+    correlationId: '',
+    validationErrors: {},
+    httpStatus: null,
+  };
+
   if (!axios.isAxiosError(err)) {
-    return err instanceof Error ? err.message : 'حدث خطأ غير متوقع';
-  }
-  const data = err.response?.data as {
-    message?: string;
-    title?: string;
-    errors?: Record<string, string>;
-  } | undefined;
-
-  if (!data) return err.message || 'حدث خطأ في الاتصال';
-
-  if (data.errors) {
-    const messages = Object.values(data.errors).filter(Boolean);
-    if (messages.length > 0) return messages.join(' — ');
+    return {
+      ...empty,
+      message: err instanceof Error ? err.message : 'حدث خطأ غير متوقع',
+    };
   }
 
-  if (typeof data.message === 'string' && data.message) return data.message;
-  if (typeof data.title === 'string' && data.title) return data.title;
-  return err.message || 'حدث خطأ';
+  const httpStatus = err.response?.status ?? null;
+  const headerCorrelationId = err.response?.headers?.['x-correlation-id'];
+  const responseRecord = asRecord(err.response?.data);
+  const validationErrors = responseRecord ? readValidationErrors(responseRecord) : {};
+  const validationMessage = Object.values(validationErrors).filter(Boolean).join(' — ');
+
+  if (!responseRecord) {
+    return {
+      ...empty,
+      httpStatus,
+      message: err.message || 'حدث خطأ في الاتصال',
+      correlationId: typeof headerCorrelationId === 'string' ? headerCorrelationId : '',
+    };
+  }
+
+  const message = readString(responseRecord, 'message')
+    || validationMessage
+    || readString(responseRecord, 'title')
+    || readString(responseRecord, 'detail')
+    || err.message
+    || 'حدث خطأ';
+
+  return {
+    message,
+    title: readString(responseRecord, 'title'),
+    detail: readString(responseRecord, 'detail'),
+    errorCode: readString(responseRecord, 'errorCode'),
+    correlationId: readString(responseRecord, 'correlationId')
+      || (typeof headerCorrelationId === 'string' ? headerCorrelationId : ''),
+    validationErrors,
+    httpStatus,
+  };
+}
+
+export function getApiErrorMessage(err: unknown): string {
+  return getApiErrorDetails(err).message;
 }

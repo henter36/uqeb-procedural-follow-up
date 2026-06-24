@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Diagnostics;
 using System.Globalization;
@@ -43,6 +44,8 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
     private readonly IInstitutionalReportPdfExporter _pdfExporter;
     private readonly IReportingExportGuard _exportGuard;
     private readonly IReportingMetrics _metrics;
+    private readonly ILogger<InstitutionalReportService> _logger;
+    private readonly IReportingCorrelationIdProvider _correlationIdProvider;
 
     public InstitutionalReportService(
         IDbContextFactory<AppDbContext> dbFactory,
@@ -51,7 +54,9 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
         IInstitutionalReportPdfExporter pdfExporter,
         IOptions<ReportingOptions> reportingOptions,
         IReportingExportGuard exportGuard,
-        IReportingMetrics metrics)
+        IReportingMetrics metrics,
+        ILogger<InstitutionalReportService> logger,
+        IReportingCorrelationIdProvider correlationIdProvider)
     {
         _dbFactory = dbFactory;
         _currentUser = currentUser;
@@ -60,6 +65,8 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
         _reportingOptions = reportingOptions.Value;
         _exportGuard = exportGuard;
         _metrics = metrics;
+        _logger = logger;
+        _correlationIdProvider = correlationIdProvider;
     }
 
     public Task<InstitutionalReportModel> BuildReportModelAsync(ReportBuildRequestDto request, CancellationToken ct = default) =>
@@ -74,15 +81,66 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
 
     public async Task<RenderedReportManifestDto> RenderPreviewAsync(ReportBuildRequestDto request, CancellationToken ct = default)
     {
+        ValidateBuildRequest(request);
+        var correlationId = _correlationIdProvider.GetCorrelationId();
+        var stopwatch = Stopwatch.StartNew();
+
+        _logger.LogInformation(
+            "Institutional report preview build started. ReportType={ReportType} CorrelationId={CorrelationId}",
+            request.ReportType,
+            correlationId);
+
         var detailLimit = _reportingOptions.MaxPreviewDetailRows;
+
+        _logger.LogDebug(
+            "Institutional report preview count_matching_started. CorrelationId={CorrelationId}",
+            correlationId);
         var totalMatching = await CountMatchingTransactionsAsync(request, ct);
+        stopwatch.Stop();
+        _logger.LogInformation(
+            "Institutional report preview count_matching_completed. MatchedRows={MatchedRows} DurationMs={DurationMs} CorrelationId={CorrelationId}",
+            totalMatching,
+            stopwatch.Elapsed.TotalMilliseconds,
+            correlationId);
+
+        stopwatch.Restart();
+        _logger.LogDebug(
+            "Institutional report preview build_model_started. CorrelationId={CorrelationId}",
+            correlationId);
         var model = await BuildInternalAsync(
             request,
             ct,
             ReportAssemblyOptions.ForPreview(totalMatching, detailLimit));
+        stopwatch.Stop();
+        _logger.LogInformation(
+            "Institutional report preview build_model_completed. DurationMs={DurationMs} CorrelationId={CorrelationId}",
+            stopwatch.Elapsed.TotalMilliseconds,
+            correlationId);
+
         var sections = ResolveSections(request);
+        _logger.LogDebug(
+            "Institutional report preview resolve_sections_completed. SectionCount={SectionCount} CorrelationId={CorrelationId}",
+            sections.Count,
+            correlationId);
+
+        stopwatch.Restart();
+        _logger.LogDebug(
+            "Institutional report preview render_manifest_started. CorrelationId={CorrelationId}",
+            correlationId);
         var manifest = _renderer.RenderManifest(model, sections);
-        return EnrichManifest(manifest, model, isSummaryOnly: false, overflowAction: null);
+        stopwatch.Stop();
+        _logger.LogInformation(
+            "Institutional report preview render_manifest_completed. PageCount={PageCount} DurationMs={DurationMs} CorrelationId={CorrelationId}",
+            manifest.Pages.Count,
+            stopwatch.Elapsed.TotalMilliseconds,
+            correlationId);
+
+        var enriched = EnrichManifest(manifest, model, isSummaryOnly: false, overflowAction: null);
+        _logger.LogInformation(
+            "Institutional report preview enrich_manifest_completed. CorrelationId={CorrelationId}",
+            correlationId);
+
+        return enriched;
     }
 
     public async Task<ReportExportResultDto> ExportAsync(ReportExportRequestDto request, CancellationToken ct = default)
@@ -542,8 +600,8 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
                 ReportType = request.ReportType,
                 ReportTypeName = ReportTypeLabel(request.ReportType),
                 IssueDate = today,
-                PeriodFrom = request.Filters.DateFrom ?? metricSnapshots.MinBy(s => s.IncomingDate)?.IncomingDate ?? today,
-                PeriodTo = request.Filters.DateTo ?? metricSnapshots.MaxBy(s => s.IncomingDate)?.IncomingDate ?? today,
+                PeriodFrom = ResolvePeriodStart(request.Filters.DateFrom, metricSnapshots, s => s.IncomingDate, today),
+                PeriodTo = ResolvePeriodEnd(request.Filters.DateTo, metricSnapshots, s => s.IncomingDate, today),
                 Title = string.IsNullOrWhiteSpace(request.Title)
                     ? "تقرير المتابعة الإجرائية للمعاملات"
                     : request.Title.Trim(),
@@ -636,7 +694,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
                 Assignments = t.Assignments.Select(a => new InstitutionalReportSnapshotQuery.AssignmentRow
                 {
                     DepartmentId = a.DepartmentId,
-                    DepartmentName = a.Department.Name,
+                    DepartmentName = a.Department != null ? a.Department.Name : string.Empty,
                     RequiresReply = a.RequiresReply,
                     ReplyStatus = a.ReplyStatus,
                     Status = a.Status,
@@ -939,6 +997,52 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
             });
         }
         return warnings;
+    }
+
+    private static void ValidateBuildRequest(ReportBuildRequestDto request)
+    {
+        if (request.SectionIds.Count == 0)
+        {
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                ["sectionIds"] = "يجب تحديد قسم واحد على الأقل في التقرير.",
+            });
+        }
+
+        if (request.Filters.DateFrom is DateTime from
+            && request.Filters.DateTo is DateTime to
+            && from.Date > to.Date)
+        {
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                ["filters.dateFrom"] = "تاريخ البداية يجب أن يسبق أو يساوي تاريخ النهاية.",
+                ["filters.dateTo"] = "تاريخ النهاية يجب أن يلي أو يساوي تاريخ البداية.",
+            });
+        }
+    }
+
+    private static DateTime ResolvePeriodStart<T>(
+        DateTime? requested,
+        IReadOnlyList<T> snapshots,
+        Func<T, DateTime> selector,
+        DateTime fallback)
+    {
+        if (requested.HasValue)
+            return requested.Value;
+
+        return snapshots.Count == 0 ? fallback : snapshots.Min(selector);
+    }
+
+    private static DateTime ResolvePeriodEnd<T>(
+        DateTime? requested,
+        IReadOnlyList<T> snapshots,
+        Func<T, DateTime> selector,
+        DateTime fallback)
+    {
+        if (requested.HasValue)
+            return requested.Value;
+
+        return snapshots.Count == 0 ? fallback : snapshots.Max(selector);
     }
 
     private static List<ReportSectionId> ResolveSections(ReportBuildRequestDto request)

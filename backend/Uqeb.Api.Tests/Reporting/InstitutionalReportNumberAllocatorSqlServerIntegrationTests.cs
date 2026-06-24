@@ -1,5 +1,6 @@
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Uqeb.Api.Data;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Reporting.Services;
@@ -46,7 +47,7 @@ public class InstitutionalReportNumberAllocatorSqlServerIntegrationTests
             await db.Database.EnsureCreatedAsync();
 
         var allocators = Enumerable.Range(0, 20)
-            .Select(_ => new InstitutionalReportNumberAllocator(dbFactory))
+            .Select(_ => new InstitutionalReportNumberAllocator(dbFactory, NullLogger<InstitutionalReportNumberAllocator>.Instance))
             .ToList();
 
         var numbers = await Task.WhenAll(allocators.Select(a => a.AllocateAsync()));
@@ -84,7 +85,9 @@ public class InstitutionalReportNumberAllocatorSqlServerIntegrationTests
             await db.SaveChangesAsync();
         }
 
-        var number = await new InstitutionalReportNumberAllocator(dbFactory).AllocateAsync();
+        var number = await new InstitutionalReportNumberAllocator(
+            dbFactory,
+            NullLogger<InstitutionalReportNumberAllocator>.Instance).AllocateAsync();
         Assert.Equal($"REP-{year}-000101", number);
     }
 
@@ -105,7 +108,7 @@ public class InstitutionalReportNumberAllocatorSqlServerIntegrationTests
             await db.Database.EnsureCreatedAsync();
 
         var numbers = await Task.WhenAll(Enumerable.Range(0, 20)
-            .Select(_ => new InstitutionalReportNumberAllocator(dbFactory).AllocateAsync()));
+            .Select(_ => new InstitutionalReportNumberAllocator(dbFactory, NullLogger<InstitutionalReportNumberAllocator>.Instance).AllocateAsync()));
 
         Assert.Equal(20, numbers.Distinct().Count());
 

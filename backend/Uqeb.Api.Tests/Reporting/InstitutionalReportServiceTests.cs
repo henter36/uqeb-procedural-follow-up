@@ -114,7 +114,9 @@ internal static class InstitutionalReportServiceTestHelpers
             new StubPdfExporter(),
             Options.Create(reportingOptions ?? new ReportingOptions { MaxPdfDetailRows = 10_000 }),
             CreateExportGuard(reportingOptions, audit),
-            new ReportingMetrics());
+            new ReportingMetrics(),
+            NullLogger<InstitutionalReportService>.Instance,
+            new ReportingCorrelationIdProvider(new HttpContextAccessor()));
     }
 
     private static IReportingExportGuard CreateExportGuard(ReportingOptions? reportingOptions, IAuditService? audit = null)

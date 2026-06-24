@@ -81,7 +81,12 @@ export function useReportBuilderExport({
     && (exportFormat === ExportFormat.Pdf || exportFormat === ExportFormat.Docx || exportFormat === ExportFormat.Html),
   );
 
-  const openExportDialog = useCallback(() => setExportOpen(true), []);
+  const openExportDialog = useCallback(() => {
+    if (!manifest)
+      return;
+
+    setExportOpen(true);
+  }, [manifest]);
   const closeExportDialog = useCallback(() => setExportOpen(false), []);
 
   const handleExportDialogCancel = useCallback((event: SyntheticEvent) => {

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging.Abstractions;
 using Uqeb.Api.Controllers;
 using Uqeb.Api.Helpers;
 using Uqeb.Api.Reporting.DTOs;
@@ -15,7 +16,9 @@ public class InstitutionalReportsControllerExportTests
     public async Task Export_ReturnsValidationProblem_WhenServiceThrowsFieldValidation()
     {
         var service = new ThrowingInstitutionalReportService();
-        var controller = new InstitutionalReportsController(service)
+        var controller = new InstitutionalReportsController(
+            service,
+            NullLogger<InstitutionalReportsController>.Instance)
         {
             ControllerContext = new ControllerContext
             {

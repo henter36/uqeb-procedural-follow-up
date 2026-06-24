@@ -105,6 +105,38 @@ describe('ReportBuilderPage export dialog', () => {
     cleanup();
   });
 
+  it('keeps dialog closed by default after page render', () => {
+    render(<ReportBuilderPage />);
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(document.querySelector('.report-export-modal[open]')).toBeNull();
+  });
+
+  it('does not open dialog when preview fails', async () => {
+    vi.mocked(services.institutionalReportsApi.preview).mockRejectedValueOnce({
+      isAxiosError: true,
+      response: {
+        status: 500,
+        data: {
+          message: 'تعذر إنشاء معاينة التقرير.',
+          correlationId: 'corr-1',
+        },
+      },
+    });
+
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(/تعذر إنشاء معاينة التقرير/);
+    });
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'تصدير' })).toBeDisabled();
+  });
+
   it('opens native dialog with accessible title when export is clicked', async () => {
     const user = userEvent.setup();
     render(<ReportBuilderPage />);
@@ -121,6 +153,7 @@ describe('ReportBuilderPage export dialog', () => {
 
     const dialog = screen.getByRole('dialog');
     expect(dialog).toBeInTheDocument();
+    expect(dialog).toHaveAttribute('open');
     expect(dialog).toHaveAttribute('aria-labelledby', 'report-export-dialog-title');
     expect(screen.getByRole('heading', { name: 'خيارات تصدير التقرير' })).toHaveAttribute('id', 'report-export-dialog-title');
   });

@@ -8,6 +8,7 @@ import {
   PageNumberingMode,
   ReportSectionId,
 } from '../api/institutionalReports.constants';
+import { getApiErrorDetails } from '../utils/apiHelpers';
 import {
   defaultDate,
   exportFormatLabels,
@@ -53,8 +54,18 @@ export default function ReportBuilderPage() {
   const [zoom, setZoom] = useState(0.75);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [errorCorrelationId, setErrorCorrelationId] = useState('');
 
   const includesTransactionDetails = sectionIds.includes(ReportSectionId.TransactionDetails);
+
+  const invalidatePreview = useCallback(() => {
+    setManifest(null);
+    setError('');
+    setErrorCorrelationId('');
+    setCurrentPage(1);
+    setSelectedPages([]);
+    setPageRange('');
+  }, []);
 
   const buildRequest = useCallback((): ReportBuildRequest => ({
     reportType,
@@ -110,16 +121,32 @@ export default function ReportBuilderPage() {
   const loadPreview = async () => {
     setLoading(true);
     setError('');
+    setErrorCorrelationId('');
     try {
       const { data } = await institutionalReportsApi.preview(buildRequest());
       setManifest(data);
       setCurrentPage(1);
       setSelectedPages([]);
-    } catch {
-      setError('تعذر إنشاء معاينة التقرير.');
+    } catch (error) {
+      const apiError = getApiErrorDetails(error);
+
+      setError(
+        apiError.message
+          ? `تعذر إنشاء معاينة التقرير: ${apiError.message}`
+          : 'تعذر إنشاء معاينة التقرير.',
+      );
+      setErrorCorrelationId(apiError.correlationId);
+      setManifest(null);
     } finally {
       setLoading(false);
     }
+  };
+
+  const copyCorrelationId = async () => {
+    if (!errorCorrelationId || !navigator.clipboard?.writeText)
+      return;
+
+    await navigator.clipboard.writeText(errorCorrelationId);
   };
 
   const activePage = useMemo(
@@ -136,6 +163,7 @@ export default function ReportBuilderPage() {
   );
 
   const toggleSection = (id: number) => {
+    invalidatePreview();
     setSectionIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   };
 
@@ -168,7 +196,19 @@ export default function ReportBuilderPage() {
         </div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      {error && (
+        <div className="alert alert-error" role="alert">
+          <div>{error}</div>
+          {errorCorrelationId ? (
+            <div className="report-error-meta">
+              <span>رقم التتبع: {errorCorrelationId}</span>
+              <button type="button" className="btn btn-sm btn-outline" onClick={copyCorrelationId}>
+                نسخ رقم التتبع
+              </button>
+            </div>
+          ) : null}
+        </div>
+      )}
 
       {manifest?.requiresDetailOverflowAction && includesTransactionDetails && (
         <div className="alert alert-warning">
@@ -188,21 +228,24 @@ export default function ReportBuilderPage() {
           <select
             id="report-type"
             value={reportType}
-            onChange={(e) => setReportType(Number(e.target.value) as typeof reportType)}
+            onChange={(e) => {
+              invalidatePreview();
+              setReportType(Number(e.target.value) as typeof reportType);
+            }}
           >
             {REPORT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
           <label htmlFor="date-from">من تاريخ</label>
-          <input id="date-from" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+          <input id="date-from" type="date" value={dateFrom} onChange={(e) => { invalidatePreview(); setDateFrom(e.target.value); }} />
           <label htmlFor="date-to">إلى تاريخ</label>
-          <input id="date-to" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+          <input id="date-to" type="date" value={dateTo} onChange={(e) => { invalidatePreview(); setDateTo(e.target.value); }} />
           <label htmlFor="report-title">عنوان التقرير</label>
-          <input id="report-title" value={title} onChange={(e) => setTitle(e.target.value)} />
+          <input id="report-title" value={title} onChange={(e) => { invalidatePreview(); setTitle(e.target.value); }} />
 
           <h3 style={{ marginTop: '1rem' }}>الأقسام المراد تضمينها</h3>
           <div className="report-section-list">
-            <button type="button" className="btn btn-sm btn-outline" onClick={() => setSectionIds(SECTIONS.map((s) => s.id))}>تحديد الكل</button>
-            <button type="button" className="btn btn-sm btn-outline" onClick={() => setSectionIds([])}>إلغاء تحديد الكل</button>
+            <button type="button" className="btn btn-sm btn-outline" onClick={() => { invalidatePreview(); setSectionIds(SECTIONS.map((s) => s.id)); }}>تحديد الكل</button>
+            <button type="button" className="btn btn-sm btn-outline" onClick={() => { invalidatePreview(); setSectionIds([]); }}>إلغاء تحديد الكل</button>
             {SECTIONS.map((section) => (
               <label key={section.id} htmlFor={`section-${section.id}`}>
                 <input

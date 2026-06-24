@@ -28,6 +28,10 @@ public static class SqlExceptionHelper
         || IsDeadlock(ex)
         || (ex is SqlException sql && sql.Number is 2601 or 2627 or 1205);
 
+    public static bool ShouldFallbackReportNumberAllocationToEf(Exception ex) =>
+        ex is InvalidOperationException
+        || (TryGetSqlException(ex, out var sql) && sql.Number is 208 or 2812);
+
     private static bool TryGetSqlException(Exception ex, out SqlException sql)
     {
         for (Exception? current = ex; current is not null; current = current.InnerException)

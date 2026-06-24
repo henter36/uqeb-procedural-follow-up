@@ -40,6 +40,12 @@ public class SqlExceptionHelperTests
     }
 
     [Fact]
+    public void ShouldFallbackReportNumberAllocationToEf_ReturnsTrue_ForInvalidOperationException()
+    {
+        Assert.True(SqlExceptionHelper.ShouldFallbackReportNumberAllocationToEf(new InvalidOperationException("invalid object")));
+    }
+
+    [Fact]
     public void IsDuplicateKey_ReturnsFalse_WhenInnerExceptionIsNotSqlException()
     {
         var ex = new DbUpdateException("failed", new InvalidOperationException("not sql"));

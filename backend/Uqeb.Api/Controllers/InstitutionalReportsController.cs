@@ -15,9 +15,15 @@ namespace Uqeb.Api.Controllers;
 public class InstitutionalReportsController : ControllerBase
 {
     private readonly IInstitutionalReportService _service;
+    private readonly ILogger<InstitutionalReportsController> _logger;
 
-    public InstitutionalReportsController(IInstitutionalReportService service) =>
+    public InstitutionalReportsController(
+        IInstitutionalReportService service,
+        ILogger<InstitutionalReportsController> logger)
+    {
         _service = service;
+        _logger = logger;
+    }
 
     [HttpPost("preview")]
     public async Task<IActionResult> Preview([FromBody] ReportBuildRequestDto request, CancellationToken ct)
@@ -29,6 +35,28 @@ public class InstitutionalReportsController : ControllerBase
         catch (FieldValidationException ex)
         {
             return ToValidationProblem(ex);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            var correlationId = HttpContext.Items[CorrelationIdMiddleware.ItemKey] as string;
+
+            _logger.LogError(
+                ex,
+                "Institutional report preview failed. CorrelationId={CorrelationId}",
+                correlationId);
+
+            return StatusCode(
+                StatusCodes.Status500InternalServerError,
+                new
+                {
+                    errorCode = "institutional_report_preview_failed",
+                    message = "تعذر إنشاء معاينة التقرير.",
+                    correlationId,
+                });
         }
     }
 
