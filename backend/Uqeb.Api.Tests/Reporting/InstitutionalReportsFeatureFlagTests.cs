@@ -117,6 +117,59 @@ public class InstitutionalReportsFeatureFlagEnabledTests : IClassFixture<Institu
     }
 }
 
+public class InstitutionalReportsMissingFeatureFlagTests : IClassFixture<InstitutionalReportsMissingFeatureFlagWebApplicationFactory>
+{
+    private readonly HttpClient _client;
+
+    public InstitutionalReportsMissingFeatureFlagTests(InstitutionalReportsMissingFeatureFlagWebApplicationFactory factory) =>
+        _client = factory.CreateClient();
+
+    [Fact]
+    public async Task GetTemplates_ReturnsOk_WhenFeatureFlagMissingAndUserIsAdmin()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/institutional-reports/templates")
+        {
+            Headers =
+            {
+                Authorization = new AuthenticationHeaderValue(
+                    "Bearer",
+                    TestJwtHelper.CreateToken("Admin")),
+            },
+        };
+
+        var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetTemplates_ReturnsOk_WhenFeatureFlagMissingAndUserIsSupervisor()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/institutional-reports/templates")
+        {
+            Headers =
+            {
+                Authorization = new AuthenticationHeaderValue(
+                    "Bearer",
+                    TestJwtHelper.CreateToken("Supervisor")),
+            },
+        };
+
+        var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+}
+
+public sealed class InstitutionalReportsMissingFeatureFlagWebApplicationFactory : WebApplicationFactory<Program>
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder) =>
+        InstitutionalReportsTestHostBuilder.Configure(
+            builder,
+            institutionalReportsEnabled: null,
+            useDefaultRoleRollout: false);
+}
+
 public sealed class InstitutionalReportsDisabledWebApplicationFactory : WebApplicationFactory<Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder) =>
@@ -133,19 +186,19 @@ internal static class InstitutionalReportsTestHostBuilder
 {
     internal static void Configure(
         IWebHostBuilder builder,
-        bool institutionalReportsEnabled,
+        bool? institutionalReportsEnabled = true,
         bool useRealInstitutionalReportService = false,
         bool useDefaultRoleRollout = true,
         Action<IServiceCollection>? configureServices = null,
         Dictionary<string, string?>? extraConfig = null,
         string? inMemoryDatabaseName = null)
     {
-        var config = new Dictionary<string, string?>
-        {
-            ["FeatureFlags:InstitutionalReports"] = institutionalReportsEnabled ? "true" : "false",
-        };
+        var config = new Dictionary<string, string?>();
 
-        if (institutionalReportsEnabled)
+        if (institutionalReportsEnabled.HasValue)
+            config["FeatureFlags:InstitutionalReports"] = institutionalReportsEnabled.Value ? "true" : "false";
+
+        if (institutionalReportsEnabled is not false)
         {
             config["ReportingRollout:EnforcementMode"] = ReportingRolloutEnforcementMode.ObserveOnly.ToString();
             config["ReportingRollout:EmergencyDisable"] = "false";

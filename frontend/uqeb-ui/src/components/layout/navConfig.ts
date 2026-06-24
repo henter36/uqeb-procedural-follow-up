@@ -19,8 +19,6 @@ export type NavSection = {
   items: NavItem[];
 };
 
-export const navSections: NavSection[] = buildNavSections();
-
 export function buildNavSections(institutionalReportsEnabled = isInstitutionalReportsEnabled()): NavSection[] {
   const sections: NavSection[] = [
     {

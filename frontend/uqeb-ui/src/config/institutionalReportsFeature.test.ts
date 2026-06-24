@@ -8,11 +8,11 @@ describe('isInstitutionalReportsEnabled', () => {
     vi.resetModules();
   });
 
-  it('is disabled by default when env var is false', async () => {
-    vi.stubEnv('VITE_ENABLE_INSTITUTIONAL_REPORTS', 'false');
+  it('is enabled when env var is missing', async () => {
+    vi.unstubAllEnvs();
     vi.resetModules();
     const { isInstitutionalReportsEnabled: enabled } = await import('./featureFlags');
-    expect(enabled()).toBe(false);
+    expect(enabled()).toBe(true);
   });
 
   it('is enabled when env var is true', async () => {
@@ -20,6 +20,27 @@ describe('isInstitutionalReportsEnabled', () => {
     vi.resetModules();
     const { isInstitutionalReportsEnabled: enabled } = await import('./featureFlags');
     expect(enabled()).toBe(true);
+  });
+
+  it('is enabled when env var is TRUE', async () => {
+    vi.stubEnv('VITE_ENABLE_INSTITUTIONAL_REPORTS', 'TRUE');
+    vi.resetModules();
+    const { isInstitutionalReportsEnabled: enabled } = await import('./featureFlags');
+    expect(enabled()).toBe(true);
+  });
+
+  it('is disabled when env var is false', async () => {
+    vi.stubEnv('VITE_ENABLE_INSTITUTIONAL_REPORTS', 'false');
+    vi.resetModules();
+    const { isInstitutionalReportsEnabled: enabled } = await import('./featureFlags');
+    expect(enabled()).toBe(false);
+  });
+
+  it('is disabled when env var is FALSE', async () => {
+    vi.stubEnv('VITE_ENABLE_INSTITUTIONAL_REPORTS', 'FALSE');
+    vi.resetModules();
+    const { isInstitutionalReportsEnabled: enabled } = await import('./featureFlags');
+    expect(enabled()).toBe(false);
   });
 });
 
@@ -32,6 +53,14 @@ describe('institutional reports navigation', () => {
   function reportBuilderPaths(sections: ReturnType<typeof buildNavSections>) {
     return sections.flatMap((section) => section.items.map((item) => item.path));
   }
+
+  it('shows report builder nav link when env var is missing', async () => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+    const { buildNavSections: buildSections } = await import('../components/layout/navConfig');
+    const paths = reportBuilderPaths(buildSections());
+    expect(paths).toContain('/report-builder');
+  });
 
   it('hides report builder nav link when feature flag is disabled', async () => {
     vi.stubEnv('VITE_ENABLE_INSTITUTIONAL_REPORTS', 'false');
@@ -50,6 +79,8 @@ describe('institutional reports navigation', () => {
   });
 
   it('uses the same gate as App route registration', () => {
+    vi.unstubAllEnvs();
+    expect(isInstitutionalReportsEnabled()).toBe(true);
     vi.stubEnv('VITE_ENABLE_INSTITUTIONAL_REPORTS', 'true');
     expect(isInstitutionalReportsEnabled()).toBe(true);
     vi.stubEnv('VITE_ENABLE_INSTITUTIONAL_REPORTS', 'false');

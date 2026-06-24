@@ -33,10 +33,23 @@ function renderSidebar(mobileOpen = false, onMobileClose = vi.fn()) {
 describe('Sidebar', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
   });
 
   afterEach(() => {
     cleanup();
+    vi.unstubAllEnvs();
+  });
+
+  it('shows report builder link for authorized admin by default', () => {
+    renderSidebar();
+    expect(screen.getByRole('link', { name: 'منشئ التقارير' })).toBeInTheDocument();
+  });
+
+  it('hides report builder link when feature flag is explicitly false', () => {
+    vi.stubEnv('VITE_ENABLE_INSTITUTIONAL_REPORTS', 'false');
+    renderSidebar();
+    expect(screen.queryByRole('link', { name: 'منشئ التقارير' })).not.toBeInTheDocument();
   });
 
   it('marks the active link using pathname and search', () => {

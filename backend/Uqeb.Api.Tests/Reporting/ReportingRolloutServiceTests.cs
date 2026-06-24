@@ -79,6 +79,22 @@ public class ReportingRolloutServiceTests
         Assert.Equal("RolloutDenied", status.EffectiveAccessMode);
     }
 
+    [Fact]
+    public void GetAccessStatus_DefaultFeatureFlag_AllowsWhenMissingFromConfiguration()
+    {
+        var service = new ReportingRolloutService(
+            Options.Create(new FeatureFlagsSettings()),
+            Options.Create(new ReportingRolloutOptions
+            {
+                EnforcementMode = ReportingRolloutEnforcementMode.ObserveOnly,
+            }));
+
+        var status = service.GetAccessStatus(new TestUser(UserRole.Admin, 2, null));
+
+        Assert.True(status.FeatureEnabled);
+        Assert.True(status.UserDecision!.EffectiveAllowed);
+    }
+
     private static ReportingRolloutService CreateService(
         bool institutionalReports = true,
         ReportingRolloutEnforcementMode enforcementMode = ReportingRolloutEnforcementMode.ObserveOnly,
