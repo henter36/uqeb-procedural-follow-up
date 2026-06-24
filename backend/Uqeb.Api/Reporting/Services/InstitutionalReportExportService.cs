@@ -438,6 +438,10 @@ public sealed class InstitutionalReportExportService : IInstitutionalReportExpor
         var pages = request.ExportMode switch
         {
             ExportMode.CurrentPage when request.CurrentPageNumber.HasValue => [request.CurrentPageNumber.Value],
+            ExportMode.CurrentPage => throw new FieldValidationException(new Dictionary<string, string>
+            {
+                [SelectedPagesField] = "يجب تحديد الصفحة الحالية للتصدير.",
+            }),
             ExportMode.SelectedPages when !string.IsNullOrWhiteSpace(request.PageRangeExpression)
                 => ParsePageRangeOrThrow(request.PageRangeExpression, manifest.TotalPages),
             ExportMode.SelectedPages when request.SelectedPageNumbers.Count > 0 => request.SelectedPageNumbers.Distinct().OrderBy(p => p).ToList(),

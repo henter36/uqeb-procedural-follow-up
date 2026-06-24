@@ -23,9 +23,7 @@ public class InstitutionalReportRendererCoverTests
 
         Assert.Contains("class=\"report-page\"", page.HtmlContent);
         Assert.Contains("REP-2026-000125", page.HtmlContent);
-        Assert.Equal(
-            1,
-            Regex.Matches(page.HtmlContent, "class=\"report-page\"").Count);
+        Assert.Single(Regex.Matches(page.HtmlContent, "class=\"report-page\""));
     }
 
     [Fact]

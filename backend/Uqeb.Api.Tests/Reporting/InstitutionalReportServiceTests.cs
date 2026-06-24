@@ -145,6 +145,25 @@ public class InstitutionalReportServiceBuildValidationTests
     }
 
     [Fact]
+    public async Task ExportAsync_CurrentPageWithoutNumber_ThrowsValidationProblem()
+    {
+        var service = InstitutionalReportServiceTestHelpers.CreateService();
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.ExportAsync(new ReportExportRequestDto
+        {
+            ExportFormat = ExportFormat.Html,
+            ExportMode = ExportMode.CurrentPage,
+            BuildRequest = new ReportBuildRequestDto
+            {
+                ReportType = InstitutionalReportType.ExecutiveComprehensive,
+                SectionIds = [ReportSectionId.Cover],
+            },
+        }));
+
+        Assert.Equal("يجب تحديد الصفحة الحالية للتصدير.", ex.FieldErrors["selectedPages"]);
+    }
+
+    [Fact]
     public async Task RenderPreviewAsync_ThrowsValidationProblem_WhenDateRangeInvalid()
     {
         var service = InstitutionalReportServiceTestHelpers.CreateService();
