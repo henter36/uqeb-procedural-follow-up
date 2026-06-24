@@ -73,6 +73,7 @@ builder.Services.AddScoped<IReportingExportLifecycleObserver, ReportingExportLif
 builder.Services.AddScoped<IReportingExportGuard, ReportingExportGuard>();
 builder.Services.AddScoped<IReportingReadinessService, ReportingReadinessService>();
 builder.Services.AddSingleton<IReportingRolloutService, ReportingRolloutService>();
+builder.Services.AddSingleton<IReportingRolloutObserver, ReportingRolloutObserver>();
 builder.Services.AddHostedService<ReportingTempFileCleanupHostedService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IDepartmentService, DepartmentService>();

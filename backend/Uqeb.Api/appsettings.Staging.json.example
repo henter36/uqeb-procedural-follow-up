@@ -1,9 +1,10 @@
 {
   "FeatureFlags": {
-    "InstitutionalReports": false
+    "InstitutionalReports": true
   },
   "ReportingRollout": {
-    "EmergencyDisable": true,
+    "EnforcementMode": "ObserveOnly",
+    "EmergencyDisable": false,
     "EnabledForUserIds": [],
     "EnabledForRoles": [],
     "EnabledForDepartments": [],

@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Uqeb.Api.Reporting.Configuration;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
 using Uqeb.Api.Reporting.Exporters;
@@ -144,11 +145,16 @@ internal static class InstitutionalReportsTestHostBuilder
             ["FeatureFlags:InstitutionalReports"] = institutionalReportsEnabled ? "true" : "false",
         };
 
-        if (institutionalReportsEnabled && useDefaultRoleRollout)
+        if (institutionalReportsEnabled)
         {
+            config["ReportingRollout:EnforcementMode"] = ReportingRolloutEnforcementMode.ObserveOnly.ToString();
             config["ReportingRollout:EmergencyDisable"] = "false";
-            config["ReportingRollout:EnabledForRoles:0"] = "Admin";
-            config["ReportingRollout:EnabledForRoles:1"] = "Supervisor";
+
+            if (useDefaultRoleRollout)
+            {
+                config["ReportingRollout:EnabledForRoles:0"] = "Admin";
+                config["ReportingRollout:EnabledForRoles:1"] = "Supervisor";
+            }
         }
 
         if (extraConfig is not null)

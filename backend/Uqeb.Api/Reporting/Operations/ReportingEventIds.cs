@@ -11,4 +11,6 @@ public static class ReportingEventIds
     public const int ExportRejected = 4106;
     public const int TempCleanupFailed = 4107;
     public const int ChromiumUnavailable = 4108;
+    public const int RolloutObserveOnlyEvaluated = 4109;
+    public const int RolloutEnforcedEvaluated = 4110;
 }

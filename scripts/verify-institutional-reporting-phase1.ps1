@@ -21,6 +21,8 @@ param(
 
     [switch]$TestEmergencyDisable,
 
+    [switch]$ExpectEnforcedRollout,
+
     [string]$SettingsPath = "",
 
     [string]$ProjectRoot = ""
@@ -133,9 +135,15 @@ if ($readinessBody.state -ne "Ready") {
 
 if ($NonPilotAdminUsername -and $NonPilotPassword) {
     $otherToken = Invoke-UqebLogin -Username $NonPilotAdminUsername -Password $NonPilotPassword
-    $denied = Test-InstitutionalEndpoint -Token $otherToken -Path "/institutional-reports/configuration" -ExpectFailure
-    Assert-Denied -Response $denied
-    Write-Host "Other admin denied: PASS"
+    if ($ExpectEnforcedRollout) {
+        $denied = Test-InstitutionalEndpoint -Token $otherToken -Path "/institutional-reports/configuration" -ExpectFailure
+        Assert-Denied -Response $denied
+        Write-Host "Other admin denied (Enforced): PASS"
+    }
+    else {
+        $allowed = Test-InstitutionalEndpoint -Token $otherToken -Path "/institutional-reports/configuration"
+        Write-Host "Other authorized admin allowed (ObserveOnly): $($allowed.StatusCode)"
+    }
 }
 
 if ($NormalUsername -and $NormalPassword) {

@@ -4,16 +4,18 @@ using Microsoft.Extensions.Configuration;
 using Uqeb.Api.Data;
 using Uqeb.Api.Reporting.Operations;
 
-if (!TryParseArgs(args, out var adminUsername, out var settingsPath))
+var parsed = Phase1ArgumentParser.Parse(args);
+if (parsed.ShowHelp)
 {
-    Console.Error.WriteLine("Usage: resolve-admin --settings-path <appsettings.json> [--admin-username admin]");
+    await Console.Error.WriteLineAsync(
+        "Usage: resolve-admin --settings-path <appsettings.json> [--admin-username admin] [--verbose]");
     return 2;
 }
 
-settingsPath = Path.GetFullPath(settingsPath);
+var settingsPath = Path.GetFullPath(parsed.SettingsPath!);
 if (!File.Exists(settingsPath))
 {
-    Console.Error.WriteLine("Settings file was not found.");
+    await Console.Error.WriteLineAsync("Settings file was not found.");
     return 3;
 }
 
@@ -25,7 +27,7 @@ var configuration = new ConfigurationBuilder()
 var connectionString = configuration.GetConnectionString("DefaultConnection");
 if (string.IsNullOrWhiteSpace(connectionString))
 {
-    Console.Error.WriteLine("DefaultConnection is missing from settings.");
+    await Console.Error.WriteLineAsync("DefaultConnection is missing from settings.");
     return 4;
 }
 
@@ -37,7 +39,7 @@ try
 
     await using var db = new AppDbContext(options);
     var resolver = new ReportingPhase1AdminUserResolver(db);
-    var result = await resolver.ResolveAsync(adminUsername);
+    var result = await resolver.ResolveAsync(parsed.AdminUsername);
 
     var payload = new
     {
@@ -47,7 +49,7 @@ try
         detail = result.Detail,
     };
 
-    Console.WriteLine(JsonSerializer.Serialize(payload));
+    await Console.Out.WriteLineAsync(JsonSerializer.Serialize(payload));
 
     return result.Status switch
     {
@@ -55,29 +57,63 @@ try
         _ => 1,
     };
 }
-catch (Exception)
+catch (Exception ex)
 {
-    Console.Error.WriteLine("Admin username resolution failed.");
+    await Console.Error.WriteLineAsync($"Admin username resolution failed ({ex.GetType().Name}).");
+    if (parsed.Verbose)
+        await Console.Error.WriteLineAsync(ex.Message);
+
     return 5;
 }
 
-static bool TryParseArgs(string[] args, out string adminUsername, out string settingsPath)
+internal sealed class Phase1Arguments
 {
-    adminUsername = "admin";
-    settingsPath = string.Empty;
+    public string? SettingsPath { get; set; }
+    public string AdminUsername { get; set; } = "admin";
+    public bool Verbose { get; set; }
+    public bool ShowHelp { get; set; }
+}
 
-    for (var i = 0; i < args.Length; i++)
+internal static class Phase1ArgumentParser
+{
+    internal static Phase1Arguments Parse(string[] args)
     {
-        switch (args[i])
+        var queue = new Queue<string>(args);
+        var result = new Phase1Arguments();
+
+        while (queue.TryDequeue(out var argument))
         {
-            case "--admin-username" when i + 1 < args.Length:
-                adminUsername = args[++i];
-                break;
-            case "--settings-path" when i + 1 < args.Length:
-                settingsPath = args[++i];
-                break;
+            switch (argument)
+            {
+                case "--admin-username":
+                    result.AdminUsername = ReadRequiredValue(queue, argument);
+                    break;
+                case "--settings-path":
+                    result.SettingsPath = ReadRequiredValue(queue, argument);
+                    break;
+                case "--verbose":
+                    result.Verbose = true;
+                    break;
+                case "--help":
+                case "-h":
+                    result.ShowHelp = true;
+                    break;
+                default:
+                    throw new ArgumentException($"Unknown argument: {argument}");
+            }
         }
+
+        if (string.IsNullOrWhiteSpace(result.SettingsPath))
+            result.ShowHelp = true;
+
+        return result;
     }
 
-    return !string.IsNullOrWhiteSpace(settingsPath);
+    private static string ReadRequiredValue(Queue<string> queue, string argument)
+    {
+        if (!queue.TryDequeue(out var value) || string.IsNullOrWhiteSpace(value))
+            throw new ArgumentException($"Missing value for {argument}.");
+
+        return value;
+    }
 }

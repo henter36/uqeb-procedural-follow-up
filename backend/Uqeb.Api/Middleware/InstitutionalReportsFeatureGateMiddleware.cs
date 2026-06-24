@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Options;
 using Uqeb.Api.Configuration;
+using Uqeb.Api.Reporting.Configuration;
+using Uqeb.Api.Reporting.Operations;
 using Uqeb.Api.Reporting.Services;
 using Uqeb.Api.Services;
 
@@ -14,7 +16,10 @@ public sealed class InstitutionalReportsFeatureGateMiddleware
     public async Task InvokeAsync(
         HttpContext context,
         IOptions<FeatureFlagsSettings> featureFlags,
+        IOptions<ReportingRolloutOptions> rolloutOptions,
         IReportingRolloutService rollout,
+        IReportingRolloutObserver rolloutObserver,
+        IReportingCorrelationIdProvider correlationIdProvider,
         ICurrentUserService currentUser)
     {
         if (!IsInstitutionalReportsPath(context.Request.Path))
@@ -29,10 +34,26 @@ public sealed class InstitutionalReportsFeatureGateMiddleware
             return;
         }
 
-        if (context.User.Identity?.IsAuthenticated == true && !rollout.IsEnabledForUser(currentUser))
+        if (rolloutOptions.Value.EmergencyDisable)
         {
             context.Response.StatusCode = StatusCodes.Status404NotFound;
             return;
+        }
+
+        if (context.User.Identity?.IsAuthenticated == true)
+        {
+            var decision = rollout.Evaluate(currentUser);
+            rolloutObserver.RecordDecision(
+                rolloutOptions.Value.EnforcementMode,
+                decision,
+                correlationIdProvider.GetCorrelationId());
+
+            if (rolloutOptions.Value.EnforcementMode == ReportingRolloutEnforcementMode.Enforced
+                && !decision.Allowed)
+            {
+                context.Response.StatusCode = StatusCodes.Status404NotFound;
+                return;
+            }
         }
 
         await _next(context);

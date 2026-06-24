@@ -11,91 +11,78 @@ namespace Uqeb.Api.Tests.Reporting;
 public class ReportingRolloutServiceTests
 {
     [Fact]
-    public void IsEnabledForUser_ReturnsFalse_WhenEmergencyDisableIsTrue()
+    public void Evaluate_AllowsExplicitUserId()
     {
-        var service = CreateService(institutionalReports: true, emergencyDisable: true, roles: ["Admin"]);
-        var user = new TestUser(UserRole.Admin, 1, null);
-        Assert.False(service.IsEnabledForUser(user));
+        var service = CreateService(userIds: [42]);
+        var decision = service.Evaluate(new TestUser(UserRole.Supervisor, 42, 10));
+
+        Assert.True(decision.Allowed);
+        Assert.Equal(ReportingRolloutMatchSource.UserAllowlist, decision.MatchSource);
     }
 
     [Fact]
-    public void IsEnabledForUser_AllowsExplicitUserId()
+    public void Evaluate_UsesStablePercentageBucket()
+    {
+        var service = CreateService(percentage: 50);
+        var first = service.Evaluate(new TestUser(UserRole.Supervisor, 7, null));
+        var second = service.Evaluate(new TestUser(UserRole.Supervisor, 7, null));
+        Assert.Equal(first.Allowed, second.Allowed);
+    }
+
+    [Fact]
+    public void Evaluate_DeniesByDefault_WhenNoAllowlistsConfigured()
+    {
+        var service = CreateService();
+        var decision = service.Evaluate(new TestUser(UserRole.Admin, 1, null));
+
+        Assert.False(decision.Allowed);
+        Assert.Equal(ReportingRolloutMatchSource.DefaultDeny, decision.MatchSource);
+    }
+
+    [Fact]
+    public void Evaluate_Phase1AllowlistOnly_UsesUserIdNotRole()
+    {
+        var service = CreateService(userIds: [42]);
+
+        Assert.False(service.Evaluate(new TestUser(UserRole.Admin, 1, null)).Allowed);
+        Assert.True(service.Evaluate(new TestUser(UserRole.Admin, 42, null)).Allowed);
+    }
+
+    [Fact]
+    public void GetAccessStatus_ObserveOnly_AllowsUnmatchedUserWhenFeatureEnabled()
     {
         var service = CreateService(
             institutionalReports: true,
-            emergencyDisable: false,
-            userIds: [42]);
-        Assert.True(service.IsEnabledForUser(new TestUser(UserRole.Supervisor, 42, 10)));
+            enforcementMode: ReportingRolloutEnforcementMode.ObserveOnly,
+            userIds: [1]);
+
+        var status = service.GetAccessStatus(new TestUser(UserRole.Admin, 2, null));
+
+        Assert.True(status.FeatureEnabled);
+        Assert.Equal(ReportingRolloutEnforcementMode.ObserveOnly, status.EnforcementMode);
+        Assert.False(status.UserDecision!.AllowedByRollout);
+        Assert.True(status.UserDecision.EffectiveAllowed);
+        Assert.Equal("AuthorizedUsersAllowed", status.EffectiveAccessMode);
     }
 
     [Fact]
-    public void IsEnabledForUser_UsesStablePercentageBucket()
+    public void GetAccessStatus_Enforced_DeniesUnmatchedUser()
     {
         var service = CreateService(
             institutionalReports: true,
-            emergencyDisable: false,
-            percentage: 50);
-        var first = service.IsEnabledForUser(new TestUser(UserRole.Supervisor, 7, null));
-        var second = service.IsEnabledForUser(new TestUser(UserRole.Supervisor, 7, null));
-        Assert.Equal(first, second);
-    }
+            enforcementMode: ReportingRolloutEnforcementMode.Enforced,
+            userIds: [1]);
 
-    [Fact]
-    public void IsEnabledForUser_DeniesByDefault_WhenNoAllowlistsConfigured()
-    {
-        var service = CreateService(institutionalReports: true, emergencyDisable: false);
-        Assert.False(service.IsEnabledForUser(new TestUser(UserRole.Admin, 1, null)));
-    }
+        var status = service.GetAccessStatus(new TestUser(UserRole.Admin, 2, null));
 
-    [Theory]
-    [InlineData(true, true, 1, false)] // 1. EmergencyDisable blocks allowlisted user
-    [InlineData(false, false, 1, false)] // 2. InstitutionalReports=false blocks allowlisted user
-    [InlineData(false, true, 1, true)] // 3. Allowlisted user allowed
-    [InlineData(false, true, 2, false)] // 4. Non-allowlisted user denied
-    public void IsEnabledForUser_FollowsPhase1DecisionOrder(
-        bool emergencyDisable,
-        bool institutionalReports,
-        int userId,
-        bool expected)
-    {
-        var service = CreateService(
-            institutionalReports: institutionalReports,
-            emergencyDisable: emergencyDisable,
-            userIds: [1],
-            percentage: 0);
-
-        Assert.Equal(expected, service.IsEnabledForUser(new TestUser(UserRole.Admin, userId, null)));
-    }
-
-    [Fact]
-    public void IsEnabledForUser_Phase1AllowlistOnly_DeniesAdminRoleWithoutUserId()
-    {
-        var service = CreateService(
-            institutionalReports: true,
-            emergencyDisable: false,
-            roles: [],
-            userIds: [42],
-            percentage: 0);
-
-        Assert.False(service.IsEnabledForUser(new TestUser(UserRole.Admin, 1, null)));
-        Assert.True(service.IsEnabledForUser(new TestUser(UserRole.Admin, 42, null)));
-    }
-
-    [Fact]
-    public void IsEnabledForUser_FeatureFlagFalse_DeniesAllowlistedAdmin()
-    {
-        var service = CreateService(
-            institutionalReports: false,
-            emergencyDisable: false,
-            userIds: [1],
-            percentage: 0);
-
-        Assert.False(service.IsEnabledForUser(new TestUser(UserRole.Admin, 1, null)));
+        Assert.False(status.UserDecision!.EffectiveAllowed);
+        Assert.Equal("RolloutDenied", status.EffectiveAccessMode);
     }
 
     private static ReportingRolloutService CreateService(
-        bool institutionalReports,
-        bool emergencyDisable,
+        bool institutionalReports = true,
+        ReportingRolloutEnforcementMode enforcementMode = ReportingRolloutEnforcementMode.ObserveOnly,
+        bool emergencyDisable = false,
         IReadOnlyList<string>? roles = null,
         IReadOnlyList<int>? userIds = null,
         IReadOnlyList<int>? departmentIds = null,
@@ -105,6 +92,7 @@ public class ReportingRolloutServiceTests
             Options.Create(new FeatureFlagsSettings { InstitutionalReports = institutionalReports }),
             Options.Create(new ReportingRolloutOptions
             {
+                EnforcementMode = enforcementMode,
                 EmergencyDisable = emergencyDisable,
                 EnabledForRoles = roles?.ToList() ?? [],
                 EnabledForUserIds = userIds?.ToList() ?? [],

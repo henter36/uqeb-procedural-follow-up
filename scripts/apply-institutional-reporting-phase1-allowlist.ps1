@@ -12,7 +12,9 @@ param(
 
     [string]$BackupRoot = "",
 
-    [switch]$WhatIf
+    [switch]$WhatIf,
+
+    [switch]$Enforce
 )
 
 $ErrorActionPreference = "Stop"
@@ -60,8 +62,16 @@ function Get-MaskedUserId {
 
 function Read-RolloutSnapshot {
     param($Config)
+    $enforcementMode = if ($Config.ReportingRollout.EnforcementMode) {
+        [string]$Config.ReportingRollout.EnforcementMode
+    }
+    else {
+        "ObserveOnly"
+    }
+
     return [ordered]@{
         FeatureFlag = [bool]$Config.FeatureFlags.InstitutionalReports
+        EnforcementMode = $enforcementMode
         EmergencyDisable = [bool]$Config.ReportingRollout.EmergencyDisable
         EnabledForUserIds = @($Config.ReportingRollout.EnabledForUserIds)
         EnabledForRoles = @($Config.ReportingRollout.EnabledForRoles)
@@ -83,9 +93,13 @@ if (-not (Test-Path $toolProject)) {
     throw "Phase 1 rollout tool not found: $toolProject"
 }
 
+$targetEnforcementMode = if ($Enforce) { "Enforced" } else { "ObserveOnly" }
+
 Write-Host "Environment: $EnvironmentName"
 Write-Host "Settings path: $resolvedSettingsPath"
 Write-Host "Admin username lookup: $AdminUsername"
+Write-Host "Current mode: (read from settings after load)"
+Write-Host "Target mode: $targetEnforcementMode"
 
 $resolveOutput = & dotnet run --project $toolProject -- `
     resolve-admin `
@@ -118,20 +132,12 @@ $backupFile = Join-Path $backupDir (Split-Path $resolvedSettingsPath -Leaf)
 if (-not $config.FeatureFlags) { $config | Add-Member -NotePropertyName FeatureFlags -NotePropertyValue (@{}) }
 if (-not $config.ReportingRollout) { $config | Add-Member -NotePropertyName ReportingRollout -NotePropertyValue (@{}) }
 
-$planned = [ordered]@{
-    FeatureFlags = @{ InstitutionalReports = $true }
-    ReportingRollout = @{
-        EmergencyDisable = $false
-        EnabledForUserIds = @($adminUserId)
-        EnabledForRoles = @()
-        EnabledForDepartments = @()
-        Percentage = 0
-    }
-}
-
 Write-Host "Resolved admin user ID (masked): $maskedUserId"
+Write-Host "Current mode: $($currentSnapshot.EnforcementMode)"
+Write-Host "Target mode: $targetEnforcementMode"
 Write-Host "Current feature flag: $($currentSnapshot.FeatureFlag)"
 Write-Host "Current rollout configuration:"
+Write-Host "  EnforcementMode=$($currentSnapshot.EnforcementMode)"
 Write-Host "  EmergencyDisable=$($currentSnapshot.EmergencyDisable)"
 Write-Host "  EnabledForUserIds count=$($currentSnapshot.EnabledForUserIds.Count)"
 Write-Host "  EnabledForRoles count=$($currentSnapshot.EnabledForRoles.Count)"
@@ -140,12 +146,17 @@ Write-Host "  Percentage=$($currentSnapshot.Percentage)"
 Write-Host "Backup path: $backupFile"
 Write-Host "Planned configuration changes:"
 Write-Host "  FeatureFlags.InstitutionalReports=true"
+Write-Host "  ReportingRollout.EnforcementMode=$targetEnforcementMode"
 Write-Host "  ReportingRollout.EmergencyDisable=false"
 Write-Host "  ReportingRollout.EnabledForUserIds=[$maskedUserId]"
 Write-Host "  ReportingRollout.EnabledForRoles=[]"
 Write-Host "  ReportingRollout.EnabledForDepartments=[]"
 Write-Host "  ReportingRollout.Percentage=0"
 Write-Host "Required service restart: yes (restart API for $EnvironmentName)"
+
+if (-not $Enforce) {
+    Write-Host "ObserveOnly: rollout decisions are recorded but not enforced. All normally authorized users retain access."
+}
 
 if ($WhatIf) {
     Write-Host "WhatIf: settings file was NOT modified."
@@ -155,6 +166,8 @@ if ($WhatIf) {
 Copy-Item $resolvedSettingsPath $backupFile -Force
 
 $config.FeatureFlags.InstitutionalReports = $true
+$config.ReportingRollout | Add-Member -NotePropertyName EnforcementMode -NotePropertyValue $targetEnforcementMode -Force
+$config.ReportingRollout.EnforcementMode = $targetEnforcementMode
 $config.ReportingRollout.EmergencyDisable = $false
 $config.ReportingRollout.EnabledForUserIds = @($adminUserId)
 $config.ReportingRollout.EnabledForRoles = @()

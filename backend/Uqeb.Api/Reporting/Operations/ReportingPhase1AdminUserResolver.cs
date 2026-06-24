@@ -37,10 +37,12 @@ public sealed class ReportingPhase1AdminUserResolver(AppDbContext db) : IReporti
                 Detail: "Admin username is required.");
         }
 
-        var users = await db.Users.AsNoTracking().ToListAsync(cancellationToken);
-        var matches = users
-            .Where(u => string.Equals(u.Username.Trim(), normalized, StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        var normalizedLower = normalized.ToLowerInvariant();
+        var matches = await db.Users
+            .AsNoTracking()
+            .Where(user => user.Username.Trim().ToLower() == normalizedLower)
+            .Take(2)
+            .ToListAsync(cancellationToken);
 
         if (matches.Count == 0)
         {
