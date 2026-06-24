@@ -1,6 +1,8 @@
+using System.Text.RegularExpressions;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
 using Uqeb.Api.Reporting.Services;
+using Uqeb.Api.Tests.Reporting.Visual;
 using Xunit;
 
 namespace Uqeb.Api.Tests.Reporting;
@@ -8,6 +10,21 @@ namespace Uqeb.Api.Tests.Reporting;
 public class InstitutionalReportRendererCoverTests
 {
     private readonly InstitutionalReportRenderer _renderer = new();
+
+    [Fact]
+    public void RenderManifest_Cover_KeepsReportPageWrapper()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+
+        var manifest = new InstitutionalReportRenderer()
+            .RenderManifest(model, [ReportSectionId.Cover]);
+
+        var page = Assert.Single(manifest.Pages);
+
+        Assert.Contains("class=\"report-page\"", page.HtmlContent);
+        Assert.Contains("REP-2026-000125", page.HtmlContent);
+        Assert.Single(Regex.Matches(page.HtmlContent, "class=\"report-page\""));
+    }
 
     [Fact]
     public void RenderManifest_CoverShowsFinalTotalPages_NotZero()

@@ -23,6 +23,7 @@ public sealed class ReportingReadinessService : IReportingReadinessService
     private readonly IReportingExportConcurrencyGate _concurrencyGate;
     private readonly IReportingTempFileManager _tempFileManager;
     private readonly IHealthDatabaseProbe _databaseProbe;
+    private readonly IReportNumberSequenceSchemaProbe _sequenceSchemaProbe;
 
     public ReportingReadinessService(
         IOptions<ReportingOptions> options,
@@ -30,7 +31,8 @@ public sealed class ReportingReadinessService : IReportingReadinessService
         IReportingChromiumProbe chromiumProbe,
         IReportingExportConcurrencyGate concurrencyGate,
         IReportingTempFileManager tempFileManager,
-        IHealthDatabaseProbe databaseProbe)
+        IHealthDatabaseProbe databaseProbe,
+        IReportNumberSequenceSchemaProbe sequenceSchemaProbe)
     {
         _options = options.Value;
         _featureFlags = featureFlags.Value;
@@ -38,6 +40,7 @@ public sealed class ReportingReadinessService : IReportingReadinessService
         _concurrencyGate = concurrencyGate;
         _tempFileManager = tempFileManager;
         _databaseProbe = databaseProbe;
+        _sequenceSchemaProbe = sequenceSchemaProbe;
     }
 
     public ReportingConfigurationDto GetConfiguration() => new()
@@ -87,6 +90,9 @@ public sealed class ReportingReadinessService : IReportingReadinessService
         var databaseReachable = database.Status == HealthDatabaseStatus.Ready;
         var exportConcurrencyAvailable = _concurrencyGate.HasCapacity(Enums.ExportFormat.Pdf)
                                          || _concurrencyGate.HasCapacity(Enums.ExportFormat.Xlsx);
+        var reportNumberSequenceTableAvailable = databaseReachable
+            && await _sequenceSchemaProbe.IsTableAvailableAsync(cancellationToken);
+        var reportNumberAllocationReady = reportNumberSequenceTableAvailable;
 
         var state = ResolveReadinessState(
             configurationValid,
@@ -94,7 +100,8 @@ public sealed class ReportingReadinessService : IReportingReadinessService
             tempWritable,
             chromium.LaunchSuccessful,
             databaseReachable,
-            exportConcurrencyAvailable);
+            exportConcurrencyAvailable,
+            reportNumberSequenceTableAvailable);
 
         return new ReportingReadinessDto
         {
@@ -109,6 +116,8 @@ public sealed class ReportingReadinessService : IReportingReadinessService
             ChromiumLaunchSuccessful = chromium.LaunchSuccessful,
             DatabaseReachable = databaseReachable,
             ExportConcurrencyAvailable = exportConcurrencyAvailable,
+            ReportNumberSequenceTableAvailable = reportNumberSequenceTableAvailable,
+            ReportNumberAllocationReady = reportNumberAllocationReady,
             TemplateVersion = InstitutionalReportStyles.TemplateVersion,
             ChromiumStatus = chromium.Summary,
         };
@@ -120,7 +129,8 @@ public sealed class ReportingReadinessService : IReportingReadinessService
         bool tempWritable,
         bool chromiumLaunchSuccessful,
         bool databaseReachable,
-        bool exportConcurrencyAvailable)
+        bool exportConcurrencyAvailable,
+        bool reportNumberSequenceTableAvailable)
     {
         if (!configurationValid)
             return ReportingReadinessState.Unavailable;
@@ -132,6 +142,7 @@ public sealed class ReportingReadinessService : IReportingReadinessService
             chromiumLaunchSuccessful,
             databaseReachable,
             exportConcurrencyAvailable,
+            reportNumberSequenceTableAvailable,
         };
 
         if (dependencySignals.All(signal => signal))

@@ -96,25 +96,146 @@ public class InstitutionalReportServiceExportValidationTests
     }
 }
 
+public class InstitutionalReportServiceBuildValidationTests
+{
+    [Fact]
+    public async Task RenderPreviewAsync_ThrowsValidationProblem_WhenSectionIdsEmpty()
+    {
+        var service = InstitutionalReportServiceTestHelpers.CreateService();
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.RenderPreviewAsync(new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [],
+        }));
+
+        Assert.Contains("sectionIds", ex.FieldErrors.Keys);
+    }
+
+    [Fact]
+    public async Task BuildReportModelAsync_ThrowsValidationProblem_WhenSectionIdsEmpty()
+    {
+        var service = InstitutionalReportServiceTestHelpers.CreateService();
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.BuildReportModelAsync(new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [],
+        }));
+
+        Assert.Contains("sectionIds", ex.FieldErrors.Keys);
+    }
+
+    [Fact]
+    public async Task ExportAsync_ThrowsValidationProblem_WhenSectionIdsEmpty()
+    {
+        var service = InstitutionalReportServiceTestHelpers.CreateService();
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.ExportAsync(new ReportExportRequestDto
+        {
+            ExportFormat = ExportFormat.Html,
+            BuildRequest = new ReportBuildRequestDto
+            {
+                ReportType = InstitutionalReportType.ExecutiveComprehensive,
+                SectionIds = [],
+            },
+        }));
+
+        Assert.Contains("sectionIds", ex.FieldErrors.Keys);
+    }
+
+    [Fact]
+    public async Task ExportAsync_CurrentPageWithoutNumber_ThrowsValidationProblem()
+    {
+        var service = InstitutionalReportServiceTestHelpers.CreateService();
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.ExportAsync(new ReportExportRequestDto
+        {
+            ExportFormat = ExportFormat.Html,
+            ExportMode = ExportMode.CurrentPage,
+            BuildRequest = new ReportBuildRequestDto
+            {
+                ReportType = InstitutionalReportType.ExecutiveComprehensive,
+                SectionIds = [ReportSectionId.Cover],
+            },
+        }));
+
+        Assert.Equal("يجب تحديد الصفحة الحالية للتصدير.", ex.FieldErrors["selectedPages"]);
+    }
+
+    [Fact]
+    public async Task RenderPreviewAsync_ThrowsValidationProblem_WhenDateRangeInvalid()
+    {
+        var service = InstitutionalReportServiceTestHelpers.CreateService();
+        var today = DateTime.UtcNow.Date;
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.RenderPreviewAsync(new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [ReportSectionId.Cover],
+            Filters = new ReportFiltersDto
+            {
+                DateFrom = today,
+                DateTo = today.AddDays(-1),
+            },
+        }));
+
+        Assert.Contains("filters.dateFrom", ex.FieldErrors.Keys);
+        Assert.Contains("filters.dateTo", ex.FieldErrors.Keys);
+    }
+
+    [Fact]
+    public async Task BuildReportModelAsync_ThrowsValidationProblem_WhenFiltersNull()
+    {
+        var service = InstitutionalReportServiceTestHelpers.CreateService();
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.BuildReportModelAsync(new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [ReportSectionId.Cover],
+            Filters = null!,
+        }));
+
+        Assert.Contains("filters", ex.FieldErrors.Keys);
+    }
+}
+
 internal static class InstitutionalReportServiceTestHelpers
 {
     internal static InstitutionalReportService CreateService(
         IDbContextFactory<AppDbContext>? dbFactory = null,
         ReportingOptions? reportingOptions = null,
-        IAuditService? audit = null)
+        IAuditService? audit = null,
+        IInstitutionalReportNumberAllocator? reportNumberAllocator = null,
+        IInstitutionalReportPdfExporter? pdfExporter = null)
     {
         dbFactory ??= new TestDbContextFactory(new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"export-validation-{Guid.NewGuid():N}")
             .Options);
 
-        return new InstitutionalReportService(
+        var options = Options.Create(reportingOptions ?? new ReportingOptions { MaxPdfDetailRows = 10_000 });
+        var exportGuard = CreateExportGuard(reportingOptions, audit);
+        var metrics = new ReportingMetrics();
+        var correlationIdProvider = new ReportingCorrelationIdProvider(new HttpContextAccessor());
+        var pdf = pdfExporter ?? new StubPdfExporter();
+        InstitutionalReportService? serviceRef = null;
+        serviceRef = new InstitutionalReportService(
             dbFactory,
             new TestCurrentUserService(),
-            new FixedReportNumberAllocator(),
-            new StubPdfExporter(),
-            Options.Create(reportingOptions ?? new ReportingOptions { MaxPdfDetailRows = 10_000 }),
-            CreateExportGuard(reportingOptions, audit),
-            new ReportingMetrics());
+            reportNumberAllocator ?? new FixedReportNumberAllocator(),
+            options,
+            NullLogger<InstitutionalReportService>.Instance,
+            correlationIdProvider,
+            () => new InstitutionalReportExportService(
+                serviceRef!,
+                pdf,
+                options,
+                exportGuard,
+                metrics,
+                NullLogger<InstitutionalReportExportService>.Instance,
+                correlationIdProvider));
+
+        return serviceRef;
     }
 
     private static IReportingExportGuard CreateExportGuard(ReportingOptions? reportingOptions, IAuditService? audit = null)

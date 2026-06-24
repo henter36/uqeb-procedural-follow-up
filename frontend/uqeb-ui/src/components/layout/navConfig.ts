@@ -28,7 +28,7 @@ export function buildNavSections(institutionalReportsEnabled = isInstitutionalRe
         { path: '/transactions', label: 'المعاملات', icon: IconTransactions, matchPrefix: true },
         { path: '/reports', label: 'التقارير', icon: IconReports },
         ...(institutionalReportsEnabled
-          ? [{ path: '/report-builder', label: 'منشئ التقارير', icon: IconReports, supervisorOnly: true } satisfies NavItem]
+          ? [{ path: '/report-builder', label: 'منشئ التقارير', icon: IconReports, adminOnly: true } satisfies NavItem]
           : []),
       ],
     },

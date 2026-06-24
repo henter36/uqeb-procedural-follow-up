@@ -39,6 +39,8 @@ public sealed class ReportingReadinessDto
     public bool ChromiumLaunchSuccessful { get; set; }
     public bool DatabaseReachable { get; set; }
     public bool ExportConcurrencyAvailable { get; set; }
+    public bool ReportNumberSequenceTableAvailable { get; set; }
+    public bool ReportNumberAllocationReady { get; set; }
     public string TemplateVersion { get; set; } = string.Empty;
     public string? ChromiumStatus { get; set; }
 }

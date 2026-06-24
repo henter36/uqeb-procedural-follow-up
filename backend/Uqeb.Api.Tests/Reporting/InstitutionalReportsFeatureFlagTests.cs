@@ -87,7 +87,7 @@ public class InstitutionalReportsFeatureFlagEnabledTests : IClassFixture<Institu
     }
 
     [Fact]
-    public async Task GetTemplates_ReturnsForbidden_WhenUserIsNotSupervisorOrAdmin()
+    public async Task GetTemplates_ReturnsForbidden_WhenUserIsNotAdmin()
     {
         _client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateToken("DataEntry"));
@@ -97,13 +97,13 @@ public class InstitutionalReportsFeatureFlagEnabledTests : IClassFixture<Institu
     }
 
     [Fact]
-    public async Task GetTemplates_ReturnsOk_WhenFeatureEnabledAndUserIsSupervisor()
+    public async Task GetTemplates_ReturnsForbidden_WhenFeatureEnabledAndUserIsSupervisor()
     {
         _client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateToken("Supervisor"));
 
         var response = await _client.GetAsync("/api/institutional-reports/templates");
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]
@@ -143,7 +143,7 @@ public class InstitutionalReportsMissingFeatureFlagTests : IClassFixture<Institu
     }
 
     [Fact]
-    public async Task GetTemplates_ReturnsOk_WhenFeatureFlagMissingAndUserIsSupervisor()
+    public async Task GetTemplates_ReturnsForbidden_WhenFeatureFlagMissingAndUserIsSupervisor()
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, "/api/institutional-reports/templates")
         {
@@ -157,7 +157,7 @@ public class InstitutionalReportsMissingFeatureFlagTests : IClassFixture<Institu
 
         var response = await _client.SendAsync(request);
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 }
 
@@ -227,8 +227,9 @@ internal static class InstitutionalReportsTestHostBuilder
                 }
                 else
                 {
-                    services.RemoveAll<IInstitutionalReportNumberAllocator>();
-                    services.AddSingleton<IInstitutionalReportNumberAllocator, TestInstitutionalReportNumberAllocator>();
+                    services.AddSingleton<TrackingInstitutionalReportNumberAllocator>();
+                    services.AddSingleton<IInstitutionalReportNumberAllocator>(sp =>
+                        sp.GetRequiredService<TrackingInstitutionalReportNumberAllocator>());
                     services.RemoveAll<IInstitutionalReportPdfExporter>();
                     services.AddSingleton<IInstitutionalReportPdfExporter, TestInstitutionalReportPdfExporter>();
                 }

@@ -30,33 +30,55 @@ public class InstitutionalReportNumberAllocatorSqlServerIntegrationTests
     }
 
     [Fact]
+    public async Task AllocateAsync_FirstAllocation_ReturnsOne_OnSqlServer()
+    {
+        if (!IsSqlServerAvailable())
+            return;
+
+        var databaseName = $"Uqeb_ReportNumbers_First_{Guid.NewGuid():N}";
+        try
+        {
+            var dbFactory = await CreateDatabaseFactoryAsync(databaseName);
+            var year = DateTime.UtcNow.Year;
+
+            var number = await new InstitutionalReportNumberAllocator(dbFactory).AllocateAsync();
+
+            Assert.Equal($"REP-{year}-000001", number);
+        }
+        finally
+        {
+            await SqlServerTestDatabaseHelper.DropDatabaseAsync(ConnectionString!, databaseName);
+        }
+    }
+
+    [Fact]
     public async Task AllocateAsync_ProducesUniqueSequentialNumbers_FromDifferentAllocatorInstances()
     {
         if (!IsSqlServerAvailable())
             return;
 
         var databaseName = $"Uqeb_ReportNumbers_{Guid.NewGuid():N}";
-        var builder = new SqlConnectionStringBuilder(ConnectionString!) { InitialCatalog = databaseName };
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlServer(builder.ConnectionString)
-            .Options;
-        IDbContextFactory<AppDbContext> dbFactory = new TestDbContextFactory(options);
+        try
+        {
+            var dbFactory = await CreateDatabaseFactoryAsync(databaseName);
 
-        await using (var db = dbFactory.CreateDbContext())
-            await db.Database.EnsureCreatedAsync();
+            var allocators = Enumerable.Range(0, 20)
+                .Select(_ => new InstitutionalReportNumberAllocator(dbFactory))
+                .ToList();
 
-        var allocators = Enumerable.Range(0, 20)
-            .Select(_ => new InstitutionalReportNumberAllocator(dbFactory))
-            .ToList();
+            var year = DateTime.UtcNow.Year;
+            var numbers = await Task.WhenAll(allocators.Select(a => a.AllocateAsync()));
 
-        var numbers = await Task.WhenAll(allocators.Select(a => a.AllocateAsync()));
-        var year = DateTime.UtcNow.Year;
+            Assert.Equal(20, numbers.Distinct().Count());
+            Assert.All(numbers, n => Assert.Matches($@"^REP-{year}-\d{{6}}$", n));
 
-        Assert.Equal(20, numbers.Distinct().Count());
-        Assert.All(numbers, n => Assert.Matches($@"^REP-{year}-\d{{6}}$", n));
-
-        var numeric = numbers.Select(n => int.Parse(n.Split('-')[2], System.Globalization.CultureInfo.InvariantCulture)).OrderBy(n => n).ToList();
-        Assert.Equal(Enumerable.Range(1, 20), numeric);
+            var numeric = numbers.Select(n => int.Parse(n.Split('-')[2], System.Globalization.CultureInfo.InvariantCulture)).OrderBy(n => n).ToList();
+            Assert.Equal(Enumerable.Range(1, 20), numeric);
+        }
+        finally
+        {
+            await SqlServerTestDatabaseHelper.DropDatabaseAsync(ConnectionString!, databaseName);
+        }
     }
 
     [Fact]
@@ -66,26 +88,28 @@ public class InstitutionalReportNumberAllocatorSqlServerIntegrationTests
             return;
 
         var databaseName = $"Uqeb_ReportNumbers_Existing_{Guid.NewGuid():N}";
-        var builder = new SqlConnectionStringBuilder(ConnectionString!) { InitialCatalog = databaseName };
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlServer(builder.ConnectionString)
-            .Options;
-        IDbContextFactory<AppDbContext> dbFactory = new TestDbContextFactory(options);
-        var year = DateTime.UtcNow.Year;
-
-        await using (var db = dbFactory.CreateDbContext())
+        try
         {
-            await db.Database.EnsureCreatedAsync();
-            db.ReportNumberSequences.Add(new ReportNumberSequence
-            {
-                Year = year,
-                LastNumber = 100,
-            });
-            await db.SaveChangesAsync();
-        }
+            var dbFactory = await CreateDatabaseFactoryAsync(databaseName);
+            var year = DateTime.UtcNow.Year;
 
-        var number = await new InstitutionalReportNumberAllocator(dbFactory).AllocateAsync();
-        Assert.Equal($"REP-{year}-000101", number);
+            await using (var db = dbFactory.CreateDbContext())
+            {
+                db.ReportNumberSequences.Add(new ReportNumberSequence
+                {
+                    Year = year,
+                    LastNumber = 100,
+                });
+                await db.SaveChangesAsync();
+            }
+
+            var number = await new InstitutionalReportNumberAllocator(dbFactory).AllocateAsync();
+            Assert.Equal($"REP-{year}-000101", number);
+        }
+        finally
+        {
+            await SqlServerTestDatabaseHelper.DropDatabaseAsync(ConnectionString!, databaseName);
+        }
     }
 
     [Fact]
@@ -95,23 +119,37 @@ public class InstitutionalReportNumberAllocatorSqlServerIntegrationTests
             return;
 
         var databaseName = $"Uqeb_ReportNumbers_Create_{Guid.NewGuid():N}";
+        try
+        {
+            var dbFactory = await CreateDatabaseFactoryAsync(databaseName);
+            var year = DateTime.UtcNow.Year;
+
+            var numbers = await Task.WhenAll(Enumerable.Range(0, 20)
+                .Select(_ => new InstitutionalReportNumberAllocator(dbFactory).AllocateAsync()));
+
+            Assert.Equal(20, numbers.Distinct().Count());
+
+            var numeric = numbers.Select(n => int.Parse(n.Split('-')[2], System.Globalization.CultureInfo.InvariantCulture)).OrderBy(n => n).ToList();
+            Assert.Equal(Enumerable.Range(1, 20), numeric);
+            Assert.All(numbers, n => Assert.Matches($@"^REP-{year}-\d{{6}}$", n));
+        }
+        finally
+        {
+            await SqlServerTestDatabaseHelper.DropDatabaseAsync(ConnectionString!, databaseName);
+        }
+    }
+
+    private static async Task<IDbContextFactory<AppDbContext>> CreateDatabaseFactoryAsync(string databaseName)
+    {
         var builder = new SqlConnectionStringBuilder(ConnectionString!) { InitialCatalog = databaseName };
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseSqlServer(builder.ConnectionString)
             .Options;
         IDbContextFactory<AppDbContext> dbFactory = new TestDbContextFactory(options);
 
-        await using (var db = dbFactory.CreateDbContext())
-            await db.Database.EnsureCreatedAsync();
+        await using var db = dbFactory.CreateDbContext();
+        await db.Database.EnsureCreatedAsync();
 
-        var numbers = await Task.WhenAll(Enumerable.Range(0, 20)
-            .Select(_ => new InstitutionalReportNumberAllocator(dbFactory).AllocateAsync()));
-
-        Assert.Equal(20, numbers.Distinct().Count());
-
-        var year = DateTime.UtcNow.Year;
-        var numeric = numbers.Select(n => int.Parse(n.Split('-')[2], System.Globalization.CultureInfo.InvariantCulture)).OrderBy(n => n).ToList();
-        Assert.Equal(Enumerable.Range(1, 20), numeric);
-        Assert.All(numbers, n => Assert.Matches($@"^REP-{year}-\d{{6}}$", n));
+        return dbFactory;
     }
 }

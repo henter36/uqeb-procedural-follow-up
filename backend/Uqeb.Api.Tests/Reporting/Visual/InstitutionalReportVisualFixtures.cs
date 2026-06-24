@@ -26,7 +26,7 @@ internal static class InstitutionalReportVisualFixtures
                 ReportType = InstitutionalReportType.ExecutiveComprehensive,
                 ReportTypeName = "التقرير التنفيذي الشامل",
                 Title = title,
-                OrganizationName = "الهيئة العامة للمتابعة الإجرائية",
+                OrganizationName = "المتابعة الإجرائية",
                 DepartmentName = "إدارة المتابعة والتقارير",
                 IssueDate = FixedIssueDate,
                 PeriodFrom = new DateTime(2026, 1, 1),

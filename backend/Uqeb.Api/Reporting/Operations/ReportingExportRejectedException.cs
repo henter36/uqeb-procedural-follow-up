@@ -8,12 +8,22 @@ public sealed class ReportingExportRejectedException : Exception
         string errorCode,
         string message,
         int statusCode = StatusCodes.Status429TooManyRequests,
-        int? retryAfterSeconds = null)
-        : base(message)
+        int? retryAfterSeconds = null,
+        Exception? innerException = null)
+        : base(message, innerException)
     {
         ErrorCode = errorCode;
         StatusCode = statusCode;
         RetryAfterSeconds = retryAfterSeconds;
+    }
+
+    public ReportingExportRejectedException(
+        string errorCode,
+        string message,
+        int statusCode,
+        Exception innerException)
+        : this(errorCode, message, statusCode, null, innerException)
+    {
     }
 
     public string ErrorCode { get; }
@@ -27,4 +37,6 @@ public static class ReportingErrorCodes
     public const string TempSpaceInsufficient = "REPORTING_TEMP_SPACE_INSUFFICIENT";
     public const string ExportTimeout = "REPORTING_EXPORT_TIMEOUT";
     public const string ExportCancelled = "REPORTING_EXPORT_CANCELLED";
+    public const string ReportNumberSequenceSchemaMissing = "report_number_sequence_schema_missing";
+    public const string ChromiumUnavailable = "reporting_chromium_unavailable";
 }

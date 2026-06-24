@@ -40,6 +40,12 @@ public class SqlExceptionHelperTests
     }
 
     [Fact]
+    public void IsMissingReportNumberSequenceSchema_ReturnsFalse_ForUnrelatedExceptions()
+    {
+        Assert.False(SqlExceptionHelper.IsMissingReportNumberSequenceSchema(new InvalidOperationException("network")));
+    }
+
+    [Fact]
     public void IsDuplicateKey_ReturnsFalse_WhenInnerExceptionIsNotSqlException()
     {
         var ex = new DbUpdateException("failed", new InvalidOperationException("not sql"));

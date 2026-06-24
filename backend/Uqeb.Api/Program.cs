@@ -59,7 +59,12 @@ builder.Services.AddScoped<IExcelTransactionImportService, ExcelTransactionImpor
 builder.Services.AddScoped<IAttachmentService, AttachmentService>();
 builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<IInstitutionalReportService, InstitutionalReportService>();
+builder.Services.AddScoped<IInstitutionalReportBuildSupport>(sp => sp.GetRequiredService<IInstitutionalReportService>() as IInstitutionalReportBuildSupport
+    ?? throw new InvalidOperationException("Institutional report service must implement build support."));
+builder.Services.AddScoped<IInstitutionalReportExportService, InstitutionalReportExportService>();
+builder.Services.AddScoped<Func<IInstitutionalReportExportService>>(sp => () => sp.GetRequiredService<IInstitutionalReportExportService>());
 builder.Services.AddScoped<IInstitutionalReportNumberAllocator, InstitutionalReportNumberAllocator>();
+builder.Services.AddScoped<IReportNumberSequenceSchemaProbe, ReportNumberSequenceSchemaProbe>();
 builder.Services.AddSingleton<IInstitutionalReportPdfExporter, InstitutionalReportPlaywrightPdfExporter>();
 builder.Services.AddSingleton<IReportingMetrics, ReportingMetrics>();
 builder.Services.AddSingleton<IReportingExportConcurrencyGate, ReportingExportConcurrencyGate>();

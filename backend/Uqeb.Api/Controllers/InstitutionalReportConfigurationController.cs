@@ -8,7 +8,7 @@ namespace Uqeb.Api.Controllers;
 
 [ApiController]
 [Route("api/institutional-reports")]
-[Authorize(Policy = Policies.SupervisorOrAdmin)]
+[Authorize(Policy = Policies.AdminOnly)]
 public class InstitutionalReportConfigurationController : ControllerBase
 {
     private readonly IReportingReadinessService _readiness;

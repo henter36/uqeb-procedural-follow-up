@@ -1,6 +1,8 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import axios from 'axios';
+import { MemoryRouter } from 'react-router-dom';
 import ReportBuilderPage from './ReportBuilder';
 import { buildReportExportPageSelection, defaultDate } from './reportBuilderHelpers';
 import {
@@ -11,6 +13,20 @@ import {
 } from './reportBuilderHelpers';
 import { ExportMode, ExportFormat, DetailOverflowAction } from '../api/institutionalReports.constants';
 import * as services from '../api/services';
+
+const mockUseAuth = vi.fn(() => ({
+  isAdmin: true,
+  canClose: true,
+  canEdit: true,
+  isDepartmentUser: false,
+  user: { fullName: 'مختبر', role: 'Admin' },
+  logout: vi.fn(),
+  login: vi.fn(),
+}));
+
+vi.mock('../context/useAuth', () => ({
+  useAuth: () => mockUseAuth(),
+}));
 
 vi.mock('../api/services', () => ({
   institutionalReportsApi: {
@@ -96,13 +112,62 @@ describe('reportBuilderHelpers', () => {
 });
 
 describe('ReportBuilderPage export dialog', () => {
+  let clipboardWriteText: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseAuth.mockReturnValue({
+      isAdmin: true,
+      canClose: true,
+      canEdit: true,
+      isDepartmentUser: false,
+      user: { fullName: 'مختبر', role: 'Admin' },
+      logout: vi.fn(),
+      login: vi.fn(),
+    });
     vi.mocked(services.institutionalReportsApi.preview).mockResolvedValue({ data: mockManifest } as never);
+    clipboardWriteText = vi.fn().mockResolvedValue(undefined);
+    navigator.clipboard.writeText = clipboardWriteText;
   });
 
   afterEach(() => {
     cleanup();
+  });
+
+  it('keeps dialog closed by default after page render', () => {
+    render(<ReportBuilderPage />);
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(document.querySelector('.report-export-modal[open]')).toBeNull();
+  });
+
+  it('does not open dialog when preview fails', async () => {
+    vi.mocked(services.institutionalReportsApi.preview).mockRejectedValueOnce({
+      isAxiosError: true,
+      response: {
+        status: 500,
+        data: {
+          message: 'تعذر إنشاء معاينة التقرير.',
+          correlationId: 'corr-1',
+        },
+      },
+    });
+
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+
+    await waitFor(() => {
+      const alert = screen.getByRole('alert');
+      expect(alert.querySelector(':scope > div:first-child')).toHaveTextContent('تعذر إنشاء معاينة التقرير.');
+    });
+
+    expect(screen.getByRole('alert')).not.toHaveTextContent(/تعذر إنشاء معاينة التقرير: تعذر إنشاء معاينة التقرير/);
+    expect(screen.getByText(/رقم التتبع: corr-1/)).toBeInTheDocument();
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'تصدير' })).toBeDisabled();
   });
 
   it('opens native dialog with accessible title when export is clicked', async () => {
@@ -121,6 +186,7 @@ describe('ReportBuilderPage export dialog', () => {
 
     const dialog = screen.getByRole('dialog');
     expect(dialog).toBeInTheDocument();
+    expect(dialog).toHaveAttribute('open');
     expect(dialog).toHaveAttribute('aria-labelledby', 'report-export-dialog-title');
     expect(screen.getByRole('heading', { name: 'خيارات تصدير التقرير' })).toHaveAttribute('id', 'report-export-dialog-title');
   });
@@ -141,6 +207,245 @@ describe('ReportBuilderPage export dialog', () => {
 
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+  });
+
+  it('ignores stale preview response when a newer preview starts', async () => {
+    let resolveSlow: (value: { data: typeof mockManifest }) => void = () => undefined;
+    const slowPromise = new Promise<{ data: typeof mockManifest }>((resolve) => {
+      resolveSlow = resolve;
+    });
+    const freshManifest = {
+      ...mockManifest,
+      pages: [{ originalPageNumber: 1, sectionName: 'جديد', htmlContent: '<p>fresh</p>' }],
+    };
+
+    vi.mocked(services.institutionalReportsApi.preview)
+      .mockReturnValueOnce(slowPromise as never)
+      .mockResolvedValueOnce({ data: freshManifest } as never);
+
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+    fireEvent.change(screen.getByLabelText('من تاريخ'), { target: { value: '2026-02-01' } });
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /1\. جديد/ })).toBeInTheDocument();
+    });
+
+    resolveSlow({ data: mockManifest });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /الغلاف/ })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /1\. جديد/ })).toBeInTheDocument();
+    });
+  });
+
+  it('closes export dialog when preview is invalidated by filter change', async () => {
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'تصدير' })).not.toBeDisabled();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'تصدير' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText('من تاريخ'));
+    await user.type(screen.getByLabelText('من تاريخ'), '2026-01-01');
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'تصدير' })).toBeDisabled();
+    });
+  });
+
+  it('does not reopen export dialog after new preview unless user clicks export', async () => {
+    const freshManifest = {
+      ...mockManifest,
+      reportId: 'fresh-report',
+      pages: [{ originalPageNumber: 1, sectionName: 'جديد', htmlContent: '<p>fresh</p>' }],
+    };
+
+    vi.mocked(services.institutionalReportsApi.preview)
+      .mockResolvedValueOnce({ data: mockManifest } as never)
+      .mockResolvedValueOnce({ data: freshManifest } as never);
+
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'تصدير' })).not.toBeDisabled();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'تصدير' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText('من تاريخ'));
+    await user.type(screen.getByLabelText('من تاريخ'), '2026-01-01');
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'تصدير' })).toBeDisabled();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'تصدير' })).not.toBeDisabled();
+    });
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'تصدير' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('shows copied feedback after copying correlation id', async () => {
+    const previewError = new axios.AxiosError(
+      'Request failed',
+      'ERR_BAD_RESPONSE',
+      undefined,
+      undefined,
+      {
+        status: 500,
+        statusText: 'Internal Server Error',
+        headers: {},
+        config: { headers: new axios.AxiosHeaders() },
+        data: {
+          message: 'خطأ خادم',
+          correlationId: 'corr-copy-1',
+        },
+      },
+    );
+    vi.mocked(services.institutionalReportsApi.preview).mockRejectedValueOnce(previewError);
+
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+    await waitFor(() => {
+      expect(screen.getByText(/رقم التتبع: corr-copy-1/)).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'نسخ رقم التتبع' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'تم النسخ' })).toBeInTheDocument();
+    });
+  });
+
+  it('keeps copy button label when clipboard write fails', async () => {
+    clipboardWriteText.mockRejectedValue(new Error('denied'));
+
+    const previewError = new axios.AxiosError(
+      'Request failed',
+      'ERR_BAD_RESPONSE',
+      undefined,
+      undefined,
+      {
+        status: 500,
+        statusText: 'Internal Server Error',
+        headers: {},
+        config: { headers: new axios.AxiosHeaders() },
+        data: {
+          message: 'خطأ خادم',
+          correlationId: 'corr-fail-1',
+        },
+      },
+    );
+    vi.mocked(services.institutionalReportsApi.preview).mockRejectedValueOnce(previewError);
+
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+    await waitFor(() => {
+      expect(screen.getByText(/رقم التتبع: corr-fail-1/)).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'نسخ رقم التتبع' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'نسخ رقم التتبع' })).toBeInTheDocument();
+    });
+  });
+
+  it('redirects non-admin users away from the page', () => {
+    mockUseAuth.mockReturnValue({
+      isAdmin: false,
+      canClose: true,
+      canEdit: true,
+      isDepartmentUser: false,
+      user: { fullName: 'مشرف', role: 'Supervisor' },
+      logout: vi.fn(),
+      login: vi.fn(),
+    });
+
+    const { container } = render(
+      <MemoryRouter>
+        <ReportBuilderPage />
+      </MemoryRouter>,
+    );
+
+    expect(container.innerHTML).not.toContain('منشئ التقارير');
+    expect(screen.queryByRole('button', { name: 'معاينة التقرير' })).not.toBeInTheDocument();
+  });
+
+  it('does not call preview API for non-admin users', async () => {
+    mockUseAuth.mockReturnValue({
+      isAdmin: false,
+      canClose: true,
+      canEdit: true,
+      isDepartmentUser: false,
+      user: { fullName: 'مشرف', role: 'Supervisor' },
+      logout: vi.fn(),
+      login: vi.fn(),
+    });
+
+    render(
+      <MemoryRouter>
+        <ReportBuilderPage />
+      </MemoryRouter>,
+    );
+
+    expect(vi.mocked(services.institutionalReportsApi.preview)).not.toHaveBeenCalled();
+  });
+
+  it('shows export correlation id from response header when blob body omits it', async () => {
+    vi.mocked(services.institutionalReportsApi.preview).mockResolvedValue({ data: mockManifest } as never);
+    const exportError = new axios.AxiosError(
+      'Request failed',
+      'ERR_BAD_RESPONSE',
+      undefined,
+      undefined,
+      {
+        status: 500,
+        statusText: 'Internal Server Error',
+        headers: { 'x-correlation-id': 'corr-blob-header' },
+        config: { headers: new axios.AxiosHeaders() },
+        data: new Blob([JSON.stringify({ message: 'تعذر تصدير التقرير.' })], { type: 'application/json' }),
+      },
+    );
+    vi.mocked(services.institutionalReportsApi.export).mockRejectedValueOnce(exportError);
+
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'تصدير' })).not.toBeDisabled();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'تصدير' }));
+    await user.click(screen.getByRole('button', { name: 'تنفيذ التصدير' }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/رقم التتبع: corr-blob-header/)).toBeInTheDocument();
     });
   });
 });

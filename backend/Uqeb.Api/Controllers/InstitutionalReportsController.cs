@@ -11,13 +11,19 @@ namespace Uqeb.Api.Controllers;
 
 [ApiController]
 [Route("api/institutional-reports")]
-[Authorize(Policy = Policies.SupervisorOrAdmin)]
+[Authorize(Policy = Policies.AdminOnly)]
 public class InstitutionalReportsController : ControllerBase
 {
     private readonly IInstitutionalReportService _service;
+    private readonly ILogger<InstitutionalReportsController> _logger;
 
-    public InstitutionalReportsController(IInstitutionalReportService service) =>
+    public InstitutionalReportsController(
+        IInstitutionalReportService service,
+        ILogger<InstitutionalReportsController> logger)
+    {
         _service = service;
+        _logger = logger;
+    }
 
     [HttpPost("preview")]
     public async Task<IActionResult> Preview([FromBody] ReportBuildRequestDto request, CancellationToken ct)
@@ -30,11 +36,36 @@ public class InstitutionalReportsController : ControllerBase
         {
             return ToValidationProblem(ex);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            var correlationId = HttpContext.Items[CorrelationIdMiddleware.ItemKey] as string;
+
+            _logger.LogError(
+                ex,
+                "Institutional report preview failed. PreviewStage=unknown ExceptionType={ExceptionType} CorrelationId={CorrelationId}",
+                ex.GetType().Name,
+                correlationId);
+
+            return StatusCode(
+                StatusCodes.Status500InternalServerError,
+                new
+                {
+                    errorCode = "institutional_report_preview_failed",
+                    message = "تعذر إنشاء معاينة التقرير.",
+                    correlationId,
+                });
+        }
     }
 
     [HttpPost("export")]
     public async Task<IActionResult> Export([FromBody] ReportExportRequestDto request, CancellationToken ct)
     {
+        var correlationId = HttpContext.Items[CorrelationIdMiddleware.ItemKey] as string;
+
         try
         {
             var result = await _service.ExportAsync(request, ct);
@@ -44,17 +75,49 @@ public class InstitutionalReportsController : ControllerBase
         {
             return ToValidationProblem(ex);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (ReportingExportRejectedException ex)
         {
             if (ex.RetryAfterSeconds is int retryAfter)
                 Response.Headers.RetryAfter = retryAfter.ToString();
 
-            var correlationId = HttpContext.Items[CorrelationIdMiddleware.ItemKey] as string;
             return StatusCode(ex.StatusCode, new
             {
                 errorCode = ex.ErrorCode,
+                message = ex.Message,
                 correlationId,
             });
+        }
+        catch (ReportingConfigurationException ex)
+        {
+            return StatusCode(ex.StatusCode, new
+            {
+                errorCode = ex.ErrorCode,
+                message = ex.Message,
+                correlationId,
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Institutional report export failed. ExportFormat={ExportFormat} ReportType={ReportType} ExceptionType={ExceptionType} CorrelationId={CorrelationId}",
+                request.ExportFormat,
+                request.BuildRequest.ReportType,
+                ex.GetType().Name,
+                correlationId);
+
+            return StatusCode(
+                StatusCodes.Status500InternalServerError,
+                new
+                {
+                    errorCode = "institutional_report_export_failed",
+                    message = "تعذر تصدير التقرير.",
+                    correlationId,
+                });
         }
     }
 

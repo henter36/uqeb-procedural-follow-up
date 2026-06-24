@@ -40,6 +40,8 @@ uqeb/
 - Node.js 18+
 - IIS (للنشر على الشبكة المحلية)
 
+> **مرجع التشغيل المعتمد:** استخدم أوامر نوع الطرفية نفسها من قسم [دليل بيئة التطوير والتشغيل المعتمد](#13-دليل-بيئة-التطوير-والتشغيل-المعتمد). لا تستخدم أوامر CMD داخل PowerShell، ولا أوامر PowerShell داخل CMD.
+
 ---
 
 ## 1. إعداد قاعدة البيانات
@@ -60,17 +62,21 @@ CREATE DATABASE UqebDb;
 }
 ```
 
-للتطوير المحلي مع LocalDB:
+للتطوير المحلي على Windows باستخدام SQL Server المثبت على `localhost`:
 
 ```json
-"DefaultConnection": "Server=(localdb)\\mssqllocaldb;Database=UqebDb;Trusted_Connection=True;MultipleActiveResultSets=true"
+"ConnectionStrings": {
+  "DefaultConnection": "Server=localhost;Database=UqebDb;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
+}
 ```
 
 ### تطبيق Migrations
 
-```bash
-cd backend/Uqeb.Api
+نفّذ الأوامر من مجلد `backend/Uqeb.Api` باستخدام صيغة الطرفية المناسبة كما هو موضح في القسم 13:
+
+```text
 dotnet tool update --global dotnet-ef --version 10.0.9
+dotnet ef migrations list
 dotnet ef database update
 ```
 
@@ -80,14 +86,16 @@ dotnet ef database update
 
 ## 2. تشغيل Backend
 
-```bash
-cd backend/Uqeb.Api
-dotnet restore
-dotnet build
-dotnet run
-```
+استخدم قسم التشغيل المطابق للطرفية:
 
-الـ API يعمل على: `http://localhost:5000`
+- Windows PowerShell: [تشغيل المشروع على Windows باستخدام PowerShell](#تشغيل-المشروع-على-windows-باستخدام-powershell)
+- Windows CMD: [تشغيل المشروع على Windows باستخدام CMD](#تشغيل-المشروع-على-windows-باستخدام-cmd)
+- macOS Terminal: [تشغيل المشروع على macOS](#تشغيل-المشروع-على-macos)
+
+الـ API يعمل افتراضيًا على:
+
+- Windows: `http://localhost:5000`
+- macOS: `http://localhost:5080`
 
 ### مستخدمون افتراضيون (Seed)
 
@@ -103,36 +111,43 @@ dotnet run
 
 ## 3. تشغيل Frontend
 
-```bash
-cd frontend/uqeb-ui
-npm install
-npm run dev
+استخدم قسم التشغيل المطابق للطرفية في القسم 13. بعد تغيير الفرع أو تحديث `package-lock.json` استخدم دائمًا:
+
+```text
+npm ci
 ```
 
-الواجهة تعمل على: `http://localhost:5173` (مع proxy للـ API)
+ثم شغّل الواجهة عبر الأمر المناسب للطرفية. الواجهة تعمل على:
+
+```text
+http://localhost:5173
+```
 
 ### بناء الإنتاج
 
-```bash
+```text
 npm run build
 ```
 
-الملفات في `frontend/uqeb-ui/dist/`
+الملفات في `frontend/uqeb-ui/dist/`.
 
 ---
 
 ## 4. أوامر التحقق
 
-```bash
-# Backend
-cd backend/Uqeb.Api
-dotnet build          # ✅ نجح
-dotnet ef migrations list
+نفّذ من جذر المشروع أو من المسارات الموضحة في القسم 13:
 
-# Frontend
-cd frontend/uqeb-ui
-npm install
-npm run build         # ✅ نجح
+```text
+Backend:
+  dotnet build backend/Uqeb.Api/Uqeb.Api.csproj
+  dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --no-restore
+  dotnet ef migrations list --project backend/Uqeb.Api/Uqeb.Api.csproj
+
+Frontend:
+  cd frontend/uqeb-ui
+  npm ci
+  npm run build
+  npm test -- --run --maxWorkers=2
 ```
 
 ---
@@ -376,3 +391,458 @@ k6 run performance-tests/uqeb-load-test.js
 # load test
 K6_SCENARIO=load k6 run performance-tests/uqeb-load-test.js
 ```
+
+---
+
+## 13. دليل بيئة التطوير والتشغيل المعتمد
+
+هذا القسم هو المرجع الأساسي لإعداد المشروع وتشغيله على Windows وmacOS. استخدم الأوامر الخاصة بنوع الطرفية التي تعمل عليها، ولا تخلط بين صيغة PowerShell وصيغة CMD.
+
+### تمييز نوع الطرفية قبل التنفيذ
+
+| الطرفية | شكل المؤشر المعتاد | تغيير المجلد | تعيين متغير البيئة |
+|---|---|---|---|
+| PowerShell | `PS C:\...>` | `Set-Location "C:\path"` | `$env:NAME = "value"` |
+| CMD | `C:\...>` | `cd /d C:\path` | `set NAME=value` |
+| macOS Terminal | `$` أو `%` | `cd /path` | `export NAME=value` |
+
+> عندما يبدأ المؤشر بـ `PS` فأنت داخل PowerShell. لا تستخدم `cd /d` أو `set NAME=value` في هذه الحالة.
+
+### القيم المعتمدة
+
+| العنصر | القيمة |
+|---|---|
+| قاعدة التطوير | `UqebDb` |
+| SQL Server على Windows | `localhost` |
+| Backend على Windows | `http://localhost:5000` |
+| Backend على macOS | `http://localhost:5080` |
+| Frontend | `http://localhost:5173` |
+| مسار مقترح على Windows | `C:\Users\<USER>\uqeb` |
+| مسار مقترح على macOS | `~/workspace/uqeb` |
+
+### التحقق من مسار المستودع
+
+#### Windows PowerShell
+
+```powershell
+Set-Location "C:\Users\<USER>\uqeb"
+
+if (-not (Test-Path ".git")) {
+    throw "المسار الحالي ليس مستودع Git."
+}
+
+git status
+git branch --show-current
+git rev-parse --short HEAD
+```
+
+#### Windows CMD
+
+```cmd
+cd /d C:\Users\<USER>\uqeb
+if not exist .git\NUL (
+  echo المسار الحالي ليس مستودع Git.
+  exit /b 1
+)
+
+git status
+git branch --show-current
+git rev-parse --short HEAD
+```
+
+#### macOS Terminal
+
+```bash
+cd ~/workspace/uqeb
+
+test -d .git || {
+  echo "المسار الحالي ليس مستودع Git."
+  exit 1
+}
+
+git status
+git branch --show-current
+git rev-parse --short HEAD
+```
+
+### تحديث المشروع والانتقال إلى فرع العمل
+
+انتقل إلى الفرع المطلوب أولًا، ثم نفّذ `git pull --ff-only`.
+
+#### Windows PowerShell
+
+```powershell
+Set-Location "C:\Users\<USER>\uqeb"
+$Branch = "اسم-الفرع"
+
+if (git status --porcelain) {
+    git stash push --include-untracked -m "before-switch-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+}
+
+git fetch origin --prune
+git show-ref --verify --quiet "refs/heads/$Branch"
+$BranchExists = $LASTEXITCODE
+
+if ($BranchExists -eq 0) {
+    git switch $Branch
+}
+else {
+    git switch --track -c $Branch "origin/$Branch"
+}
+
+git pull --ff-only origin $Branch
+```
+
+#### Windows CMD
+
+```cmd
+cd /d C:\Users\<USER>\uqeb
+set BRANCH=اسم-الفرع
+
+git status --porcelain > "%TEMP%\uqeb-status.txt"
+for %A in ("%TEMP%\uqeb-status.txt") do if %~zA GTR 0 git stash push --include-untracked -m "before-switch"
+del "%TEMP%\uqeb-status.txt" 2>nul
+
+git fetch origin --prune
+git show-ref --verify --quiet refs/heads/%BRANCH%
+if errorlevel 1 (
+  git switch --track -c %BRANCH% origin/%BRANCH%
+) else (
+  git switch %BRANCH%
+)
+
+git pull --ff-only origin %BRANCH%
+```
+
+> الصيغة `%A` أعلاه مخصصة للنسخ المباشر داخل نافذة CMD. داخل ملف `.bat` استخدم `%%A`.
+
+#### macOS Terminal
+
+```bash
+cd ~/workspace/uqeb
+BRANCH="اسم-الفرع"
+
+if [[ -n "$(git status --porcelain)" ]]; then
+  git stash push --include-untracked -m "before-switch-$(date +%Y%m%d-%H%M%S)"
+fi
+
+git fetch origin --prune
+
+if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
+  git switch "$BRANCH"
+else
+  git switch --track -c "$BRANCH" "origin/$BRANCH"
+fi
+
+git pull --ff-only origin "$BRANCH"
+```
+
+### إعداد قاعدة التطوير على Windows
+
+الإعداد المحلي المعتمد:
+
+```json
+"ConnectionStrings": {
+  "DefaultConnection": "Server=localhost;Database=UqebDb;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
+}
+```
+
+التحقق:
+
+```cmd
+sqlcmd -S localhost -E -C -Q "SELECT name FROM sys.databases ORDER BY name;"
+sqlcmd -S localhost -d UqebDb -E -C -Q "SELECT [MigrationId], [ProductVersion] FROM dbo.__EFMigrationsHistory ORDER BY [MigrationId];"
+```
+
+### تشغيل المشروع على Windows باستخدام CMD
+
+استخدم هذا القسم فقط عندما يكون المؤشر مثل `C:\...>` وليس `PS C:\...>`، وافتح نافذتي CMD منفصلتين.
+
+#### النافذة الأولى: Backend
+
+```cmd
+cd /d C:\Users\<USER>\uqeb\backend\Uqeb.Api
+
+set ASPNETCORE_ENVIRONMENT=Development
+set ASPNETCORE_URLS=http://localhost:5000
+set FeatureFlags__InstitutionalReports=true
+set ReportingRollout__EnforcementMode=ObserveOnly
+set ReportingRollout__EmergencyDisable=false
+
+dotnet restore
+dotnet build
+dotnet ef migrations list
+dotnet ef database update
+dotnet run
+```
+
+#### النافذة الثانية: Frontend
+
+```cmd
+cd /d C:\Users\<USER>\uqeb\frontend\uqeb-ui
+
+set NODE_OPTIONS=--max-old-space-size=4096
+
+npm ci
+npm run build
+npm test -- --run --maxWorkers=2
+npm run dev
+```
+
+#### التشغيل السريع بعد اكتمال الإعداد
+
+Backend:
+
+```cmd
+cd /d C:\Users\<USER>\uqeb\backend\Uqeb.Api
+set ASPNETCORE_ENVIRONMENT=Development
+set ASPNETCORE_URLS=http://localhost:5000
+set FeatureFlags__InstitutionalReports=true
+set ReportingRollout__EnforcementMode=ObserveOnly
+set ReportingRollout__EmergencyDisable=false
+dotnet run
+```
+
+Frontend:
+
+```cmd
+cd /d C:\Users\<USER>\uqeb\frontend\uqeb-ui
+set NODE_OPTIONS=--max-old-space-size=4096
+npm run dev
+```
+
+التحقق:
+
+```cmd
+curl -i http://localhost:5000/health/live
+curl -i http://localhost:5000/health/ready
+```
+
+### تشغيل المشروع على Windows باستخدام PowerShell
+
+استخدم هذا القسم عندما يبدأ المؤشر بـ `PS`، وافتح نافذتي PowerShell منفصلتين.
+
+#### النافذة الأولى: Backend
+
+```powershell
+Set-Location "C:\Users\<USER>\uqeb\backend\Uqeb.Api"
+
+$env:ASPNETCORE_ENVIRONMENT = "Development"
+$env:ASPNETCORE_URLS = "http://localhost:5000"
+$env:FeatureFlags__InstitutionalReports = "true"
+$env:ReportingRollout__EnforcementMode = "ObserveOnly"
+$env:ReportingRollout__EmergencyDisable = "false"
+
+dotnet restore
+dotnet build
+dotnet ef migrations list
+dotnet ef database update
+dotnet run
+```
+
+#### النافذة الثانية: Frontend
+
+```powershell
+Set-Location "C:\Users\<USER>\uqeb\frontend\uqeb-ui"
+
+$env:NODE_OPTIONS = "--max-old-space-size=4096"
+
+npm ci
+npm run build
+npm test -- --run --maxWorkers=2
+npm run dev
+```
+
+#### التشغيل السريع بعد اكتمال الإعداد
+
+Backend:
+
+```powershell
+Set-Location "C:\Users\<USER>\uqeb\backend\Uqeb.Api"
+
+$env:ASPNETCORE_ENVIRONMENT = "Development"
+$env:ASPNETCORE_URLS = "http://localhost:5000"
+$env:FeatureFlags__InstitutionalReports = "true"
+$env:ReportingRollout__EnforcementMode = "ObserveOnly"
+$env:ReportingRollout__EmergencyDisable = "false"
+
+dotnet run
+```
+
+Frontend:
+
+```powershell
+Set-Location "C:\Users\<USER>\uqeb\frontend\uqeb-ui"
+$env:NODE_OPTIONS = "--max-old-space-size=4096"
+npm run dev
+```
+
+التحقق:
+
+```powershell
+curl.exe -i http://localhost:5000/health/live
+curl.exe -i http://localhost:5000/health/ready
+```
+
+### تشغيل المشروع على macOS
+
+نافذة Backend:
+
+```bash
+cd ~/workspace/uqeb/backend/Uqeb.Api
+
+export ASPNETCORE_ENVIRONMENT=Development
+export ASPNETCORE_URLS=http://localhost:5080
+export FeatureFlags__InstitutionalReports=true
+export ReportingRollout__EnforcementMode=ObserveOnly
+export ReportingRollout__EmergencyDisable=false
+
+dotnet restore
+dotnet build
+dotnet ef migrations list
+dotnet ef database update
+dotnet run
+```
+
+أنشئ `frontend/uqeb-ui/.env.local`:
+
+```env
+VITE_API_BASE_URL=http://localhost:5080/api
+VITE_ENABLE_INSTITUTIONAL_REPORTS=true
+```
+
+نافذة Frontend:
+
+```bash
+cd ~/workspace/uqeb/frontend/uqeb-ui
+
+rm -rf node_modules dist
+export NODE_OPTIONS=--max-old-space-size=4096
+
+npm ci
+npm run build
+npm test -- --run --maxWorkers=2
+npm run dev
+```
+
+التحقق:
+
+```bash
+curl -i http://localhost:5080/health/live
+curl -i http://localhost:5080/health/ready
+```
+
+### قواعد Entity Framework Core migrations
+
+قبل إنشاء migration:
+
+```bash
+git status --short
+dotnet build
+dotnet ef migrations list
+```
+
+المفاتيح الرقمية ذات المعنى المنطقي، مثل السنة، يجب تعريفها صراحةً دون توليد تلقائي:
+
+```csharp
+modelBuilder.Entity<ReportNumberSequence>(entity =>
+{
+    entity.HasKey(x => x.Year);
+
+    entity.Property(x => x.Year)
+        .ValueGeneratedNever();
+
+    entity.Property(x => x.LastNumber)
+        .IsRequired();
+});
+```
+
+بعد إنشاء migration، راجعها وولّد SQL قبل التطبيق:
+
+```bash
+dotnet ef migrations add MigrationName
+dotnet ef migrations script LastAppliedMigration MigrationName --output migration-review.sql
+dotnet ef migrations has-pending-model-changes
+```
+
+لا تطبق migration تحتوي حذفًا أو تغييرًا غير مقصود. لا يتم تعطيل `PendingModelChangesWarning`.
+
+إذا كان schema الفعلي صحيحًا وكان المطلوب مزامنة metadata فقط، يمكن أن تكون migration بلا عمليات schema، ويجب أن ينتج عنها تسجيل فقط في `__EFMigrationsHistory`.
+
+### التحقق من ReportNumberSequences على Windows
+
+```cmd
+sqlcmd -S localhost -d UqebDb -E -C -Q "SELECT c.name AS ColumnName, c.is_identity AS IsIdentity FROM sys.columns c JOIN sys.tables t ON c.object_id = t.object_id WHERE t.name = 'ReportNumberSequences' AND c.name = 'Year';"
+```
+
+النتيجة المطلوبة:
+
+```text
+Year    0
+```
+
+### تثبيت Chromium لتصدير PDF
+
+Windows PowerShell أو CMD بعد بناء Backend:
+
+```cmd
+pwsh backend\Uqeb.Api\bin\Debug\net10.0\playwright.ps1 install chromium
+```
+
+macOS:
+
+```bash
+pwsh ./backend/Uqeb.Api/bin/Debug/net10.0/playwright.ps1 install chromium
+```
+
+### بوابة التحقق قبل commit
+
+من جذر المشروع:
+
+```bash
+dotnet restore backend/Uqeb.Api/Uqeb.Api.csproj
+dotnet build backend/Uqeb.Api/Uqeb.Api.csproj
+dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --no-restore
+
+cd frontend/uqeb-ui
+npm ci
+npm run lint
+npm run lint:css
+npm run build
+npm test -- --run --maxWorkers=2
+cd ../..
+
+git diff --check
+git status --short
+git diff --stat
+```
+
+### قواعد commit وpush
+
+```bash
+git add <files>
+git diff --cached --check
+git commit -m "type(scope): description"
+git push origin HEAD:<remote-branch>
+```
+
+لا يتم رفع `.env.local` أو كلمات المرور أو JWT secrets الحقيقية أو connection strings إنتاجية أو مجلدات `bin`, `obj`, `dist`, `node_modules`.
+
+### ترتيب العمل القياسي
+
+1. التأكد من مسار المستودع.
+2. حفظ التغييرات المحلية.
+3. تنفيذ `git fetch`.
+4. الانتقال إلى الفرع المطلوب.
+5. تنفيذ `git pull --ff-only`.
+6. تشغيل `dotnet restore` و`npm ci`.
+7. مراجعة connection string وقاعدة `UqebDb`.
+8. مراجعة migrations وتوليد SQL.
+9. تطبيق migrations.
+10. بناء واختبار Backend.
+11. بناء واختبار Frontend.
+12. اختبار التشغيل المحلي.
+13. تنفيذ `git diff --check`.
+14. إنشاء commit.
+15. رفع التغييرات إلى فرع Pull Request.
+16. مراجعة CI وSonarCloud قبل الدمج.

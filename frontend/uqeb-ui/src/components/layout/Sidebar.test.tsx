@@ -5,8 +5,21 @@ import { MemoryRouter } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import * as safeStorage from '../../utils/safeStorage';
 
+const { mockUseAuth } = vi.hoisted(() => ({
+  mockUseAuth: vi.fn(),
+}));
+
 vi.mock('../../context/useAuth', () => ({
-  useAuth: () => ({
+  useAuth: () => mockUseAuth(),
+}));
+
+vi.mock('../../utils/safeStorage', () => ({
+  getStorageItem: vi.fn(() => null),
+  setStorageItem: vi.fn(() => true),
+}));
+
+function createAdminAuthState() {
+  return {
     isAdmin: true,
     canClose: true,
     user: { fullName: 'مختبر', role: 'Admin' },
@@ -14,13 +27,8 @@ vi.mock('../../context/useAuth', () => ({
     login: vi.fn(),
     canEdit: true,
     isDepartmentUser: false,
-  }),
-}));
-
-vi.mock('../../utils/safeStorage', () => ({
-  getStorageItem: vi.fn(() => null),
-  setStorageItem: vi.fn(() => true),
-}));
+  };
+}
 
 function renderSidebar(mobileOpen = false, onMobileClose = vi.fn()) {
   return render(
@@ -34,6 +42,9 @@ describe('Sidebar', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
+
+    mockUseAuth.mockReset();
+    mockUseAuth.mockReturnValue(createAdminAuthState());
   });
 
   afterEach(() => {
@@ -44,6 +55,20 @@ describe('Sidebar', () => {
   it('shows report builder link for authorized admin by default', () => {
     renderSidebar();
     expect(screen.getByRole('link', { name: 'منشئ التقارير' })).toBeInTheDocument();
+  });
+
+  it('hides report builder link for non-admin users', () => {
+    mockUseAuth.mockReturnValue({
+      ...createAdminAuthState(),
+      isAdmin: false,
+      user: {
+        fullName: 'مشرف',
+        role: 'Supervisor',
+      },
+    });
+
+    renderSidebar();
+    expect(screen.queryByRole('link', { name: 'منشئ التقارير' })).not.toBeInTheDocument();
   });
 
   it('hides report builder link when feature flag is explicitly false', () => {
