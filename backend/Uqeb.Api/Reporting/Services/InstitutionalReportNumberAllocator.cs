@@ -1,6 +1,9 @@
 using System.Data;
+using System.Data.Common;
+using System.Globalization;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Uqeb.Api.Data;
 using Uqeb.Api.Helpers;
 using Uqeb.Api.Models.Entities;
@@ -65,11 +68,7 @@ public sealed class InstitutionalReportNumberAllocator : IInstitutionalReportNum
             try
             {
                 await using var transaction = await db.Database.BeginTransactionAsync(ct);
-
-                var nextNumber = await db.Database
-                    .SqlQueryRaw<int>(AllocateNextNumberSql, new SqlParameter("@year", year))
-                    .SingleAsync(ct);
-
+                var nextNumber = await ExecuteAllocateNextNumberAsync(db, year, ct);
                 await transaction.CommitAsync(ct);
                 return $"REP-{year}-{nextNumber:D6}";
             }
@@ -88,6 +87,28 @@ public sealed class InstitutionalReportNumberAllocator : IInstitutionalReportNum
         throw new InvalidOperationException(
             "تعذر تخصيص رقم تقرير فريد.",
             lastRetryable);
+    }
+
+    private static async Task<int> ExecuteAllocateNextNumberAsync(AppDbContext db, int year, CancellationToken ct)
+    {
+        var connection = db.Database.GetDbConnection();
+        if (connection.State != ConnectionState.Open)
+            await connection.OpenAsync(ct);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = AllocateNextNumberSql;
+        command.Transaction = db.Database.CurrentTransaction?.GetDbTransaction();
+
+        var yearParameter = command.CreateParameter();
+        yearParameter.ParameterName = "@year";
+        yearParameter.Value = year;
+        command.Parameters.Add(yearParameter);
+
+        var result = await command.ExecuteScalarAsync(ct);
+        if (result is null or DBNull)
+            throw new InvalidOperationException("تعذر قراءة رقم التقرير التالي من قاعدة البيانات.");
+
+        return Convert.ToInt32(result, CultureInfo.InvariantCulture);
     }
 
     private static async Task<string> AllocateWithEfCoreAsync(AppDbContext db, int year, CancellationToken ct)

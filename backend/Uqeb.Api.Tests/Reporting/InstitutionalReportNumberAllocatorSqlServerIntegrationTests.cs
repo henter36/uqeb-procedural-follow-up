@@ -30,6 +30,28 @@ public class InstitutionalReportNumberAllocatorSqlServerIntegrationTests
     }
 
     [Fact]
+    public async Task AllocateAsync_FirstAllocation_ReturnsOne_OnSqlServer()
+    {
+        if (!IsSqlServerAvailable())
+            return;
+
+        var databaseName = $"Uqeb_ReportNumbers_First_{Guid.NewGuid():N}";
+        try
+        {
+            var dbFactory = await CreateDatabaseFactoryAsync(databaseName);
+            var year = DateTime.UtcNow.Year;
+
+            var number = await new InstitutionalReportNumberAllocator(dbFactory).AllocateAsync();
+
+            Assert.Equal($"REP-{year}-000001", number);
+        }
+        finally
+        {
+            await SqlServerTestDatabaseHelper.DropDatabaseAsync(ConnectionString!, databaseName);
+        }
+    }
+
+    [Fact]
     public async Task AllocateAsync_ProducesUniqueSequentialNumbers_FromDifferentAllocatorInstances()
     {
         if (!IsSqlServerAvailable())

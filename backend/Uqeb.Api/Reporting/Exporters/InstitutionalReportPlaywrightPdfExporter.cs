@@ -1,4 +1,4 @@
-using System.Text;
+using Microsoft.Extensions.Logging;
 using Microsoft.Playwright;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Operations;
