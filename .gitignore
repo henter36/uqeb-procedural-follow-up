@@ -53,3 +53,5 @@ coverage/
 
 # Reporting acceptance benchmark JSON (CI artifacts)
 artifacts/reporting-acceptance/*.json
+artifacts/performance-baseline/*
+!artifacts/performance-baseline/.gitkeep
