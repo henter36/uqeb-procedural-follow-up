@@ -103,6 +103,7 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - run: dotnet restore backend/Uqeb.Api/Uqeb.Api.csproj
+      - run: dotnet restore backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj
       - run: dotnet build backend/Uqeb.Api/Uqeb.Api.csproj --no-restore
       - run: dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --no-restore --filter "FullyQualifiedName~ReportingAcceptanceBenchmarkTests.SmallBenchmark"
         env:
@@ -125,6 +126,7 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - run: dotnet restore backend/Uqeb.Api/Uqeb.Api.csproj
+      - run: dotnet restore backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj
       - run: dotnet build backend/Uqeb.Api/Uqeb.Api.csproj --no-restore
       - run: dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --no-restore --filter "FullyQualifiedName~ReportingAcceptanceBenchmarkTests.LargeBenchmark"
         env:

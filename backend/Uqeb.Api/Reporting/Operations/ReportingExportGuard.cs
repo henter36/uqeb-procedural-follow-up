@@ -14,7 +14,8 @@ public sealed class ReportingExportGuard(
     IReportingExportAdmissionService admission,
     IReportingExportResourceGuard resourceGuard,
     IReportingExportScopeFactory scopeFactory,
-    IReportingCorrelationIdProvider correlationIdProvider) : IReportingExportGuard
+    IReportingCorrelationIdProvider correlationIdProvider,
+    IReportingExportConcurrencyGate concurrencyGate) : IReportingExportGuard
 {
     public async Task<ReportingExportScope> BeginExportAsync(
         ReportExportRequestDto request,
@@ -26,14 +27,22 @@ public sealed class ReportingExportGuard(
 
         await admission.AdmitAsync(format, request, correlationId, cancellationToken);
 
-        var (sessionDirectory, timeoutSource) = resourceGuard.BeginSession(cancellationToken);
-        var session = new ReportingExportSessionContext(
-            request,
-            format,
-            correlationId,
-            sessionDirectory,
-            timeoutSource);
+        try
+        {
+            var (sessionDirectory, timeoutSource) = resourceGuard.BeginSession(cancellationToken);
+            var session = new ReportingExportSessionContext(
+                request,
+                format,
+                correlationId,
+                sessionDirectory,
+                timeoutSource);
 
-        return scopeFactory.Create(session);
+            return scopeFactory.Create(session);
+        }
+        catch
+        {
+            concurrencyGate.Release(format);
+            throw;
+        }
     }
 }

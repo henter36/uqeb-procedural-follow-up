@@ -52,6 +52,27 @@ public class ReportingTempFileManagerTests
             manager.EnsureDiskSpaceForExport(1));
     }
 
+    [Fact]
+    public void EnsurePathInsideRoot_RejectsSiblingDirectoryWithSharedPrefix()
+    {
+        using var root = new TempDirectory();
+        var manager = CreateManager(root.Path);
+        var sibling = $"{root.Path}-evil";
+        Directory.CreateDirectory(sibling);
+        var escapeAttempt = Path.Combine(sibling, "escape.txt");
+        File.WriteAllText(escapeAttempt, "x");
+
+        Assert.Throws<InvalidOperationException>(() => manager.EnsurePathInsideRoot(escapeAttempt));
+    }
+
+    [Fact]
+    public void IsSubPathOf_RejectsPathsOutsideRoot()
+    {
+        using var root = new TempDirectory();
+        var sibling = $"{root.Path}-evil";
+        Assert.False(ReportingTempFileManager.IsSubPathOf(sibling, root.Path));
+    }
+
     private static ReportingTempFileManager CreateManager(string root)
     {
         return new ReportingTempFileManager(

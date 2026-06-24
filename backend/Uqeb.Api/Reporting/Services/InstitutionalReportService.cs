@@ -167,7 +167,6 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
                     exportToken);
             }
 
-            exportScope.MarkCompleted();
             await exportScope.LogCompletedAsync(
                 result.Manifest?.ExportedDetailRows ?? totalMatching,
                 result.Content.LongLength,

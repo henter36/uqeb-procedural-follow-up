@@ -72,11 +72,15 @@ public sealed class ReportingTempFileManager : IReportingTempFileManager
     {
         var normalized = Path.GetFullPath(fullPath);
         var root = Path.GetFullPath(RootDirectory);
-        if (!normalized.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(normalized, root, StringComparison.OrdinalIgnoreCase))
-        {
+        if (!IsSubPathOf(normalized, root))
             throw new InvalidOperationException("Reporting temp path escapes the configured root.");
-        }
+    }
+
+    internal static bool IsSubPathOf(string fullPath, string rootDirectory)
+    {
+        var relative = Path.GetRelativePath(rootDirectory, fullPath);
+        return !relative.StartsWith("..", StringComparison.Ordinal)
+               && !Path.IsPathRooted(relative);
     }
 
     public void EnsureDiskSpaceForExport(long requiredBytes)

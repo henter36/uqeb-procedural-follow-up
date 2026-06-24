@@ -1,10 +1,16 @@
 param(
-    [string]$ApiBaseUrl = "http://localhost:5000/api",
-    [string]$Username = "admin",
-    [string]$Password = ""
+    [Parameter(Mandatory = $true)]
+    [string]$ApiBaseUrl,
+    [string]$Username = "admin"
 )
 
 $ErrorActionPreference = "Stop"
+
+if ([string]::IsNullOrWhiteSpace($ApiBaseUrl)) {
+    throw "ApiBaseUrl is required for reporting production smoke test."
+}
+
+$Password = if ($env:UQEB_PASSWORD) { $env:UQEB_PASSWORD } else { "" }
 
 function Invoke-UqebApi {
     param(
@@ -24,13 +30,13 @@ function Invoke-UqebApi {
     }
     if ($Body) {
         $params.ContentType = "application/json"
-        $params.Body = ($Body | ConvertTo-Json -Depth 8)
+        $params.Body = ($Body | ConvertTo-Json -Depth 8 -Compress)
     }
 
     return Invoke-WebRequest @params
 }
 
-Write-Host "Reporting production smoke test starting..."
+Write-Host "Reporting production smoke test starting against $ApiBaseUrl"
 
 $login = Invoke-UqebApi -Method Post -Path "/auth/login" -Body @{
     username = $Username

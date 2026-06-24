@@ -23,10 +23,8 @@ public sealed class ReportingExportScope : IAsyncDisposable
     private readonly IReportingExportConcurrencyGate _concurrencyGate;
     private readonly IReportingTempFileManager _tempFileManager;
     private readonly IReportingExportLifecycleObserver _lifecycleObserver;
-    private readonly IReportingMetrics _metrics;
     private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
     private readonly IDisposable _activeMetric;
-    private bool _completed;
     private bool _released;
 
     internal ReportingExportScope(
@@ -40,15 +38,12 @@ public sealed class ReportingExportScope : IAsyncDisposable
         _concurrencyGate = concurrencyGate;
         _tempFileManager = tempFileManager;
         _lifecycleObserver = lifecycleObserver;
-        _metrics = metrics;
         _activeMetric = metrics.TrackActiveExport();
     }
 
     public string SessionDirectory => _session.SessionDirectory;
     public CancellationTokenSource TimeoutSource => _session.TimeoutSource;
     public CancellationToken Token => _session.Token;
-
-    public void MarkCompleted() => _completed = true;
 
     public async ValueTask DisposeAsync()
     {
@@ -62,22 +57,14 @@ public sealed class ReportingExportScope : IAsyncDisposable
         _tempFileManager.CleanupSession(SessionDirectory);
         TimeoutSource.Dispose();
 
-        if (!_completed)
-        {
-            var context = _session.ToLogContext();
-            _metrics.RecordCancellation(context.Format, context.ReportType);
-        }
-
         await ValueTask.CompletedTask;
     }
 
     public Task LogStartedAsync(int? matchedRows) =>
         _lifecycleObserver.LogStartedAsync(_session, matchedRows);
 
-    public Task LogCompletedAsync(int exportedRows, long fileSizeBytes, int partsCount, string fingerprint)
-    {
-        _completed = true;
-        return _lifecycleObserver.LogCompletedAsync(
+    public Task LogCompletedAsync(int exportedRows, long fileSizeBytes, int partsCount, string fingerprint) =>
+        _lifecycleObserver.LogCompletedAsync(
             _session,
             new ReportingExportCompletedLog(
                 _session.ToLogContext(),
@@ -86,7 +73,6 @@ public sealed class ReportingExportScope : IAsyncDisposable
                 fileSizeBytes,
                 partsCount,
                 fingerprint));
-    }
 
     public Task LogFailedAsync(string result) =>
         _lifecycleObserver.LogFailedAsync(

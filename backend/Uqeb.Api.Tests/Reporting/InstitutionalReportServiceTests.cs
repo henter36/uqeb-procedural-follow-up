@@ -146,7 +146,7 @@ internal static class InstitutionalReportServiceTestHelpers
             lifecycle,
             metrics);
         var correlationIdProvider = new ReportingCorrelationIdProvider(new HttpContextAccessor());
-        return new ReportingExportGuard(admission, resourceGuard, scopeFactory, correlationIdProvider);
+        return new ReportingExportGuard(admission, resourceGuard, scopeFactory, correlationIdProvider, concurrencyGate);
     }
 
     private sealed class TestCurrentUserService : ICurrentUserService

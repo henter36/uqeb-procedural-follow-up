@@ -48,10 +48,11 @@ public sealed class ReportingChromiumProbe : IReportingChromiumProbe
 
     public Task<ReportingChromiumProbeResult> ProbeAsync(CancellationToken cancellationToken = default)
     {
+        _ = cancellationToken;
         return _cache.GetOrCreateAsync(CacheKey, async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(_options.ReadinessCacheSeconds);
-            return await ProbeCoreAsync(cancellationToken);
+            return await ProbeCoreAsync(CancellationToken.None);
         })!;
     }
 
@@ -62,23 +63,23 @@ public sealed class ReportingChromiumProbe : IReportingChromiumProbe
 
         try
         {
-            var playwright = await Playwright.CreateAsync();
+            var playwright = await Playwright.CreateAsync().WaitAsync(timeoutCts.Token);
             try
             {
                 var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
                 {
                     Headless = true,
-                });
+                }).WaitAsync(timeoutCts.Token);
                 try
                 {
-                    await using var context = await browser.NewContextAsync();
-                    var page = await context.NewPageAsync();
+                    await using var context = await browser.NewContextAsync().WaitAsync(timeoutCts.Token);
+                    var page = await context.NewPageAsync().WaitAsync(timeoutCts.Token);
                     await page.SetContentAsync("<html><body><p>probe</p></body></html>", new PageSetContentOptions
                     {
                         WaitUntil = WaitUntilState.DOMContentLoaded,
                         Timeout = _options.ChromiumProbeTimeoutSeconds * 1000,
-                    });
-                    var pdf = await page.PdfAsync();
+                    }).WaitAsync(timeoutCts.Token);
+                    var pdf = await page.PdfAsync().WaitAsync(timeoutCts.Token);
                     await page.CloseAsync();
 
                     if (pdf.Length == 0)
@@ -141,9 +142,13 @@ public sealed class ReportingChromiumProbe : IReportingChromiumProbe
                 Summary = "Chromium probe failed.",
             };
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
             _metrics.RecordChromiumLaunchFailure();
+            _logger.LogWarning(
+                ReportingEventIds.ChromiumUnavailable,
+                ex,
+                "Chromium probe timed out.");
             return new ReportingChromiumProbeResult
             {
                 State = ReportingChromiumProbeState.LaunchFailed,

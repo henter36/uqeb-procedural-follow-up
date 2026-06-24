@@ -159,8 +159,17 @@ public sealed class ReportingReadinessService : IReportingReadinessService
     internal static bool CanWriteToTempDirectory(string rootDirectory)
     {
         var tempWritable = false;
-        Directory.CreateDirectory(rootDirectory);
-        var probePath = Path.Combine(rootDirectory, $"uqeb-report-probe-{Guid.NewGuid():N}.tmp");
+        string probePath;
+
+        try
+        {
+            Directory.CreateDirectory(rootDirectory);
+            probePath = Path.Combine(rootDirectory, $"uqeb-report-probe-{Guid.NewGuid():N}.tmp");
+        }
+        catch
+        {
+            return false;
+        }
 
         try
         {

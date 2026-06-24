@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-API_BASE_URL="${API_BASE_URL:-http://localhost:5000/api}"
+if [ -z "${API_BASE_URL:-}" ]; then
+  echo "API_BASE_URL is required for reporting production smoke test." >&2
+  exit 1
+fi
+
 USERNAME="${USERNAME:-admin}"
 PASSWORD="${PASSWORD:-}"
 
-echo "Reporting production smoke test starting..."
+echo "Reporting production smoke test starting against ${API_BASE_URL}"
 
-login_payload=$(printf '{"username":"%s","password":"%s"}' "$USERNAME" "$PASSWORD")
+login_payload=$(USERNAME="$USERNAME" PASSWORD="$PASSWORD" python3 -c 'import json, os; print(json.dumps({"username": os.environ["USERNAME"], "password": os.environ["PASSWORD"]}))')
 token=$(curl -fsS -H "Content-Type: application/json" -d "$login_payload" "$API_BASE_URL/auth/login" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
 
 curl -fsS -H "Authorization: Bearer $token" "$API_BASE_URL/institutional-reports/configuration" >/dev/null
