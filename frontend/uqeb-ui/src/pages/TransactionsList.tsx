@@ -3,7 +3,7 @@ import type { FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { transactionsApi, departmentsApi, categoriesApi, externalPartiesApi } from '../api/services';
 import type { TransactionListItem, Department, Category, ExternalParty } from '../api/types';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 import { statusLabels } from '../utils/labels';
 import DateDisplay from '../components/DateDisplay';
 import DepartmentBadges from '../components/DepartmentBadges';

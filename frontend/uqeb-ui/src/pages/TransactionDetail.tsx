@@ -6,7 +6,7 @@ import { transactionsApi } from '../api/services';
 import type {
   TransactionDetail, Assignment, FollowUp, Attachment, AuditLog,
 } from '../api/types';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 import { useReferenceData } from '../hooks/useReferenceData';
 import {
   responseTypeLabels,

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authApi } from '../api/services';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 import { APP_DISPLAY_NAME, APP_SUBTITLE } from '../constants/app';
 
 export default function Login() {

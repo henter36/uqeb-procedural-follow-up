@@ -330,9 +330,11 @@ export default function ReportsPage() {
   }, [year, monthlyLoaded]);
 
   useEffect(() => {
-    loadAnalyticsFetch(filterKey).catch(() => {
-      setAnalyticsError('تعذر تحميل التحليلات. حاول مرة أخرى.');
-    });
+    void Promise.resolve()
+      .then(() => loadAnalyticsFetch(filterKey))
+      .catch(() => {
+        setAnalyticsError('تعذر تحميل التحليلات. حاول مرة أخرى.');
+      });
   }, [filterKey, loadAnalyticsFetch]);
 
   useEffect(() => {

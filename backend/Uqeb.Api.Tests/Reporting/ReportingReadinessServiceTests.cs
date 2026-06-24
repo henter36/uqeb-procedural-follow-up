@@ -8,7 +8,7 @@ public class ReportingReadinessServiceTests
     [Fact]
     public void CanWriteToTempDirectory_ReturnsTrue_WhenTempIsWritable()
     {
-        Assert.True(ReportingReadinessService.CanWriteToTempDirectory());
+        Assert.True(ReportingReadinessService.CanWriteToTempDirectory(Path.GetTempPath()));
     }
 
     [Fact]
@@ -16,7 +16,7 @@ public class ReportingReadinessServiceTests
     {
         var before = Directory.GetFiles(Path.GetTempPath(), "uqeb-report-probe-*.tmp").Length;
 
-        _ = ReportingReadinessService.CanWriteToTempDirectory();
+        _ = ReportingReadinessService.CanWriteToTempDirectory(Path.GetTempPath());
 
         var after = Directory.GetFiles(Path.GetTempPath(), "uqeb-report-probe-*.tmp").Length;
         Assert.Equal(before, after);
@@ -25,7 +25,7 @@ public class ReportingReadinessServiceTests
     [Fact]
     public void CanWriteToTempDirectory_DoesNotThrow_WhenCleanupFails()
     {
-        var exception = Record.Exception(() => ReportingReadinessService.CanWriteToTempDirectory());
+        var exception = Record.Exception(() => ReportingReadinessService.CanWriteToTempDirectory(Path.GetTempPath()));
         Assert.Null(exception);
     }
 }

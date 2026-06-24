@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import { APP_DISPLAY_NAME, APP_SUBTITLE } from '../../constants/app';
 import { isNavActive, navSections, type NavItem } from './navConfig';
 import { IconChevron } from '../ui/icons';

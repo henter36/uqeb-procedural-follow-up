@@ -6,7 +6,7 @@ import TransactionsList from './TransactionsList';
 import * as services from '../api/services';
 import * as safeStorage from '../utils/safeStorage';
 
-vi.mock('../context/AuthContext', () => ({
+vi.mock('../context/useAuth', () => ({
   useAuth: () => ({
     canEdit: true,
     isAdmin: false,

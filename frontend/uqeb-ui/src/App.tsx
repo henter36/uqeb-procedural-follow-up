@@ -14,11 +14,7 @@ import { UsersPage, DepartmentsPage, ExternalPartiesPage, CategoriesPage } from 
 import LetterTemplatePage from './pages/LetterTemplatePage';
 import SecurityPage from './pages/SecurityPage';
 import TransactionImport from './pages/TransactionImport';
-import { isInstitutionalReportsEnabled } from './config/featureFlags';
-
-const institutionalReportsEnabled = isInstitutionalReportsEnabled();
-
-export { institutionalReportsEnabled };
+import { institutionalReportsEnabled } from './config/institutionalReportsRuntime';
 
 export default function App() {
   return (

@@ -21,6 +21,6 @@ public class InstitutionalReportConfigurationController : ControllerBase
         Ok(_readiness.GetConfiguration());
 
     [HttpGet("readiness")]
-    public ActionResult<ReportingReadinessDto> GetReadiness() =>
-        Ok(_readiness.GetReadiness());
+    public async Task<ActionResult<ReportingReadinessDto>> GetReadiness(CancellationToken ct) =>
+        Ok(await _readiness.GetReadinessAsync(ct));
 }

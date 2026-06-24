@@ -70,7 +70,9 @@ export default function SecurityPage() {
     }
   }, [alertSeverity, alertType, attemptSucceeded]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    void Promise.resolve().then(() => load());
+  }, [load]);
 
   const markRead = async (id: number) => {
     try {
