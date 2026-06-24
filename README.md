@@ -180,6 +180,11 @@ Frontend:
 
 📄 **[docs/simple_offline_deployment.md](docs/simple_offline_deployment.md)**
 
+📘 **[دليل إصدار الحزمة وترقية نفس الـartifact إلى الإنتاج](docs/production_artifact_promotion.md)**
+
+> **المبدأ المعتمد:** ابنِ الحزمة مرة واحدة من `main`، اختبر ملفي ZIP وSHA256 نفسيهما على Windows VM، ثم انقل **نفس الحزمة ونفس SHA256** إلى الإنتاج. لا تُعِد بناء الحزمة بعد نجاح الاختبار.
+
+
 ```powershell
 # جهاز التطوير (يتطلب الإنترنت لتنزيل Chromium المتوافق مع Microsoft.Playwright)
 .\scripts\build-production-package.ps1
