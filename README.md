@@ -40,6 +40,8 @@ uqeb/
 - Node.js 18+
 - IIS (للنشر على الشبكة المحلية)
 
+> **مرجع التشغيل المعتمد:** استخدم أوامر نوع الطرفية نفسها من قسم [دليل بيئة التطوير والتشغيل المعتمد](#13-دليل-بيئة-التطوير-والتشغيل-المعتمد). لا تستخدم أوامر CMD داخل PowerShell، ولا أوامر PowerShell داخل CMD.
+
 ---
 
 ## 1. إعداد قاعدة البيانات
@@ -60,17 +62,21 @@ CREATE DATABASE UqebDb;
 }
 ```
 
-للتطوير المحلي مع LocalDB:
+للتطوير المحلي على Windows باستخدام SQL Server المثبت على `localhost`:
 
 ```json
-"DefaultConnection": "Server=(localdb)\\mssqllocaldb;Database=UqebDb;Trusted_Connection=True;MultipleActiveResultSets=true"
+"ConnectionStrings": {
+  "DefaultConnection": "Server=localhost;Database=UqebDb;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
+}
 ```
 
 ### تطبيق Migrations
 
-```bash
-cd backend/Uqeb.Api
+نفّذ الأوامر من مجلد `backend/Uqeb.Api` باستخدام صيغة الطرفية المناسبة كما هو موضح في القسم 13:
+
+```text
 dotnet tool update --global dotnet-ef --version 10.0.9
+dotnet ef migrations list
 dotnet ef database update
 ```
 
@@ -80,14 +86,16 @@ dotnet ef database update
 
 ## 2. تشغيل Backend
 
-```bash
-cd backend/Uqeb.Api
-dotnet restore
-dotnet build
-dotnet run
-```
+استخدم قسم التشغيل المطابق للطرفية:
 
-الـ API يعمل على: `http://localhost:5000`
+- Windows PowerShell: [تشغيل المشروع على Windows باستخدام PowerShell](#تشغيل-المشروع-على-windows-باستخدام-powershell)
+- Windows CMD: [تشغيل المشروع على Windows باستخدام CMD](#تشغيل-المشروع-على-windows-باستخدام-cmd)
+- macOS Terminal: [تشغيل المشروع على macOS](#تشغيل-المشروع-على-macos)
+
+الـ API يعمل افتراضيًا على:
+
+- Windows: `http://localhost:5000`
+- macOS: `http://localhost:5080`
 
 ### مستخدمون افتراضيون (Seed)
 
@@ -103,36 +111,43 @@ dotnet run
 
 ## 3. تشغيل Frontend
 
-```bash
-cd frontend/uqeb-ui
+استخدم قسم التشغيل المطابق للطرفية في القسم 13. بعد تغيير الفرع أو تحديث `package-lock.json` استخدم دائمًا:
+
+```text
 npm ci
-npm run dev
 ```
 
-الواجهة تعمل على: `http://localhost:5173` (مع proxy للـ API)
+ثم شغّل الواجهة عبر الأمر المناسب للطرفية. الواجهة تعمل على:
+
+```text
+http://localhost:5173
+```
 
 ### بناء الإنتاج
 
-```bash
+```text
 npm run build
 ```
 
-الملفات في `frontend/uqeb-ui/dist/`
+الملفات في `frontend/uqeb-ui/dist/`.
 
 ---
 
 ## 4. أوامر التحقق
 
-```bash
-# Backend
-cd backend/Uqeb.Api
-dotnet build
-dotnet ef migrations list
+نفّذ من جذر المشروع أو من المسارات الموضحة في القسم 13:
 
-# Frontend
-cd frontend/uqeb-ui
-npm ci
-npm run build
+```text
+Backend:
+  dotnet build backend/Uqeb.Api/Uqeb.Api.csproj
+  dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --no-restore
+  dotnet ef migrations list --project backend/Uqeb.Api/Uqeb.Api.csproj
+
+Frontend:
+  cd frontend/uqeb-ui
+  npm ci
+  npm run build
+  npm test -- --run --maxWorkers=2
 ```
 
 ---
@@ -383,6 +398,16 @@ K6_SCENARIO=load k6 run performance-tests/uqeb-load-test.js
 
 هذا القسم هو المرجع الأساسي لإعداد المشروع وتشغيله على Windows وmacOS. استخدم الأوامر الخاصة بنوع الطرفية التي تعمل عليها، ولا تخلط بين صيغة PowerShell وصيغة CMD.
 
+### تمييز نوع الطرفية قبل التنفيذ
+
+| الطرفية | شكل المؤشر المعتاد | تغيير المجلد | تعيين متغير البيئة |
+|---|---|---|---|
+| PowerShell | `PS C:\...>` | `Set-Location "C:\path"` | `$env:NAME = "value"` |
+| CMD | `C:\...>` | `cd /d C:\path` | `set NAME=value` |
+| macOS Terminal | `$` أو `%` | `cd /path` | `export NAME=value` |
+
+> عندما يبدأ المؤشر بـ `PS` فأنت داخل PowerShell. لا تستخدم `cd /d` أو `set NAME=value` في هذه الحالة.
+
 ### القيم المعتمدة
 
 | العنصر | القيمة |
@@ -475,7 +500,7 @@ cd /d C:\Users\<USER>\uqeb
 set BRANCH=اسم-الفرع
 
 git status --porcelain > "%TEMP%\uqeb-status.txt"
-for %%A in ("%TEMP%\uqeb-status.txt") do if %%~zA GTR 0 git stash push --include-untracked -m "before-switch"
+for %A in ("%TEMP%\uqeb-status.txt") do if %~zA GTR 0 git stash push --include-untracked -m "before-switch"
 del "%TEMP%\uqeb-status.txt" 2>nul
 
 git fetch origin --prune
@@ -488,6 +513,8 @@ if errorlevel 1 (
 
 git pull --ff-only origin %BRANCH%
 ```
+
+> الصيغة `%A` أعلاه مخصصة للنسخ المباشر داخل نافذة CMD. داخل ملف `.bat` استخدم `%%A`.
 
 #### macOS Terminal
 
@@ -529,7 +556,7 @@ sqlcmd -S localhost -d UqebDb -E -C -Q "SELECT [MigrationId], [ProductVersion] F
 
 ### تشغيل المشروع على Windows باستخدام CMD
 
-افتح نافذتي CMD منفصلتين.
+استخدم هذا القسم فقط عندما يكون المؤشر مثل `C:\...>` وليس `PS C:\...>`، وافتح نافذتي CMD منفصلتين.
 
 #### النافذة الأولى: Backend
 
@@ -593,7 +620,9 @@ curl -i http://localhost:5000/health/ready
 
 ### تشغيل المشروع على Windows باستخدام PowerShell
 
-نافذة Backend:
+استخدم هذا القسم عندما يبدأ المؤشر بـ `PS`، وافتح نافذتي PowerShell منفصلتين.
+
+#### النافذة الأولى: Backend
 
 ```powershell
 Set-Location "C:\Users\<USER>\uqeb\backend\Uqeb.Api"
@@ -611,7 +640,7 @@ dotnet ef database update
 dotnet run
 ```
 
-نافذة Frontend:
+#### النافذة الثانية: Frontend
 
 ```powershell
 Set-Location "C:\Users\<USER>\uqeb\frontend\uqeb-ui"
@@ -622,6 +651,37 @@ npm ci
 npm run build
 npm test -- --run --maxWorkers=2
 npm run dev
+```
+
+#### التشغيل السريع بعد اكتمال الإعداد
+
+Backend:
+
+```powershell
+Set-Location "C:\Users\<USER>\uqeb\backend\Uqeb.Api"
+
+$env:ASPNETCORE_ENVIRONMENT = "Development"
+$env:ASPNETCORE_URLS = "http://localhost:5000"
+$env:FeatureFlags__InstitutionalReports = "true"
+$env:ReportingRollout__EnforcementMode = "ObserveOnly"
+$env:ReportingRollout__EmergencyDisable = "false"
+
+dotnet run
+```
+
+Frontend:
+
+```powershell
+Set-Location "C:\Users\<USER>\uqeb\frontend\uqeb-ui"
+$env:NODE_OPTIONS = "--max-old-space-size=4096"
+npm run dev
+```
+
+التحقق:
+
+```powershell
+curl.exe -i http://localhost:5000/health/live
+curl.exe -i http://localhost:5000/health/ready
 ```
 
 ### تشغيل المشروع على macOS
