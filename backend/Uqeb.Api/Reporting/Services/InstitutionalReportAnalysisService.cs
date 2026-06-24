@@ -32,11 +32,14 @@ internal static class InstitutionalReportAnalysisService
         var maxFindings = ResolvePositive(request.MaxFindings, options.MaxExecutiveFindings);
         var maxCriticalCases = ResolvePositive(request.MaxCriticalCases, options.MaxExecutiveCriticalCases);
         var maxRecommendations = ResolvePositive(request.MaxRecommendations, options.MaxRecommendations);
+        var referenceDate = metadata.GeneratedAt == default
+            ? DateTime.UtcNow.Date
+            : metadata.GeneratedAt.Date;
 
-        var kpis = BuildKpis(currentMetrics, currentSnapshots, previousMetrics, options);
+        var kpis = BuildKpis(currentMetrics, currentSnapshots, previousMetrics, options, referenceDate);
         var criticalCases = request.IncludeCriticalCases == false
             ? []
-            : BuildCriticalCases(currentSnapshots, options).Take(maxCriticalCases).ToList();
+            : BuildCriticalCases(currentSnapshots, options, referenceDate).Take(maxCriticalCases).ToList();
         var departments = request.IncludeDepartmentPerformance == false
             ? []
             : BuildDepartments(currentSnapshots, previousSnapshots, options);
@@ -51,7 +54,7 @@ internal static class InstitutionalReportAnalysisService
             : BuildPriorities(currentSnapshots);
         var bottlenecks = request.IncludeBottleneckAnalysis == false
             ? []
-            : BuildBottlenecks(currentSnapshots);
+            : BuildBottlenecks(currentSnapshots, referenceDate);
         var dataQuality = request.IncludeDataQuality == false
             ? []
             : BuildDataQualityIssues(currentSnapshots);
@@ -181,12 +184,13 @@ internal static class InstitutionalReportAnalysisService
         InstitutionalMetricsResult current,
         IReadOnlyList<TransactionReportSnapshot> currentSnapshots,
         InstitutionalMetricsResult? previous,
-        ReportingAnalysisOptions options)
+        ReportingAnalysisOptions options,
+        DateTime referenceDate)
     {
         var open = currentSnapshots.Where(s => s.IsOpen).ToList();
         var closedDurations = CompletionDays(currentSnapshots).ToList();
         var responseDurations = ResponseDays(currentSnapshots).ToList();
-        var stale = open.Count(s => DaysSinceLastAction(s) >= options.StaleTransactionDays);
+        var stale = open.Count(s => DaysSinceLastAction(s, referenceDate) >= options.StaleTransactionDays);
         var oldestOpen = open.Count == 0 ? 0 : open.Max(s => s.ElapsedDays);
         var pendingAssignments = currentSnapshots.Sum(s => s.PendingReplyAssignmentCount);
         var completionMedian = InstitutionalReportStatistics.Median(closedDurations);
@@ -195,12 +199,12 @@ internal static class InstitutionalReportAnalysisService
             ? 0
             : Math.Round(currentSnapshots.Count(s => s.LastFollowUpDate.HasValue) / (double)current.TotalTransactions, 2);
         var completeness = CalculateCompletenessRate(currentSnapshots);
-        var previousOpen = previous?.OpenCount ?? 0;
-        var previousTotal = previous?.TotalTransactions ?? 0;
+        var previousOpen = previous?.OpenCount;
+        var previousTotal = previous?.TotalTransactions;
         var closureToIncomingRatio = current.TotalTransactions == 0
             ? 0
             : Math.Round(current.ClosedCount * 100.0 / current.TotalTransactions, 1);
-        var backlogGrowth = current.OpenCount - previousOpen;
+        var backlogGrowth = current.OpenCount - (previousOpen ?? 0);
 
         return
         [
@@ -419,37 +423,37 @@ internal static class InstitutionalReportAnalysisService
         return insights;
     }
 
-    private static List<CriticalCaseDto> BuildCriticalCases(IReadOnlyList<TransactionReportSnapshot> snapshots, ReportingAnalysisOptions options) =>
+    private static List<CriticalCaseDto> BuildCriticalCases(IReadOnlyList<TransactionReportSnapshot> snapshots, ReportingAnalysisOptions options, DateTime referenceDate) =>
         snapshots
             .Where(s => s.IsOpen)
-            .SelectMany(s => CriticalRules(s, options))
+            .SelectMany(s => CriticalRules(s, options, referenceDate))
             .OrderByDescending(c => c.Severity)
             .ThenByDescending(c => c.DaysOverdue ?? c.AgeDays)
             .ThenBy(c => c.TransactionId)
             .ToList();
 
-    private static IEnumerable<CriticalCaseDto> CriticalRules(TransactionReportSnapshot snapshot, ReportingAnalysisOptions options)
+    private static IEnumerable<CriticalCaseDto> CriticalRules(TransactionReportSnapshot snapshot, ReportingAnalysisOptions options, DateTime referenceDate)
     {
         if (snapshot.Priority is Priority.VeryUrgent or Priority.Urgent && snapshot.IsOverdue)
-            yield return CriticalCase(snapshot, "CRITICAL_PRIORITY_OVERDUE", "أولوية عالية متأخرة", "مراجعة المعاملة المتأخرة فورًا", AnalyticalSeverity.Critical);
+            yield return CriticalCase(snapshot, "CRITICAL_PRIORITY_OVERDUE", "أولوية عالية متأخرة", "مراجعة المعاملة المتأخرة فورًا", AnalyticalSeverity.Critical, referenceDate);
 
         if (snapshot.IsOverdue && snapshot.ElapsedDays >= options.CriticalOverdueDays)
-            yield return CriticalCase(snapshot, "OPEN_OLDER_THAN_THRESHOLD", $"معاملة مفتوحة متأخرة لأكثر من {options.CriticalOverdueDays} أيام", "تصعيد المعاملة المتأخرة", AnalyticalSeverity.High);
+            yield return CriticalCase(snapshot, "OPEN_OLDER_THAN_THRESHOLD", $"معاملة مفتوحة متأخرة لأكثر من {options.CriticalOverdueDays} أيام", "تصعيد المعاملة المتأخرة", AnalyticalSeverity.High, referenceDate);
 
-        if (snapshot.PendingReplyAssignmentCount > 0 && snapshot.EarliestPendingReplyDueDate.HasValue && snapshot.EarliestPendingReplyDueDate.Value.Date < DateTime.UtcNow.Date)
-            yield return CriticalCase(snapshot, "PENDING_ASSIGNMENT_OVERDUE", "إفادة إدارة معلقة بعد تاريخ الاستحقاق", "طلب الإفادة الناقصة", AnalyticalSeverity.High);
+        if (snapshot.PendingReplyAssignmentCount > 0 && snapshot.EarliestPendingReplyDueDate.HasValue && snapshot.EarliestPendingReplyDueDate.Value.Date < referenceDate.Date)
+            yield return CriticalCase(snapshot, "PENDING_ASSIGNMENT_OVERDUE", "إفادة إدارة معلقة بعد تاريخ الاستحقاق", "طلب الإفادة الناقصة", AnalyticalSeverity.High, referenceDate);
 
-        if (snapshot.RequiresResponse && !snapshot.ResponseCompleted && snapshot.ResponseDueDate.HasValue && snapshot.ResponseDueDate.Value.Date < DateTime.UtcNow.Date)
-            yield return CriticalCase(snapshot, "RESPONSE_REQUIRED_OVERDUE", "معاملة تتطلب ردًا بعد تاريخ المهلة", "استكمال الرد المطلوب", AnalyticalSeverity.High);
+        if (snapshot.RequiresResponse && !snapshot.ResponseCompleted && snapshot.ResponseDueDate.HasValue && snapshot.ResponseDueDate.Value.Date < referenceDate.Date)
+            yield return CriticalCase(snapshot, "RESPONSE_REQUIRED_OVERDUE", "معاملة تتطلب ردًا بعد تاريخ المهلة", "استكمال الرد المطلوب", AnalyticalSeverity.High, referenceDate);
 
-        if (DaysSinceLastAction(snapshot) >= options.StaleTransactionDays)
-            yield return CriticalCase(snapshot, "STALE_WITHOUT_UPDATE", $"لا يوجد تحديث حديث منذ {options.StaleTransactionDays} أيام أو أكثر", "تحديث حالة المعاملة أو تحديد إجراء تالٍ", AnalyticalSeverity.Medium);
+        if (DaysSinceLastAction(snapshot, referenceDate) >= options.StaleTransactionDays)
+            yield return CriticalCase(snapshot, "STALE_WITHOUT_UPDATE", $"لا يوجد تحديث حديث منذ {options.StaleTransactionDays} أيام أو أكثر", "تحديث حالة المعاملة أو تحديد إجراء تالٍ", AnalyticalSeverity.Medium, referenceDate);
 
         if (snapshot.IsPartialReply)
-            yield return CriticalCase(snapshot, "PARTIAL_REPLY_PENDING", "ردود جزئية لم تكتمل", "استكمال الردود المتبقية", AnalyticalSeverity.Medium);
+            yield return CriticalCase(snapshot, "PARTIAL_REPLY_PENDING", "ردود جزئية لم تكتمل", "استكمال الردود المتبقية", AnalyticalSeverity.Medium, referenceDate);
     }
 
-    private static CriticalCaseDto CriticalCase(TransactionReportSnapshot snapshot, string code, string label, string action, AnalyticalSeverity severity) => new()
+    private static CriticalCaseDto CriticalCase(TransactionReportSnapshot snapshot, string code, string label, string action, AnalyticalSeverity severity, DateTime referenceDate) => new()
     {
         TransactionId = snapshot.TransactionId,
         IncomingNumber = snapshot.IncomingNumber,
@@ -458,7 +462,7 @@ internal static class InstitutionalReportAnalysisService
         ExternalParty = snapshot.IncomingParty,
         Priority = PriorityLabel(snapshot.Priority),
         AgeDays = snapshot.ElapsedDays,
-        DaysOverdue = CalculateDaysOverdue(snapshot),
+        DaysOverdue = CalculateDaysOverdue(snapshot, referenceDate),
         ReasonCode = code,
         ReasonLabel = label,
         RequiredAction = action,
@@ -574,9 +578,9 @@ internal static class InstitutionalReportAnalysisService
             .ThenByDescending(p => p.Count)
             .ToList();
 
-    private static List<BottleneckRowDto> BuildBottlenecks(IReadOnlyList<TransactionReportSnapshot> snapshots)
+    private static List<BottleneckRowDto> BuildBottlenecks(IReadOnlyList<TransactionReportSnapshot> snapshots, DateTime referenceDate)
     {
-        var rows = snapshots.Where(s => s.IsOpen).Select(s => new { Snapshot = s, Reason = BottleneckReason(s) }).ToList();
+        var rows = snapshots.Where(s => s.IsOpen).Select(s => new { Snapshot = s, Reason = BottleneckReason(s, referenceDate) }).ToList();
         var total = rows.Count == 0 ? 1 : rows.Count;
         return rows
             .GroupBy(row => row.Reason)
@@ -595,7 +599,7 @@ internal static class InstitutionalReportAnalysisService
             .ToList();
     }
 
-    private static (string Code, string Label) BottleneckReason(TransactionReportSnapshot snapshot)
+    private static (string Code, string Label) BottleneckReason(TransactionReportSnapshot snapshot, DateTime referenceDate)
     {
         if (snapshot.PendingReplyAssignmentCount > 0)
             return ("pending_department_assignment", "إفادة أو تكليف إدارة معلق");
@@ -603,7 +607,7 @@ internal static class InstitutionalReportAnalysisService
             return ("external_response_delay", "معاملة منتظرة من الجهة");
         if (snapshot.IsPartialReply)
             return ("partial_response", "رد جزئي غير مكتمل");
-        if (DaysSinceLastAction(snapshot) >= 7)
+        if (DaysSinceLastAction(snapshot, referenceDate) >= 7)
             return ("stale_without_update", "بلا تحديث حديث");
         if (string.IsNullOrWhiteSpace(snapshot.CategoryName) || string.IsNullOrWhiteSpace(snapshot.ResponsibleDepartment))
             return ("missing_information", "بيانات تشغيلية ناقصة");
@@ -976,17 +980,17 @@ internal static class InstitutionalReportAnalysisService
     private static string BlankToUnknown(string? value) =>
         string.IsNullOrWhiteSpace(value) ? "غير محدد" : value.Trim();
 
-    private static int DaysSinceLastAction(TransactionReportSnapshot snapshot)
+    private static int DaysSinceLastAction(TransactionReportSnapshot snapshot, DateTime referenceDate)
     {
         var lastAction = new[] { snapshot.UpdatedAt, snapshot.LastFollowUpDate, snapshot.ClosedAt }
             .Where(d => d.HasValue)
             .Select(d => d!.Value.Date)
             .DefaultIfEmpty(snapshot.CreatedAt.Date)
             .Max();
-        return Math.Max(0, (DateTime.UtcNow.Date - lastAction).Days);
+        return Math.Max(0, (referenceDate.Date - lastAction).Days);
     }
 
-    private static int? CalculateDaysOverdue(TransactionReportSnapshot snapshot)
+    private static int? CalculateDaysOverdue(TransactionReportSnapshot snapshot, DateTime referenceDate)
     {
         var dueDates = new[] { snapshot.ResponseDueDate, snapshot.EarliestPendingReplyDueDate }
             .Where(d => d.HasValue)
@@ -994,7 +998,7 @@ internal static class InstitutionalReportAnalysisService
             .ToList();
         if (dueDates.Count == 0)
             return snapshot.IsOverdue ? snapshot.ElapsedDays : null;
-        return Math.Max(0, (DateTime.UtcNow.Date - dueDates.Min()).Days);
+        return Math.Max(0, (referenceDate.Date - dueDates.Min()).Days);
     }
 
     private static DateTime PeriodStart(DateTime value, ReportTimeGrouping grouping)

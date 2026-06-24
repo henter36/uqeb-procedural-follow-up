@@ -54,6 +54,11 @@ const SECTIONS = [
   { id: ReportSectionId.ReportMetadata, label: 'بيانات التقرير والفلاتر' },
 ] as const;
 
+const parsePositiveInteger = (value: string) => {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+};
+
 export default function ReportBuilderPage() {
   const { isAdmin } = useAuth();
   const [reportType, setReportType] = useState<typeof InstitutionalReportType[keyof typeof InstitutionalReportType]>(
@@ -390,7 +395,7 @@ export default function ReportBuilderPage() {
             value={maxFindings}
             onChange={(e) => {
               invalidatePreview();
-              setMaxFindings(Math.max(1, Number(e.target.value) || 1));
+              setMaxFindings(parsePositiveInteger(e.target.value));
             }}
           />
           <label htmlFor="max-critical-cases">الحد الأقصى للحالات الحرجة</label>
@@ -402,7 +407,7 @@ export default function ReportBuilderPage() {
             value={maxCriticalCases}
             onChange={(e) => {
               invalidatePreview();
-              setMaxCriticalCases(Math.max(1, Number(e.target.value) || 1));
+              setMaxCriticalCases(parsePositiveInteger(e.target.value));
             }}
           />
           <label htmlFor="max-recommendations">الحد الأقصى للتوصيات</label>
@@ -414,7 +419,7 @@ export default function ReportBuilderPage() {
             value={maxRecommendations}
             onChange={(e) => {
               invalidatePreview();
-              setMaxRecommendations(Math.max(1, Number(e.target.value) || 1));
+              setMaxRecommendations(parsePositiveInteger(e.target.value));
             }}
           />
 

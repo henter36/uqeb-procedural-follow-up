@@ -157,7 +157,7 @@ internal static class InstitutionalReportVisualFixtures
                     PreviousValue = 100,
                     AbsoluteChange = 25,
                     PercentageChange = 25,
-                    TrendDirection = TrendDirection.Stable,
+                    TrendDirection = TrendDirection.Improved,
                     TrendClassification = "significant",
                     ComparisonLabel = "+25 (+25%)",
                 },

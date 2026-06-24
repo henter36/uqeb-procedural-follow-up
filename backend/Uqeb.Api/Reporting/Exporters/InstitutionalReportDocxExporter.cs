@@ -124,7 +124,7 @@ public static class InstitutionalReportDocxExporter
         AppendHeading(body, "التقييم التنفيذي", 2);
         AppendParagraph(body, model.Summary.ExecutiveNarrative);
         foreach (var insight in model.Analysis.ExecutiveInsights)
-            AppendParagraph(body, $"{insight.Severity}: {insight.Text}");
+            AppendParagraph(body, $"{SeverityLabel(insight.Severity)}: {insight.Text}");
     }
 
     private static void AppendKpisSection(Body body, InstitutionalReportModel model)
@@ -299,4 +299,13 @@ public static class InstitutionalReportDocxExporter
     }
 
     private static Run CreateRun() => new();
+
+    private static string SeverityLabel(AnalyticalSeverity severity) => severity switch
+    {
+        AnalyticalSeverity.Critical => "حرج",
+        AnalyticalSeverity.High => "مرتفع",
+        AnalyticalSeverity.Medium => "متوسط",
+        AnalyticalSeverity.Low => "منخفض",
+        _ => "—"
+    };
 }
