@@ -173,6 +173,7 @@ public sealed record RenderedReportPageDto
     public ReportSectionId SectionId { get; init; }
     public string SectionName { get; init; } = string.Empty;
     public string PageTitle { get; init; } = string.Empty;
+    public string PdfProfileName { get; init; } = "StandardPortrait";
     public string HtmlContent { get; init; } = string.Empty;
     public bool IsSelectable { get; init; } = true;
 }

@@ -6,7 +6,7 @@ namespace Uqeb.Api.Reporting.Rendering;
 /// <summary>Loads the shared institutional report stylesheet used by preview and PDF export.</summary>
 public static class InstitutionalReportStyles
 {
-    public const string TemplateVersion = "2026.06.1";
+    public const string TemplateVersion = "2026.06.2";
 
     private static readonly Lazy<string> LayoutCss = new(LoadLayoutCss);
 

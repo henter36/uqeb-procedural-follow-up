@@ -1,9 +1,11 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Playwright;
+using System.Text.RegularExpressions;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
 using Uqeb.Api.Reporting.Exporters;
 using Uqeb.Api.Reporting.Operations;
+using Uqeb.Api.Tests.Reporting.Visual;
 using Uqeb.Api.Reporting.Services;
 using Xunit;
 
@@ -87,10 +89,114 @@ public class InstitutionalReportPlaywrightPdfExporterTests
         Assert.True(pdf.Length > 1_000);
     }
 
+    [Fact]
+    public async Task ExportAsync_FullReport_PhysicalPageCountMatchesManifestAndUsesWideProfiles()
+    {
+        await EnsurePlaywrightAvailableAsync();
+        if (!await IsPlaywrightAvailableAsync())
+            return;
+
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        var manifest = InstitutionalReportVisualFixtures.RenderAllSections(model);
+        var html = InstitutionalReportRenderer.RenderHtmlDocument(manifest);
+
+        await using var exporter = CreateExporter();
+        var pdf = await exporter.ExportAsync(manifest, html);
+        var pageCount = CountPdfPages(pdf);
+        var mediaBoxes = ExtractMediaBoxes(pdf);
+        var artifactPath = WritePdfArtifact("full-report.actual.pdf", pdf);
+
+        Assert.Equal(manifest.TotalPages, pageCount);
+        Assert.Equal(manifest.TotalPages, mediaBoxes.Count);
+        Assert.Contains(mediaBoxes, box => Math.Abs(box.WidthPoints - MmToPoints(210)) < 6);
+        Assert.Contains(mediaBoxes, box => box.WidthPoints > MmToPoints(300));
+        Assert.True(File.Exists(artifactPath));
+    }
+
+    [Fact]
+    public async Task ExportAsync_CoverPdf_KeepsQrAndFooterOnSinglePhysicalPage()
+    {
+        await EnsurePlaywrightAvailableAsync();
+        if (!await IsPlaywrightAvailableAsync())
+            return;
+
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        var manifest = InstitutionalReportVisualFixtures.RenderSections(model, ReportSectionId.Cover);
+        var html = InstitutionalReportRenderer.RenderHtmlDocument(manifest);
+
+        Assert.Contains("qr-box", html);
+        Assert.Equal(1, CountOccurrences(html, "<footer class=\"report-footer"));
+
+        await using var exporter = CreateExporter();
+        var pdf = await exporter.ExportAsync(manifest, html);
+
+        Assert.Equal(1, CountPdfPages(pdf));
+    }
+
+    [Theory]
+    [InlineData(ReportSectionId.Cover)]
+    [InlineData(ReportSectionId.ExecutiveSummary)]
+    [InlineData(ReportSectionId.IndicatorsDashboard)]
+    [InlineData(ReportSectionId.DepartmentPerformance)]
+    [InlineData(ReportSectionId.RisksAndAlerts)]
+    [InlineData(ReportSectionId.ExecutiveRecommendations)]
+    [InlineData(ReportSectionId.TransactionDetails)]
+    [InlineData(ReportSectionId.ReportMetadata)]
+    public async Task ExportAsync_Section_PhysicalPageCountMatchesManifest(ReportSectionId section)
+    {
+        await EnsurePlaywrightAvailableAsync();
+        if (!await IsPlaywrightAvailableAsync())
+            return;
+
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel(truncated: section == ReportSectionId.TransactionDetails);
+        var manifest = InstitutionalReportVisualFixtures.RenderSections(model, section);
+        var html = InstitutionalReportRenderer.RenderHtmlDocument(manifest);
+
+        await using var exporter = CreateExporter();
+        var pdf = await exporter.ExportAsync(manifest, html);
+        WritePdfArtifact($"{section}.actual.pdf", pdf);
+
+        Assert.Equal(manifest.TotalPages, CountPdfPages(pdf));
+    }
+
     private static InstitutionalReportPlaywrightPdfExporter CreateExporter() =>
         new(
             new ReadyChromiumProbe(),
             NullLogger<InstitutionalReportPlaywrightPdfExporter>.Instance);
+
+    private static int CountPdfPages(byte[] pdf)
+    {
+        var content = System.Text.Encoding.Latin1.GetString(pdf);
+        return Regex.Matches(content, @"/Type\s*/Page(?!s)\b").Count;
+    }
+
+    private static IReadOnlyList<PdfMediaBox> ExtractMediaBoxes(byte[] pdf)
+    {
+        var content = System.Text.Encoding.Latin1.GetString(pdf);
+        return Regex.Matches(
+                content,
+                @"/MediaBox\s*\[\s*0\s+0\s+(?<width>[0-9.]+)\s+(?<height>[0-9.]+)\s*\]")
+            .Select(match => new PdfMediaBox(
+                double.Parse(match.Groups["width"].Value, System.Globalization.CultureInfo.InvariantCulture),
+                double.Parse(match.Groups["height"].Value, System.Globalization.CultureInfo.InvariantCulture)))
+            .ToList();
+    }
+
+    private static double MmToPoints(double mm) => mm * 72d / 25.4d;
+
+    private static int CountOccurrences(string source, string value) =>
+        source.Split(value, StringSplitOptions.None).Length - 1;
+
+    private static string WritePdfArtifact(string fileName, byte[] pdf)
+    {
+        var artifactDir = Path.Combine(Path.GetTempPath(), "uqeb-reporting-pdf-layout");
+        Directory.CreateDirectory(artifactDir);
+        var path = Path.Combine(artifactDir, fileName);
+        File.WriteAllBytes(path, pdf);
+        return path;
+    }
+
+    private sealed record PdfMediaBox(double WidthPoints, double HeightPoints);
 
     private sealed class ReadyChromiumProbe : IReportingChromiumProbe
     {

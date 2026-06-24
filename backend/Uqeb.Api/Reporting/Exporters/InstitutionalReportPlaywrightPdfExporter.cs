@@ -73,9 +73,10 @@ public sealed class InstitutionalReportPlaywrightPdfExporter : IInstitutionalRep
                 Timeout = 30_000,
             });
 
+            await page.EvaluateAsync("() => document.fonts ? document.fonts.ready : Promise.resolve()");
+
             return await page.PdfAsync(new PagePdfOptions
             {
-                Format = "A4",
                 PrintBackground = true,
                 PreferCSSPageSize = true,
                 Margin = new Margin

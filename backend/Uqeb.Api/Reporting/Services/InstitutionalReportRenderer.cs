@@ -13,6 +13,7 @@ public sealed class InstitutionalReportRenderer
 {
     private const string DateFormat = "yyyy-MM-dd";
     private const string DateTimeFormat = "yyyy-MM-dd HH:mm";
+    private const int TransactionRowsPerPdfPage = 6;
 
     private static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromMilliseconds(250);
 
@@ -60,7 +61,10 @@ public sealed class InstitutionalReportRenderer
                     RenderCover(model),
                     pageNumber: coverPageIndex + 1,
                     totalPages: pages.Count,
-                    partial: false),
+                    partial: false,
+                    profile: InstitutionalReportPdfProfiles.GetByName(coverPage.PdfProfileName),
+                    reportTitle: model.Metadata.Title,
+                    reportId: model.Metadata.ReportNumber),
             };
         }
 
@@ -113,7 +117,7 @@ public sealed class InstitutionalReportRenderer
         if (model.DetailRowsTruncated)
             pages.Add(MakePage(ReportSectionId.TransactionDetails, "تنبيه صفوف التفاصيل", RenderDetailTruncationNotice(model)));
 
-        foreach (var chunk in model.Transactions.Chunk(18))
+        foreach (var chunk in model.Transactions.Chunk(TransactionRowsPerPdfPage))
             pages.Add(MakePage(ReportSectionId.TransactionDetails, "المعاملات التفصيلية", RenderTransactions(model, chunk.ToList())));
 
         if (model.Transactions.Count == 0)
@@ -146,7 +150,13 @@ public sealed class InstitutionalReportRenderer
             {
                 OriginalPageNumber = pageNumber,
                 RenderedPageNumber = pageNumber,
-                HtmlContent = InjectFooter(page.HtmlContent, pageNumber, total, false)
+                HtmlContent = InjectFooter(
+                    page.HtmlContent,
+                    pageNumber,
+                    total,
+                    false,
+                    model.Metadata.Title,
+                    model.Metadata.ReportNumber)
             };
         }).ToList();
 
@@ -265,7 +275,9 @@ public sealed class InstitutionalReportRenderer
             pages,
             request.PageNumberingMode ?? PageNumberingMode.Restart,
             source.TotalPages,
-            isPartial);
+            isPartial,
+            source.ReportId,
+            source.ReportId);
 
         return new RenderedReportManifestDto
         {
@@ -298,7 +310,9 @@ public sealed class InstitutionalReportRenderer
         List<RenderedReportPageDto> pages,
         PageNumberingMode numberingMode,
         int originalTotalPages,
-        bool isPartial)
+        bool isPartial,
+        string reportTitle,
+        string reportId)
     {
         for (var i = 0; i < pages.Count; i++)
         {
@@ -322,7 +336,7 @@ public sealed class InstitutionalReportRenderer
             pages[i] = page with
             {
                 RenderedPageNumber = renderedNumber,
-                HtmlContent = InjectFooter(page.HtmlContent, renderedNumber, footerTotal, isPartial)
+                HtmlContent = InjectFooter(page.HtmlContent, renderedNumber, footerTotal, isPartial, reportTitle, reportId)
             };
         }
     }
@@ -339,7 +353,22 @@ public sealed class InstitutionalReportRenderer
         return sb.ToString();
     }
 
-    private static RenderedReportPageDto MakePage(ReportSectionId section, string title, string innerHtml) =>
+    private static RenderedReportPageDto MakePage(ReportSectionId section, string title, string innerHtml)
+    {
+        var profile = InstitutionalReportPdfProfiles.ForSection(section);
+        return new RenderedReportPageDto
+        {
+            OriginalPageNumber = 0,
+            RenderedPageNumber = 0,
+            SectionId = section,
+            SectionName = title,
+            PageTitle = title,
+            PdfProfileName = profile.Name,
+            HtmlContent = WrapPage(innerHtml, 1, 1, false, profile, title, string.Empty)
+        };
+    }
+
+    private static RenderedReportPageDto MakeSupplementaryPage(ReportSectionId section, string title, string innerHtml) =>
         new()
         {
             OriginalPageNumber = 0,
@@ -347,15 +376,30 @@ public sealed class InstitutionalReportRenderer
             SectionId = section,
             SectionName = title,
             PageTitle = title,
-            HtmlContent = WrapPage(innerHtml, 1, 1, false)
+            PdfProfileName = InstitutionalReportPdfProfiles.StandardPortrait.Name,
+            HtmlContent = WrapPage(
+                innerHtml,
+                1,
+                1,
+                partial: true,
+                profile: InstitutionalReportPdfProfiles.StandardPortrait,
+                reportTitle: title,
+                reportId: string.Empty)
         };
 
-    private static string WrapPage(string content, int pageNumber, int totalPages, bool partial) =>
+    private static string WrapPage(
+        string content,
+        int pageNumber,
+        int totalPages,
+        bool partial,
+        PdfPageProfile profile,
+        string reportTitle,
+        string reportId) =>
         $"""
-        <section class="report-page" data-page="{pageNumber}">
+        <section class="report-page report-page--{profile.CssClass}" data-page="{pageNumber}" data-profile="{profile.Name}" data-section="{Esc(reportTitle)}">
           {Header(partial)}
-          <main>{content}</main>
-          {BuildFooter(pageNumber, totalPages, partial)}
+          <main class="report-content">{content}</main>
+          {BuildFooter(pageNumber, totalPages, partial, reportTitle, reportId)}
         </section>
         """;
 
@@ -367,10 +411,16 @@ public sealed class InstitutionalReportRenderer
         </header>
         """;
 
-    private static string InjectFooter(string html, int pageNumber, int totalPages, bool partial)
+    private static string InjectFooter(
+        string html,
+        int pageNumber,
+        int totalPages,
+        bool partial,
+        string reportTitle,
+        string reportId)
     {
-        var footer = BuildFooter(pageNumber, totalPages, partial);
-        var footerStart = html.IndexOf("<footer class=\"report-footer\">", StringComparison.Ordinal);
+        var footer = BuildFooter(pageNumber, totalPages, partial, reportTitle, reportId);
+        var footerStart = html.IndexOf("<footer class=\"report-footer", StringComparison.Ordinal);
         if (footerStart >= 0)
         {
             var footerEnd = html.IndexOf("</footer>", footerStart, StringComparison.Ordinal);
@@ -381,8 +431,23 @@ public sealed class InstitutionalReportRenderer
         return html.Replace("</section>", $"{footer}</section>", StringComparison.Ordinal);
     }
 
-    private static string BuildFooter(int pageNumber, int totalPages, bool partial) =>
-        $"<footer class=\"report-footer\"><span>{(partial ? "نسخة جزئية — " : string.Empty)}الصفحة {pageNumber} من {totalPages}</span><span>تقرير المتابعة الإجرائية للمعاملات</span></footer>";
+    private static string BuildFooter(int pageNumber, int totalPages, bool partial, string reportTitle, string reportId)
+    {
+        var title = string.IsNullOrWhiteSpace(reportTitle)
+            ? "تقرير المتابعة الإجرائية للمعاملات"
+            : reportTitle;
+        var id = string.IsNullOrWhiteSpace(reportId)
+            ? "—"
+            : reportId;
+
+        return $"""
+        <footer class="report-footer">
+          <span class="footer-title">{(partial ? "نسخة جزئية — " : string.Empty)}{Esc(title)}</span>
+          <span class="footer-page">الصفحة {pageNumber} من {totalPages}</span>
+          <span class="footer-id">{Esc(id)}</span>
+        </footer>
+        """;
+    }
 
     private static string RenderCover(InstitutionalReportModel model)
     {
@@ -472,11 +537,11 @@ public sealed class InstitutionalReportRenderer
             };
             return $"""
             <tr>
-              <td>{Esc(d.DepartmentName)}</td>
-              <td>{d.TotalTransactions}</td><td>{d.ClosedCount}</td><td>{d.OpenCount}</td>
-              <td>{d.WaitingForStatementCount}</td><td>{d.OverdueCount}</td><td>{d.JointDepartmentCount}</td>
-              <td>{d.AverageCompletionDays:N1}</td><td>{d.OnTimeCompletionRate:N1}%</td>
-              <td class="{ratingClass}">{Esc(d.RatingLabel)}</td>
+              <td class="cell--department">{Esc(d.DepartmentName)}</td>
+              <td class="cell--number">{d.TotalTransactions}</td><td class="cell--number">{d.ClosedCount}</td><td class="cell--number">{d.OpenCount}</td>
+              <td class="cell--number">{d.WaitingForStatementCount}</td><td class="cell--number">{d.OverdueCount}</td><td class="cell--number">{d.JointDepartmentCount}</td>
+              <td class="cell--number">{d.AverageCompletionDays:N1}</td><td class="cell--number">{d.OnTimeCompletionRate:N1}%</td>
+              <td class="cell--rating {ratingClass}">{Esc(d.RatingLabel)}</td>
             </tr>
             """;
         }));
@@ -486,17 +551,17 @@ public sealed class InstitutionalReportRenderer
                 acc.Waiting + row.WaitingForStatementCount, acc.Overdue + row.OverdueCount, acc.Joint + row.JointDepartmentCount));
         return $"""
         <h2 class="section-title">أداء الإدارات</h2>
-        <table class="report-table">
+        <table class="report-table report-table--departments">
           <thead><tr>
             <th>الإدارة</th><th>إجمالي</th><th>مغلقة</th><th>مفتوحة</th><th>بانتظار إفادة</th>
             <th>متأخرة</th><th>إدارات مشتركة</th><th>متوسط الإنجاز</th><th>ضمن المهلة</th><th>التقييم</th>
           </tr></thead>
-          <tbody>{rows}</tbody>
-          <tfoot><tr>
-            <td>الإجمالي</td><td>{totals.Total}</td><td>{totals.Closed}</td><td>{totals.Open}</td>
-            <td>{totals.Waiting}</td><td>{totals.Overdue}</td><td>{totals.Joint}</td>
+          <tbody>{rows}
+          <tr class="report-table__total-row">
+            <td>الإجمالي</td><td class="cell--number">{totals.Total}</td><td class="cell--number">{totals.Closed}</td><td class="cell--number">{totals.Open}</td>
+            <td class="cell--number">{totals.Waiting}</td><td class="cell--number">{totals.Overdue}</td><td class="cell--number">{totals.Joint}</td>
             <td>—</td><td>—</td><td>—</td>
-          </tr></tfoot>
+          </tr></tbody>
         </table>
         """;
     }
@@ -574,7 +639,7 @@ public sealed class InstitutionalReportRenderer
     private static string RenderTransactions(InstitutionalReportModel model, List<TransactionDetailRowDto> rows)
     {
         var body = string.Join(string.Empty, rows.Select(r =>
-            $"<tr><td>{r.Sequence}</td><td>{Esc(r.TrackingNumber)}</td><td>{Esc(r.IncomingNumber)}</td><td>{FormatDate(r.IncomingDate)}</td><td>{Esc(r.Subject)}</td><td>{Esc(r.IncomingParty)}</td><td>{Esc(r.ResponsibleDepartment)}</td><td>{Esc(r.JointDepartments)}</td><td>{Esc(r.Priority)}</td><td>{Esc(r.Status)}</td><td>{Esc(r.FollowUpStage)}</td><td>{r.ElapsedDays}</td><td>{Esc(r.DueDate ?? "—")}</td><td>{Esc(r.LastActionDate ?? "—")}</td><td>{Esc(r.ResponseState)}</td></tr>"));
+            $"<tr><td class=\"cell--number\">{r.Sequence}</td><td class=\"cell--id\">{Esc(r.TrackingNumber)}</td><td class=\"cell--id\">{Esc(r.IncomingNumber)}</td><td class=\"cell--date\">{FormatDate(r.IncomingDate)}</td><td class=\"cell--subject\">{Esc(r.Subject)}</td><td>{Esc(r.IncomingParty)}</td><td>{Esc(r.ResponsibleDepartment)}</td><td>{Esc(r.JointDepartments)}</td><td>{Esc(r.Priority)}</td><td>{Esc(r.Status)}</td><td>{Esc(r.FollowUpStage)}</td><td class=\"cell--number\">{r.ElapsedDays}</td><td class=\"cell--date\">{Esc(r.DueDate ?? "—")}</td><td class=\"cell--date\">{Esc(r.LastActionDate ?? "—")}</td><td>{Esc(r.ResponseState)}</td></tr>"));
         var totalResults = model.TotalMatchedRows > 0 ? model.TotalMatchedRows : model.Transactions.Count;
         var pageNote = rows.Count < totalResults
             ? $" — عرض {rows.Count:N0} صف في هذه الصفحة من {model.ExportedDetailRows:N0} صفًا مصدَّرًا"
@@ -585,8 +650,8 @@ public sealed class InstitutionalReportRenderer
         return $"""
         <h2 class="section-title">المعاملات التفصيلية</h2>
         {truncationNote}
-        <p style="font-size:12px;color:#2F6B58;">إجمالي النتائج: {totalResults:N0} معاملة{pageNote} — الفترة {FormatDate(model.Metadata.PeriodFrom)} إلى {FormatDate(model.Metadata.PeriodTo)}</p>
-        <table class="report-table"><thead><tr>
+        <p class="section-subtitle">إجمالي النتائج: {totalResults:N0} معاملة{pageNote} — الفترة من {FormatDate(model.Metadata.PeriodFrom)} إلى {FormatDate(model.Metadata.PeriodTo)}</p>
+        <table class="report-table report-table--transactions"><thead><tr>
           <th>م</th><th>رقم المعاملة</th><th>رقم الوارد</th><th>تاريخ الوارد</th><th>الموضوع</th><th>الجهة</th>
           <th>الإدارة المختصة</th><th>الإدارات المشتركة</th><th>الأولوية</th><th>الحالة</th><th>مرحلة المتابعة</th>
           <th>الأيام</th><th>المهلة</th><th>آخر إجراء</th><th>حالة الرد</th>
@@ -604,7 +669,7 @@ public sealed class InstitutionalReportRenderer
         <dl class="info-card">
           <dt>رقم التقرير</dt><dd>{Esc(model.Metadata.ReportNumber)}</dd>
           <dt>نوع التقرير</dt><dd>{Esc(model.Metadata.ReportTypeName)}</dd>
-          <dt>الفترة</dt><dd>{FormatDate(model.Metadata.PeriodFrom)} — {FormatDate(model.Metadata.PeriodTo)}</dd>
+          <dt>الفترة</dt><dd>من {FormatDate(model.Metadata.PeriodFrom)} إلى {FormatDate(model.Metadata.PeriodTo)}</dd>
           <dt>تاريخ الإنشاء</dt><dd>{FormatDateTime(model.Metadata.GeneratedAt)}</dd>
           <dt>إجمالي النتائج المطابقة</dt><dd>{model.TotalMatchedRows:N0}</dd>
           <dt>صفوف التفاصيل المحمّلة</dt><dd>{model.Transactions.Count:N0}</dd>
@@ -626,7 +691,7 @@ public sealed class InstitutionalReportRenderer
         {
             var from = filters.DateFrom.HasValue ? FormatDate(filters.DateFrom.Value) : "—";
             var to = filters.DateTo.HasValue ? FormatDate(filters.DateTo.Value) : "—";
-            parts.Add($"التاريخ: {from} — {to}");
+            parts.Add($"التاريخ: من {from} إلى {to}");
         }
         if (filters.DepartmentIds.Count > 0)
             parts.Add($"إدارات: {filters.DepartmentIds.Count}");
@@ -647,6 +712,7 @@ public sealed class InstitutionalReportRenderer
             SectionId = ReportSectionId.PartialCover,
             SectionName = "غلاف النسخة الجزئية",
             PageTitle = "غلاف النسخة الجزئية",
+            PdfProfileName = InstitutionalReportPdfProfiles.StandardPortrait.Name,
             HtmlContent = WrapPage($"""
                 <div class="partial-note">نسخة جزئية من التقرير</div>
                 <h2 class="section-title">غلاف النسخة الجزئية</h2>
@@ -655,7 +721,13 @@ public sealed class InstitutionalReportRenderer
                   <dt>الصفحات المضمنة</dt><dd>{string.Join(", ", selected.Select(p => p.OriginalPageNumber))}</dd>
                   <dt>تاريخ التصدير</dt><dd>{FormatDate(DateTime.UtcNow)}</dd>
                 </dl>
-                """, 0, 0, partial: true)
+                """,
+                0,
+                0,
+                partial: true,
+                profile: InstitutionalReportPdfProfiles.StandardPortrait,
+                reportTitle: "غلاف النسخة الجزئية",
+                reportId: source.ReportId)
         };
 
     private static RenderedReportPageDto CreatePartialManifestPage(RenderedReportManifestDto source, ReportExportRequestDto request, List<RenderedReportPageDto> selected) =>
@@ -666,13 +738,20 @@ public sealed class InstitutionalReportRenderer
             SectionId = ReportSectionId.PartialManifest,
             SectionName = "تعريف النسخة الجزئية",
             PageTitle = "تعريف النسخة الجزئية",
+            PdfProfileName = InstitutionalReportPdfProfiles.StandardPortrait.Name,
             HtmlContent = WrapPage($"""
                 <h2 class="section-title">تعريف النسخة الجزئية</h2>
                 <p>رقم التقرير الأصلي: {Esc(source.ReportId)}</p>
                 <p>الصفحات الأصلية المختارة: {string.Join(", ", selected.Select(p => p.OriginalPageNumber))}</p>
                 <p>الأقسام المضمنة: {string.Join("، ", selected.Select(p => p.SectionName).Distinct())}</p>
                 {(string.IsNullOrWhiteSpace(request.Reason) ? string.Empty : $"<p>سبب الإنشاء: {Esc(request.Reason)}</p>")}
-                """, 0, 0, partial: true)
+                """,
+                0,
+                0,
+                partial: true,
+                profile: InstitutionalReportPdfProfiles.StandardPortrait,
+                reportTitle: "تعريف النسخة الجزئية",
+                reportId: source.ReportId)
         };
 
     private static string FormatDate(DateTime value) =>

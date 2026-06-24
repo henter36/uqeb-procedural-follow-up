@@ -41,7 +41,7 @@ public class InstitutionalReportVisualRegressionTests
     [InlineData(ReportSectionId.DepartmentPerformance, "departments")]
     [InlineData(ReportSectionId.RisksAndAlerts, "risks")]
     [InlineData(ReportSectionId.ExecutiveRecommendations, "recommendations")]
-    [InlineData(ReportSectionId.TransactionDetails, "details")]
+    [InlineData(ReportSectionId.TransactionDetails, "transactions")]
     [InlineData(ReportSectionId.ReportMetadata, "metadata")]
     public async Task Section_MatchesVisualBaseline(ReportSectionId section, string snapshotName)
     {
@@ -104,6 +104,61 @@ public class InstitutionalReportVisualRegressionTests
         });
         var content = await emptyState.InnerTextAsync();
         Assert.Contains("لا توجد توصيات", content);
+    }
+
+    [Fact]
+    public async Task FullReport_WritesVisualArtifactAndKeepsWideTablesInsidePageBounds()
+    {
+        await EnsurePlaywrightAvailableAsync();
+        if (!await IsPlaywrightAvailableAsync())
+            return;
+
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        var manifest = InstitutionalReportVisualFixtures.RenderAllSections(model);
+        var html = InstitutionalReportRenderer.RenderHtmlDocument(manifest);
+
+        using var playwright = await Playwright.CreateAsync();
+        await using var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions { Headless = true });
+        var page = await browser.NewPageAsync(new BrowserNewPageOptions
+        {
+            Locale = "ar-SA",
+            TimezoneId = "Asia/Riyadh",
+            ViewportSize = new ViewportSize { Width = 1500, Height = 1200 },
+        });
+
+        await page.SetContentAsync(html, new PageSetContentOptions { WaitUntil = WaitUntilState.NetworkIdle });
+        await page.EvaluateAsync("() => document.fonts ? document.fonts.ready : Promise.resolve()");
+
+        var everyPageHasOneFooter = await page.Locator(".report-page").EvaluateAllAsync<bool>(
+            "pages => pages.every(page => page.querySelectorAll('.report-footer').length === 1)");
+        Assert.True(everyPageHasOneFooter);
+
+        var wideTablesStayInsidePage = await page.Locator(".report-table--departments, .report-table--transactions")
+            .EvaluateAllAsync<bool>(
+                """
+                tables => tables.every(table => {
+                    const page = table.closest('.report-page');
+                    const tableRect = table.getBoundingClientRect();
+                    const pageRect = page.getBoundingClientRect();
+                    return tableRect.left >= pageRect.left - 1 && tableRect.right <= pageRect.right + 1;
+                })
+                """);
+        Assert.True(wideTablesStayInsidePage);
+
+        var coverQrOnFirstPage = await page.Locator(".report-page").First
+            .EvaluateAsync<bool>("page => Boolean(page.querySelector('.qr-box'))");
+        Assert.True(coverQrOnFirstPage);
+
+        var screenshot = await page.ScreenshotAsync(new PageScreenshotOptions
+        {
+            FullPage = true,
+            Animations = ScreenshotAnimations.Disabled,
+        });
+        Assert.True(screenshot.Length > 4_000, "Full report screenshot is unexpectedly small.");
+
+        var artifactDir = Path.Combine(Path.GetTempPath(), "uqeb-reporting-pdf-layout");
+        Directory.CreateDirectory(artifactDir);
+        await File.WriteAllBytesAsync(Path.Combine(artifactDir, "full-report.actual.png"), screenshot);
     }
 
     private static async Task AssertRenderedSectionAsync(
@@ -178,5 +233,21 @@ public class InstitutionalReportStylesTests
         Assert.Contains("--report-primary", css);
         Assert.Contains("@font-face", css);
         Assert.Contains("Uqeb Report Arabic", css);
+        Assert.Contains("data:font/woff2;base64,", css);
+    }
+
+    [Fact]
+    public void BuildDocumentStylesheet_DefinesPdfProfilesAndReadableTableWrapping()
+    {
+        var css = InstitutionalReportStyles.BuildDocumentStylesheet();
+
+        Assert.Contains("@page report-standard-portrait", css);
+        Assert.Contains("@page report-standard-landscape", css);
+        Assert.Contains("@page report-wide-landscape", css);
+        Assert.Contains("@page report-extra-wide-landscape", css);
+        Assert.Contains(".report-table--departments", css);
+        Assert.Contains(".report-table--transactions", css);
+        Assert.DoesNotContain("word-break: break-all", css);
+        Assert.DoesNotContain("overflow-wrap: anywhere", css);
     }
 }

@@ -34,7 +34,7 @@ public class InstitutionalReportRendererCultureTests
     {
         var html = RenderMetadataHtmlUnderArabicCulture();
 
-        Assert.Contains("2026-06-01 — 2026-06-24", html);
+        Assert.Contains("من 2026-06-01 إلى 2026-06-24", html);
         Assert.Contains("2026-06-24 09:30", html);
         Assert.DoesNotContain("1447", html);
     }

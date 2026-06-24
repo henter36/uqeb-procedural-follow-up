@@ -1,6 +1,8 @@
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
+using Uqeb.Api.Reporting.Rendering;
 using Uqeb.Api.Reporting.Services;
+using Uqeb.Api.Tests.Reporting.Visual;
 using Xunit;
 
 namespace Uqeb.Api.Tests.Reporting;
@@ -99,6 +101,59 @@ public class InstitutionalReportRendererTests
 
         Assert.Equal(1, CountOccurrences(html, "<footer class=\"report-footer\">"));
         Assert.Contains("الصفحة 1 من 1", html);
+    }
+
+    [Fact]
+    public void RenderManifest_AssignsExpectedPdfProfilesBySection()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        var manifest = _renderer.RenderManifest(model,
+        [
+            ReportSectionId.Cover,
+            ReportSectionId.ExecutiveSummary,
+            ReportSectionId.IndicatorsDashboard,
+            ReportSectionId.DepartmentPerformance,
+            ReportSectionId.TransactionDetails,
+            ReportSectionId.ReportMetadata,
+        ]);
+
+        Assert.Equal("StandardPortrait", manifest.Pages.Single(p => p.SectionId == ReportSectionId.Cover).PdfProfileName);
+        Assert.Equal("StandardPortrait", manifest.Pages.Single(p => p.SectionId == ReportSectionId.ExecutiveSummary).PdfProfileName);
+        Assert.Equal("StandardLandscape", manifest.Pages.Single(p => p.SectionId == ReportSectionId.IndicatorsDashboard).PdfProfileName);
+        Assert.Equal("WideLandscape", manifest.Pages.Single(p => p.SectionId == ReportSectionId.DepartmentPerformance).PdfProfileName);
+        Assert.All(
+            manifest.Pages.Where(p => p.SectionId == ReportSectionId.TransactionDetails),
+            page => Assert.Equal("ExtraWideLandscape", page.PdfProfileName));
+        Assert.Equal("StandardPortrait", manifest.Pages.Single(p => p.SectionId == ReportSectionId.ReportMetadata).PdfProfileName);
+    }
+
+    [Fact]
+    public void RenderManifest_UsesTableSpecificClassesAndReadableDateOrder()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        var manifest = _renderer.RenderManifest(model,
+        [
+            ReportSectionId.DepartmentPerformance,
+            ReportSectionId.TransactionDetails,
+            ReportSectionId.ReportMetadata,
+        ]);
+        var html = InstitutionalReportRenderer.RenderHtmlDocument(manifest);
+
+        Assert.Contains("report-table--departments", html);
+        Assert.Contains("report-table--transactions", html);
+        Assert.Contains("cell--id", html);
+        Assert.Contains("cell--date", html);
+        Assert.Contains("الفترة من 2026-01-01 إلى 2026-06-15", html);
+        Assert.Contains("<dt>الفترة</dt><dd>من 2026-01-01 إلى 2026-06-15</dd>", html);
+    }
+
+    [Fact]
+    public void PdfProfiles_DefineWideReadablePageSizes()
+    {
+        Assert.True(InstitutionalReportPdfProfiles.StandardLandscape.WidthMm > InstitutionalReportPdfProfiles.StandardPortrait.WidthMm);
+        Assert.True(InstitutionalReportPdfProfiles.WideLandscape.WidthMm > InstitutionalReportPdfProfiles.StandardLandscape.WidthMm);
+        Assert.True(InstitutionalReportPdfProfiles.ExtraWideLandscape.WidthMm >= InstitutionalReportPdfProfiles.WideLandscape.WidthMm);
+        Assert.True(InstitutionalReportPdfProfiles.ExtraWideLandscape.TableFontSizePx >= 9);
     }
 
     private static RenderedReportManifestDto CreateSourceManifest(int pageCount)
