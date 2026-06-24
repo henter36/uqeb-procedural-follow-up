@@ -18,6 +18,9 @@ public static class ReportingAuditEvents
 
 public static class ReportingAuditWriter
 {
+    private const string InstitutionalReportResourceType = "InstitutionalReport";
+
+    public static string ResourceType => InstitutionalReportResourceType;
     public static Task LogExportStartedAsync(
         IAuditService audit,
         int userId,
@@ -27,7 +30,7 @@ public static class ReportingAuditWriter
         audit.LogAsync(
             userId,
             AuditAction.ExportReport,
-            "InstitutionalReport",
+            InstitutionalReportResourceType,
             null,
             null,
             null,
@@ -43,7 +46,7 @@ public static class ReportingAuditWriter
         audit.LogAsync(
             userId,
             AuditAction.ExportReport,
-            "InstitutionalReport",
+            InstitutionalReportResourceType,
             null,
             null,
             null,
@@ -63,7 +66,7 @@ public static class ReportingAuditWriter
         audit.LogAsync(
             userId,
             AuditAction.ExportReport,
-            "InstitutionalReport",
+            InstitutionalReportResourceType,
             null,
             null,
             null,
@@ -77,7 +80,7 @@ public static class ReportingAuditWriter
         audit.LogAsync(
             userId,
             AuditAction.ExportReport,
-            "InstitutionalReport",
+            InstitutionalReportResourceType,
             null,
             null,
             null,
@@ -92,7 +95,7 @@ public static class ReportingAuditWriter
         audit.LogAsync(
             userId,
             AuditAction.ExportReport,
-            "InstitutionalReport",
+            InstitutionalReportResourceType,
             null,
             null,
             null,

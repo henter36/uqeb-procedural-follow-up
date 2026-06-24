@@ -116,6 +116,7 @@ public sealed class ReportingChromiumProbe : IReportingChromiumProbe
             _metrics.RecordChromiumLaunchFailure();
             _logger.LogWarning(
                 ReportingEventIds.ChromiumUnavailable,
+                ex,
                 "Chromium executable is not available for reporting.");
             return new ReportingChromiumProbeResult
             {

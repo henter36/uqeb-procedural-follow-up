@@ -36,7 +36,6 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
 
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly ICurrentUserService _currentUser;
-    private readonly IAuditService _audit;
     private readonly IInstitutionalReportNumberAllocator _reportNumberAllocator;
     private readonly ReportingOptions _reportingOptions;
     private readonly DepartmentRatingCriteria _ratingCriteria = new();
@@ -44,28 +43,23 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
     private readonly IInstitutionalReportPdfExporter _pdfExporter;
     private readonly IReportingExportGuard _exportGuard;
     private readonly IReportingMetrics _metrics;
-    private readonly ILogger<InstitutionalReportService> _logger;
 
     public InstitutionalReportService(
         IDbContextFactory<AppDbContext> dbFactory,
         ICurrentUserService currentUser,
-        IAuditService audit,
         IInstitutionalReportNumberAllocator reportNumberAllocator,
         IInstitutionalReportPdfExporter pdfExporter,
         IOptions<ReportingOptions> reportingOptions,
         IReportingExportGuard exportGuard,
-        IReportingMetrics metrics,
-        ILogger<InstitutionalReportService> logger)
+        IReportingMetrics metrics)
     {
         _dbFactory = dbFactory;
         _currentUser = currentUser;
-        _audit = audit;
         _reportNumberAllocator = reportNumberAllocator;
         _pdfExporter = pdfExporter;
         _reportingOptions = reportingOptions.Value;
         _exportGuard = exportGuard;
         _metrics = metrics;
-        _logger = logger;
     }
 
     public Task<InstitutionalReportModel> BuildReportModelAsync(ReportBuildRequestDto request, CancellationToken ct = default) =>
@@ -153,7 +147,6 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
                     effectiveRequest,
                     sections,
                     overflowAction,
-                    totalMatching,
                     pdfPartLimit,
                     exportToken);
             }
@@ -289,7 +282,6 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
         ReportExportRequestDto request,
         IReadOnlyList<ReportSectionId> sections,
         DetailOverflowAction overflowAction,
-        int totalMatching,
         int detailLimit,
         CancellationToken ct)
     {
@@ -330,7 +322,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
             ContentType = "application/zip",
             FileName = $"{SanitizeFileStem(model.Metadata.ReportNumber)}-SPLIT.zip",
             FileFingerprint = fingerprint,
-            Manifest = summaryManifest.CloneWithoutHtml()
+            Manifest = EnrichManifest(summaryManifest.CloneWithoutHtml(), model, isSummaryOnly: false, overflowAction)
         };
     }
 

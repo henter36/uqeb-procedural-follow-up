@@ -93,6 +93,7 @@ public class InstitutionalReportOverflowTests
         Assert.EndsWith("-SPLIT.zip", result.FileName);
         Assert.Contains("institutional_report.export_completed", audit.LastNewValue);
         Assert.Contains("rows=5", audit.LastNewValue);
+        Assert.Equal(DetailOverflowAction.SplitPdf, result.Manifest.OverflowAction);
     }
 
     [Fact]

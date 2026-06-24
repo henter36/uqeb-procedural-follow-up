@@ -23,6 +23,11 @@ public interface IReportingMetrics
 
 public sealed class ReportingMetrics : IReportingMetrics
 {
+    private const string ReportTypeTagName = "report_type";
+    private const string FormatTagName = "format";
+    private const string ResultTagName = "result";
+    private const string OverflowActionTagName = "overflow_action";
+
     private static readonly Meter Meter = new("Uqeb.Reporting", "1.0.0");
 
     private readonly Counter<long> _requestsTotal = Meter.CreateCounter<long>("reporting_requests_total");
@@ -77,7 +82,7 @@ public sealed class ReportingMetrics : IReportingMetrics
     }
 
     public void RecordBuildDuration(double milliseconds, string reportType) =>
-        _buildDurationMs.Record(milliseconds, new KeyValuePair<string, object?>("report_type", reportType));
+        _buildDurationMs.Record(milliseconds, new KeyValuePair<string, object?>(ReportTypeTagName, reportType));
 
     public void RecordRenderDuration(double milliseconds, string format, string reportType) =>
         _renderDurationMs.Record(milliseconds, BuildTags(format, reportType, "success", null));
@@ -86,16 +91,16 @@ public sealed class ReportingMetrics : IReportingMetrics
         _exportDurationMs.Record(milliseconds, BuildTags(format, reportType, result, null));
 
     public void RecordExportFileSize(long bytes, string format) =>
-        _exportFileSizeBytes.Record(bytes, new KeyValuePair<string, object?>("format", format));
+        _exportFileSizeBytes.Record(bytes, new KeyValuePair<string, object?>(FormatTagName, format));
 
     public void RecordExportRows(int rows, string format) =>
-        _exportRows.Record(rows, new KeyValuePair<string, object?>("format", format));
+        _exportRows.Record(rows, new KeyValuePair<string, object?>(FormatTagName, format));
 
     public void RecordPdfPages(int pages, string reportType) =>
-        _pdfPages.Record(pages, new KeyValuePair<string, object?>("report_type", reportType));
+        _pdfPages.Record(pages, new KeyValuePair<string, object?>(ReportTypeTagName, reportType));
 
     public void RecordPdfParts(int parts, string reportType) =>
-        _pdfParts.Record(parts, new KeyValuePair<string, object?>("report_type", reportType));
+        _pdfParts.Record(parts, new KeyValuePair<string, object?>(ReportTypeTagName, reportType));
 
     public void RecordTempCleanupFailure() => _tempCleanupFailuresTotal.Add(1);
 
@@ -109,13 +114,13 @@ public sealed class ReportingMetrics : IReportingMetrics
     {
         var tags = new List<KeyValuePair<string, object?>>
         {
-            new("format", format),
-            new("report_type", reportType),
-            new("result", result),
+            new(FormatTagName, format),
+            new(ReportTypeTagName, reportType),
+            new(ResultTagName, result),
         };
 
         if (!string.IsNullOrWhiteSpace(overflowAction))
-            tags.Add(new("overflow_action", overflowAction));
+            tags.Add(new(OverflowActionTagName, overflowAction));
 
         return tags.ToArray();
     }

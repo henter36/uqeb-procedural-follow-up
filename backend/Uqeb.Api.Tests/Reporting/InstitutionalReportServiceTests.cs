@@ -110,28 +110,43 @@ internal static class InstitutionalReportServiceTestHelpers
         return new InstitutionalReportService(
             dbFactory,
             new TestCurrentUserService(),
-            audit ?? new NoOpAuditService(),
             new FixedReportNumberAllocator(),
             new StubPdfExporter(),
             Options.Create(reportingOptions ?? new ReportingOptions { MaxPdfDetailRows = 10_000 }),
             CreateExportGuard(reportingOptions, audit),
-            new ReportingMetrics(),
-            NullLogger<InstitutionalReportService>.Instance);
+            new ReportingMetrics());
     }
 
     private static IReportingExportGuard CreateExportGuard(ReportingOptions? reportingOptions, IAuditService? audit = null)
     {
         var options = Options.Create(reportingOptions ?? new ReportingOptions { MaxPdfDetailRows = 10_000 });
         var metrics = new ReportingMetrics();
-        return new ReportingExportGuard(
+        var tempFileManager = new ReportingTempFileManager(
             options,
-            new ReportingExportConcurrencyGate(options),
-            new ReportingTempFileManager(options, NullLogger<ReportingTempFileManager>.Instance, metrics),
+            NullLogger<ReportingTempFileManager>.Instance,
+            metrics);
+        var concurrencyGate = new ReportingExportConcurrencyGate(options);
+        var resourceGuard = new ReportingExportResourceGuard(options, tempFileManager);
+        var auditService = audit ?? new NoOpAuditService();
+        var currentUser = new TestCurrentUserService();
+        var admission = new ReportingExportAdmissionService(
+            concurrencyGate,
+            resourceGuard,
+            auditService,
+            currentUser,
+            metrics);
+        var lifecycle = new ReportingExportLifecycleObserver(
+            auditService,
+            currentUser,
             metrics,
-            audit ?? new NoOpAuditService(),
-            new TestCurrentUserService(),
-            new HttpContextAccessor(),
-            NullLogger<ReportingExportGuard>.Instance);
+            NullLogger<ReportingExportLifecycleObserver>.Instance);
+        var scopeFactory = new ReportingExportScopeFactory(
+            concurrencyGate,
+            tempFileManager,
+            lifecycle,
+            metrics);
+        var correlationIdProvider = new ReportingCorrelationIdProvider(new HttpContextAccessor());
+        return new ReportingExportGuard(admission, resourceGuard, scopeFactory, correlationIdProvider);
     }
 
     private sealed class TestCurrentUserService : ICurrentUserService

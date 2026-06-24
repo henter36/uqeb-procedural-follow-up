@@ -88,25 +88,13 @@ public sealed class ReportingReadinessService : IReportingReadinessService
         var exportConcurrencyAvailable = _concurrencyGate.HasCapacity(Enums.ExportFormat.Pdf)
                                          || _concurrencyGate.HasCapacity(Enums.ExportFormat.Xlsx);
 
-        var readySignals = new[]
-        {
+        var state = ResolveReadinessState(
             configurationValid,
-            InstitutionalReportFontAssets.BuildFontFaceCss().Contains("@font-face"),
             stylesheetAvailable,
             tempWritable,
             chromium.LaunchSuccessful,
             databaseReachable,
-            exportConcurrencyAvailable,
-        };
-
-        var state = readySignals.All(x => x)
-            ? ReportingReadinessState.Ready
-            : readySignals.Any(x => x)
-                ? ReportingReadinessState.Degraded
-                : ReportingReadinessState.Unavailable;
-
-        if (configurationValid && stylesheetAvailable && tempWritable && !chromium.LaunchSuccessful)
-            state = ReportingReadinessState.Degraded;
+            exportConcurrencyAvailable);
 
         return new ReportingReadinessDto
         {
@@ -124,6 +112,35 @@ public sealed class ReportingReadinessService : IReportingReadinessService
             TemplateVersion = InstitutionalReportStyles.TemplateVersion,
             ChromiumStatus = chromium.Summary,
         };
+    }
+
+    internal static ReportingReadinessState ResolveReadinessState(
+        bool configurationValid,
+        bool stylesheetAvailable,
+        bool tempWritable,
+        bool chromiumLaunchSuccessful,
+        bool databaseReachable,
+        bool exportConcurrencyAvailable)
+    {
+        if (!configurationValid)
+            return ReportingReadinessState.Unavailable;
+
+        var dependencySignals = new[]
+        {
+            stylesheetAvailable,
+            tempWritable,
+            chromiumLaunchSuccessful,
+            databaseReachable,
+            exportConcurrencyAvailable,
+        };
+
+        if (dependencySignals.All(signal => signal))
+            return ReportingReadinessState.Ready;
+
+        if (dependencySignals.Any(signal => signal))
+            return ReportingReadinessState.Degraded;
+
+        return ReportingReadinessState.Unavailable;
     }
 
     private bool IsConfigurationValid()
