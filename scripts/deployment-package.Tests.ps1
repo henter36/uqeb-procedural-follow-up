@@ -763,8 +763,8 @@ Describe 'install-production-package.ps1 scenarios' {
         $errors | Should -BeNullOrEmpty
         $paramBlock = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.ParamBlockAst] }, $true)[0]
         $names = @($paramBlock.Parameters | ForEach-Object { $_.Name.Extent.Text })
-        $names | Should -Not -Contain 'SkipDatabaseMigration'
-        $names | Should -Contain 'ApplyDatabaseMigration'
+        $names | Should -Not -Contain '$SkipDatabaseMigration'
+        $names | Should -Contain '$ApplyDatabaseMigration'
     }
 
     It 'blocks database backup bypass environment variables' {
@@ -880,7 +880,7 @@ Describe 'install-production-package.ps1 scenarios' {
 
         $output = @()
         try {
-            Invoke-TestInstallScript -Environment $env *>&1 |
+            Invoke-TestInstallScript -Environment $env -AdditionalParameters @{ ApplyDatabaseMigration = $true } *>&1 |
                 ForEach-Object { $output += $_.ToString() }
         }
         catch {
@@ -942,10 +942,10 @@ Describe 'Release promotion and rollback state' {
             previousRelease = ''
         })
 
-        $result = Invoke-ReleaseRollbackFromState `
+        $result = @(Invoke-ReleaseRollbackFromState `
             -InstallRoot $root `
             -TaskName 'UqebApi' `
-            -ApiPort 5000
+            -ApiPort 5000)[-1]
 
         $result | Should -BeFalse
     }

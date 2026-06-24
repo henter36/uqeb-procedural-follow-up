@@ -285,7 +285,9 @@ try {
             verifiedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
         }
     }
+    Ensure-Directory (Split-Path -Parent $releaseManifestPath)
     $releaseInfo | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $releaseManifestPath -Encoding UTF8
+    Ensure-Directory $releasePaths.ReleaseRoot
     $releaseInfo | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $releasePaths.ReleaseRoot "release-manifest.json") -Encoding UTF8
 
     Write-DeployStep "تشغيل API"
