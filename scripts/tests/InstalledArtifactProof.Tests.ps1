@@ -27,20 +27,20 @@ BeforeAll {
     }
 
     function script:Mock-RobocopyAsCopy {
+        if ($IsWindows) {
+            return
+        }
+
         Mock Invoke-RobocopySafe {
             param(
                 [string]$Source,
-                [string]$Destination,
-                [string]$TargetType,
-                [string[]]$ExtraArguments = @()
+                [string]$Destination
             )
 
             Ensure-Directory $Destination
-            if ($TargetType -eq 'Web' -and (Test-DirectoryHasContent $Destination)) {
-                Get-ChildItem -LiteralPath $Destination -Force | Remove-Item -Recurse -Force
+            Get-ChildItem -LiteralPath $Source -Force | ForEach-Object {
+                Copy-Item -LiteralPath $_.FullName -Destination $Destination -Recurse -Force
             }
-
-            Copy-Item -LiteralPath $Source -Destination $Destination -Recurse -Force
         }
     }
 }
@@ -76,8 +76,8 @@ Describe 'Windows installed-artifact promotion proof' {
             -PackagePath 'Uqeb-proof.zip' `
             -PackageCommit 'proofsha'
 
-        $releaseApi = Join-Path $InstallRoot ("releases\" + $Version + '\api\Uqeb.Api.dll')
-        $currentApi = Join-Path $InstallRoot 'current\api\Uqeb.Api.dll'
+        $releaseApi = Join-Path $InstallRoot (Join-Path (Join-Path 'releases' $Version) (Join-Path 'api' 'Uqeb.Api.dll'))
+        $currentApi = Join-Path $InstallRoot (Join-Path 'current' (Join-Path 'api' 'Uqeb.Api.dll'))
         $rollbackState = Get-RollbackStatePath -InstallRoot $InstallRoot
 
         Test-Path -LiteralPath $releaseApi | Should -BeTrue
@@ -128,11 +128,16 @@ Describe 'Windows offline installer artifact proof' {
         Mock Invoke-DatabaseBackupRetentionPolicy { return @() }
         Mock Install-PlaywrightBrowserToProduction { return '' }
         Mock Test-PlaywrightBrowserPayload {
-            return [pscustomobject]@{ FullPath = 'C:\fake\chrome.exe' }
+            param([string]$BrowsersRoot)
+
+            $executable = Join-Path $BrowsersRoot 'chromium-proof\chrome.exe'
+            Ensure-Directory (Split-Path -Parent $executable)
+            Set-Content -LiteralPath $executable -Value 'fake-chromium' -Encoding ASCII
+            return [pscustomobject]@{ FullPath = $executable }
         }
         Mock Test-PlaywrightPackagePreflight {
             return [pscustomobject]@{
-                ExecutableRelativePath = 'chromium-1\chrome-win64\chrome.exe'
+                ExecutableRelativePath = 'chromium-proof\chrome.exe'
             }
         }
         Mock-RobocopyAsCopy
@@ -159,12 +164,19 @@ Describe 'Windows offline installer artifact proof' {
             Set-Content (Join-Path $pkgRoot 'database\migrations-idempotent.sql') 'SELECT 1;' -Encoding ASCII
             Set-Content (Join-Path $pkgRoot 'browsers\playwright-browser-manifest.json') '{}' -Encoding ASCII
 
+            $browserRoot = Join-Path $installRoot 'tools\ms-playwright'
+            Ensure-Directory $browserRoot
+            $browserExecutable = Join-Path $browserRoot 'chromium-proof\chrome.exe'
+            Ensure-Directory (Split-Path -Parent $browserExecutable)
+            Set-Content -LiteralPath $browserExecutable -Value 'fake-chromium' -Encoding ASCII
+            $browserHash = Get-FileSha256Hex -Path $browserExecutable
+
             $manifest = [ordered]@{
                 version = 'proof-install'
                 commitSha = 'proofsha'
                 minimumDatabaseMigration = '20260622062754_AddReferenceDataNormalizedNames'
                 playwright = [ordered]@{
-                    browserExecutableSha256 = ('a' * 64)
+                    browserExecutableSha256 = $browserHash
                 }
                 files = [ordered]@{}
             }
