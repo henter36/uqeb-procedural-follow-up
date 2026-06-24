@@ -1,7 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ -z "${API_BASE_URL:-}" ]; then
+command -v curl >/dev/null 2>&1 || {
+  echo "curl is required" >&2
+  exit 1
+}
+
+command -v python3 >/dev/null 2>&1 || {
+  echo "python3 is required" >&2
+  exit 1
+}
+
+if [[ -z "${API_BASE_URL:-}" ]]; then
   echo "API_BASE_URL is required for reporting production smoke test." >&2
   exit 1
 fi
