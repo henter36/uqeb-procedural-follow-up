@@ -9,6 +9,7 @@ export type InstitutionalReportPage = {
 };
 
 export type InstitutionalReportManifest = {
+  reportTitle?: string;
   reportId: string;
   totalPages: number;
   pages: InstitutionalReportPage[];
@@ -31,11 +32,12 @@ export type InstitutionalReportManifest = {
   stylesheet?: string | null;
   templateVersion?: string | null;
   fileFingerprint?: string | null;
+  analysis?: unknown;
 };
 
 export type InstitutionalReportType = 1 | 2 | 3 | 4 | 5;
 
-export type ReportSectionId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
+export type ReportSectionId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21;
 
 export type ExportFormat = 1 | 2 | 3 | 4;
 
@@ -44,6 +46,12 @@ export type ExportMode = 1 | 2 | 3 | 4;
 export type PageNumberingMode = 1 | 2;
 
 export type DetailOverflowAction = 0 | 1 | 2 | 3;
+
+export type ReportContentLevel = 1 | 2 | 3;
+
+export type ReportComparisonMode = 0 | 1 | 2 | 3;
+
+export type ReportTimeGrouping = 1 | 2 | 3 | 4;
 
 export type ReportFilters = {
   dateFrom?: string | null;
@@ -67,6 +75,25 @@ export type ReportBuildRequest = {
   introduction?: string;
   sectionIds: ReportSectionId[];
   singleTransactionId?: number | null;
+  contentLevel?: ReportContentLevel;
+  comparisonMode?: ReportComparisonMode;
+  comparisonDateFrom?: string | null;
+  comparisonDateTo?: string | null;
+  timeGrouping?: ReportTimeGrouping;
+  includeExecutiveSummary?: boolean;
+  includeComparison?: boolean;
+  includeCriticalCases?: boolean;
+  includeTimeTrends?: boolean;
+  includeDepartmentPerformance?: boolean;
+  includeExternalPartyAnalysis?: boolean;
+  includeCategoryAnalysis?: boolean;
+  includeBottleneckAnalysis?: boolean;
+  includeDataQuality?: boolean;
+  includeRecommendations?: boolean;
+  includeMethodology?: boolean;
+  maxCriticalCases?: number;
+  maxFindings?: number;
+  maxRecommendations?: number;
   filters: ReportFilters;
 };
 

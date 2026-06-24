@@ -391,6 +391,8 @@ pwsh backend/Uqeb.Api/bin/Debug/net10.0/playwright.ps1 install --with-deps chrom
 
 بوابة القبول الكاملة: [`docs/institutional_reporting_visual_and_scale_acceptance_gate.md`](docs/institutional_reporting_visual_and_scale_acceptance_gate.md)
 
+تعريفات المحتوى التحليلي وقواعده: [`docs/institutional_reporting_analytical_content.md`](docs/institutional_reporting_analytical_content.md)
+
 ---
 
 ## 12. اختبارات التحمل (k6)

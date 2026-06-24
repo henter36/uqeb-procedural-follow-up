@@ -52,6 +52,24 @@ public class InstitutionalReportRendererTests
     }
 
     [Fact]
+    public void BuildExportManifest_PreservesAnalysisPayload()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        var source = InstitutionalReportVisualFixtures.RenderSections(
+            model,
+            ReportSectionId.KeyPerformanceIndicators,
+            ReportSectionId.SignificantFindings);
+
+        var result = _renderer.BuildExportManifest(source, [source.Pages[0].OriginalPageNumber], new ReportExportRequestDto
+        {
+            IncludePartialCover = true,
+            IncludePartialManifest = true,
+        });
+
+        Assert.Same(source.Analysis, result.Analysis);
+    }
+
+    [Fact]
     public void BuildExportManifest_PreservesOperationalMetadata_WithOriginalNumbering()
     {
         var source = CreateSourceManifest(4);
@@ -234,6 +252,37 @@ public class InstitutionalReportRendererTests
         Assert.Contains("cell--date", html);
         Assert.Contains("الفترة من 2026-01-01 إلى 2026-06-15", html);
         Assert.Contains("<dt>الفترة</dt><dd>من 2026-01-01 إلى 2026-06-15</dd>", html);
+    }
+
+    [Fact]
+    public void RenderManifest_RendersAnalyticalSectionsFromUnifiedAnalysisModel()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        var manifest = _renderer.RenderManifest(model,
+        [
+            ReportSectionId.KeyPerformanceIndicators,
+            ReportSectionId.SignificantFindings,
+            ReportSectionId.CriticalCases,
+            ReportSectionId.TimeTrends,
+            ReportSectionId.ExternalPartyAnalysis,
+            ReportSectionId.ClassificationAndPriorityAnalysis,
+            ReportSectionId.DelayAndBottleneckAnalysis,
+            ReportSectionId.DataQuality,
+            ReportSectionId.RecommendationsAndActionPlan,
+            ReportSectionId.MethodologyAndDefinitions,
+        ]);
+        var html = InstitutionalReportRenderer.RenderHtmlDocument(manifest);
+
+        Assert.Equal(10, manifest.Pages.Count);
+        Assert.Same(model.Analysis, manifest.Analysis);
+        Assert.Contains("مؤشرات الأداء الرئيسية", html);
+        Assert.Contains("ارتفاع نسبة التأخر", html);
+        Assert.Contains("معاملة حرجة متأخرة", html);
+        Assert.Contains("جهة حكومية", html);
+        Assert.Contains("إفادة أو تكليف إدارة معلق", html);
+        Assert.Contains("نسبة اكتمال البيانات", html);
+        Assert.Contains("مراجعة المعاملات المتأخرة حسب الإدارات الأعلى أثرًا", html);
+        Assert.Contains("AverageFirstActionHours", html);
     }
 
     [Fact]

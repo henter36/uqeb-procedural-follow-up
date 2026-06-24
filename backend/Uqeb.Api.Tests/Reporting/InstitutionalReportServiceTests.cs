@@ -198,6 +198,244 @@ public class InstitutionalReportServiceBuildValidationTests
 
         Assert.Contains("filters", ex.FieldErrors.Keys);
     }
+
+    [Fact]
+    public async Task BuildReportModelAsync_NormalizesNullFilterLists()
+    {
+        var service = InstitutionalReportServiceTestHelpers.CreateService();
+        var request = new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [ReportSectionId.Cover],
+            Filters = new ReportFiltersDto
+            {
+                DepartmentIds = null!,
+                PartyIds = null!,
+                CategoryIds = null!,
+                Priorities = null!,
+                Statuses = null!,
+            },
+        };
+
+        var model = await service.BuildReportModelAsync(request);
+
+        Assert.NotNull(model.Filters.DepartmentIds);
+        Assert.Empty(model.Filters.DepartmentIds);
+    }
+
+    [Fact]
+    public async Task BuildReportModelAsync_ThrowsValidationProblem_WhenMaxFindingsExceedConfiguredLimit()
+    {
+        var service = InstitutionalReportServiceTestHelpers.CreateService(
+            reportingOptions: new ReportingOptions
+            {
+                Analysis = new ReportingAnalysisOptions { MaxExecutiveFindings = 5 },
+            });
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.BuildReportModelAsync(new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [ReportSectionId.Cover],
+            Filters = new ReportFiltersDto(),
+            MaxFindings = 999,
+        }));
+
+        Assert.Contains("maxFindings", ex.FieldErrors.Keys);
+    }
+
+    [Fact]
+    public async Task BuildReportModelAsync_ComparisonPeriodWithZeroRows_ProducesZeroPreviousMetrics()
+    {
+        var updatedAt = new DateTime(2026, 6, 1, 10, 0, 0, DateTimeKind.Utc);
+        var factory = new TestDbContextFactory(new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"reporting-comparison-empty-{Guid.NewGuid():N}")
+            .Options);
+
+        await using (var db = factory.CreateDbContext())
+        {
+            var user = new User
+            {
+                Username = "comparison-empty",
+                PasswordHash = "hash",
+                FullName = "Comparison Empty",
+                Role = UserRole.Admin,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            };
+            db.Users.Add(user);
+            await db.SaveChangesAsync();
+
+            db.Transactions.Add(new Transaction
+            {
+                InternalTrackingNumber = "INT-CMP-001",
+                IncomingNumber = "IN-CMP-001",
+                IncomingDate = new DateTime(2026, 6, 10),
+                Subject = "معاملة الفترة الحالية",
+                IncomingFrom = "جهة",
+                Status = TransactionStatus.New,
+                Priority = Priority.Normal,
+                CreatedById = user.Id,
+                CreatedAt = new DateTime(2026, 6, 10),
+                UpdatedAt = updatedAt,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var service = InstitutionalReportServiceTestHelpers.CreateService(factory);
+        var model = await service.BuildReportModelAsync(new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [ReportSectionId.KeyPerformanceIndicators],
+            IncludeComparison = true,
+            ComparisonMode = ReportComparisonMode.PreviousEquivalentPeriod,
+            Filters = new ReportFiltersDto
+            {
+                DateFrom = new DateTime(2026, 6, 1),
+                DateTo = new DateTime(2026, 6, 30),
+            },
+        });
+
+        Assert.NotNull(model.Analysis);
+        Assert.Contains("فترة مقارنة صالحة بلا معاملات مطابقة", model.Analysis!.Methodology.ComparisonPeriod);
+        var totalTransactionsKpi = model.Analysis.Kpis.Single(k => k.Key == "TotalTransactions");
+        Assert.Equal(0, totalTransactionsKpi.Comparison.PreviousValue);
+        Assert.Equal(1, totalTransactionsKpi.Comparison.AbsoluteChange);
+    }
+}
+
+public class InstitutionalReportServiceSideEffectTests
+{
+    [Fact]
+    public async Task BuildPreviewAndXlsxExport_DoNotPersistTransactionOrAssignmentChanges()
+    {
+        var updatedAt = new DateTime(2026, 6, 1, 10, 0, 0, DateTimeKind.Utc);
+        var factory = new CountingDbContextFactory(new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"reporting-side-effects-{Guid.NewGuid():N}")
+            .Options);
+
+        await SeedTransactionAsync(factory, updatedAt);
+        factory.ResetSaveChangesCount();
+        var service = InstitutionalReportServiceTestHelpers.CreateService(factory);
+        var buildRequest = CreateAnalyticalBuildRequest();
+
+        await service.BuildReportModelAsync(buildRequest);
+        await service.RenderPreviewAsync(buildRequest);
+        await service.ExportAsync(new ReportExportRequestDto
+        {
+            ExportFormat = ExportFormat.Xlsx,
+            BuildRequest = buildRequest
+        });
+
+        Assert.Equal(0, factory.SaveChangesCount);
+
+        await using var db = factory.CreateDbContext();
+        var transaction = await db.Transactions.Include(t => t.Assignments).SingleAsync();
+        var assignment = Assert.Single(transaction.Assignments);
+        Assert.Equal(TransactionStatus.New, transaction.Status);
+        Assert.Equal(ReplyStatus.Pending, assignment.ReplyStatus);
+        Assert.Equal(updatedAt, transaction.UpdatedAt);
+    }
+
+    private static ReportBuildRequestDto CreateAnalyticalBuildRequest() => new()
+    {
+        ReportType = InstitutionalReportType.ExecutiveComprehensive,
+        SectionIds =
+        [
+            ReportSectionId.ExecutiveSummary,
+            ReportSectionId.KeyPerformanceIndicators,
+            ReportSectionId.SignificantFindings,
+            ReportSectionId.CriticalCases,
+            ReportSectionId.TransactionDetails
+        ],
+        Filters = new ReportFiltersDto
+        {
+            IncludeDetails = true
+        }
+    };
+
+    private static async Task SeedTransactionAsync(CountingDbContextFactory factory, DateTime updatedAt)
+    {
+        await using var db = factory.CreateDbContext();
+        var user = new User
+        {
+            Username = "report-side-effects",
+            PasswordHash = "hash",
+            FullName = "Report Side Effects",
+            Role = UserRole.Admin,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+        var department = new Department
+        {
+            Name = "الشؤون الإدارية",
+            NameNormalized = "الشؤون الإدارية",
+            Code = "ADMIN"
+        };
+        db.Users.Add(user);
+        db.Departments.Add(department);
+        await db.SaveChangesAsync();
+
+        var transaction = new Transaction
+        {
+            InternalTrackingNumber = "INT-SIDE-001",
+            IncomingNumber = "IN-SIDE-001",
+            IncomingDate = DateTime.UtcNow.Date.AddDays(-15),
+            Subject = "معاملة اختبار آثار جانبية",
+            IncomingFrom = "جهة اختبار",
+            Status = TransactionStatus.New,
+            Priority = Priority.Urgent,
+            RequiresResponse = true,
+            ResponseDueDate = DateTime.UtcNow.Date.AddDays(-2),
+            CreatedById = user.Id,
+            CreatedAt = DateTime.UtcNow.AddDays(-15),
+            UpdatedAt = updatedAt,
+            Assignments =
+            [
+                new Assignment
+                {
+                    DepartmentId = department.Id,
+                    AssignedDate = DateTime.UtcNow.Date.AddDays(-10),
+                    RequiresReply = true,
+                    DueDate = DateTime.UtcNow.Date.AddDays(-2),
+                    ReplyStatus = ReplyStatus.Pending,
+                    Status = AssignmentStatus.Active,
+                    CreatedById = user.Id,
+                    CreatedAt = DateTime.UtcNow.AddDays(-10)
+                }
+            ]
+        };
+        db.Transactions.Add(transaction);
+        await db.SaveChangesAsync();
+    }
+
+    private sealed class CountingDbContextFactory(DbContextOptions<AppDbContext> options) : IDbContextFactory<AppDbContext>
+    {
+        public int SaveChangesCount { get; private set; }
+
+        public AppDbContext CreateDbContext() => new CountingAppDbContext(options, () => SaveChangesCount++);
+
+        public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(CreateDbContext());
+
+        public void ResetSaveChangesCount() => SaveChangesCount = 0;
+    }
+
+    private sealed class CountingAppDbContext(
+        DbContextOptions<AppDbContext> options,
+        Action onSaveChanges) : AppDbContext(options)
+    {
+        public override int SaveChanges()
+        {
+            onSaveChanges();
+            return base.SaveChanges();
+        }
+
+        public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+        {
+            onSaveChanges();
+            return base.SaveChangesAsync(cancellationToken);
+        }
+    }
 }
 
 internal static class InstitutionalReportServiceTestHelpers
