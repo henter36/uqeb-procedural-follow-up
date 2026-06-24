@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
   تشخيص جاهزية Chromium/Playwright على خادم الإنتاج دون استدعاء تصدير رسمي.
