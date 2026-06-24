@@ -69,13 +69,16 @@ public static class DefaultUsersProvisioner
         var known = existingCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var added = false;
 
-        foreach (var definition in DefaultUsers.Where(u => !string.IsNullOrWhiteSpace(u.DepartmentCode)))
+        foreach (var departmentCode in DefaultUsers
+                     .Select(definition => definition.DepartmentCode)
+                     .Where(code => !string.IsNullOrWhiteSpace(code))
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            if (known.Contains(definition.DepartmentCode!))
+            if (known.Contains(departmentCode!))
                 continue;
 
-            db.Departments.Add(CreateDepartment("الشؤون الإدارية", definition.DepartmentCode!));
-            known.Add(definition.DepartmentCode!);
+            db.Departments.Add(CreateDepartment("الشؤون الإدارية", departmentCode!));
+            known.Add(departmentCode!);
             added = true;
         }
 
