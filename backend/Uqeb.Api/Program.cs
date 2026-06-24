@@ -11,18 +11,30 @@ using Uqeb.Api.Configuration;
 using Uqeb.Api.Data;
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Middleware;
+using Uqeb.Api.Reporting.Exporters;
+using Uqeb.Api.Reporting.Configuration;
+using Uqeb.Api.Reporting.Services;
 using Uqeb.Api.Services;
 using Uqeb.Api.Services.Health;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));
+builder.Services.Configure<FeatureFlagsSettings>(builder.Configuration.GetSection(FeatureFlagsSettings.SectionName));
+builder.Services.AddOptions<ReportingOptions>()
+    .Bind(builder.Configuration.GetSection(ReportingOptions.SectionName))
+    .Validate(o => o.MaxPdfDetailRows > 0, "Reporting:MaxPdfDetailRows must be greater than zero.")
+    .ValidateOnStart();
 
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-builder.Services.AddDbContextFactory<AppDbContext>(options =>
-    options.UseSqlServer(connectionString));
-builder.Services.AddScoped(sp =>
-    sp.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
+var useInMemoryDatabase = builder.Configuration.GetValue<bool>("Testing:UseInMemoryDatabase");
+if (!useInMemoryDatabase)
+{
+    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    builder.Services.AddDbContextFactory<AppDbContext>(options =>
+        options.UseSqlServer(connectionString));
+    builder.Services.AddScoped(sp =>
+        sp.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
+}
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
@@ -33,6 +45,9 @@ builder.Services.AddScoped<ITransactionService, TransactionService>();
 builder.Services.AddScoped<IExcelTransactionImportService, ExcelTransactionImportService>();
 builder.Services.AddScoped<IAttachmentService, AttachmentService>();
 builder.Services.AddScoped<IReportService, ReportService>();
+builder.Services.AddScoped<IInstitutionalReportService, InstitutionalReportService>();
+builder.Services.AddScoped<IInstitutionalReportNumberAllocator, InstitutionalReportNumberAllocator>();
+builder.Services.AddSingleton<IInstitutionalReportPdfExporter, InstitutionalReportPlaywrightPdfExporter>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IDepartmentService, DepartmentService>();
 builder.Services.AddScoped<IExternalPartyService, ExternalPartyService>();
@@ -152,6 +167,7 @@ app.UseCors();
 app.UseResponseCompression();
 app.UseRateLimiter();
 app.UseMiddleware<Uqeb.Api.Middleware.UnauthorizedAccessLoggingMiddleware>();
+app.UseMiddleware<InstitutionalReportsFeatureGateMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

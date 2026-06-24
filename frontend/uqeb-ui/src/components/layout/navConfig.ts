@@ -3,6 +3,7 @@ import {
   IconDashboard, IconTransactions, IconReports, IconUsers,
   IconSettings, IconImport, IconSecurity, IconLetter,
 } from '../ui/icons';
+import { isInstitutionalReportsEnabled } from '../../config/featureFlags';
 
 export type NavItem = {
   path: string;
@@ -18,34 +19,43 @@ export type NavSection = {
   items: NavItem[];
 };
 
-export const navSections: NavSection[] = [
-  {
-    label: 'الرئيسية',
-    items: [
-      { path: '/', label: 'لوحة المتابعة', icon: IconDashboard },
-      { path: '/transactions', label: 'المعاملات', icon: IconTransactions, matchPrefix: true },
-      { path: '/reports', label: 'التقارير', icon: IconReports },
-    ],
-  },
-  {
-    label: 'العمليات',
-    items: [
-      { path: '/reports?tab=waiting', label: 'التحويلات والردود', icon: IconReports },
-      { path: '/letter-template', label: 'قالب خطاب التعقيب', icon: IconLetter, supervisorOnly: true },
-      { path: '/transactions/import', label: 'استيراد Excel', icon: IconImport, adminOnly: true },
-    ],
-  },
-  {
-    label: 'الإدارة',
-    items: [
-      { path: '/users', label: 'المستخدمون', icon: IconUsers, adminOnly: true },
-      { path: '/departments', label: 'الإدارات', icon: IconSettings, adminOnly: true },
-      { path: '/external-parties', label: 'الجهات الخارجية', icon: IconSettings, adminOnly: true },
-      { path: '/categories', label: 'التصنيفات', icon: IconSettings, adminOnly: true },
-      { path: '/security', label: 'الأمن والتنبيهات', icon: IconSecurity, adminOnly: true },
-    ],
-  },
-];
+export const navSections: NavSection[] = buildNavSections();
+
+export function buildNavSections(institutionalReportsEnabled = isInstitutionalReportsEnabled()): NavSection[] {
+  const sections: NavSection[] = [
+    {
+      label: 'الرئيسية',
+      items: [
+        { path: '/', label: 'لوحة المتابعة', icon: IconDashboard },
+        { path: '/transactions', label: 'المعاملات', icon: IconTransactions, matchPrefix: true },
+        { path: '/reports', label: 'التقارير', icon: IconReports },
+        ...(institutionalReportsEnabled
+          ? [{ path: '/report-builder', label: 'منشئ التقارير', icon: IconReports, supervisorOnly: true } satisfies NavItem]
+          : []),
+      ],
+    },
+    {
+      label: 'العمليات',
+      items: [
+        { path: '/reports?tab=waiting', label: 'التحويلات والردود', icon: IconReports },
+        { path: '/letter-template', label: 'قالب خطاب التعقيب', icon: IconLetter, supervisorOnly: true },
+        { path: '/transactions/import', label: 'استيراد Excel', icon: IconImport, adminOnly: true },
+      ],
+    },
+    {
+      label: 'الإدارة',
+      items: [
+        { path: '/users', label: 'المستخدمون', icon: IconUsers, adminOnly: true },
+        { path: '/departments', label: 'الإدارات', icon: IconSettings, adminOnly: true },
+        { path: '/external-parties', label: 'الجهات الخارجية', icon: IconSettings, adminOnly: true },
+        { path: '/categories', label: 'التصنيفات', icon: IconSettings, adminOnly: true },
+        { path: '/security', label: 'الأمن والتنبيهات', icon: IconSecurity, adminOnly: true },
+      ],
+    },
+  ];
+
+  return sections;
+}
 
 export type RouteMeta = {
   title: string;

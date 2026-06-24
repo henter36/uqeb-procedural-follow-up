@@ -478,6 +478,67 @@ namespace Uqeb.Api.Migrations
                     b.ToTable("LoginAttemptLogs");
                 });
 
+            modelBuilder.Entity("Uqeb.Api.Models.Entities.ReportExportTemplate", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("CreatedById")
+                        .HasColumnType("int");
+
+                    b.Property<string>("DefaultFiltersJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("DefaultFormat")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IncludePartialCover")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IncludePartialManifest")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("PageNumberingMode")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ReportType")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SectionIdsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedById");
+
+                    b.ToTable("ReportExportTemplates");
+                });
+
+            modelBuilder.Entity("Uqeb.Api.Models.Entities.ReportNumberSequence", b =>
+                {
+                    b.Property<int>("Year")
+                        .HasColumnType("int");
+
+                    b.Property<int>("LastNumber")
+                        .HasColumnType("int");
+
+                    b.HasKey("Year");
+
+                    b.ToTable("ReportNumberSequences");
+                });
+
             modelBuilder.Entity("Uqeb.Api.Models.Entities.SecurityAlert", b =>
                 {
                     b.Property<int>("Id")
@@ -925,6 +986,17 @@ namespace Uqeb.Api.Migrations
                     b.Navigation("ExternalParty");
 
                     b.Navigation("FollowUp");
+                });
+
+            modelBuilder.Entity("Uqeb.Api.Models.Entities.ReportExportTemplate", b =>
+                {
+                    b.HasOne("Uqeb.Api.Models.Entities.User", "CreatedBy")
+                        .WithMany()
+                        .HasForeignKey("CreatedById")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("CreatedBy");
                 });
 
             modelBuilder.Entity("Uqeb.Api.Models.Entities.Transaction", b =>

@@ -11,18 +11,23 @@ internal static class TestJwtHelper
     private const string Issuer = "UqebApiTests";
     private const string Audience = "UqebClientTests";
 
-    public static string CreateToken(string role)
+    public static string CreateToken(string role, int? departmentId = null)
     {
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, "1"),
+            new(ClaimTypes.Name, "integration-test-user"),
+            new(ClaimTypes.Role, role),
+        };
+
+        if (departmentId.HasValue)
+            claims.Add(new Claim("departmentId", departmentId.Value.ToString()));
+
         var tokenHandler = new JwtSecurityTokenHandler();
         var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Key));
         var descriptor = new SecurityTokenDescriptor
         {
-            Subject = new ClaimsIdentity(
-            [
-                new Claim(ClaimTypes.NameIdentifier, "1"),
-                new Claim(ClaimTypes.Name, "integration-test-user"),
-                new Claim(ClaimTypes.Role, role),
-            ]),
+            Subject = new ClaimsIdentity(claims),
             Expires = DateTime.UtcNow.AddHours(1),
             Issuer = Issuer,
             Audience = Audience,

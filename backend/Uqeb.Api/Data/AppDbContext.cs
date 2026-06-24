@@ -23,6 +23,8 @@ public class AppDbContext : DbContext
     public DbSet<LetterTemplate> LetterTemplates => Set<LetterTemplate>();
     public DbSet<LoginAttemptLog> LoginAttemptLogs => Set<LoginAttemptLog>();
     public DbSet<SecurityAlert> SecurityAlerts => Set<SecurityAlert>();
+    public DbSet<ReportExportTemplate> ReportExportTemplates => Set<ReportExportTemplate>();
+    public DbSet<ReportNumberSequence> ReportNumberSequences => Set<ReportNumberSequence>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -166,6 +168,17 @@ public class AppDbContext : DbContext
             e.HasIndex(a => new { a.IsRead, a.CreatedAt });
             e.HasIndex(a => new { a.Type, a.CreatedAt });
             e.HasIndex(a => new { a.Severity, a.CreatedAt });
+        });
+
+        modelBuilder.Entity<ReportExportTemplate>(e =>
+        {
+            e.HasIndex(t => t.CreatedById);
+            e.HasOne(t => t.CreatedBy).WithMany().HasForeignKey(t => t.CreatedById).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        modelBuilder.Entity<ReportNumberSequence>(e =>
+        {
+            e.HasKey(s => s.Year);
         });
     }
 }
