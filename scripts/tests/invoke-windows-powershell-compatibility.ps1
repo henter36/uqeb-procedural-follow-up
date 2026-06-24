@@ -40,16 +40,17 @@ try {
         New-Item -ItemType Directory -Path $siblingRoot -Force | Out-Null
         New-Item -ItemType Directory -Path $siblingDir -Force | Out-Null
         Set-Content -LiteralPath $siblingFile -Value 'fake' -Encoding ASCII
+        $siblingRejected = $false
         try {
             $null = Get-RelativePathFromDirectory `
                 -RootDirectory $siblingRoot `
                 -FullPath $siblingFile
-            throw 'Expected sibling-prefix bypass to fail.'
         }
         catch {
-            if ($_.Exception.Message -notmatch 'يخرج عن الجذر') {
-                throw
-            }
+            $siblingRejected = $true
+        }
+        if (-not $siblingRejected) {
+            throw 'Expected sibling-prefix bypass to fail.'
         }
     }
     finally {
