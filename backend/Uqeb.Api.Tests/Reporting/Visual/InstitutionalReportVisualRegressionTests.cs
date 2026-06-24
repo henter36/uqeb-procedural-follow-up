@@ -134,6 +134,11 @@ public class InstitutionalReportVisualRegressionTests
             "pages => pages.every(page => page.querySelectorAll('.report-footer').length === 1)");
         Assert.True(everyPageHasOneFooter);
 
+        var footerTitle = await page.Locator(".report-footer .footer-title").First.InnerTextAsync();
+        var footerId = await page.Locator(".report-footer .footer-id").First.InnerTextAsync();
+        Assert.Equal(model.Metadata.Title, footerTitle);
+        Assert.Equal("REP-2026-000125", footerId);
+
         var wideTablesStayInsidePage = await page.Locator(".report-table--departments, .report-table--transactions")
             .EvaluateAllAsync<bool>(
                 """
@@ -259,7 +264,7 @@ public class InstitutionalReportStylesTests
         var baseReportPage = ExtractCssBlock(css, ".report-page");
         var printReportPage = ExtractNestedCssBlock(css, "@media print", ".report-page");
 
-        Assert.Equal(1, Regex.Matches(css, @"min-height:\s*var\(--report-page-height\)").Count);
+        Assert.Single(Regex.Matches(css, @"min-height:\s*var\(--report-page-height\)"));
         Assert.Contains("min-height: var(--report-page-height);", baseReportPage);
         Assert.DoesNotContain("min-height: auto;", baseReportPage);
         Assert.Contains("break-after: page;", baseReportPage);

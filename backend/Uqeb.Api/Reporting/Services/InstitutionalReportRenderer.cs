@@ -13,6 +13,7 @@ public sealed class InstitutionalReportRenderer
 {
     private const string DateFormat = "yyyy-MM-dd";
     private const string DateTimeFormat = "yyyy-MM-dd HH:mm";
+    private const string DefaultReportTitle = "تقرير المتابعة الإجرائية للمعاملات";
     private const int TransactionRowsPerPdfPage = 6;
 
     private static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromMilliseconds(250);
@@ -162,6 +163,7 @@ public sealed class InstitutionalReportRenderer
 
         return new RenderedReportManifestDto
         {
+            ReportTitle = EffectiveReportTitle(model.Metadata.Title),
             ReportId = model.Metadata.ReportNumber,
             TotalPages = total,
             TotalMatchingTransactions = model.TotalMatchedRows,
@@ -276,11 +278,12 @@ public sealed class InstitutionalReportRenderer
             request.PageNumberingMode ?? PageNumberingMode.Restart,
             source.TotalPages,
             isPartial,
-            source.ReportId,
+            EffectiveReportTitle(source.ReportTitle),
             source.ReportId);
 
         return new RenderedReportManifestDto
         {
+            ReportTitle = EffectiveReportTitle(source.ReportTitle),
             ReportId = source.ReportId,
             TotalPages = pages.Count,
             TotalMatchingTransactions = source.TotalMatchingTransactions,
@@ -433,9 +436,7 @@ public sealed class InstitutionalReportRenderer
 
     private static string BuildFooter(int pageNumber, int totalPages, bool partial, string reportTitle, string reportId)
     {
-        var title = string.IsNullOrWhiteSpace(reportTitle)
-            ? "تقرير المتابعة الإجرائية للمعاملات"
-            : reportTitle;
+        var title = EffectiveReportTitle(reportTitle);
         var id = string.IsNullOrWhiteSpace(reportId)
             ? "—"
             : reportId;
@@ -448,6 +449,11 @@ public sealed class InstitutionalReportRenderer
         </footer>
         """;
     }
+
+    private static string EffectiveReportTitle(string? reportTitle) =>
+        string.IsNullOrWhiteSpace(reportTitle)
+            ? DefaultReportTitle
+            : reportTitle;
 
     private static string RenderCover(InstitutionalReportModel model)
     {

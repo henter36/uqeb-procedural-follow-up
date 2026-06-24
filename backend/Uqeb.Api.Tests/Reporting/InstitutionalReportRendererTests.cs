@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
 using Uqeb.Api.Reporting.Rendering;
@@ -9,6 +10,9 @@ namespace Uqeb.Api.Tests.Reporting;
 
 public class InstitutionalReportRendererTests
 {
+    private const string TestReportTitle = "تقرير متابعة المعاملات المتأخرة";
+    private const string TestReportId = "REP-2026-000125";
+
     private readonly InstitutionalReportRenderer _renderer = new();
 
     [Fact]
@@ -42,6 +46,8 @@ public class InstitutionalReportRendererTests
         Assert.Equal(source.OverflowAction, result.OverflowAction);
         Assert.Equal(source.FileFingerprint, result.FileFingerprint);
         Assert.Equal(source.IsSummaryOnly, result.IsSummaryOnly);
+        Assert.Equal(source.ReportTitle, result.ReportTitle);
+        Assert.Equal(source.ReportId, result.ReportId);
         Assert.True(result.IsPartialExport);
     }
 
@@ -61,6 +67,8 @@ public class InstitutionalReportRendererTests
 
         Assert.Equal(source.LoadedDetailRows, result.LoadedDetailRows);
         Assert.Equal(source.TemplateVersion, result.TemplateVersion);
+        Assert.Equal(source.ReportTitle, result.ReportTitle);
+        Assert.Equal(source.ReportId, result.ReportId);
         Assert.Equal(2, result.Pages[0].RenderedPageNumber);
         Assert.Equal(3, result.Pages[1].RenderedPageNumber);
     }
@@ -88,6 +96,47 @@ public class InstitutionalReportRendererTests
     }
 
     [Fact]
+    public void RenderManifest_UsesRealReportTitleAndReportIdInFooter()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel(title: TestReportTitle);
+        model.Metadata.ReportNumber = TestReportId;
+
+        var manifest = _renderer.RenderManifest(model, [ReportSectionId.Cover, ReportSectionId.ExecutiveSummary]);
+        var html = InstitutionalReportRenderer.RenderHtmlDocument(manifest);
+
+        Assert.Equal(TestReportTitle, manifest.ReportTitle);
+        Assert.Equal(TestReportId, manifest.ReportId);
+        Assert.Contains($"""<span class="footer-title">{TestReportTitle}</span>""", html);
+        Assert.Contains($"""<span class="footer-id">{TestReportId}</span>""", html);
+        Assert.DoesNotContain($"""<span class="footer-title">{TestReportId}</span>""", html);
+    }
+
+    [Theory]
+    [InlineData(PageNumberingMode.Restart)]
+    [InlineData(PageNumberingMode.Original)]
+    public void BuildExportManifest_PartialExportKeepsRealFooterTitleAndReportId(PageNumberingMode numberingMode)
+    {
+        var source = CreateSourceManifest(3);
+        var manifest = _renderer.BuildExportManifest(source, [2], new ReportExportRequestDto
+        {
+            IncludePartialCover = true,
+            IncludePartialManifest = true,
+            PageNumberingMode = numberingMode,
+        });
+
+        Assert.Equal(source.ReportTitle, manifest.ReportTitle);
+        Assert.Equal(source.ReportId, manifest.ReportId);
+        Assert.Contains(manifest.Pages, page => page.SectionId == ReportSectionId.PartialCover);
+        Assert.Contains(manifest.Pages, page => page.SectionId == ReportSectionId.PartialManifest);
+        Assert.All(manifest.Pages, page =>
+        {
+            Assert.Contains($"""<span class="footer-title">نسخة جزئية — {source.ReportTitle}</span>""", page.HtmlContent);
+            Assert.Contains($"""<span class="footer-id">{source.ReportId}</span>""", page.HtmlContent);
+            Assert.DoesNotContain($"""<span class="footer-title">نسخة جزئية — {source.ReportId}</span>""", page.HtmlContent);
+        });
+    }
+
+    [Fact]
     public void InjectFooter_ReplacesExistingFooterInsteadOfDuplicating()
     {
         var source = CreateSourceManifest(1);
@@ -100,7 +149,47 @@ public class InstitutionalReportRendererTests
         var html = manifest.Pages[0].HtmlContent;
 
         Assert.Equal(1, CountOccurrences(html, "<footer class=\"report-footer\">"));
+        Assert.Contains($"""<span class="footer-title">{source.ReportTitle}</span>""", html);
+        Assert.Contains($"""<span class="footer-id">{source.ReportId}</span>""", html);
+        Assert.DoesNotContain($"""<span class="footer-title">{source.ReportId}</span>""", html);
         Assert.Contains("الصفحة 1 من 1", html);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void BuildExportManifest_UsesDefaultTitleFallbackWithoutUsingReportId(string? reportTitle)
+    {
+        var source = CreateSourceManifest(1);
+        source.ReportTitle = reportTitle!;
+
+        var manifest = _renderer.BuildExportManifest(source, [1], new ReportExportRequestDto());
+        var html = manifest.Pages.Single().HtmlContent;
+
+        Assert.Equal("تقرير المتابعة الإجرائية للمعاملات", manifest.ReportTitle);
+        Assert.Contains("""<span class="footer-title">تقرير المتابعة الإجرائية للمعاملات</span>""", html);
+        Assert.Contains($"""<span class="footer-id">{source.ReportId}</span>""", html);
+        Assert.DoesNotContain($"""<span class="footer-title">{source.ReportId}</span>""", html);
+    }
+
+    [Fact]
+    public void RenderedReportManifestDto_SerializesReportTitleAndReportIdSeparately()
+    {
+        var manifest = new RenderedReportManifestDto
+        {
+            ReportTitle = TestReportTitle,
+            ReportId = TestReportId,
+        };
+
+        var json = JsonSerializer.Serialize(manifest, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        });
+
+        using var document = JsonDocument.Parse(json);
+        Assert.Equal(TestReportTitle, document.RootElement.GetProperty("reportTitle").GetString());
+        Assert.Equal(TestReportId, document.RootElement.GetProperty("reportId").GetString());
     }
 
     [Fact]
@@ -211,6 +300,7 @@ public class InstitutionalReportRendererTests
 
         return new RenderedReportManifestDto
         {
+            ReportTitle = TestReportTitle,
             ReportId = "REP-TEST",
             TotalPages = pageCount,
             Pages = pages,

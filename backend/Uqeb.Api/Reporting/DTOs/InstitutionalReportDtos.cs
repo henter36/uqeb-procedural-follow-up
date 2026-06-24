@@ -180,6 +180,7 @@ public sealed record RenderedReportPageDto
 
 public sealed class RenderedReportManifestDto
 {
+    public string ReportTitle { get; set; } = string.Empty;
     public string ReportId { get; set; } = string.Empty;
     public int TotalPages { get; set; }
     public List<RenderedReportPageDto> Pages { get; set; } = [];
@@ -205,6 +206,7 @@ public sealed class RenderedReportManifestDto
 
     public RenderedReportManifestDto CloneWithoutHtml() => new()
     {
+        ReportTitle = ReportTitle,
         ReportId = ReportId,
         TotalPages = TotalPages,
         IsPartialExport = IsPartialExport,
