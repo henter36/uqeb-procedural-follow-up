@@ -151,8 +151,9 @@ public class InstitutionalReportPreviewIntegrationTests : IClassFixture<Institut
     public async Task Preview_WithInvalidDateRange_ReturnsBadRequest()
     {
         var requestBody = BuildRegressionRequest();
-        requestBody.Filters.DateFrom = DateTime.UtcNow.Date;
-        requestBody.Filters.DateTo = DateTime.UtcNow.Date.AddDays(-10);
+        var today = DateTime.UtcNow.Date;
+        requestBody.Filters.DateFrom = today;
+        requestBody.Filters.DateTo = today.AddDays(-10);
 
         using var request = CreateAuthorizedRequest("Admin", requestBody);
         var response = await _client.SendAsync(request);

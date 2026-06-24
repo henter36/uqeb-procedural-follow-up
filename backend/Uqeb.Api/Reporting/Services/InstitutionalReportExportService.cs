@@ -179,15 +179,9 @@ public sealed class InstitutionalReportExportService : IInstitutionalReportExpor
             await exportScope.LogCancelledAsync();
             throw;
         }
-        catch (ReportingExportRejectedException)
-        {
-            throw;
-        }
-        catch (ReportingConfigurationException)
-        {
-            throw;
-        }
-        catch (Exception ex)
+        catch (Exception ex) when (
+            ex is not ReportingExportRejectedException &&
+            ex is not ReportingConfigurationException)
         {
             await exportScope.LogFailedAsync("export_failed");
             _logger.LogError(

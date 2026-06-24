@@ -155,13 +155,14 @@ public class InstitutionalReportPreviewSqlServerIntegrationTests
         var context = await CreateServiceWithSequenceTableAsync();
         try
         {
+            var expectedYear = DateTime.UtcNow.Year;
             var result = await context.Service.ExportAsync(new ReportExportRequestDto
             {
                 ExportFormat = ExportFormat.Html,
                 BuildRequest = BuildRegressionRequest(),
             });
 
-            Assert.StartsWith($"REP-{DateTime.UtcNow.Year}-", result.Manifest!.ReportId);
+            Assert.StartsWith($"REP-{expectedYear}-", result.Manifest!.ReportId);
 
             await using var db = context.DbFactory.CreateDbContext();
             var sequence = Assert.Single(db.ReportNumberSequences);

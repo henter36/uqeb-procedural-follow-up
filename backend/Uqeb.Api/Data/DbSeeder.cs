@@ -10,7 +10,10 @@ public static class DbSeeder
 {
     public static async Task SeedAsync(AppDbContext db)
     {
-        await db.Database.MigrateAsync();
+        if (db.Database.IsRelational())
+            await db.Database.MigrateAsync();
+        else
+            await db.Database.EnsureCreatedAsync();
 
         if (!await db.LetterTemplates.AnyAsync(t => t.Code == LetterTemplateService.FollowUpTemplateCode))
         {

@@ -240,6 +240,47 @@ describe('ReportBuilderPage export dialog', () => {
     });
   });
 
+  it('does not reopen export dialog after new preview unless user clicks export', async () => {
+    const freshManifest = {
+      ...mockManifest,
+      reportId: 'fresh-report',
+      pages: [{ originalPageNumber: 1, sectionName: 'جديد', htmlContent: '<p>fresh</p>' }],
+    };
+
+    vi.mocked(services.institutionalReportsApi.preview)
+      .mockResolvedValueOnce({ data: mockManifest } as never)
+      .mockResolvedValueOnce({ data: freshManifest } as never);
+
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'تصدير' })).not.toBeDisabled();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'تصدير' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText('من تاريخ'));
+    await user.type(screen.getByLabelText('من تاريخ'), '2026-01-01');
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'تصدير' })).toBeDisabled();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'تصدير' })).not.toBeDisabled();
+    });
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'تصدير' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
   it('shows copied feedback after copying correlation id', async () => {
     const previewError = new axios.AxiosError(
       'Request failed',

@@ -65,8 +65,8 @@ export function useReportBuilderExport({
   setErrorCorrelationId,
 }: UseReportBuilderExportParams): UseReportBuilderExportResult {
   const exportDialogRef = useRef<HTMLDialogElement>(null);
-  const [exportDialogRequested, setExportDialogRequested] = useState(false);
-  const exportOpen = exportDialogRequested && manifest !== null;
+  const [exportDialogManifestId, setExportDialogManifestId] = useState<string | null>(null);
+  const exportOpen = manifest !== null && exportDialogManifestId === manifest.reportId;
   const [exportMode, setExportMode] = useState<typeof ExportMode[keyof typeof ExportMode]>(ExportMode.FullReport);
   const [exportFormat, setExportFormat] = useState<typeof ExportFormat[keyof typeof ExportFormat]>(ExportFormat.Pdf);
   const [pageNumberingMode, setPageNumberingMode] = useState<typeof PageNumberingMode[keyof typeof PageNumberingMode]>(
@@ -89,9 +89,9 @@ export function useReportBuilderExport({
     if (!manifest)
       return;
 
-    setExportDialogRequested(true);
+    setExportDialogManifestId(manifest.reportId);
   }, [manifest]);
-  const closeExportDialog = useCallback(() => setExportDialogRequested(false), []);
+  const closeExportDialog = useCallback(() => setExportDialogManifestId(null), []);
 
   const handleExportDialogCancel = useCallback((event: SyntheticEvent) => {
     event.preventDefault();

@@ -148,6 +148,7 @@ public class InstitutionalReportServiceBuildValidationTests
     public async Task RenderPreviewAsync_ThrowsValidationProblem_WhenDateRangeInvalid()
     {
         var service = InstitutionalReportServiceTestHelpers.CreateService();
+        var today = DateTime.UtcNow.Date;
 
         var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.RenderPreviewAsync(new ReportBuildRequestDto
         {
@@ -155,8 +156,8 @@ public class InstitutionalReportServiceBuildValidationTests
             SectionIds = [ReportSectionId.Cover],
             Filters = new ReportFiltersDto
             {
-                DateFrom = DateTime.UtcNow.Date,
-                DateTo = DateTime.UtcNow.Date.AddDays(-1),
+                DateFrom = today,
+                DateTo = today.AddDays(-1),
             },
         }));
 

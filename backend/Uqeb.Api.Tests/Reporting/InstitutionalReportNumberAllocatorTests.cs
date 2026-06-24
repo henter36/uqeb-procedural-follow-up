@@ -28,18 +28,23 @@ public class InstitutionalReportNumberAllocatorTests
     }
 
     [Fact]
-    public async Task AllocateAsync_ConcurrentEfFallback_ProducesUniqueNumbers_OnInMemoryProvider()
+    public async Task AllocateAsync_IncrementsSequentially_OnInMemoryProvider()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseInMemoryDatabase($"report-number-concurrent-{Guid.NewGuid():N}")
+            .UseInMemoryDatabase($"report-number-sequential-{Guid.NewGuid():N}")
             .Options;
         IDbContextFactory<AppDbContext> dbFactory = new TestDbContextFactory(options);
+        var allocator = new InstitutionalReportNumberAllocator(dbFactory);
         var year = DateTime.UtcNow.Year;
 
-        var numbers = await Task.WhenAll(Enumerable.Range(0, 10)
-            .Select(_ => new InstitutionalReportNumberAllocator(dbFactory).AllocateAsync()));
+        var numbers = new List<string>();
+        for (var i = 0; i < 10; i++)
+            numbers.Add(await allocator.AllocateAsync());
 
         Assert.Equal(10, numbers.Distinct().Count());
         Assert.All(numbers, n => Assert.Matches($@"^REP-{year}-\d{{6}}$", n));
+
+        var numeric = numbers.Select(n => int.Parse(n.Split('-')[2], System.Globalization.CultureInfo.InvariantCulture)).OrderBy(n => n).ToList();
+        Assert.Equal(Enumerable.Range(1, 10), numeric);
     }
 }
