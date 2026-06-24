@@ -30,6 +30,10 @@ internal static class HealthTestHostBuilder
             ["ConnectionStrings:DefaultConnection"] = "Server=(localdb)\\mssqllocaldb;Database=unused;Trusted_Connection=True;",
             ["HealthChecks:DatabaseTimeoutSeconds"] = "5",
             ["FeatureFlags:InstitutionalReports"] = "false",
+            ["DatabaseStartup:RunMigrationsOnStartup"] = "false",
+            ["DatabaseStartup:RunReferenceSeedOnStartup"] = "false",
+            ["DatabaseStartup:RunDefaultUsersSeedOnStartup"] = "false",
+            ["DatabaseStartup:RunDemoSeedOnStartup"] = "false",
         };
 
         if (extraConfig is not null)
