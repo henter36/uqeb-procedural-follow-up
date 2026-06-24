@@ -40,19 +40,6 @@ public sealed class ReportingReadinessService : IReportingReadinessService
 
     public ReportingReadinessDto GetReadiness()
     {
-        var tempWritable = false;
-        try
-        {
-            var probe = Path.Combine(Path.GetTempPath(), $"uqeb-report-probe-{Guid.NewGuid():N}.tmp");
-            File.WriteAllText(probe, "ok");
-            File.Delete(probe);
-            tempWritable = true;
-        }
-        catch
-        {
-            tempWritable = false;
-        }
-
         var stylesheetAvailable = false;
         try
         {
@@ -68,9 +55,39 @@ public sealed class ReportingReadinessService : IReportingReadinessService
             FeatureEnabled = _featureFlags.InstitutionalReports,
             FontAssetsAvailable = InstitutionalReportFontAssets.BuildFontFaceCss().Contains("@font-face"),
             StylesheetAvailable = stylesheetAvailable,
-            TempDirectoryWritable = tempWritable,
+            TempDirectoryWritable = CanWriteToTempDirectory(),
             ConfigurationValid = _options.MaxPreviewDetailRows > 0 && _options.MaxPdfDetailRows > 0,
             ChromiumStatus = "Use pdf-linux CI job or local Playwright install to verify Chromium.",
         };
+    }
+
+    internal static bool CanWriteToTempDirectory()
+    {
+        var tempWritable = false;
+        var probePath = Path.Combine(Path.GetTempPath(), $"uqeb-report-probe-{Guid.NewGuid():N}.tmp");
+
+        try
+        {
+            File.WriteAllText(probePath, "ok");
+            tempWritable = true;
+        }
+        catch
+        {
+            tempWritable = false;
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(probePath))
+                    File.Delete(probePath);
+            }
+            catch
+            {
+                // Cleanup failure must not crash readiness.
+            }
+        }
+
+        return tempWritable;
     }
 }

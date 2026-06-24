@@ -1,4 +1,7 @@
+using System.Globalization;
+using System.Net;
 using System.Text;
+using System.Text.RegularExpressions;
 using Uqeb.Api.Reporting.Assets;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
@@ -8,6 +11,26 @@ namespace Uqeb.Api.Reporting.Services;
 
 public sealed class InstitutionalReportRenderer
 {
+    private const string DateFormat = "yyyy-MM-dd";
+    private const string DateTimeFormat = "yyyy-MM-dd HH:mm";
+
+    private static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromMilliseconds(250);
+
+    private static readonly Regex JavascriptProtocolRegex = new(
+        @"javascript\s*:",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled,
+        RegexMatchTimeout);
+
+    private static readonly Regex FileProtocolRegex = new(
+        @"file\s*://",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled,
+        RegexMatchTimeout);
+
+    private static readonly Regex ExternalHttpUrlRegex = new(
+        @"https?://[^\s<>&""']+",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled,
+        RegexMatchTimeout);
+
     public RenderedReportManifestDto RenderManifest(
         InstitutionalReportModel model,
         IReadOnlyList<ReportSectionId> sections,
@@ -363,12 +386,12 @@ public sealed class InstitutionalReportRenderer
           <div class="cover-main">
             <div style="font-size:13px;color:var(--report-secondary);font-weight:700;">{Esc(m.OrganizationName)}</div>
             <h1 class="cover-title">{Esc(m.Title)}</h1>
-            <div class="cover-period">الفترة من {m.PeriodFrom:yyyy-MM-dd} إلى {m.PeriodTo:yyyy-MM-dd}</div>
+            <div class="cover-period">الفترة من {FormatDate(m.PeriodFrom)} إلى {FormatDate(m.PeriodTo)}</div>
             {partialBadge}
             <dl class="info-card">
               <dt>رقم التقرير</dt><dd>{Esc(m.ReportNumber)}</dd>
               <dt>نوع التقرير</dt><dd>{Esc(m.ReportTypeName)}</dd>
-              <dt>تاريخ الإصدار</dt><dd>{m.IssueDate:yyyy-MM-dd}</dd>
+              <dt>تاريخ الإصدار</dt><dd>{FormatDate(m.IssueDate)}</dd>
               {scopeNote}
               {confidentiality}
               <dt>إجمالي الصفحات</dt><dd>{totalPages}</dd>
@@ -377,7 +400,7 @@ public sealed class InstitutionalReportRenderer
               <div class="qr-box" aria-hidden="true">QR<br/>{Esc(m.VerificationId)}</div>
               <div style="font-size:11px;color:var(--report-secondary);line-height:1.7;">
                 معرف التحقق: {Esc(m.VerificationId)}<br/>
-                وقت الإنشاء: {m.GeneratedAt:yyyy-MM-dd HH:mm}<br/>
+                وقت الإنشاء: {FormatDateTime(m.GeneratedAt)}<br/>
                 إجمالي النتائج المطابقة: {model.TotalMatchedRows:N0}<br/>
                 البصمة: {Esc(m.FileFingerprint ?? "—")}
               </div>
@@ -535,7 +558,7 @@ public sealed class InstitutionalReportRenderer
     private static string RenderTransactions(InstitutionalReportModel model, List<TransactionDetailRowDto> rows)
     {
         var body = string.Join(string.Empty, rows.Select(r =>
-            $"<tr><td>{r.Sequence}</td><td>{Esc(r.TrackingNumber)}</td><td>{Esc(r.IncomingNumber)}</td><td>{r.IncomingDate:yyyy-MM-dd}</td><td>{Esc(r.Subject)}</td><td>{Esc(r.IncomingParty)}</td><td>{Esc(r.ResponsibleDepartment)}</td><td>{Esc(r.JointDepartments)}</td><td>{Esc(r.Priority)}</td><td>{Esc(r.Status)}</td><td>{Esc(r.FollowUpStage)}</td><td>{r.ElapsedDays}</td><td>{Esc(r.DueDate ?? "—")}</td><td>{Esc(r.LastActionDate ?? "—")}</td><td>{Esc(r.ResponseState)}</td></tr>"));
+            $"<tr><td>{r.Sequence}</td><td>{Esc(r.TrackingNumber)}</td><td>{Esc(r.IncomingNumber)}</td><td>{FormatDate(r.IncomingDate)}</td><td>{Esc(r.Subject)}</td><td>{Esc(r.IncomingParty)}</td><td>{Esc(r.ResponsibleDepartment)}</td><td>{Esc(r.JointDepartments)}</td><td>{Esc(r.Priority)}</td><td>{Esc(r.Status)}</td><td>{Esc(r.FollowUpStage)}</td><td>{r.ElapsedDays}</td><td>{Esc(r.DueDate ?? "—")}</td><td>{Esc(r.LastActionDate ?? "—")}</td><td>{Esc(r.ResponseState)}</td></tr>"));
         var totalResults = model.TotalMatchedRows > 0 ? model.TotalMatchedRows : model.Transactions.Count;
         var pageNote = rows.Count < totalResults
             ? $" — عرض {rows.Count:N0} صف في هذه الصفحة من {model.ExportedDetailRows:N0} صفًا مصدَّرًا"
@@ -546,7 +569,7 @@ public sealed class InstitutionalReportRenderer
         return $"""
         <h2 class="section-title">المعاملات التفصيلية</h2>
         {truncationNote}
-        <p style="font-size:12px;color:#2F6B58;">إجمالي النتائج: {totalResults:N0} معاملة{pageNote} — الفترة {model.Metadata.PeriodFrom:yyyy-MM-dd} إلى {model.Metadata.PeriodTo:yyyy-MM-dd}</p>
+        <p style="font-size:12px;color:#2F6B58;">إجمالي النتائج: {totalResults:N0} معاملة{pageNote} — الفترة {FormatDate(model.Metadata.PeriodFrom)} إلى {FormatDate(model.Metadata.PeriodTo)}</p>
         <table class="report-table"><thead><tr>
           <th>م</th><th>رقم المعاملة</th><th>رقم الوارد</th><th>تاريخ الوارد</th><th>الموضوع</th><th>الجهة</th>
           <th>الإدارة المختصة</th><th>الإدارات المشتركة</th><th>الأولوية</th><th>الحالة</th><th>مرحلة المتابعة</th>
@@ -565,8 +588,8 @@ public sealed class InstitutionalReportRenderer
         <dl class="info-card">
           <dt>رقم التقرير</dt><dd>{Esc(model.Metadata.ReportNumber)}</dd>
           <dt>نوع التقرير</dt><dd>{Esc(model.Metadata.ReportTypeName)}</dd>
-          <dt>الفترة</dt><dd>{model.Metadata.PeriodFrom:yyyy-MM-dd} — {model.Metadata.PeriodTo:yyyy-MM-dd}</dd>
-          <dt>تاريخ الإنشاء</dt><dd>{model.Metadata.GeneratedAt:yyyy-MM-dd HH:mm}</dd>
+          <dt>الفترة</dt><dd>{FormatDate(model.Metadata.PeriodFrom)} — {FormatDate(model.Metadata.PeriodTo)}</dd>
+          <dt>تاريخ الإنشاء</dt><dd>{FormatDateTime(model.Metadata.GeneratedAt)}</dd>
           <dt>إجمالي النتائج المطابقة</dt><dd>{model.TotalMatchedRows:N0}</dd>
           <dt>صفوف التفاصيل المحمّلة</dt><dd>{model.Transactions.Count:N0}</dd>
           <dt>صفوف التفاصيل المصدرة</dt><dd>{model.ExportedDetailRows:N0}</dd>
@@ -584,7 +607,11 @@ public sealed class InstitutionalReportRenderer
     {
         var parts = new List<string>();
         if (filters.DateFrom.HasValue || filters.DateTo.HasValue)
-            parts.Add($"التاريخ: {filters.DateFrom:yyyy-MM-dd} — {filters.DateTo:yyyy-MM-dd}");
+        {
+            var from = filters.DateFrom.HasValue ? FormatDate(filters.DateFrom.Value) : "—";
+            var to = filters.DateTo.HasValue ? FormatDate(filters.DateTo.Value) : "—";
+            parts.Add($"التاريخ: {from} — {to}");
+        }
         if (filters.DepartmentIds.Count > 0)
             parts.Add($"إدارات: {filters.DepartmentIds.Count}");
         if (filters.PartyIds.Count > 0)
@@ -610,7 +637,7 @@ public sealed class InstitutionalReportRenderer
                 <dl class="info-card">
                   <dt>رقم التقرير الأصلي</dt><dd>{Esc(source.ReportId)}</dd>
                   <dt>الصفحات المضمنة</dt><dd>{string.Join(", ", selected.Select(p => p.OriginalPageNumber))}</dd>
-                  <dt>تاريخ التصدير</dt><dd>{DateTime.UtcNow:yyyy-MM-dd}</dd>
+                  <dt>تاريخ التصدير</dt><dd>{FormatDate(DateTime.UtcNow)}</dd>
                 </dl>
                 """, 0, 0, partial: true)
         };
@@ -632,27 +659,29 @@ public sealed class InstitutionalReportRenderer
                 """, 0, 0, partial: true)
         };
 
+    private static string FormatDate(DateTime value) =>
+        value.ToString(DateFormat, CultureInfo.InvariantCulture);
+
+    private static string FormatDateTime(DateTime value) =>
+        value.ToString(DateTimeFormat, CultureInfo.InvariantCulture);
+
     private static string Esc(string? value)
     {
-        var encoded = System.Net.WebUtility.HtmlEncode(value ?? string.Empty);
+        var encoded = WebUtility.HtmlEncode(value ?? string.Empty);
         if (encoded.Length == 0)
             return encoded;
 
-        encoded = System.Text.RegularExpressions.Regex.Replace(
-            encoded,
-            @"javascript\s*:",
-            "javascript&#58;",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        encoded = System.Text.RegularExpressions.Regex.Replace(
-            encoded,
-            @"file\s*://",
-            "file&#58;//",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        encoded = System.Text.RegularExpressions.Regex.Replace(
-            encoded,
-            @"https?://[^\s<>&""']+",
-            "[رابط خارجي]",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        return encoded;
+        try
+        {
+            encoded = JavascriptProtocolRegex.Replace(encoded, "javascript&#58;");
+            encoded = FileProtocolRegex.Replace(encoded, "file&#58;//");
+            encoded = ExternalHttpUrlRegex.Replace(encoded, "[رابط خارجي]");
+            return encoded;
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            throw new InvalidOperationException(
+                "تعذر معالجة نص التقرير بأمان بسبب تجاوز مهلة التحقق.");
+        }
     }
 }

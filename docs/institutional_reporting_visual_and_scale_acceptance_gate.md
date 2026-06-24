@@ -44,9 +44,12 @@ KPI/metrics always computed from full matched population. Detail tables may be s
 
 - Tests: `backend/Uqeb.Api.Tests/Reporting/Visual/`
 - CI job: `visual-regression` (Ubuntu + Chromium, locale `ar-SA`, timezone `Asia/Riyadh`)
-- Baselines: `Reporting/Visual/Baselines/*.png`
+- **Visual structural regression: PASS** (section text + screenshot size drift ±5%)
+- **Committed pixel baselines: NOT IMPLEMENTED**
+- **Production visual sign-off: DEFERRED**
 - On failure: `*.actual.png` uploaded as artifact
 - **Do not auto-update baselines in CI.** Commit baseline PNG updates intentionally after visual review.
+- This PR is a **visual acceptance foundation**, not production activation (`InstitutionalReports=false`).
 
 ## Local commands
 
