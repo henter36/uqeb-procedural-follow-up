@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
+import { MemoryRouter } from 'react-router-dom';
 import ReportBuilderPage from './ReportBuilder';
 import { buildReportExportPageSelection, defaultDate } from './reportBuilderHelpers';
 import {
@@ -12,6 +13,20 @@ import {
 } from './reportBuilderHelpers';
 import { ExportMode, ExportFormat, DetailOverflowAction } from '../api/institutionalReports.constants';
 import * as services from '../api/services';
+
+const mockUseAuth = vi.fn(() => ({
+  isAdmin: true,
+  canClose: true,
+  canEdit: true,
+  isDepartmentUser: false,
+  user: { fullName: 'مختبر', role: 'Admin' },
+  logout: vi.fn(),
+  login: vi.fn(),
+}));
+
+vi.mock('../context/useAuth', () => ({
+  useAuth: () => mockUseAuth(),
+}));
 
 vi.mock('../api/services', () => ({
   institutionalReportsApi: {
@@ -101,6 +116,15 @@ describe('ReportBuilderPage export dialog', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseAuth.mockReturnValue({
+      isAdmin: true,
+      canClose: true,
+      canEdit: true,
+      isDepartmentUser: false,
+      user: { fullName: 'مختبر', role: 'Admin' },
+      logout: vi.fn(),
+      login: vi.fn(),
+    });
     vi.mocked(services.institutionalReportsApi.preview).mockResolvedValue({ data: mockManifest } as never);
     clipboardWriteText = vi.fn().mockResolvedValue(undefined);
     navigator.clipboard.writeText = clipboardWriteText;
@@ -348,6 +372,80 @@ describe('ReportBuilderPage export dialog', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'نسخ رقم التتبع' })).toBeInTheDocument();
+    });
+  });
+
+  it('redirects non-admin users away from the page', () => {
+    mockUseAuth.mockReturnValue({
+      isAdmin: false,
+      canClose: true,
+      canEdit: true,
+      isDepartmentUser: false,
+      user: { fullName: 'مشرف', role: 'Supervisor' },
+      logout: vi.fn(),
+      login: vi.fn(),
+    });
+
+    const { container } = render(
+      <MemoryRouter>
+        <ReportBuilderPage />
+      </MemoryRouter>,
+    );
+
+    expect(container.innerHTML).not.toContain('منشئ التقارير');
+    expect(screen.queryByRole('button', { name: 'معاينة التقرير' })).not.toBeInTheDocument();
+  });
+
+  it('does not call preview API for non-admin users', async () => {
+    mockUseAuth.mockReturnValue({
+      isAdmin: false,
+      canClose: true,
+      canEdit: true,
+      isDepartmentUser: false,
+      user: { fullName: 'مشرف', role: 'Supervisor' },
+      logout: vi.fn(),
+      login: vi.fn(),
+    });
+
+    render(
+      <MemoryRouter>
+        <ReportBuilderPage />
+      </MemoryRouter>,
+    );
+
+    expect(vi.mocked(services.institutionalReportsApi.preview)).not.toHaveBeenCalled();
+  });
+
+  it('shows export correlation id from response header when blob body omits it', async () => {
+    vi.mocked(services.institutionalReportsApi.preview).mockResolvedValue({ data: mockManifest } as never);
+    const exportError = new axios.AxiosError(
+      'Request failed',
+      'ERR_BAD_RESPONSE',
+      undefined,
+      undefined,
+      {
+        status: 500,
+        statusText: 'Internal Server Error',
+        headers: { 'x-correlation-id': 'corr-blob-header' },
+        config: { headers: new axios.AxiosHeaders() },
+        data: new Blob([JSON.stringify({ message: 'تعذر تصدير التقرير.' })], { type: 'application/json' }),
+      },
+    );
+    vi.mocked(services.institutionalReportsApi.export).mockRejectedValueOnce(exportError);
+
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'تصدير' })).not.toBeDisabled();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'تصدير' }));
+    await user.click(screen.getByRole('button', { name: 'تنفيذ التصدير' }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/رقم التتبع: corr-blob-header/)).toBeInTheDocument();
     });
   });
 });

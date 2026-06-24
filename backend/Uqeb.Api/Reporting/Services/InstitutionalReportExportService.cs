@@ -173,7 +173,7 @@ public sealed class InstitutionalReportExportService : IInstitutionalReportExpor
                 ReportingErrorCodes.ExportTimeout,
                 "انتهت مهلة تصدير التقرير.",
                 StatusCodes.Status503ServiceUnavailable,
-                innerException: ex);
+                ex);
         }
         catch (OperationCanceledException)
         {
@@ -510,13 +510,5 @@ public sealed class InstitutionalReportExportService : IInstitutionalReportExpor
                 : $"{baseName}-PAGES-{Guid.NewGuid().ToString("N")[..8]}.{extension}",
             _ => $"{baseName}-FULL.{extension}",
         };
-    }
-}
-
-internal sealed class InstitutionalReportExportException : Exception
-{
-    public InstitutionalReportExportException(string message, Exception innerException)
-        : base(message, innerException)
-    {
     }
 }

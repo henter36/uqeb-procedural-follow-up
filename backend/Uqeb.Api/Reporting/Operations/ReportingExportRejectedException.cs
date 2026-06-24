@@ -17,6 +17,15 @@ public sealed class ReportingExportRejectedException : Exception
         RetryAfterSeconds = retryAfterSeconds;
     }
 
+    public ReportingExportRejectedException(
+        string errorCode,
+        string message,
+        int statusCode,
+        Exception innerException)
+        : this(errorCode, message, statusCode, null, innerException)
+    {
+    }
+
     public string ErrorCode { get; }
     public int StatusCode { get; }
     public int? RetryAfterSeconds { get; }

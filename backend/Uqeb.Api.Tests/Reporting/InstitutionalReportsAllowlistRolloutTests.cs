@@ -130,7 +130,7 @@ public class InstitutionalReportsObserveOnlyRolloutTests : IClassFixture<Institu
     }
 
     [Fact]
-    public async Task Supervisor_Allowed_InObserveOnlyMode()
+    public async Task Supervisor_ReturnsForbidden_InObserveOnlyMode()
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, "/api/institutional-reports/templates")
         {
@@ -144,7 +144,7 @@ public class InstitutionalReportsObserveOnlyRolloutTests : IClassFixture<Institu
 
         var response = await _client.SendAsync(request);
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 }
 

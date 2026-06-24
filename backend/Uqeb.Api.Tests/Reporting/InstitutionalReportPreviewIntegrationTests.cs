@@ -58,12 +58,12 @@ public class InstitutionalReportPreviewIntegrationTests : IClassFixture<Institut
     }
 
     [Fact]
-    public async Task Preview_AuthorizedSupervisor_ReturnsOk()
+    public async Task Preview_AuthorizedSupervisor_ReturnsForbidden()
     {
         using var request = CreateAuthorizedRequest("Supervisor", BuildRegressionRequest(), _factory.DeptAId);
         var response = await _client.SendAsync(request);
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]

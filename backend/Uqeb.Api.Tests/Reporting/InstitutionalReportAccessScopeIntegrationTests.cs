@@ -44,7 +44,7 @@ public class InstitutionalReportAccessScopeIntegrationTests : IClassFixture<Inst
     }
 
     [Fact]
-    public async Task Preview_SupervisorWithoutDepartmentId_ReturnsValidationProblem()
+    public async Task Preview_SupervisorWithoutDepartmentId_ReturnsForbidden()
     {
         _client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateToken("Supervisor"));
@@ -53,13 +53,11 @@ public class InstitutionalReportAccessScopeIntegrationTests : IClassFixture<Inst
             "/api/institutional-reports/preview",
             BuildPreviewRequest());
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        var body = await response.Content.ReadAsStringAsync();
-        Assert.Contains("departmentId", body, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]
-    public async Task Preview_SupervisorWithDepartmentSeesOnlyOwnDepartmentTransactions()
+    public async Task Preview_SupervisorWithDepartment_ReturnsForbidden()
     {
         _client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateToken("Supervisor", _factory.DeptAId));
@@ -68,14 +66,11 @@ public class InstitutionalReportAccessScopeIntegrationTests : IClassFixture<Inst
             "/api/institutional-reports/preview",
             BuildPreviewRequest());
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var manifest = await response.Content.ReadFromJsonAsync<RenderedReportManifestDto>();
-        Assert.NotNull(manifest);
-        Assert.Equal(1, manifest!.TotalMatchedRows);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]
-    public async Task Preview_SupervisorCannotSeeOtherDepartmentTransactions()
+    public async Task Preview_SupervisorFromOtherDepartment_ReturnsForbidden()
     {
         _client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateToken("Supervisor", _factory.DeptBId));
@@ -84,10 +79,7 @@ public class InstitutionalReportAccessScopeIntegrationTests : IClassFixture<Inst
             "/api/institutional-reports/preview",
             BuildPreviewRequest());
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var manifest = await response.Content.ReadFromJsonAsync<RenderedReportManifestDto>();
-        Assert.NotNull(manifest);
-        Assert.Equal(1, manifest!.TotalMatchedRows);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     private static ReportBuildRequestDto BuildPreviewRequest() => new()

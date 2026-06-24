@@ -160,10 +160,20 @@ export function useReportBuilderExport({
       downloadBlob(blob, `institutional-report.${ext}`);
       closeExportDialog();
     } catch (err) {
-      const blobDetails = axios.isAxiosError(err) && err.response?.data instanceof Blob
-        ? await parseApiErrorResponseData(err.response.data)
-        : null;
-      const details = blobDetails ?? getApiErrorDetails(err);
+      const axiosDetails = getApiErrorDetails(err);
+
+      const blobDetails =
+        axios.isAxiosError(err) && err.response?.data instanceof Blob
+          ? await parseApiErrorResponseData(err.response.data)
+          : null;
+
+      const details = blobDetails
+        ? {
+            ...blobDetails,
+            correlationId: blobDetails.correlationId || axiosDetails.correlationId,
+            httpStatus: axiosDetails.httpStatus,
+          }
+        : axiosDetails;
       const overflowMessage = details.validationErrors.detailOverflowAction;
 
       if (overflowMessage) {

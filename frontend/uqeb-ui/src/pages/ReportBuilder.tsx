@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { institutionalReportsApi, type InstitutionalReportManifest, type ReportBuildRequest } from '../api/services';
 import {
   DetailOverflowAction,
@@ -17,6 +18,7 @@ import {
 } from './reportBuilderHelpers';
 import { useReportBuilderExport } from './useReportBuilderExport';
 import { ReportPreviewDocument } from './ReportPreviewDocument';
+import { useAuth } from '../context/useAuth';
 import '../styles/institutional-report.css';
 
 const REPORT_TYPES = [
@@ -39,6 +41,7 @@ const SECTIONS = [
 ] as const;
 
 export default function ReportBuilderPage() {
+  const { isAdmin } = useAuth();
   const [reportType, setReportType] = useState<typeof InstitutionalReportType[keyof typeof InstitutionalReportType]>(
     InstitutionalReportType.ExecutiveComprehensive,
   );
@@ -125,6 +128,9 @@ export default function ReportBuilderPage() {
   });
 
   const loadPreview = async () => {
+    if (!isAdmin)
+      return;
+
     const requestId = previewRequestIdRef.current + 1;
     previewRequestIdRef.current = requestId;
     setLoading(true);
@@ -200,6 +206,9 @@ export default function ReportBuilderPage() {
     setSelectedPages([]);
     setPageRange(value);
   };
+
+  if (!isAdmin)
+    return <Navigate to="/" replace />;
 
   return (
     <div className="report-builder">
