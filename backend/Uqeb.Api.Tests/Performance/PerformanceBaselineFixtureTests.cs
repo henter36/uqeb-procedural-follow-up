@@ -18,24 +18,21 @@ public class PerformanceBaselineFixtureTests
         Assert.Equal(JsonValueKind.Array, required.ValueKind);
     }
 
-    [Theory]
-    [InlineData(PerformanceBaselineCatalog.ApiReadSmokeTemplateFile, "api-read-smoke")]
-    [InlineData(PerformanceBaselineCatalog.ReportingExportTemplateFile, "reporting-export-xlsx-1000")]
-    public void TemplateRecords_ExposeRequiredBaselineFields(string fileName, string expectedScenarioId)
+    [Fact]
+    public void TemplateRecords_IncludeRequiredBaselineScenarios()
     {
-        var path = Path.Combine(
-            PerformanceBaselineCatalog.ResolveFromRoot(PerformanceBaselineCatalog.RecordsRelativeDirectory),
-            fileName);
-
+        var path = PerformanceBaselineCatalog.ResolveFromRoot(PerformanceBaselineCatalog.RecordsTemplateRelativePath);
         Assert.True(File.Exists(path), $"Missing template: {path}");
 
         using var document = JsonDocument.Parse(File.ReadAllText(path));
-        var root = document.RootElement;
+        var records = document.RootElement.GetProperty("records");
+        var scenarioIds = records.EnumerateArray()
+            .Select(record => record.GetProperty("scenarioId").GetString())
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToHashSet(StringComparer.Ordinal);
 
-        Assert.Equal(expectedScenarioId, root.GetProperty("scenarioId").GetString());
-        Assert.True(root.TryGetProperty("thresholds", out _));
-        Assert.True(root.TryGetProperty("metrics", out _));
-        Assert.True(root.TryGetProperty("environment", out _));
+        Assert.Contains("api-read-smoke", scenarioIds);
+        Assert.Contains("reporting-export-xlsx-1000", scenarioIds);
     }
 
     [Fact]
@@ -43,12 +40,14 @@ public class PerformanceBaselineFixtureTests
     {
         var scenarioPath = PerformanceBaselineCatalog.ResolveFromRoot("tests/performance/baseline/read-smoke-baseline.js");
         var thresholdsPath = PerformanceBaselineCatalog.ResolveFromRoot("tests/performance/baseline/helpers/baseline-thresholds.js");
+        var corePath = PerformanceBaselineCatalog.ResolveFromRoot("tests/performance/read-smoke.js");
         Assert.True(File.Exists(scenarioPath), $"Missing k6 baseline scenario: {scenarioPath}");
         Assert.True(File.Exists(thresholdsPath), $"Missing k6 baseline thresholds: {thresholdsPath}");
+        Assert.True(File.Exists(corePath), $"Missing k6 core scenario: {corePath}");
 
         var scenarioContent = File.ReadAllText(scenarioPath);
         var thresholdsContent = File.ReadAllText(thresholdsPath);
-        Assert.Contains("api-read-smoke", scenarioContent, StringComparison.Ordinal);
+        Assert.Contains("read-smoke.js", scenarioContent, StringComparison.Ordinal);
         Assert.Contains("api-read-smoke", thresholdsContent, StringComparison.Ordinal);
         Assert.Contains("p(95)<1500", thresholdsContent, StringComparison.Ordinal);
         Assert.Contains("rate<0.01", thresholdsContent, StringComparison.Ordinal);

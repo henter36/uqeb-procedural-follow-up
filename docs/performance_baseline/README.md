@@ -21,7 +21,7 @@ export UQEB_TEST_PASSWORD="set-in-env"
 k6 run tests/performance/baseline/read-smoke-baseline.js
 ```
 
-Copy the summary metrics into a new file under `artifacts/performance-baseline/` using the template in `records/api-read-smoke.template.json`.
+Copy the summary metrics into `artifacts/performance-baseline/` using `records/baseline-records.template.json` as the shape guide.
 
 ## Record a baseline (reporting export)
 

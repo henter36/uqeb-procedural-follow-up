@@ -3,9 +3,7 @@ namespace Uqeb.Api.Tests.Performance.Fixtures;
 public static class PerformanceBaselineCatalog
 {
     public const string SchemaRelativePath = "docs/performance_baseline/schema.json";
-    public const string RecordsRelativeDirectory = "docs/performance_baseline/records";
-    public const string ApiReadSmokeTemplateFile = "api-read-smoke.template.json";
-    public const string ReportingExportTemplateFile = "reporting-export-xlsx-1000.template.json";
+    public const string RecordsTemplateRelativePath = "docs/performance_baseline/records/baseline-records.template.json";
     public const string ArtifactsRelativeDirectory = "artifacts/performance-baseline";
 
     public static string ResolveRepositoryRoot()

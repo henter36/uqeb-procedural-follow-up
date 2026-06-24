@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "records": [
+    {
+      "scenarioId": "api-read-smoke",
+      "recordedAtUtc": "1970-01-01T00:00:00Z",
+      "commitSha": "unrecorded",
+      "environment": {
+        "host": "local-dev",
+        "apiBaseUrl": "http://localhost:5000/api",
+        "notes": "Template only. Copy measured rows to artifacts/performance-baseline/."
+      },
+      "metrics": {
+        "httpReqDurationP95Ms": null,
+        "httpReqFailedRate": null
+      },
+      "thresholds": {
+        "httpReqFailedRateMax": 0.01,
+        "httpReqDurationP95MsMax": 1500
+      }
+    },
+    {
+      "scenarioId": "reporting-export-xlsx-1000",
+      "recordedAtUtc": "1970-01-01T00:00:00Z",
+      "commitSha": "unrecorded",
+      "environment": {
+        "host": "ci-or-local",
+        "apiBaseUrl": "n/a",
+        "notes": "Use RUN_REPORTING_ACCEPTANCE=1 benchmark artifacts as the measured source."
+      },
+      "metrics": {
+        "buildDurationMs": null,
+        "renderDurationMs": null,
+        "exportDurationMs": null,
+        "totalDurationMs": null,
+        "peakWorkingSetBytes": null
+      },
+      "thresholds": {
+        "totalDurationMsMax": 120000,
+        "peakWorkingSetBytesMax": 1073741824
+      }
+    }
+  ]
+}
