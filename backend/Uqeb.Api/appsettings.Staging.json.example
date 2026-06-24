@@ -1,0 +1,12 @@
+{
+  "FeatureFlags": {
+    "InstitutionalReports": false
+  },
+  "ReportingRollout": {
+    "EmergencyDisable": true,
+    "EnabledForUserIds": [],
+    "EnabledForRoles": [],
+    "EnabledForDepartments": [],
+    "Percentage": 0
+  }
+}

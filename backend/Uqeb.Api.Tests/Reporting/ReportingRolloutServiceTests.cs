@@ -81,6 +81,18 @@ public class ReportingRolloutServiceTests
         Assert.True(service.IsEnabledForUser(new TestUser(UserRole.Admin, 42, null)));
     }
 
+    [Fact]
+    public void IsEnabledForUser_FeatureFlagFalse_DeniesAllowlistedAdmin()
+    {
+        var service = CreateService(
+            institutionalReports: false,
+            emergencyDisable: false,
+            userIds: [1],
+            percentage: 0);
+
+        Assert.False(service.IsEnabledForUser(new TestUser(UserRole.Admin, 1, null)));
+    }
+
     private static ReportingRolloutService CreateService(
         bool institutionalReports,
         bool emergencyDisable,

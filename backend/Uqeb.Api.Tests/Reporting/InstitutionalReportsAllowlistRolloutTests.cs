@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Uqeb.Api.Reporting.DTOs;
+using Uqeb.Api.Reporting.Enums;
 using Xunit;
 
 namespace Uqeb.Api.Tests.Reporting;
@@ -53,6 +54,23 @@ public class InstitutionalReportsAllowlistRolloutTests : IClassFixture<Instituti
 
         Assert.Equal(HttpStatusCode.NotFound, configuration.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, readiness.StatusCode);
+    }
+
+    [Fact]
+    public async Task AllowlistedAdmin_CanExportPdfAndXlsx()
+    {
+        SetBearer("Admin", PilotUserId);
+
+        var pdf = await _client.PostAsJsonAsync(
+            "/api/institutional-reports/export",
+            new ReportExportRequestDto { ExportFormat = ExportFormat.Pdf });
+
+        var xlsx = await _client.PostAsJsonAsync(
+            "/api/institutional-reports/export",
+            new ReportExportRequestDto { ExportFormat = ExportFormat.Xlsx });
+
+        Assert.Equal(HttpStatusCode.OK, pdf.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, xlsx.StatusCode);
     }
 
     [Fact]

@@ -1,112 +1,92 @@
 # Institutional Reporting — Phase 1 Admin Allowlist Rollout Report
 
+## Per-environment status
+
+| Environment | Username | User ID | Feature Flag | Allowlist | Readiness | Smoke | Decision |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Development | admin | pending | not applied | not applied | not run | not run | **NO-GO** |
+| Test | admin | pending | not applied | not applied | not run | not run | **NO-GO** |
+| Staging | admin | pending | not applied | not applied | not run | not run | **NO-GO** |
+| Production | admin | pending | not applied | not applied | not run | not run | **NO-GO** |
+
+> User IDs are resolved at activation time and must be masked in reports (example: `a12f…9c41`). Never commit real IDs to Git.
+
 ## Summary
 
 | Field | Value |
 | --- | --- |
 | **Date** | 2026-06-24 |
-| **Environment** | Production target `10.0.177.17` (Uqeb LAN) — **activation not executed from dev host** |
-| **Commit SHA (main / PR #19)** | `980823c912d9a5e87bbf2a8d8b8b88072067185b` |
-| **Decision** | **NO-GO — disable rollout immediately** |
+| **Target commit (main / PR #19)** | `980823c912d9a5e87bbf2a8d8b8b88072067185b` |
+| **Phase 1 pilot account** | login `admin` only (per-environment `Users.Id`) |
+| **Package commit** | pending push (admin username resolution + scripts) |
+| **Overall decision** | **NO-GO — rollout disabled on all environments** |
 
 ## Pre-activation record
 
 | Item | Value |
 | --- | --- |
-| Current production commit | **Unknown** — host unreachable from dev workstation (`curl` timeout to `10.0.177.17:5000`) |
-| Target commit | `980823c` (merge PR #19) |
-| Current feature flag | **Unknown** (expected `InstitutionalReports=false` pre-rollout) |
-| Current rollout configuration | **Unknown** (expected `EmergencyDisable=true`, empty allowlists) |
-| Backup location | **Not created** — requires on-host run of `apply-institutional-reporting-phase1-allowlist.ps1` |
-| Rollback command | `ReportingRollout:EmergencyDisable=true` → restart `UqebApi`; then `InstitutionalReports=false` if needed |
+| Current production commit | Unknown — requires on-host check |
+| Target commit | `980823c` |
+| Feature flag defaults in Git | `InstitutionalReports=false`, `EmergencyDisable=true` |
+| Secrets committed | **No** |
+| Backup location | Created per run under environment backup root |
 
-## Allowed users (masked)
+## Automated verification (CI / local)
 
-| Pilot slot | User ID | Status |
-| --- | --- | --- |
-| Admin pilot #1 | `***` | **Not provisioned** — SQL lookup + config patch pending on production host |
+| Check | Result |
+| --- | --- |
+| Admin username → single active Admin resolved | **PASS** (`ReportingPhase1AdminUserResolverTests`) |
+| Missing / duplicate / inactive / non-admin aborted | **PASS** |
+| Different IDs per environment DB | **PASS** |
+| Allowlisted admin ID allowed | **PASS** |
+| Different admin role user denied | **PASS** |
+| Normal user denied | **PASS** |
+| `EmergencyDisable=true` denies admin | **PASS** |
+| `InstitutionalReports=false` denies admin | **PASS** |
+| PDF / XLSX for allowlisted admin (stub) | **PASS** |
 
-**Count:** 0 active pilots (configuration not applied).
+## On-host verification (required for GO)
 
-## Configuration target (Phase 1)
+| Check | Development | Test | Staging | Production |
+| --- | --- | --- | --- | --- |
+| Backup | not run | not run | not run | not run |
+| Admin ID resolution | not run | not run | not run | not run |
+| Readiness Ready | not run | not run | not run | not run |
+| Smoke PASS | not run | not run | not run | not run |
+| PDF / XLSX | not run | not run | not run | not run |
+| Other admin denied | not run | not run | not run | not run |
+| Normal user denied | not run | not run | not run | not run |
+| Emergency disable | not run | not run | not run | not run |
+| Rollback drill | not run | not run | not run | not run |
+| Metrics / audit / log privacy | not run | not run | not run | not run |
 
-```json
-{
-  "FeatureFlags": { "InstitutionalReports": true },
-  "ReportingRollout": {
-    "EmergencyDisable": false,
-    "EnabledForUserIds": ["<ADMIN_PILOT_USER_ID>"],
-    "EnabledForRoles": [],
-    "EnabledForDepartments": [],
-    "Percentage": 0
-  }
-}
-```
-
-Provisioning guide: `docs/institutional_reporting_phase1_allowlist_provisioning.md`
-
-## Automated verification (dev / CI)
-
-| Check | Result | Notes |
-| --- | --- | --- |
-| PR #19 merged to `main` | **PASS** | `980823c` |
-| Phase 1 decision order unit tests | **PASS** | `ReportingRolloutServiceTests` |
-| Allowlist HTTP integration tests | **PASS** | `InstitutionalReportsAllowlistRolloutTests` |
-| Role-only rollout excluded in phase 1 tests | **PASS** | `useDefaultRoleRollout: false` |
-
-## Production verification (blocked)
-
-| Check | Result | Notes |
-| --- | --- | --- |
-| Settings backup | **NOT RUN** | Requires Windows production host |
-| Disk / Chromium / fonts / temp / DB | **NOT RUN** | Requires on-host readiness |
-| Readiness | **NOT RUN** | Expected `Ready` for GO |
-| Smoke test | **NOT RUN** | `API_BASE_URL` to `10.0.177.17` unreachable from dev |
-| Authorized admin | **NOT RUN** | |
-| Unauthorized admin | **NOT RUN** | Expected 404 |
-| Normal user | **NOT RUN** | Expected 404 |
-| Emergency disable | **NOT RUN** | |
-| PDF / XLSX export | **NOT RUN** | |
-| 10k / 20k benchmarks | **NOT RUN** | Run on acceptance host per PR #19 |
-| Concurrency / cancellation | **NOT RUN** | |
-| Metrics / audit / log privacy | **NOT RUN** | |
-| Rollback drill | **NOT RUN** | |
-
-## Readiness (production)
-
-**Not observed.** Any `Degraded` or `Unavailable` state would be **NO-GO**.
-
-## Smoke test
-
-**NOT RUN** on production. Local attempt against `localhost:5000` returned HTTP 403 (non-Uqeb or misconfigured endpoint).
-
-## Incidents
-
-None during this preparation window. **Blocker:** no network path from development workstation to production LAN host for live activation.
-
-## Rollback test
-
-**NOT RUN.** Runbook available: `docs/institutional_reporting_rollback_runbook.md`
-
-## Next steps (required before GO)
-
-1. Deploy release containing `980823c` to `10.0.177.17` using standard Uqeb ZIP pipeline (`AGENTS.md`).
-2. On production host:
-   - Backup `appsettings.Production.json`
-   - Resolve pilot admin `Users.Id` via SQL
-   - Run `scripts/apply-institutional-reporting-phase1-allowlist.ps1 -PilotUserId <id>`
-   - Restart `UqebApi`
-3. Run `scripts/verify-institutional-reporting-phase1.ps1` with pilot / non-pilot / normal credentials via env vars.
-4. Run `scripts/reporting-production-smoke-test.sh` with `API_BASE_URL=http://10.0.177.17:5000/api`.
-5. Execute 10k/20k acceptance on production-like host; attach artifacts.
-6. Monitor 24–48h; update this report with results and change decision to **GO** only if all gates pass.
-
-## Final decision
+## Final report fields
 
 ```text
-NO-GO — disable rollout immediately
+Development admin ID resolved: not run
+Development rollout: NO-GO
+Test admin ID resolved: not run
+Test rollout: NO-GO
+Staging admin ID resolved: not run
+Staging rollout: NO-GO
+Production admin ID resolved: not run
+Production rollout: NO-GO
+Other admin denied: PASS (automated) / not run (on-host)
+Normal user denied: PASS (automated) / not run (on-host)
+Emergency disable: PASS (automated) / not run (on-host toggle)
+Feature flag defaults in Git: safe (false / emergency true)
+Secrets committed: no
+Production smoke: not run
+Production readiness: not run
+Final decision: NO-GO — rollout disabled on all environments until on-host activation completes per environment
 ```
 
-**Reason:** Phase 1 production activation was **not executed**. Production host is unreachable from the development environment; readiness, smoke, export, metrics, and rollback drills were not performed on the target environment. Keep `InstitutionalReports=false` (or `EmergencyDisable=true`) until on-host steps complete successfully.
+## Next steps
 
-**Do not expand** to roles, departments, or percentage rollout without a separate review and decision.
+1. For each environment, run `apply-institutional-reporting-phase1-allowlist.ps1` with `-WhatIf`, then without.
+2. Restart API for that environment only.
+3. Run `verify-institutional-reporting-phase1.ps1` and smoke test.
+4. Update the matrix above with masked IDs and per-environment **GO** only when all gates pass.
+5. Production **GO** requires independent sign-off after 24–48h monitoring.
+
+Do **not** enable role, department, or percentage rollout in Phase 1.

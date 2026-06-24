@@ -1,10 +1,25 @@
 # Institutional Reporting — Phase 1 Admin Allowlist Provisioning
 
-Phase 1 enables institutional reporting infrastructure while restricting **runtime access** to explicit internal user IDs only.
+Phase 1 enables institutional reporting infrastructure while restricting **runtime access** to the single login account **`admin`** per environment. Each environment resolves `admin` to its own `Users.Id` at activation time.
 
-## Target configuration
+## Scope
 
-Apply on the **production host only** (`C:\Uqeb\config\appsettings.Production.json` or environment variables). Do **not** commit real user IDs or passwords to Git.
+| Environment | Settings file (default) | Backup root (default) |
+| --- | --- | --- |
+| Development | `backend/Uqeb.Api/appsettings.Development.json` | `artifacts/phase1-settings-backups/` |
+| Test | `backend/Uqeb.Api/appsettings.Test.json` | `artifacts/phase1-settings-backups/` |
+| Staging | `backend/Uqeb.Api/appsettings.Staging.json` | `artifacts/phase1-settings-backups/` |
+| Production | `C:\Uqeb\publish\api\appsettings.Production.json` | `C:\Uqeb\backup\` |
+
+Override paths with `-SettingsPath` when using external configuration stores.
+
+Safe Git templates (not activated):
+
+- `backend/Uqeb.Api/appsettings.example.json`
+- `backend/Uqeb.Api/appsettings.Test.json.example`
+- `backend/Uqeb.Api/appsettings.Staging.json.example`
+
+## Target configuration (per environment, after activation)
 
 ```json
 {
@@ -14,7 +29,7 @@ Apply on the **production host only** (`C:\Uqeb\config\appsettings.Production.js
   "ReportingRollout": {
     "EmergencyDisable": false,
     "EnabledForUserIds": [
-      "<ADMIN_PILOT_USER_ID>"
+      "<ADMIN_USER_ID_RESOLVED_FOR_THIS_ENVIRONMENT>"
     ],
     "EnabledForRoles": [],
     "EnabledForDepartments": [],
@@ -23,99 +38,93 @@ Apply on the **production host only** (`C:\Uqeb\config\appsettings.Production.js
 }
 ```
 
-## Environment variable equivalent
+## Phase 1 rules
 
-```text
-FeatureFlags__InstitutionalReports=true
-ReportingRollout__EmergencyDisable=false
-ReportingRollout__EnabledForUserIds__0=<ADMIN_PILOT_USER_ID>
-ReportingRollout__Percentage=0
-```
+- Only the **`admin`** login (case-insensitive, trimmed) is resolved and allowlisted.
+- Do **not** use `EnabledForRoles`, `EnabledForDepartments`, or `Percentage`.
+- Admin role alone does **not** grant access.
+- Do not assume `Users.Id` is identical across environments.
+- Do not commit resolved IDs, passwords, tokens, or connection strings to Git.
+- Do not auto-create `admin` if missing.
+- Abort when zero or multiple `admin` usernames exist.
+- Abort when `admin` is inactive or not `UserRole.Admin`.
+- Run activation **once per environment**; failures do not continue to other environments.
 
-Leave role, department, and percentage keys unset or empty.
+## Activation (one environment at a time)
 
-## Resolve pilot user IDs (SQL Server)
-
-Run on the production database (read-only):
-
-```sql
-SELECT Id, Username, Role, DepartmentId, IsActive
-FROM Users
-WHERE Role = 0 -- Admin
-  AND IsActive = 1
-ORDER BY Id;
-```
-
-Use numeric `Id` values only in `EnabledForUserIds`.
-
-## Pre-activation checklist
-
-1. Confirm `main` contains merged PR #19 (`980823c` or later).
-2. Backup current production settings:
-
-   ```powershell
-   $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-   Copy-Item C:\Uqeb\publish\api\appsettings.Production.json `
-     C:\Uqeb\backup\before-phase1-$stamp\appsettings.Production.json
-   ```
-
-3. Tag or branch current release:
-
-   ```powershell
-   git tag production-pre-institutional-phase1-<stamp>
-   ```
-
-4. Record commit SHA from deployed `RELEASE.txt` or package metadata.
-5. Verify disk space, Chromium, fonts, temp directory, database, readiness (see script below).
-6. Review `docs/institutional_reporting_rollback_runbook.md`.
-
-## Activation script
+Preview:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\apply-institutional-reporting-phase1-allowlist.ps1 `
-  -PilotUserId <ADMIN_PILOT_USER_ID> `
-  -ProductionSettingsPath C:\Uqeb\publish\api\appsettings.Production.json `
+.\scripts\apply-institutional-reporting-phase1-allowlist.ps1 `
+  -EnvironmentName Development `
+  -AdminUsername admin `
   -WhatIf
 ```
 
-Remove `-WhatIf` only after reviewing the diff.
-
-## Verification script
+Apply:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\verify-institutional-reporting-phase1.ps1 `
-  -ApiBaseUrl http://10.0.177.17:5000/api `
-  -PilotUsername <pilot-username> `
-  -NonPilotAdminUsername <other-admin> `
-  -NormalUsername <data-entry-user>
+.\scripts\apply-institutional-reporting-phase1-allowlist.ps1 `
+  -EnvironmentName Development `
+  -AdminUsername admin
 ```
 
-Passwords must come from `$env:UQEB_PASSWORD` / `$env:UQEB_NON_PILOT_PASSWORD` — never from command history.
+Repeat explicitly for `Test`, `Staging`, and `Production`.
+
+The script:
+
+1. Connects to the environment database via `ConnectionStrings:DefaultConnection` in the settings file.
+2. Resolves `admin` → `Users.Id` using `Uqeb.Tools.Phase1Rollout`.
+3. Backs up settings.
+4. Patches allowlist configuration.
+5. Prints masked user ID and planned changes (never secrets).
+
+## Verification
+
+```powershell
+$env:UQEB_PASSWORD = '<secret>'
+$env:UQEB_NON_PILOT_PASSWORD = '<other-admin-secret>'
+$env:UQEB_NORMAL_PASSWORD = '<normal-user-secret>'
+
+.\scripts\verify-institutional-reporting-phase1.ps1 `
+  -EnvironmentName Production `
+  -ApiBaseUrl http://10.0.177.17:5000/api `
+  -AdminUsername admin `
+  -NonPilotAdminUsername superadmin `
+  -NormalUsername dataentry
+```
+
+Expected:
+
+| Actor | Result |
+| --- | --- |
+| `admin` (resolved ID in allowlist) | Login, configuration, readiness, preview, PDF, XLSX → **200** |
+| Other admin | **403/404** |
+| Normal user | **403/404** |
+| `EmergencyDisable=true` | **admin denied** (restore `false` after test) |
 
 ## Smoke test
 
 ```bash
-export API_BASE_URL="http://10.0.177.17:5000/api"
-export USERNAME="<pilot-username>"
-export PASSWORD="<from-secret-store>"
+export API_BASE_URL="http://<host>/api"
+export USERNAME="admin"
+export PASSWORD="<secret>"
 bash scripts/reporting-production-smoke-test.sh
 ```
 
-## Phase 1 prohibitions
+## Environment decision matrix
 
-Do **not** enable during this phase:
+| Environment | Username | User ID | Feature Flag | Allowlist | Readiness | Smoke | Decision |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Development | admin | masked | pending | pending | pending | pending | NO-GO |
+| Test | admin | masked | pending | pending | pending | pending | NO-GO |
+| Staging | admin | masked | pending | pending | pending | pending | NO-GO |
+| Production | admin | masked | pending | pending | pending | pending | NO-GO |
 
-- `EnabledForRoles = ["Admin"]`
-- `EnabledForDepartments`
-- `Percentage > 0`
-- Supervisor / department / percentage rollouts
+Update this table after each environment passes on-host verification.
 
-## Rollback (fast)
+## Rollback
 
-1. Set `ReportingRollout:EmergencyDisable=true` and restart API.
-2. If issues persist, set `FeatureFlags:InstitutionalReports=false` and restart.
-3. Follow `docs/institutional_reporting_rollback_runbook.md`.
-
-## Monitoring window
-
-Observe for **24–48 hours** after activation. Immediate rollback triggers include data leakage, orphaned temp files, sustained 5xx, Chromium hangs, memory pressure, readiness failure, duplicate audit events, or unauthorized access.
+1. `ReportingRollout:EmergencyDisable=true` → restart API.
+2. If needed: `FeatureFlags:InstitutionalReports=false` → restart API.
+3. See `docs/institutional_reporting_rollback_runbook.md`.
