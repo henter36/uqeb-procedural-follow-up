@@ -1620,7 +1620,7 @@ function Invoke-PlaywrightChromiumInstall {
     $env:PLAYWRIGHT_BROWSERS_PATH = $BrowsersRoot
     try {
         Ensure-Directory $BrowsersRoot
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $PlaywrightScriptPath install chromium
+        $null = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $PlaywrightScriptPath install chromium 2>&1
         if ($LASTEXITCODE -ne 0) {
             throw "فشل تنزيل Chromium المتوافق مع Playwright برمز: $LASTEXITCODE"
         }
