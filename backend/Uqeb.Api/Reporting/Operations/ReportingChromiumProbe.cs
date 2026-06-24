@@ -184,18 +184,14 @@ public sealed class ReportingChromiumProbe : IReportingChromiumProbe
             var playwright = await Playwright.CreateAsync().WaitAsync(timeoutCts.Token);
             try
             {
-                var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
-                {
-                    Headless = true,
-                }).WaitAsync(timeoutCts.Token);
-                try
-                {
-                    await browser.CloseAsync();
-                }
-                finally
-                {
-                    // Browser disposed on close.
-                }
+                await using var browser = await playwright.Chromium
+                    .LaunchAsync(new BrowserTypeLaunchOptions
+                    {
+                        Headless = true,
+                    })
+                    .WaitAsync(timeoutCts.Token);
+
+                await browser.CloseAsync();
 
                 return new ReportingChromiumProbeResult
                 {

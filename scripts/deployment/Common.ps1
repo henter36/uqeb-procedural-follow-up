@@ -1155,14 +1155,23 @@ function Get-PlaywrightBrowserExecutable {
         throw "مجلد متصفحات Playwright غير موجود: $BrowsersRoot"
     }
 
-    $candidates = Get-ChildItem -LiteralPath $BrowsersRoot -Recurse -File -Filter 'chrome.exe' -ErrorAction SilentlyContinue |
-        Where-Object { $_.FullName -match '(?i)[/\\]chrome-win(?:64)?[/\\]chrome\.exe$' }
+    $candidates = @(
+        Get-ChildItem `
+            -LiteralPath $BrowsersRoot `
+            -Recurse `
+            -File `
+            -Filter 'chrome.exe' `
+            -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.FullName -match '(?i)[/\\]chrome-win(?:64)?[/\\]chrome\.exe$'
+            }
+    )
 
-    if (-not $candidates -or @($candidates).Count -eq 0) {
+    if ($candidates.Count -eq 0) {
         throw "لم يتم العثور على Chromium executable داخل: $BrowsersRoot"
     }
 
-    if (@($candidates).Count -gt 1) {
+    if ($candidates.Count -gt 1) {
         $relativeCandidates = $candidates | ForEach-Object {
             Get-RelativePathFromDirectory -RootDirectory $BrowsersRoot -FullPath $_.FullName
         }
@@ -1317,16 +1326,39 @@ function Copy-DirectoryAtomically {
     Test-PlaywrightBrowserPayload -BrowsersRoot $stagingTarget | Out-Null
 
     $previousTarget = "$Target.previous"
-    $previousPath = ""
+    $previousPath = $null
     if (Test-Path -LiteralPath $Target) {
         if (Test-Path -LiteralPath $previousTarget) {
             Remove-Item -LiteralPath $previousTarget -Recurse -Force
         }
+
         Move-Item -LiteralPath $Target -Destination $previousTarget -Force
         $previousPath = $previousTarget
     }
 
-    Move-Item -LiteralPath $stagingTarget -Destination $Target -Force
+    try {
+        Move-Item -LiteralPath $stagingTarget -Destination $Target -Force
+    }
+    catch {
+        $swapError = $_
+
+        try {
+            if (Test-Path -LiteralPath $Target) {
+                Remove-Item -LiteralPath $Target -Recurse -Force
+            }
+
+            if ($previousPath -and (Test-Path -LiteralPath $previousPath)) {
+                Move-Item -LiteralPath $previousPath -Destination $Target -Force
+            }
+        }
+        catch {
+            $restoreError = $_
+            throw "فشل استبدال المجلد وفشل استعادة النسخة السابقة. Swap: $($swapError.Exception.Message) Restore: $($restoreError.Exception.Message)"
+        }
+
+        throw $swapError
+    }
+
     return $previousPath
 }
 
@@ -1682,6 +1714,39 @@ function Install-PlaywrightBrowserToProduction {
     return Copy-DirectoryAtomically -Source $PackageBrowsersSource -Target $PlaywrightBrowsersPath
 }
 
+function Invoke-PlaywrightExecutableSmokeTest {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ExecutablePath,
+
+        [int]$TimeoutMs = 15000
+    )
+
+    $process = $null
+    try {
+        $process = Start-Process -FilePath $ExecutablePath `
+            -ArgumentList @('--headless', '--disable-gpu', '--no-sandbox', '--dump-dom', 'about:blank') `
+            -PassThru `
+            -WindowStyle Hidden
+
+        if (-not $process.WaitForExit($TimeoutMs)) {
+            throw "انتهت مهلة تشغيل Chromium أثناء smoke test."
+        }
+
+        if ($process.ExitCode -ne 0) {
+            throw ("Chromium smoke test exited with code " + $process.ExitCode)
+        }
+    }
+    finally {
+        if ($null -ne $process -and -not $process.HasExited) {
+            Stop-Process `
+                -Id $process.Id `
+                -Force `
+                -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Invoke-PlaywrightChromiumInstall {
     param(
         [string]$PlaywrightScriptPath,
@@ -1692,7 +1757,14 @@ function Invoke-PlaywrightChromiumInstall {
         throw "ملف Playwright غير موجود بعد نشر API: $PlaywrightScriptPath"
     }
 
-    $previousBrowsersPath = $env:PLAYWRIGHT_BROWSERS_PATH
+    $hadPreviousBrowsersPath = Test-Path -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH'
+    $previousBrowsersPath = if ($hadPreviousBrowsersPath) {
+        $env:PLAYWRIGHT_BROWSERS_PATH
+    }
+    else {
+        $null
+    }
+
     $env:PLAYWRIGHT_BROWSERS_PATH = $BrowsersRoot
     try {
         Ensure-Directory $BrowsersRoot
@@ -1702,11 +1774,13 @@ function Invoke-PlaywrightChromiumInstall {
         }
     }
     finally {
-        if ($null -eq $previousBrowsersPath) {
-            Remove-Item Env:PLAYWRIGHT_BROWSERS_PATH -ErrorAction SilentlyContinue
+        if ($hadPreviousBrowsersPath) {
+            $env:PLAYWRIGHT_BROWSERS_PATH = $previousBrowsersPath
         }
         else {
-            $env:PLAYWRIGHT_BROWSERS_PATH = $previousBrowsersPath
+            Remove-Item `
+                -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH' `
+                -ErrorAction SilentlyContinue
         }
     }
 

@@ -56,23 +56,7 @@ Write-DeployInfo ("Chromium size (bytes): " + $executable.SizeBytes)
 
 if (-not $SkipProcessSmokeTest) {
     Write-DeployStep "تشغيل Chromium headless ثم إغلاقه"
-    $process = Start-Process -FilePath $executable.FullPath `
-        -ArgumentList @('--headless', '--disable-gpu', '--no-sandbox', '--dump-dom', 'about:blank') `
-        -PassThru `
-        -WindowStyle Hidden
-    try {
-        if (-not $process.WaitForExit(15000)) {
-            throw "انتهت مهلة تشغيل Chromium أثناء smoke test."
-        }
-        if ($process.ExitCode -ne 0) {
-            throw ("Chromium smoke test exited with code " + $process.ExitCode)
-        }
-    }
-    finally {
-        if (-not $process.HasExited) {
-            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-        }
-    }
+    Invoke-PlaywrightExecutableSmokeTest -ExecutablePath $executable.FullPath
 }
 
 Write-DeployInfo "Playwright readiness verification passed."

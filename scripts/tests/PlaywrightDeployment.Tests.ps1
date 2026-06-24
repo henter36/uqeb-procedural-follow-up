@@ -3,7 +3,8 @@ BeforeAll {
     . $script:CommonPath
 
     function script:New-PlaywrightTestDirectory {
-        $path = Join-Path $env:TEMP ("uqeb-deploy-test-" + [Guid]::NewGuid().ToString('N'))
+        $base = if ([string]::IsNullOrWhiteSpace($env:TEMP)) { '/tmp' } else { $env:TEMP }
+        $path = Join-Path $base ("uqeb-deploy-test-" + [Guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $path -Force | Out-Null
         return $path
     }
@@ -170,6 +171,146 @@ Describe 'Playwright deployment helpers' {
         }
         finally {
             Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'finds a single chromium executable candidate' {
+        $root = New-PlaywrightTestDirectory
+        try {
+            New-FakeChromiumTree -Root $root | Out-Null
+            $found = Get-PlaywrightBrowserExecutable -BrowsersRoot $root
+            $found.RelativePath | Should -Be 'chromium-1/chrome-win64/chrome.exe'
+        }
+        finally {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'throws when no chromium executable candidates exist' {
+        $root = New-PlaywrightTestDirectory
+        try {
+            { Get-PlaywrightBrowserExecutable -BrowsersRoot $root } | Should -Throw
+        }
+        finally {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'throws when multiple chromium executable candidates exist' {
+        $root = New-PlaywrightTestDirectory
+        try {
+            New-FakeChromiumTree -Root $root | Out-Null
+            $secondDir = Join-Path $root 'chromium-2\chrome-win64'
+            New-Item -ItemType Directory -Path $secondDir -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $secondDir 'chrome.exe') -Value 'second' -Encoding ASCII
+
+            { Get-PlaywrightBrowserExecutable -BrowsersRoot $root } |
+                Should -Throw '*أكثر من Chromium executable*'
+        }
+        finally {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+Describe 'Invoke-PlaywrightChromiumInstall environment' {
+    function script:New-FakePlaywrightInstallScript {
+        param(
+            [string]$Path,
+            [int]$ExitCode = 0
+        )
+
+        @"
+param([Parameter(ValueFromRemainingArguments = `$true)][string[]]`$args)
+if (`$args -contains 'install') {
+    `$root = `$env:PLAYWRIGHT_BROWSERS_PATH
+    `$dir = Join-Path `$root 'chromium-1\chrome-win64'
+    New-Item -ItemType Directory -Path `$dir -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path `$dir 'chrome.exe') -Value 'fake' -Encoding ASCII
+    exit $ExitCode
+}
+exit 1
+"@ | Set-Content -LiteralPath $Path -Encoding ASCII
+    }
+
+    function script:New-InstallTestRoot {
+        $base = if ([string]::IsNullOrWhiteSpace($env:TEMP)) { '/tmp' } else { $env:TEMP }
+        $path = Join-Path $base ("uqeb-playwright-install-" + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $path -Force | Out-Null
+        return $path
+    }
+
+    It 'removes PLAYWRIGHT_BROWSERS_PATH when it was unset' {
+        $root = New-InstallTestRoot
+        $browsersRoot = Join-Path $root 'browsers'
+        $scriptPath = Join-Path $root 'playwright.ps1'
+        try {
+            Remove-Item -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH' -ErrorAction SilentlyContinue
+            New-FakePlaywrightInstallScript -Path $scriptPath
+
+            $null = Invoke-PlaywrightChromiumInstall -PlaywrightScriptPath $scriptPath -BrowsersRoot $browsersRoot
+
+            Test-Path -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH' | Should -BeFalse
+        }
+        finally {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH' -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'restores PLAYWRIGHT_BROWSERS_PATH when it was previously set' {
+        $root = New-InstallTestRoot
+        $browsersRoot = Join-Path $root 'browsers'
+        $scriptPath = Join-Path $root 'playwright.ps1'
+        try {
+            $env:PLAYWRIGHT_BROWSERS_PATH = 'C:\existing-cache'
+            New-FakePlaywrightInstallScript -Path $scriptPath
+
+            $null = Invoke-PlaywrightChromiumInstall -PlaywrightScriptPath $scriptPath -BrowsersRoot $browsersRoot
+
+            $env:PLAYWRIGHT_BROWSERS_PATH | Should -Be 'C:\existing-cache'
+        }
+        finally {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH' -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'preserves empty PLAYWRIGHT_BROWSERS_PATH state' {
+        $root = New-InstallTestRoot
+        $browsersRoot = Join-Path $root 'browsers'
+        $scriptPath = Join-Path $root 'playwright.ps1'
+        try {
+            $env:PLAYWRIGHT_BROWSERS_PATH = ''
+            New-FakePlaywrightInstallScript -Path $scriptPath
+
+            $null = Invoke-PlaywrightChromiumInstall -PlaywrightScriptPath $scriptPath -BrowsersRoot $browsersRoot
+
+            Test-Path -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH' | Should -BeTrue
+            $env:PLAYWRIGHT_BROWSERS_PATH | Should -Be ''
+        }
+        finally {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH' -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'restores PLAYWRIGHT_BROWSERS_PATH when install fails' {
+        $root = New-InstallTestRoot
+        $browsersRoot = Join-Path $root 'browsers'
+        $scriptPath = Join-Path $root 'playwright.ps1'
+        try {
+            $env:PLAYWRIGHT_BROWSERS_PATH = 'C:\existing-cache'
+            New-FakePlaywrightInstallScript -Path $scriptPath -ExitCode 7
+
+            { Invoke-PlaywrightChromiumInstall -PlaywrightScriptPath $scriptPath -BrowsersRoot $browsersRoot } |
+                Should -Throw '*فشل تنزيل Chromium*'
+
+            $env:PLAYWRIGHT_BROWSERS_PATH | Should -Be 'C:\existing-cache'
+        }
+        finally {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH' -ErrorAction SilentlyContinue
         }
     }
 }
