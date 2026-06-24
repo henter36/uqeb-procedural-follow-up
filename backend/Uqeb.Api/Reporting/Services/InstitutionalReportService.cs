@@ -67,7 +67,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
 
     private async Task<InstitutionalReportModel> BuildForApiAsync(ReportBuildRequestDto request, CancellationToken ct)
     {
-        InstitutionalReportRequestValidator.ValidateBuildRequest(request);
+        InstitutionalReportRequestValidator.ValidateBuildRequest(request, _reportingOptions);
         var detailLimit = _reportingOptions.MaxPreviewDetailRows;
         var totalMatching = await CountMatchingTransactionsAsync(request, ct);
         return await BuildInternalAsync(request, ct, ReportAssemblyOptions.ForPreview(totalMatching, detailLimit));
@@ -75,7 +75,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
 
     public async Task<RenderedReportManifestDto> RenderPreviewAsync(ReportBuildRequestDto request, CancellationToken ct = default)
     {
-        InstitutionalReportRequestValidator.ValidateBuildRequest(request);
+        InstitutionalReportRequestValidator.ValidateBuildRequest(request, _reportingOptions);
         var correlationId = _correlationIdProvider.GetCorrelationId();
         var stopwatch = Stopwatch.StartNew();
 
@@ -204,17 +204,18 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         var detailLimit = options.DetailRowLimit > 0 ? options.DetailRowLimit : _reportingOptions.MaxPreviewDetailRows;
         ReportingOptions.ValidateDetailLimit(detailLimit);
         var totalMatched = options.TotalMatchedOverride ?? await CountMatchingTransactionsAsync(request, ct);
+        var generatedAt = DateTime.UtcNow;
+        var referenceDate = generatedAt.Date;
 
-        var metricSnapshots = await LoadSnapshotsAsync(request, ct, takeLimit: null);
-        var today = DateTime.UtcNow.Date;
-        var metrics = InstitutionalReportMetricsCalculator.Calculate(metricSnapshots, today);
+        var metricSnapshots = await LoadSnapshotsAsync(request, ct, takeLimit: null, referenceDate);
+        var metrics = InstitutionalReportMetricsCalculator.Calculate(metricSnapshots, referenceDate);
         var comparisonRequest = InstitutionalReportAnalysisService.CreateComparisonRequest(request);
         var comparisonSnapshots = comparisonRequest is null
             ? []
-            : await LoadSnapshotsAsync(comparisonRequest, ct, takeLimit: null);
-        var comparisonMetrics = comparisonSnapshots.Count == 0
+            : await LoadSnapshotsAsync(comparisonRequest, ct, takeLimit: null, referenceDate);
+        var comparisonMetrics = comparisonRequest is null
             ? null
-            : InstitutionalReportMetricsCalculator.Calculate(comparisonSnapshots, today);
+            : InstitutionalReportMetricsCalculator.Calculate(comparisonSnapshots, referenceDate);
 
         List<TransactionReportSnapshot> detailSnapshots;
         int exportedDetailRows;
@@ -261,15 +262,15 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
                 ReportNumber = reportNumber,
                 ReportType = request.ReportType,
                 ReportTypeName = ReportTypeLabel(request.ReportType),
-                IssueDate = today,
-                PeriodFrom = ResolvePeriodStart(request.Filters.DateFrom, metricSnapshots, s => s.IncomingDate, today),
-                PeriodTo = ResolvePeriodEnd(request.Filters.DateTo, metricSnapshots, s => s.IncomingDate, today),
+                IssueDate = referenceDate,
+                PeriodFrom = ResolvePeriodStart(request.Filters.DateFrom, metricSnapshots, s => s.IncomingDate, referenceDate),
+                PeriodTo = ResolvePeriodEnd(request.Filters.DateTo, metricSnapshots, s => s.IncomingDate, referenceDate),
                 Title = string.IsNullOrWhiteSpace(request.Title)
                     ? "تقرير المتابعة الإجرائية للمعاملات"
                     : request.Title.Trim(),
                 Introduction = request.Introduction,
                 VerificationId = verificationId,
-                GeneratedAt = DateTime.UtcNow,
+                GeneratedAt = generatedAt,
                 TotalMatchingTransactions = totalMatched,
                 IncludedTransactionCount = detailSnapshots.Count,
                 DetailRowLimit = detailLimit,
@@ -277,10 +278,10 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             Filters = request.Filters,
             Summary = BuildExecutiveSummary(metrics, metricSnapshots),
             Charts = BuildCharts(metrics, metricSnapshots),
-            DepartmentPerformance = BuildDepartmentPerformance(metrics.Snapshots, today),
+            DepartmentPerformance = BuildDepartmentPerformance(metrics.Snapshots, referenceDate),
             Risks = BuildRisks(metrics.Snapshots),
-            Recommendations = BuildRecommendations(metrics.Snapshots, today),
-            RiskCounters = BuildRiskCounters(metrics.Snapshots, today),
+            Recommendations = BuildRecommendations(metrics.Snapshots, referenceDate),
+            RiskCounters = BuildRiskCounters(metrics.Snapshots, referenceDate),
             Transactions = BuildTransactionDetails(detailSnapshots),
             IntegrityWarnings = ValidateIntegrity(metrics)
         };
@@ -338,7 +339,8 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
     private async Task<List<TransactionReportSnapshot>> LoadSnapshotsAsync(
         ReportBuildRequestDto request,
         CancellationToken ct,
-        int? takeLimit = null)
+        int? takeLimit = null,
+        DateTime? referenceDate = null)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var query = InstitutionalReportQueryBuilder.BuildFilteredQuery(
@@ -359,8 +361,8 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             .Select(InstitutionalReportSnapshotQuery.SnapshotRowProjection)
             .ToListAsync(ct);
 
-        var today = DateTime.UtcNow.Date;
-        return rows.Select(row => InstitutionalReportSnapshotQuery.MapRowToSnapshot(row, today)).ToList();
+        var evaluationDate = referenceDate?.Date ?? DateTime.UtcNow.Date;
+        return rows.Select(row => InstitutionalReportSnapshotQuery.MapRowToSnapshot(row, evaluationDate)).ToList();
     }
 
     private static ExecutiveSummaryDto BuildExecutiveSummary(

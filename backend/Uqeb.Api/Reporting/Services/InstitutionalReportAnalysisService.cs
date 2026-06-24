@@ -58,16 +58,15 @@ internal static class InstitutionalReportAnalysisService
         var previousSnapshots = input.PreviousSnapshots;
         var options = input.Options;
         var contentLevel = request.ContentLevel ?? ReportContentLevel.Analytical;
-        var comparisonMode = request.IncludeComparison == false
+        var comparisonRequest = CreateComparisonRequest(request);
+        var comparisonMode = comparisonRequest is null
             ? ReportComparisonMode.None
             : request.ComparisonMode ?? ReportComparisonMode.PreviousEquivalentPeriod;
         var timeGrouping = request.TimeGrouping ?? ReportTimeGrouping.Monthly;
         var maxFindings = ResolvePositive(request.MaxFindings, options.MaxExecutiveFindings);
         var maxCriticalCases = ResolvePositive(request.MaxCriticalCases, options.MaxExecutiveCriticalCases);
         var maxRecommendations = ResolvePositive(request.MaxRecommendations, options.MaxRecommendations);
-        var referenceDate = metadata.GeneratedAt == default
-            ? DateTime.UtcNow.Date
-            : metadata.GeneratedAt.Date;
+        var referenceDate = ReportingTemporalCalculator.ResolveReferenceDate(metadata);
 
         var kpis = BuildKpis(currentMetrics, currentSnapshots, previousMetrics, options, referenceDate);
         var criticalCases = request.IncludeCriticalCases == false
@@ -111,8 +110,8 @@ internal static class InstitutionalReportAnalysisService
         {
             ContentLevel = contentLevel,
             ComparisonMode = comparisonMode,
-            ComparisonFrom = ResolveComparisonFrom(request),
-            ComparisonTo = ResolveComparisonTo(request),
+            ComparisonFrom = comparisonRequest?.Filters.DateFrom ?? ResolveComparisonFrom(request),
+            ComparisonTo = comparisonRequest?.Filters.DateTo ?? ResolveComparisonTo(request),
             Kpis = kpis,
             ExecutiveInsights = insights,
             Findings = findings,
@@ -126,7 +125,15 @@ internal static class InstitutionalReportAnalysisService
             DataQualityIssues = dataQuality,
             DataCompletenessRate = completenessRate,
             Recommendations = recommendations,
-            Methodology = BuildMethodology(metadata, filters, request, input.DetailLimit, input.DetailRowsTruncated, comparisonMode)
+            Methodology = BuildMethodology(
+                metadata,
+                filters,
+                request,
+                comparisonRequest,
+                previousSnapshots,
+                input.DetailLimit,
+                input.DetailRowsTruncated,
+                comparisonMode)
         };
     }
 
@@ -223,7 +230,7 @@ internal static class InstitutionalReportAnalysisService
         var open = currentSnapshots.Where(s => s.IsOpen).ToList();
         var closedDurations = CompletionDays(currentSnapshots).ToList();
         var responseDurations = ResponseDays(currentSnapshots).ToList();
-        var stale = open.Count(s => DaysSinceLastAction(s, referenceDate) >= options.StaleTransactionDays);
+        var stale = open.Count(s => ReportingTemporalCalculator.IsStale(s, referenceDate, options.StaleTransactionDays));
         var oldestOpen = open.Count == 0 ? 0 : open.Max(s => s.ElapsedDays);
         var pendingAssignments = currentSnapshots.Sum(s => s.PendingReplyAssignmentCount);
         var completionMedian = InstitutionalReportStatistics.Median(closedDurations);
@@ -237,7 +244,7 @@ internal static class InstitutionalReportAnalysisService
         var closureToIncomingRatio = current.TotalTransactions == 0
             ? 0
             : Math.Round(current.ClosedCount * 100.0 / current.TotalTransactions, 1);
-        var backlogGrowth = current.OpenCount - (previousOpen ?? 0);
+        var backlogGrowth = previousOpen.HasValue ? current.OpenCount - previousOpen.Value : current.OpenCount;
 
         return
         [
@@ -471,7 +478,7 @@ internal static class InstitutionalReportAnalysisService
         if (snapshot.RequiresResponse && !snapshot.ResponseCompleted && snapshot.ResponseDueDate.HasValue && snapshot.ResponseDueDate.Value.Date < referenceDate.Date)
             yield return CriticalCase(snapshot, "RESPONSE_REQUIRED_OVERDUE", "معاملة تتطلب ردًا بعد تاريخ المهلة", "استكمال الرد المطلوب", AnalyticalSeverity.High, referenceDate);
 
-        if (DaysSinceLastAction(snapshot, referenceDate) >= options.StaleTransactionDays)
+        if (ReportingTemporalCalculator.IsStale(snapshot, referenceDate, options.StaleTransactionDays))
             yield return CriticalCase(snapshot, "STALE_WITHOUT_UPDATE", $"لا يوجد تحديث حديث منذ {options.StaleTransactionDays} أيام أو أكثر", "تحديث حالة المعاملة أو تحديد إجراء تالٍ", AnalyticalSeverity.Medium, referenceDate);
 
         if (snapshot.IsPartialReply)
@@ -487,7 +494,7 @@ internal static class InstitutionalReportAnalysisService
         ExternalParty = snapshot.IncomingParty,
         Priority = PriorityLabel(snapshot.Priority),
         AgeDays = snapshot.ElapsedDays,
-        DaysOverdue = CalculateDaysOverdue(snapshot, referenceDate),
+        DaysOverdue = ReportingTemporalCalculator.DaysOverdue(snapshot, referenceDate),
         ReasonCode = code,
         ReasonLabel = label,
         RequiredAction = action,
@@ -632,7 +639,7 @@ internal static class InstitutionalReportAnalysisService
             return ("external_response_delay", "معاملة منتظرة من الجهة");
         if (snapshot.IsPartialReply)
             return ("partial_response", "رد جزئي غير مكتمل");
-        if (DaysSinceLastAction(snapshot, referenceDate) >= 7)
+        if (ReportingTemporalCalculator.IsStale(snapshot, referenceDate, 7))
             return ("stale_without_update", "بلا تحديث حديث");
         if (string.IsNullOrWhiteSpace(snapshot.CategoryName) || string.IsNullOrWhiteSpace(snapshot.ResponsibleDepartment))
             return ("missing_information", "بيانات تشغيلية ناقصة");
@@ -864,6 +871,8 @@ internal static class InstitutionalReportAnalysisService
         ReportMetadataDto metadata,
         ReportFiltersDto filters,
         ReportBuildRequestDto request,
+        ReportBuildRequestDto? comparisonRequest,
+        IReadOnlyList<TransactionReportSnapshot> previousSnapshots,
         int detailLimit,
         bool detailRowsTruncated,
         ReportComparisonMode comparisonMode)
@@ -883,13 +892,28 @@ internal static class InstitutionalReportAnalysisService
             ReportVersion = InstitutionalReportStyles.TemplateVersion,
             GeneratedAtUtc = metadata.GeneratedAt,
             DataPeriod = $"{metadata.PeriodFrom:yyyy-MM-dd} إلى {metadata.PeriodTo:yyyy-MM-dd}",
-            ComparisonPeriod = comparisonMode == ReportComparisonMode.None
-                ? "لا توجد مقارنة"
-                : $"{ResolveComparisonFrom(request):yyyy-MM-dd} إلى {ResolveComparisonTo(request):yyyy-MM-dd}",
+            ComparisonPeriod = BuildComparisonPeriodLabel(request, comparisonRequest, previousSnapshots, comparisonMode),
             Filters = BuildFilterSummary(filters),
             RowLimits = $"DetailLimit={detailLimit:N0}; Truncated={(detailRowsTruncated ? "yes" : "no")}",
             DeferredMetrics = deferred
         };
+    }
+
+    private static string BuildComparisonPeriodLabel(
+        ReportBuildRequestDto request,
+        ReportBuildRequestDto? comparisonRequest,
+        IReadOnlyList<TransactionReportSnapshot> previousSnapshots,
+        ReportComparisonMode comparisonMode)
+    {
+        if (comparisonMode == ReportComparisonMode.None || comparisonRequest is null)
+            return "لا توجد مقارنة";
+
+        var from = comparisonRequest.Filters.DateFrom;
+        var to = comparisonRequest.Filters.DateTo;
+        var period = $"{from:yyyy-MM-dd} إلى {to:yyyy-MM-dd}";
+        return previousSnapshots.Count == 0
+            ? $"{period} (فترة مقارنة صالحة بلا معاملات مطابقة)"
+            : period;
     }
 
     private static string BuildFilterSummary(ReportFiltersDto filters)
@@ -999,32 +1023,14 @@ internal static class InstitutionalReportAnalysisService
             : "أعلى من متوسط النظام";
     }
 
-    private static int ResolvePositive(int? requested, int fallback) =>
-        requested.HasValue && requested.Value > 0 ? requested.Value : fallback;
+    private static int ResolvePositive(int? requested, int configuredMaximum)
+    {
+        var resolved = requested.HasValue && requested.Value > 0 ? requested.Value : configuredMaximum;
+        return Math.Min(resolved, configuredMaximum);
+    }
 
     private static string BlankToUnknown(string? value) =>
         string.IsNullOrWhiteSpace(value) ? "غير محدد" : value.Trim();
-
-    private static int DaysSinceLastAction(TransactionReportSnapshot snapshot, DateTime referenceDate)
-    {
-        var lastAction = new[] { snapshot.UpdatedAt, snapshot.LastFollowUpDate, snapshot.ClosedAt }
-            .Where(d => d.HasValue)
-            .Select(d => d!.Value.Date)
-            .DefaultIfEmpty(snapshot.CreatedAt.Date)
-            .Max();
-        return Math.Max(0, (referenceDate.Date - lastAction).Days);
-    }
-
-    private static int? CalculateDaysOverdue(TransactionReportSnapshot snapshot, DateTime referenceDate)
-    {
-        var dueDates = new[] { snapshot.ResponseDueDate, snapshot.EarliestPendingReplyDueDate }
-            .Where(d => d.HasValue)
-            .Select(d => d!.Value.Date)
-            .ToList();
-        if (dueDates.Count == 0)
-            return snapshot.IsOverdue ? snapshot.ElapsedDays : null;
-        return Math.Max(0, (referenceDate.Date - dueDates.Min()).Days);
-    }
 
     private static DateTime PeriodStart(DateTime value, ReportTimeGrouping grouping)
     {

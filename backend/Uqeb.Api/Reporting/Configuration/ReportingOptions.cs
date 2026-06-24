@@ -97,6 +97,9 @@ public sealed class ReportingOptions
         if (MaxXlsxDetailRows < MaxPdfDetailRows)
             throw new InvalidOperationException("Reporting:MaxXlsxDetailRows must be greater than or equal to MaxPdfDetailRows.");
 
+        if (Analysis is null)
+            throw new InvalidOperationException("Reporting:Analysis configuration section is required.");
+
         Analysis.Validate();
     }
 

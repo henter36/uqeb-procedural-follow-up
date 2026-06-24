@@ -87,6 +87,47 @@ public class InstitutionalReportAnalysisServiceTests
         Assert.Contains("decimal", serialized);
     }
 
+    [Fact]
+    public void Build_WithDisabledComparison_ReportsNoComparisonPeriod()
+    {
+        var currentSnapshots = CreateCurrentSnapshots();
+        var currentMetrics = InstitutionalReportMetricsCalculator.Calculate(currentSnapshots, ReferenceDate);
+
+        var result = InstitutionalReportAnalysisService.Build(new InstitutionalReportAnalysisService.InstitutionalReportAnalysisInput
+        {
+            Request = new ReportBuildRequestDto
+            {
+                ReportType = InstitutionalReportType.ExecutiveComprehensive,
+                SectionIds = [ReportSectionId.KeyPerformanceIndicators],
+                IncludeComparison = false,
+                Filters = new ReportFiltersDto
+                {
+                    DateFrom = new DateTime(2026, 6, 1),
+                    DateTo = ReferenceDate,
+                },
+            },
+            Metadata = new ReportMetadataDto
+            {
+                GeneratedAt = ReferenceDate,
+                PeriodFrom = new DateTime(2026, 6, 1),
+                PeriodTo = ReferenceDate,
+                Title = "تقرير بدون مقارنة",
+                ReportNumber = "REP-NOCMP",
+            },
+            Filters = new ReportFiltersDto(),
+            CurrentMetrics = currentMetrics,
+            CurrentSnapshots = currentSnapshots,
+            PreviousMetrics = null,
+            PreviousSnapshots = [],
+            Options = new ReportingAnalysisOptions(),
+            DetailLimit = 500,
+            DetailRowsTruncated = false,
+        });
+
+        Assert.Equal(ReportComparisonMode.None, result.ComparisonMode);
+        Assert.Equal("لا توجد مقارنة", result.Methodology.ComparisonPeriod);
+    }
+
     private static List<TransactionReportSnapshot> CreateCurrentSnapshots() =>
     [
         Snapshot(1, TransactionStatus.New, Priority.Urgent, isOpen: true, isClosed: false, isOverdue: true, elapsedDays: 30, department: "الشؤون الإدارية", pendingReplies: 1, dueDate: ReferenceDate.AddDays(-10)),

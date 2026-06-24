@@ -198,6 +198,109 @@ public class InstitutionalReportServiceBuildValidationTests
 
         Assert.Contains("filters", ex.FieldErrors.Keys);
     }
+
+    [Fact]
+    public async Task BuildReportModelAsync_NormalizesNullFilterLists()
+    {
+        var service = InstitutionalReportServiceTestHelpers.CreateService();
+        var request = new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [ReportSectionId.Cover],
+            Filters = new ReportFiltersDto
+            {
+                DepartmentIds = null!,
+                PartyIds = null!,
+                CategoryIds = null!,
+                Priorities = null!,
+                Statuses = null!,
+            },
+        };
+
+        var model = await service.BuildReportModelAsync(request);
+
+        Assert.NotNull(model.Filters.DepartmentIds);
+        Assert.Empty(model.Filters.DepartmentIds);
+    }
+
+    [Fact]
+    public async Task BuildReportModelAsync_ThrowsValidationProblem_WhenMaxFindingsExceedConfiguredLimit()
+    {
+        var service = InstitutionalReportServiceTestHelpers.CreateService(
+            reportingOptions: new ReportingOptions
+            {
+                Analysis = new ReportingAnalysisOptions { MaxExecutiveFindings = 5 },
+            });
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.BuildReportModelAsync(new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [ReportSectionId.Cover],
+            Filters = new ReportFiltersDto(),
+            MaxFindings = 999,
+        }));
+
+        Assert.Contains("maxFindings", ex.FieldErrors.Keys);
+    }
+
+    [Fact]
+    public async Task BuildReportModelAsync_ComparisonPeriodWithZeroRows_ProducesZeroPreviousMetrics()
+    {
+        var updatedAt = new DateTime(2026, 6, 1, 10, 0, 0, DateTimeKind.Utc);
+        var factory = new TestDbContextFactory(new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"reporting-comparison-empty-{Guid.NewGuid():N}")
+            .Options);
+
+        await using (var db = factory.CreateDbContext())
+        {
+            var user = new User
+            {
+                Username = "comparison-empty",
+                PasswordHash = "hash",
+                FullName = "Comparison Empty",
+                Role = UserRole.Admin,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            };
+            db.Users.Add(user);
+            await db.SaveChangesAsync();
+
+            db.Transactions.Add(new Transaction
+            {
+                InternalTrackingNumber = "INT-CMP-001",
+                IncomingNumber = "IN-CMP-001",
+                IncomingDate = new DateTime(2026, 6, 10),
+                Subject = "معاملة الفترة الحالية",
+                IncomingFrom = "جهة",
+                Status = TransactionStatus.New,
+                Priority = Priority.Normal,
+                CreatedById = user.Id,
+                CreatedAt = new DateTime(2026, 6, 10),
+                UpdatedAt = updatedAt,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var service = InstitutionalReportServiceTestHelpers.CreateService(factory);
+        var model = await service.BuildReportModelAsync(new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [ReportSectionId.KeyPerformanceIndicators],
+            IncludeComparison = true,
+            ComparisonMode = ReportComparisonMode.PreviousEquivalentPeriod,
+            Filters = new ReportFiltersDto
+            {
+                DateFrom = new DateTime(2026, 6, 1),
+                DateTo = new DateTime(2026, 6, 30),
+            },
+        });
+
+        Assert.NotNull(model.Analysis);
+        Assert.Contains("فترة مقارنة صالحة بلا معاملات مطابقة", model.Analysis!.Methodology.ComparisonPeriod);
+        var totalTransactionsKpi = model.Analysis.Kpis.Single(k => k.Key == "TotalTransactions");
+        Assert.Equal(0, totalTransactionsKpi.Comparison.PreviousValue);
+        Assert.Equal(1, totalTransactionsKpi.Comparison.AbsoluteChange);
+    }
 }
 
 public class InstitutionalReportServiceSideEffectTests

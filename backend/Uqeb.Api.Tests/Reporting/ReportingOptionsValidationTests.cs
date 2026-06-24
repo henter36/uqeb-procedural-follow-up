@@ -32,6 +32,14 @@ public class ReportingOptionsValidationTests
     }
 
     [Fact]
+    public void Validate_ThrowsWhenAnalysisSectionMissing()
+    {
+        var options = new ReportingOptions { Analysis = null! };
+        var ex = Assert.Throws<InvalidOperationException>(() => options.Validate());
+        Assert.Contains("Reporting:Analysis", ex.Message);
+    }
+
+    [Fact]
     public void HostFailsFast_WhenMaxPdfDetailRowsIsInvalid()
     {
         Assert.ThrowsAny<Exception>(() =>

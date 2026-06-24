@@ -66,7 +66,7 @@ public sealed class InstitutionalReportExportService : IInstitutionalReportExpor
 
         try
         {
-            InstitutionalReportRequestValidator.ValidateBuildRequest(effectiveRequest.BuildRequest);
+            InstitutionalReportRequestValidator.ValidateBuildRequest(effectiveRequest.BuildRequest, _reportingOptions);
             var detailLimit = _reportingOptions.ResolveDetailLimit(exportOptions.Format);
             var pdfPartLimit = _reportingOptions.ResolvePdfPartDetailLimit();
 

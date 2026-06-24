@@ -1,4 +1,5 @@
 using Uqeb.Api.Helpers;
+using Uqeb.Api.Reporting.Configuration;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
 
@@ -6,7 +7,7 @@ namespace Uqeb.Api.Reporting.Services;
 
 internal static class InstitutionalReportRequestValidator
 {
-    internal static void ValidateBuildRequest(ReportBuildRequestDto? request)
+    internal static void ValidateBuildRequest(ReportBuildRequestDto? request, ReportingOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -26,8 +27,9 @@ internal static class InstitutionalReportRequestValidator
             });
         }
 
+        NormalizeFilterLists(request.Filters);
         ValidateFilterDateRange(request.Filters);
-        ValidateAnalyticalOptions(request);
+        ValidateAnalyticalOptions(request, options?.Analysis);
     }
 
     internal static List<ReportSectionId> ResolveSections(ReportBuildRequestDto request)
@@ -36,7 +38,16 @@ internal static class InstitutionalReportRequestValidator
         return request.SectionIds.Distinct().ToList();
     }
 
-    private static void ValidateAnalyticalOptions(ReportBuildRequestDto request)
+    private static void NormalizeFilterLists(ReportFiltersDto filters)
+    {
+        filters.DepartmentIds ??= [];
+        filters.PartyIds ??= [];
+        filters.CategoryIds ??= [];
+        filters.Priorities ??= [];
+        filters.Statuses ??= [];
+    }
+
+    private static void ValidateAnalyticalOptions(ReportBuildRequestDto request, ReportingAnalysisOptions? analysisOptions)
     {
         if (request.ContentLevel.HasValue && !Enum.IsDefined(request.ContentLevel.Value))
             throw InvalidEnum("contentLevel", "مستوى المحتوى غير صالح.");
@@ -68,9 +79,10 @@ internal static class InstitutionalReportRequestValidator
             });
         }
 
-        ValidatePositiveLimit(request.MaxCriticalCases, "maxCriticalCases");
-        ValidatePositiveLimit(request.MaxFindings, "maxFindings");
-        ValidatePositiveLimit(request.MaxRecommendations, "maxRecommendations");
+        var analysis = analysisOptions ?? new ReportingAnalysisOptions();
+        ValidatePositiveLimit(request.MaxCriticalCases, "maxCriticalCases", analysis.MaxExecutiveCriticalCases);
+        ValidatePositiveLimit(request.MaxFindings, "maxFindings", analysis.MaxExecutiveFindings);
+        ValidatePositiveLimit(request.MaxRecommendations, "maxRecommendations", analysis.MaxRecommendations);
     }
 
     private static void ValidateFilterDateRange(ReportFiltersDto filters)
@@ -90,7 +102,7 @@ internal static class InstitutionalReportRequestValidator
     private static FieldValidationException InvalidEnum(string field, string message) =>
         new(new Dictionary<string, string> { [field] = message });
 
-    private static void ValidatePositiveLimit(int? value, string field)
+    private static void ValidatePositiveLimit(int? value, string field, int configuredMaximum)
     {
         if (value is null)
             return;
@@ -100,6 +112,14 @@ internal static class InstitutionalReportRequestValidator
             throw new FieldValidationException(new Dictionary<string, string>
             {
                 [field] = "يجب أن تكون القيمة أكبر من صفر.",
+            });
+        }
+
+        if (value > configuredMaximum)
+        {
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                [field] = $"الحد الأقصى المسموح هو {configuredMaximum}.",
             });
         }
     }

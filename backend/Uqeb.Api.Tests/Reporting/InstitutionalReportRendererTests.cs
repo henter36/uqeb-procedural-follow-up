@@ -52,6 +52,24 @@ public class InstitutionalReportRendererTests
     }
 
     [Fact]
+    public void BuildExportManifest_PreservesAnalysisPayload()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        var source = InstitutionalReportVisualFixtures.RenderSections(
+            model,
+            ReportSectionId.KeyPerformanceIndicators,
+            ReportSectionId.SignificantFindings);
+
+        var result = _renderer.BuildExportManifest(source, [source.Pages[0].OriginalPageNumber], new ReportExportRequestDto
+        {
+            IncludePartialCover = true,
+            IncludePartialManifest = true,
+        });
+
+        Assert.Same(source.Analysis, result.Analysis);
+    }
+
+    [Fact]
     public void BuildExportManifest_PreservesOperationalMetadata_WithOriginalNumbering()
     {
         var source = CreateSourceManifest(4);

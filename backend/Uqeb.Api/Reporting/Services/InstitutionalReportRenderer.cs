@@ -339,7 +339,8 @@ public sealed class InstitutionalReportRenderer
             FileFingerprint = source.FileFingerprint,
             Pages = pages,
             IsPartialExport = isPartial,
-            PartialExportNote = isPartial ? "هذه نسخة جزئية من التقرير الأصلي." : null
+            PartialExportNote = isPartial ? "هذه نسخة جزئية من التقرير الأصلي." : null,
+            Analysis = source.Analysis
         };
     }
 
