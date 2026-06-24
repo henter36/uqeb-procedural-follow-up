@@ -54,7 +54,7 @@ KPI/metrics always computed from full matched population. Detail tables may be s
 ## Local commands
 
 ```bash
-dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --filter "FullyQualifiedName~InstitutionalReportVisual"
+dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --filter "FullyQualifiedName~InstitutionalReportVisualRegressionTests|FullyQualifiedName~InstitutionalReportPlaywrightPdfExporterTests|FullyQualifiedName~InstitutionalReportPreviewPdfParityTests"
 REQUIRE_PLAYWRIGHT_TESTS=1 dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --filter "FullyQualifiedName~InstitutionalReportPlaywrightPdfExporterTests"
 
 cd frontend/uqeb-ui
@@ -78,9 +78,46 @@ Install Playwright Chromium (first time):
 pwsh backend/Uqeb.Api/bin/Debug/net10.0/playwright.ps1 install chromium
 ```
 
-## Readiness check
+## Readiness and configuration endpoints
 
-`GET /api/institutional-reports/readiness` (feature flag must be enabled) returns font/stylesheet/temp/config status without failing global `/health`.
+Both endpoints require:
+
+- `FeatureFlags:InstitutionalReports=true`
+- Authorization policy: `SupervisorOrAdmin` (`[Authorize(Policy = Policies.SupervisorOrAdmin)]`)
+
+Implemented by `InstitutionalReportConfigurationController` (separate from `InstitutionalReportsController` export/preview routes).
+
+### `GET /api/institutional-reports/configuration`
+
+Returns `ReportingConfigurationDto`:
+
+| Field | Description |
+|-------|-------------|
+| MaxPreviewDetailRows | Preview detail sample limit |
+| MaxPdfDetailRows | PDF/DOCX overflow threshold |
+| MaxPdfDetailRowsPerPart | Split PDF part row limit |
+| MaxDocxDetailRows | DOCX detail row limit |
+| MaxXlsxDetailRows | XLSX detail row limit |
+| MaxHtmlDetailRows | HTML detail row limit |
+| MaxPdfParts | Maximum split PDF parts |
+| MaxExportFileSizeMb | Export size guard |
+| MaxExportDurationSeconds | Export duration guard |
+| TemplateVersion | Institutional report template version |
+
+### `GET /api/institutional-reports/readiness`
+
+Returns `ReportingReadinessDto`:
+
+| Field | Description |
+|-------|-------------|
+| FeatureEnabled | Current feature flag state |
+| FontAssetsAvailable | Embedded font CSS available |
+| StylesheetAvailable | Report stylesheet loadable |
+| TempDirectoryWritable | Temp probe write/delete succeeded |
+| ConfigurationValid | Reporting limits validated |
+| ChromiumStatus | Guidance for Playwright/Chromium verification |
+
+`/readiness` is optional diagnostics for institutional reporting only. It does **not** replace global `/health` and must not fail global health when the feature flag is disabled.
 
 ## Rollback
 

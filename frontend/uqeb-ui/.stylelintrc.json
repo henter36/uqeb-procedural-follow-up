@@ -1,0 +1,15 @@
+{
+  "extends": ["stylelint-config-standard"],
+  "rules": {
+    "custom-property-pattern": null,
+    "font-family-name-quotes": null,
+    "selector-class-pattern": null,
+    "unit-allowed-list": ["px", "mm", "%", "deg", "s", "fr", "rem", "em", "vh", "vw"],
+    "value-keyword-case": [
+      "lower",
+      {
+        "ignoreKeywords": ["Uqeb", "Report", "Arabic", "IBM", "Plex", "Sans", "Noto", "Cairo"]
+      }
+    ]
+  }
+}

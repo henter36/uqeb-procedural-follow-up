@@ -87,6 +87,8 @@ jobs:
         working-directory: frontend/uqeb-ui
       - run: npm test -- --run
         working-directory: frontend/uqeb-ui
+      - run: npm run lint:css
+        working-directory: frontend/uqeb-ui
 
   zizmor:
     runs-on: ubuntu-latest

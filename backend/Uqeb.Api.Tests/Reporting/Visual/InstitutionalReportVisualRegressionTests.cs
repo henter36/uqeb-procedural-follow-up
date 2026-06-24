@@ -68,7 +68,15 @@ public class InstitutionalReportVisualRegressionTests
             Content = "* { animation: none !important; transition: none !important; }",
         });
 
-        var pageSection = page.Locator(".report-page").First;
+        var reportPages = page.Locator(".report-page");
+        var count = await reportPages.CountAsync();
+        Assert.True(count > 0, "Expected at least one rendered report page.");
+        await reportPages.First.WaitForAsync(new LocatorWaitForOptions
+        {
+            State = WaitForSelectorState.Visible,
+            Timeout = 5_000,
+        });
+        var pageSection = reportPages.First;
         await AssertRenderedSectionAsync(page, pageSection, snapshotName, section);
     }
 
@@ -88,7 +96,13 @@ public class InstitutionalReportVisualRegressionTests
         await using var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions { Headless = true });
         var page = await browser.NewPageAsync(new BrowserNewPageOptions { Locale = "ar-SA", TimezoneId = "Asia/Riyadh" });
         await page.SetContentAsync(html);
-        var content = await page.Locator(".empty-state").InnerTextAsync();
+        var emptyState = page.Locator(".empty-state");
+        await emptyState.WaitForAsync(new LocatorWaitForOptions
+        {
+            State = WaitForSelectorState.Visible,
+            Timeout = 5_000,
+        });
+        var content = await emptyState.InnerTextAsync();
         Assert.Contains("لا توجد توصيات", content);
     }
 

@@ -15,7 +15,7 @@
   --report-surface: #F4F6F5;
   --report-surface-alt: #EAF2EE;
   --report-text: #17211D;
-  --report-font-family: 'Uqeb Report Arabic', 'IBM Plex Sans Arabic', 'Noto Sans Arabic', 'Cairo', Tahoma, sans-serif;
+  --report-font-family: 'Uqeb Report Arabic', 'IBM Plex Sans Arabic', 'Noto Sans Arabic', 'Cairo', tahoma, sans-serif;
   --report-font-size-body: 11px;
   --report-font-size-caption: 10px;
   --report-font-size-heading: 22px;
@@ -25,8 +25,8 @@
 }
 
 @page {
-  size: A4 portrait;
-  margin: 18mm 14mm 20mm 14mm;
+  size: a4 portrait;
+  margin: 18mm 14mm 20mm;
 }
 
 @media print {
@@ -69,7 +69,6 @@ body {
   width: var(--report-page-width);
   min-height: var(--report-page-height);
   padding: var(--report-page-padding);
-  page-break-after: always;
   break-after: page;
   position: relative;
   background: #fff;
@@ -117,7 +116,7 @@ body {
   border-right: 4px solid var(--report-warning);
   padding-right: 10px;
   line-height: 1.4;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
 }
 
 .cover {
@@ -163,7 +162,7 @@ body {
   color: var(--report-primary);
   font-weight: 800;
   margin: 0;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
 }
 
 .cover-period {
@@ -200,7 +199,7 @@ body {
   margin: 0 0 10px;
   font-weight: 700;
   color: var(--report-primary);
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
 }
 
 .kpi-grid {
@@ -289,7 +288,7 @@ body {
   font-size: 9px;
   text-align: center;
   margin-top: 4px;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
 }
 
 .chart-footnote {
@@ -317,19 +316,18 @@ table.report-table td {
   border-bottom: 1px solid var(--report-border);
   padding: 7px 6px;
   vertical-align: top;
-  overflow-wrap: break-word;
   overflow-wrap: anywhere;
   min-height: var(--report-table-row-height);
-}
-
-table.report-table tr:nth-child(even) td {
-  background: var(--report-surface);
 }
 
 table.report-table tfoot td {
   background: var(--report-primary);
   color: #fff;
   font-weight: 700;
+}
+
+table.report-table tr:nth-child(even) td {
+  background: var(--report-surface);
 }
 
 .rating-good {
@@ -368,10 +366,25 @@ table.report-table tfoot td {
   border-bottom: 2px solid var(--report-border);
 }
 
-.risk-group.critical .risk-group-title { color: var(--report-danger); border-color: var(--report-danger); }
-.risk-group.high .risk-group-title { color: #9A3412; border-color: #9A3412; }
-.risk-group.elevated .risk-group-title { color: var(--report-warning); border-color: var(--report-warning); }
-.risk-group.info .risk-group-title { color: var(--report-secondary); border-color: var(--report-secondary); }
+.risk-group.critical .risk-group-title {
+  color: var(--report-danger);
+  border-color: var(--report-danger);
+}
+
+.risk-group.high .risk-group-title {
+  color: #9A3412;
+  border-color: #9A3412;
+}
+
+.risk-group.elevated .risk-group-title {
+  color: var(--report-warning);
+  border-color: var(--report-warning);
+}
+
+.risk-group.info .risk-group-title {
+  color: var(--report-secondary);
+  border-color: var(--report-secondary);
+}
 
 .risk-empty {
   font-size: 12px;

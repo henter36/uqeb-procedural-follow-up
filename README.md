@@ -341,7 +341,12 @@ VITE_ENABLE_INSTITUTIONAL_REPORTS=true
 dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --filter "FullyQualifiedName!~InstitutionalReportVisualRegressionTests&FullyQualifiedName!~InstitutionalReportPlaywrightPdfExporterTests"
 
 # Playwright (Ubuntu CI أو بعد تثبيت Chromium محليًا)
-REQUIRE_PLAYWRIGHT_TESTS=1 dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --filter "FullyQualifiedName~InstitutionalReportVisual"
+# macOS/Linux:
+REQUIRE_PLAYWRIGHT_TESTS=1 dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --filter "FullyQualifiedName~InstitutionalReportVisualRegressionTests|FullyQualifiedName~InstitutionalReportPlaywrightPdfExporterTests|FullyQualifiedName~InstitutionalReportPreviewPdfParityTests"
+
+# PowerShell (Windows):
+# $env:REQUIRE_PLAYWRIGHT_TESTS = "1"
+# dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --filter "FullyQualifiedName~InstitutionalReportVisualRegressionTests|FullyQualifiedName~InstitutionalReportPlaywrightPdfExporterTests|FullyQualifiedName~InstitutionalReportPreviewPdfParityTests"
 ```
 
 تثبيت Chromium (أول مرة، Windows/Linux):

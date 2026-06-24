@@ -10,6 +10,60 @@ public class InstitutionalReportRendererTests
     private readonly InstitutionalReportRenderer _renderer = new();
 
     [Fact]
+    public void BuildExportManifest_PreservesOperationalMetadata()
+    {
+        var source = CreateSourceManifest(3);
+        source.TotalMatchedRows = 12_500;
+        source.ExportedDetailRows = 500;
+        source.DetailRowsTruncated = true;
+        source.DetailPartsCount = 3;
+        source.LoadedDetailRows = 500;
+        source.TemplateVersion = "2026.06.1";
+        source.Stylesheet = "body { margin: 0; }";
+        source.OverflowAction = DetailOverflowAction.SplitPdf;
+        source.FileFingerprint = "fp-test";
+        source.IsSummaryOnly = false;
+
+        var result = _renderer.BuildExportManifest(source, [1, 2], new ReportExportRequestDto
+        {
+            IncludePartialCover = true,
+            IncludePartialManifest = true,
+            PageNumberingMode = PageNumberingMode.Restart,
+        });
+
+        Assert.Equal(source.LoadedDetailRows, result.LoadedDetailRows);
+        Assert.Equal(source.TemplateVersion, result.TemplateVersion);
+        Assert.Equal(source.TotalMatchedRows, result.TotalMatchedRows);
+        Assert.Equal(source.ExportedDetailRows, result.ExportedDetailRows);
+        Assert.Equal(source.DetailPartsCount, result.DetailPartsCount);
+        Assert.Equal(source.Stylesheet, result.Stylesheet);
+        Assert.Equal(source.OverflowAction, result.OverflowAction);
+        Assert.Equal(source.FileFingerprint, result.FileFingerprint);
+        Assert.Equal(source.IsSummaryOnly, result.IsSummaryOnly);
+        Assert.True(result.IsPartialExport);
+    }
+
+    [Fact]
+    public void BuildExportManifest_PreservesOperationalMetadata_WithOriginalNumbering()
+    {
+        var source = CreateSourceManifest(4);
+        source.TotalMatchedRows = 100;
+        source.ExportedDetailRows = 100;
+        source.LoadedDetailRows = 100;
+        source.TemplateVersion = "2026.06.1";
+
+        var result = _renderer.BuildExportManifest(source, [2, 3], new ReportExportRequestDto
+        {
+            PageNumberingMode = PageNumberingMode.Original,
+        });
+
+        Assert.Equal(source.LoadedDetailRows, result.LoadedDetailRows);
+        Assert.Equal(source.TemplateVersion, result.TemplateVersion);
+        Assert.Equal(2, result.Pages[0].RenderedPageNumber);
+        Assert.Equal(3, result.Pages[1].RenderedPageNumber);
+    }
+
+    [Fact]
     public void BuildExportManifest_RenumbersPartialCoverAndManifestPages()
     {
         var source = CreateSourceManifest(3);

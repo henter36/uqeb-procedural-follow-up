@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { sanitizeReportHtml } from '../utils/sanitizeReportHtml';
-import '../styles/institutional-report/report.css';
+import { buildPreviewDocument } from './reportPreviewHtml';
 
 type ReportPreviewDocumentProps = Readonly<{
   htmlContent: string;
@@ -16,21 +16,22 @@ export function ReportPreviewDocument({
   title = 'معاينة صفحة التقرير',
 }: ReportPreviewDocumentProps) {
   const sanitizedHtml = useMemo(() => sanitizeReportHtml(htmlContent), [htmlContent]);
+  const previewDocument = useMemo(
+    () => buildPreviewDocument(stylesheet ?? '', sanitizedHtml),
+    [stylesheet, sanitizedHtml],
+  );
 
   return (
-    <section
+    <div
       className="report-preview-frame"
-      aria-label={title}
       style={{ transform: `scale(${zoom})`, transformOrigin: 'top center' }}
     >
-      {stylesheet ? <style>{stylesheet}</style> : null}
-      <div
-        className="report-preview-document"
-        dir="rtl"
-        lang="ar"
-        // eslint-disable-next-line react/no-danger
-        dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
+      <iframe
+        title={title}
+        className="report-preview-iframe"
+        sandbox=""
+        srcDoc={previewDocument}
       />
-    </section>
+    </div>
   );
 }
