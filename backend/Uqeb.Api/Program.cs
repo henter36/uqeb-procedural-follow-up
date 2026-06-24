@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Uqeb.Api.Authorization;
 using Uqeb.Api.Configuration;
@@ -37,6 +38,14 @@ builder.Services.AddOptions<ReportingOptions>()
         o.Validate();
         return true;
     }, "Reporting configuration is invalid.")
+    .ValidateOnStart();
+builder.Services.AddOptions<DatabaseStartupOptions>()
+    .Bind(builder.Configuration.GetSection(DatabaseStartupOptions.SectionName))
+    .Validate(o =>
+    {
+        o.Validate();
+        return true;
+    }, "DatabaseStartup configuration is invalid.")
     .ValidateOnStart();
 
 var useInMemoryDatabase = builder.Configuration.GetValue<bool>("Testing:UseInMemoryDatabase");
@@ -186,7 +195,9 @@ try
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    await DbSeeder.SeedAsync(db);
+    var startupOptions = scope.ServiceProvider.GetRequiredService<IOptions<DatabaseStartupOptions>>().Value;
+    var environment = scope.ServiceProvider.GetRequiredService<IHostEnvironment>();
+    await DatabaseStartupRunner.RunAsync(db, startupOptions, environment);
 }
 catch (Exception ex)
 {
