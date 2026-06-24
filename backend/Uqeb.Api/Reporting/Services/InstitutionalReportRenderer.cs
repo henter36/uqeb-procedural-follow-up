@@ -362,7 +362,7 @@ public sealed class InstitutionalReportRenderer
     private static string Header(bool partial) =>
         $"""
         <header class="report-header">
-          <div class="org">الهيئة العامة للمتابعة الإجرائية<br/>إدارة المتابعة والتقارير</div>
+          <div class="org">المتابعة الإجرائية<br/>إدارة المتابعة والتقارير</div>
           <div class="meta">{(partial ? "نسخة جزئية" : "تقرير رسمي")}</div>
         </header>
         """;
@@ -424,7 +424,7 @@ public sealed class InstitutionalReportRenderer
           </div>
           <div class="cover-accent">
             <div style="font-size:14px;opacity:.9;">المتابعة الإجرائية</div>
-            <div style="margin-top:24px;font-size:28px;font-weight:800;line-height:1.5;">تقرير مؤسسي<br/>للمتابعة الإجرائية</div>
+            <div style="margin-top:24px;font-size:28px;font-weight:800;line-height:1.5;">تقرير<br/>المتابعة الإجرائية</div>
           </div>
         </div>
         """;

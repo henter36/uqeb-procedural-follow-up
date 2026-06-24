@@ -11,7 +11,7 @@ public sealed class ReportMetadataDto
     public DateTime PeriodFrom { get; set; }
     public DateTime PeriodTo { get; set; }
     public string Title { get; set; } = "تقرير المتابعة الإجرائية للمعاملات";
-    public string OrganizationName { get; set; } = "الهيئة العامة للمتابعة الإجرائية";
+    public string OrganizationName { get; set; } = "المتابعة الإجرائية";
     public string DepartmentName { get; set; } = "إدارة المتابعة والتقارير";
     public string? ConfidentialityLabel { get; set; }
     public string? Introduction { get; set; }
