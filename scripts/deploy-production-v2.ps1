@@ -4,6 +4,7 @@
   Canonical Uqeb production deployment.
 
 .DESCRIPTION
+  Legacy folder deployment. For ZIP packages use install-production-package.ps1 instead.
   This script is intentionally separated from deploy-production.ps1 so the
   compatibility entry point remains stable. It uses C:\Uqeb\publish\api and
   C:\Uqeb\publish\web, binds Kestrel to 0.0.0.0 by default, preserves approved
@@ -26,6 +27,23 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+
+Write-Warning "deploy-production-v2.ps1 is deprecated for ZIP packages. Use install-production-package.ps1."
+
+if ([System.IO.Path]::GetExtension($SourcePackagePath) -eq ".zip") {
+    $installScript = Join-Path $PSScriptRoot "install-production-package.ps1"
+    if (-not (Test-Path -LiteralPath $installScript)) {
+        throw "Preferred installer is missing: $installScript"
+    }
+
+    & $installScript `
+        -PackagePath $SourcePackagePath `
+        -InstallRoot $InstallRoot `
+        -TaskName $ScheduledTaskName `
+        -ApiPort $ApiPort `
+        -ConfigPath $(if ($ProductionSettingsPath) { $ProductionSettingsPath } else { Join-Path $InstallRoot "config\appsettings.Production.json" })
+    return
+}
 
 function Write-Step { param([string]$Message) Write-Output ""; Write-Output ("==> " + $Message) }
 function Write-Info { param([string]$Message) Write-Output ("[INFO] " + $Message) }

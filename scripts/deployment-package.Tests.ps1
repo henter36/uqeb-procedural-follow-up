@@ -704,6 +704,23 @@ Describe 'install-production-package.ps1 scenarios' {
         Mock Get-NetTCPConnection { return @() }
         Mock Test-RecentLogErrors { return @() }
         Mock Copy-ApplicationPayload {}
+        Mock Install-StagedReleaseToProduction {
+            param(
+                [string]$InstallRoot,
+                [string]$Version
+            )
+
+            return [pscustomobject]@{
+                Paths = [pscustomobject]@{
+                    ReleaseRoot = Join-Path $InstallRoot ("releases\" + $Version)
+                    CurrentApi = Join-Path $InstallRoot 'current\api'
+                    CurrentWeb = Join-Path $InstallRoot 'current\web'
+                }
+                ConfigTarget = Join-Path $InstallRoot 'current\api\appsettings.Production.json'
+                PreviousRelease = ''
+            }
+        }
+        Mock Test-RequiredMigrationApplied {}
         Mock Invoke-DatabaseBackupRetentionPolicy { return @() }
         Mock Get-SqlConnectionInfoFromSettings {
             return [pscustomobject]@{
@@ -737,6 +754,19 @@ Describe 'install-production-package.ps1 scenarios' {
         $names | Should -Not -Contain 'SkipDatabaseBackup'
     }
 
+    It 'uses ApplyDatabaseMigration instead of SkipDatabaseMigration' {
+        $errors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            $script:InstallScript,
+            [ref]$null,
+            [ref]$errors)
+        $errors | Should -BeNullOrEmpty
+        $paramBlock = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.ParamBlockAst] }, $true)[0]
+        $names = @($paramBlock.Parameters | ForEach-Object { $_.Name.Extent.Text })
+        $names | Should -Not -Contain '$SkipDatabaseMigration'
+        $names | Should -Contain '$ApplyDatabaseMigration'
+    }
+
     It 'blocks database backup bypass environment variables' {
         { Assert-DatabaseBackupNotBypassed } | Should -Not -Throw
         $previous = $env:UQEB_SKIP_DATABASE_BACKUP
@@ -759,11 +789,11 @@ Describe 'install-production-package.ps1 scenarios' {
         { & $script:InstallScript -PackagePath $folder } | Should -Throw '*ZIP*'
     }
 
-    It 'stops on migration failure' {
+    It 'stops on migration failure when ApplyDatabaseMigration is requested' {
         $env = New-InstallTestEnvironment -PackageMigrationContent 'throw "migration failed"'
         'throw "migration failed"' | Set-Content (Join-Path $env.ToolsRoot 'apply-migrations.ps1') -Encoding ASCII
 
-        { Invoke-TestInstallScript -Environment $env } |
+        { Invoke-TestInstallScript -Environment $env -AdditionalParameters @{ ApplyDatabaseMigration = $true } } |
             Should -Throw
     }
 
@@ -775,12 +805,13 @@ Describe 'install-production-package.ps1 scenarios' {
             Should -Throw
     }
 
-    It 'succeeds on full mocked deployment path' {
+    It 'succeeds on full mocked deployment path without applying migrations' {
         $env = New-InstallTestEnvironment
-        'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'apply-migrations.ps1') -Encoding ASCII
         'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
         { Invoke-TestInstallScript -Environment $env } | Should -Not -Throw
+        Assert-MockCalled Test-RequiredMigrationApplied -Times 1 -Exactly
+        Assert-MockCalled Install-StagedReleaseToProduction -Times 1 -Exactly
     }
 
     It 'does not declare success when API port never opens' {
@@ -799,14 +830,14 @@ Describe 'install-production-package.ps1 scenarios' {
 
         $env = New-InstallTestEnvironment
 
-        { Invoke-TestInstallScript -Environment $env } |
+        { Invoke-TestInstallScript -Environment $env -AdditionalParameters @{ ApplyDatabaseMigration = $true } } |
             Should -Throw
 
         $global:deployOrder | Should -Not -Contain 'stop-api'
-        Assert-MockCalled Copy-ApplicationPayload -Times 0 -Exactly
+        Assert-MockCalled Install-StagedReleaseToProduction -Times 0 -Exactly
     }
 
-    It 'runs database backup before API stop and migrations' {
+    It 'runs database backup before API stop when ApplyDatabaseMigration is requested' {
         $global:deployOrder = @()
         Mock Invoke-ProductionDatabaseBackup {
             $global:deployOrder += 'db-backup'
@@ -825,7 +856,7 @@ Describe 'install-production-package.ps1 scenarios' {
         $env = New-InstallTestEnvironment
         'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
-        Invoke-TestInstallScript -Environment $env | Out-Null
+        Invoke-TestInstallScript -Environment $env -AdditionalParameters @{ ApplyDatabaseMigration = $true } | Out-Null
 
         $global:deployOrder[0] | Should -Be 'db-backup'
         ($global:deployOrder.IndexOf('db-backup') -lt $global:deployOrder.IndexOf('stop-api')) | Should -BeTrue
@@ -849,7 +880,7 @@ Describe 'install-production-package.ps1 scenarios' {
 
         $output = @()
         try {
-            Invoke-TestInstallScript -Environment $env *>&1 |
+            Invoke-TestInstallScript -Environment $env -AdditionalParameters @{ ApplyDatabaseMigration = $true } *>&1 |
                 ForEach-Object { $output += $_.ToString() }
         }
         catch {
@@ -859,14 +890,13 @@ Describe 'install-production-package.ps1 scenarios' {
         ($output -join [Environment]::NewLine) | Should -Match 'RESTORE DATABASE'
     }
 
-    It 'succeeds when stale LASTEXITCODE is set before migration' {
+    It 'succeeds when stale LASTEXITCODE is set before optional migration' {
         $global:LASTEXITCODE = 1
 
         $env = New-InstallTestEnvironment
-        'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'apply-migrations.ps1') -Encoding ASCII
         'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
-        { Invoke-TestInstallScript -Environment $env -AdditionalParameters @{ ApiPort = 5001 } } | Should -Not -Throw
+        { Invoke-TestInstallScript -Environment $env -AdditionalParameters @{ ApiPort = 5001; ApplyDatabaseMigration = $true } } | Should -Not -Throw
     }
 
     It 'derives ApiBaseUrl from ApiPort when URL is omitted' {
@@ -879,6 +909,45 @@ Describe 'install-production-package.ps1 scenarios' {
         $content = Get-Content -LiteralPath $script:InstallScript -Raw
         $content | Should -Match 'IsNullOrWhiteSpace\(\$ApiBaseUrl\)'
         $content | Should -Match 'http://localhost:\$ApiPort'
+    }
+}
+
+Describe 'Release promotion and rollback state' {
+    It 'writes and reads rollback-state.json' {
+        $root = New-TempDirectory
+        $state = [ordered]@{
+            updatedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+            currentRelease = '20260101-120000'
+            previousRelease = '20251231-120000'
+            package = 'Uqeb-test.zip'
+            commitSha = 'abc'
+        }
+
+        Write-RollbackState -InstallRoot $root -State $state
+        $loaded = Read-RollbackState -InstallRoot $root
+
+        $loaded.currentRelease | Should -Be '20260101-120000'
+        $loaded.previousRelease | Should -Be '20251231-120000'
+    }
+
+    It 'returns false when rollback state has no previous release' {
+        Mock Stop-ScheduledTask {}
+        Mock Start-ScheduledTask {}
+        Mock Stop-ApiListenersOnPort {}
+        Mock Wait-PortReleased { $true }
+
+        $root = New-TempDirectory
+        Write-RollbackState -InstallRoot $root -State ([ordered]@{
+            currentRelease = 'only'
+            previousRelease = ''
+        })
+
+        $result = @(Invoke-ReleaseRollbackFromState `
+            -InstallRoot $root `
+            -TaskName 'UqebApi' `
+            -ApiPort 5000)[-1]
+
+        $result | Should -BeFalse
     }
 }
 
@@ -1227,5 +1296,14 @@ Describe 'build-production-package.ps1 policy' {
     It 'does not rely on LASTEXITCODE after in-process install scripts' {
         $content = Get-Content (Join-Path $PSScriptRoot 'install-production-package.ps1') -Raw
         $content | Should -Not -Match '\$LASTEXITCODE'
+    }
+
+    It 'declares atomic release promotion contract in package manifest' {
+        $buildContent = Get-Content (Join-Path $PSScriptRoot 'build-production-package.ps1') -Raw
+        $installContent = Get-Content (Join-Path $PSScriptRoot 'install-production-package.ps1') -Raw
+        $buildContent | Should -Match 'promotionModel = "releases-current-v1"'
+        $buildContent | Should -Match 'packageContractVersion = 2'
+        $installContent | Should -Match 'Install-StagedReleaseToProduction'
+        $installContent | Should -Match 'ApplyDatabaseMigration'
     }
 }

@@ -4,10 +4,8 @@
   Compatibility entry point for the canonical Uqeb production deployment.
 
 .DESCRIPTION
-  Delegates to deploy-production-v2.ps1, which uses the approved production
-  layout under C:\Uqeb\publish, binds Kestrel to 0.0.0.0 by default, preserves
-  separately provisioned production settings, and performs full preflight and
-  post-deployment verification.
+  Compatibility entry point. ZIP packages delegate to install-production-package.ps1.
+  Unpacked folders still delegate to deploy-production-v2.ps1 (legacy).
 #>
 
 [CmdletBinding()]
@@ -32,6 +30,21 @@ param(
 )
 
 $canonicalScript = Join-Path $PSScriptRoot "deploy-production-v2.ps1"
+
+if ([System.IO.Path]::GetExtension($SourcePackagePath) -eq ".zip") {
+    $installScript = Join-Path $PSScriptRoot "install-production-package.ps1"
+    if (-not (Test-Path -LiteralPath $installScript)) {
+        throw "Preferred installer is missing: $installScript"
+    }
+
+    & $installScript `
+        -PackagePath $SourcePackagePath `
+        -InstallRoot $InstallRoot `
+        -TaskName $ScheduledTaskName `
+        -ApiPort $ApiPort `
+        -ConfigPath $(if ($ProductionSettingsPath) { $ProductionSettingsPath } else { Join-Path $InstallRoot "config\appsettings.Production.json" })
+    return
+}
 
 if (-not (Test-Path -LiteralPath $canonicalScript)) {
     throw "Canonical deployment script is missing: $canonicalScript"

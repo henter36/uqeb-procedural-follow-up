@@ -26,6 +26,8 @@ $directories = @(
     (Join-Path $InstallRoot "incoming"),
     (Join-Path $InstallRoot "incoming\deployed"),
     (Join-Path $InstallRoot "staging"),
+    (Join-Path $InstallRoot "releases"),
+    (Join-Path $InstallRoot "current"),
     (Join-Path $InstallRoot "backup"),
     (Join-Path $InstallRoot "backup\db"),
     (Join-Path $InstallRoot "logs"),
@@ -71,7 +73,8 @@ Write-DeployStep "تقرير جاهزية الإنتاج"
 Write-DeployInfo ("مهمة الجدولة '$TaskName': " + ($(if ($taskExists) { "موجودة" } else { "غير موجودة" })))
 Write-DeployInfo ("خدمة SQL Server: " + ($(if ($sqlService) { $sqlService.Status.ToString() + " (" + $sqlService.Name + ")" } else { "غير مكتشفة" })))
 Write-DeployInfo "لم يتم تعديل أي أسرار إنتاج."
-Write-DeployInfo "انسخ حزم ZIP وملفات SHA256 إلى C:\Uqeb\incoming ثم شغّل install-production-package.ps1."
+Write-DeployInfo "انسخ حزم ZIP وملفات SHA256 إلى C:\Uqeb\incoming ثم شغّل install-production-package.ps1 (المسار المعتمد)."
+Write-DeployInfo "deploy-production-v2.ps1 legacy: استخدم install-production-package.ps1 للحزم ZIP."
 
 if (-not $taskExists) {
     Write-DeployInfo "تحذير: يجب إعداد مهمة UqebApi قبل أول نشر."

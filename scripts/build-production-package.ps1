@@ -277,6 +277,8 @@ try {
 
     $manifest = [ordered]@{
         applicationName = "Uqeb"
+        packageContractVersion = 2
+        promotionModel = "releases-current-v1"
         version = $versionStamp
         buildTimestampUtc = (Get-Date).ToUniversalTime().ToString("o")
         commitSha = $commitSha
