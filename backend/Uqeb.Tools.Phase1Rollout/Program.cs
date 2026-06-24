@@ -10,6 +10,13 @@ if (!TryParseArgs(args, out var adminUsername, out var settingsPath))
     return 2;
 }
 
+settingsPath = Path.GetFullPath(settingsPath);
+if (!File.Exists(settingsPath))
+{
+    Console.Error.WriteLine("Settings file was not found.");
+    return 3;
+}
+
 var configuration = new ConfigurationBuilder()
     .AddJsonFile(settingsPath, optional: false)
     .AddEnvironmentVariables()
@@ -19,32 +26,40 @@ var connectionString = configuration.GetConnectionString("DefaultConnection");
 if (string.IsNullOrWhiteSpace(connectionString))
 {
     Console.Error.WriteLine("DefaultConnection is missing from settings.");
-    return 3;
+    return 4;
 }
 
-var options = new DbContextOptionsBuilder<AppDbContext>()
-    .UseSqlServer(connectionString)
-    .Options;
-
-await using var db = new AppDbContext(options);
-var resolver = new ReportingPhase1AdminUserResolver(db);
-var result = await resolver.ResolveAsync(adminUsername);
-
-var payload = new
+try
 {
-    status = result.Status.ToString(),
-    userId = result.UserId,
-    maskedUserId = result.UserId is int id ? ReportingPhase1AdminUserResolver.MaskUserId(id) : null,
-    detail = result.Detail,
-};
+    var options = new DbContextOptionsBuilder<AppDbContext>()
+        .UseSqlServer(connectionString)
+        .Options;
 
-Console.WriteLine(JsonSerializer.Serialize(payload));
+    await using var db = new AppDbContext(options);
+    var resolver = new ReportingPhase1AdminUserResolver(db);
+    var result = await resolver.ResolveAsync(adminUsername);
 
-return result.Status switch
+    var payload = new
+    {
+        status = result.Status.ToString(),
+        userId = result.UserId,
+        maskedUserId = result.UserId is int id ? ReportingPhase1AdminUserResolver.MaskUserId(id) : null,
+        detail = result.Detail,
+    };
+
+    Console.WriteLine(JsonSerializer.Serialize(payload));
+
+    return result.Status switch
+    {
+        ReportingPhase1AdminUserResolutionStatus.Success => 0,
+        _ => 1,
+    };
+}
+catch (Exception)
 {
-    ReportingPhase1AdminUserResolutionStatus.Success => 0,
-    _ => 1,
-};
+    Console.Error.WriteLine("Admin username resolution failed.");
+    return 5;
+}
 
 static bool TryParseArgs(string[] args, out string adminUsername, out string settingsPath)
 {
