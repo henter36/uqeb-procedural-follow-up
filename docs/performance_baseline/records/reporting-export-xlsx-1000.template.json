@@ -1,0 +1,22 @@
+{
+  "scenarioId": "reporting-export-xlsx-1000",
+  "recordedAtUtc": "1970-01-01T00:00:00Z",
+  "commitSha": "unrecorded",
+  "environment": {
+    "host": "ci-or-local",
+    "apiBaseUrl": "n/a",
+    "notes": "Template for ReportingAcceptanceBenchmarkTests with RUN_REPORTING_ACCEPTANCE=1"
+  },
+  "metrics": {
+    "buildDurationMs": null,
+    "renderDurationMs": null,
+    "exportDurationMs": null,
+    "totalDurationMs": null,
+    "peakWorkingSetBytes": null
+  },
+  "thresholds": {
+    "totalDurationMsMax": 120000,
+    "peakWorkingSetBytesMax": 1073741824
+  },
+  "notes": "Use artifacts/reporting-acceptance/reporting-benchmark-results.json as the measured source."
+}

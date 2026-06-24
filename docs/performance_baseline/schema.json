@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://uqeb.local/performance-baseline/v1",
+  "title": "Uqeb performance baseline record",
+  "type": "object",
+  "required": [
+    "scenarioId",
+    "recordedAtUtc",
+    "environment",
+    "metrics",
+    "thresholds"
+  ],
+  "properties": {
+    "scenarioId": {
+      "type": "string",
+      "description": "Stable identifier such as api-read-smoke or reporting-export-xlsx-1000"
+    },
+    "recordedAtUtc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "commitSha": {
+      "type": "string"
+    },
+    "environment": {
+      "type": "object",
+      "required": ["host", "apiBaseUrl"],
+      "properties": {
+        "host": { "type": "string" },
+        "apiBaseUrl": { "type": "string" },
+        "notes": { "type": "string" }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "properties": {
+        "httpReqDurationP95Ms": { "type": "number" },
+        "httpReqFailedRate": { "type": "number" },
+        "buildDurationMs": { "type": "number" },
+        "renderDurationMs": { "type": "number" },
+        "exportDurationMs": { "type": "number" },
+        "totalDurationMs": { "type": "number" },
+        "peakWorkingSetBytes": { "type": "integer" }
+      },
+      "additionalProperties": true
+    },
+    "thresholds": {
+      "type": "object",
+      "description": "Pass/fail gates used when comparing future runs against this baseline",
+      "additionalProperties": true
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}
