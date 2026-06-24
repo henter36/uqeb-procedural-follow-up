@@ -9,6 +9,10 @@ namespace Uqeb.Api.Tests.Reporting;
 
 public class InstitutionalReportXlsxExporterTests
 {
+    private const string SeverityHeader = "الخطورة";
+    private const string DepartmentHeader = "الإدارة";
+    private const string PriorityHeader = "الأولوية";
+
     [Fact]
     public void Export_IncludesAnalyticalWorksheetsFromUnifiedModel()
     {
@@ -38,5 +42,18 @@ public class InstitutionalReportXlsxExporterTests
         Assert.Equal("IN-0001", criticalCases!.Cell(2, 2).GetString());
         Assert.Contains("مراجعة المعاملات المتأخرة", recommendations!.Cell(2, 3).GetString());
         Assert.Contains("AverageFirstActionHours", methodology!.Cell(12, 2).GetString());
+
+        AssertHeaders(findings, ["الكود", "العنوان", "الوصف", "الدليل", SeverityHeader, "النطاق"]);
+        AssertHeaders(criticalCases, ["المعرف", "رقم الوارد", "الموضوع", DepartmentHeader, "الجهة", PriorityHeader, "العمر", "أيام التأخر", "السبب", "الإجراء", SeverityHeader]);
+        AssertHeaders(workbook.Worksheet("Categories"), ["التصنيف", "الإجمالي", "مفتوحة", "متأخرة", "ضمن المهلة", "متوسط الإنجاز", "إفادات معلقة"]);
+        AssertHeaders(workbook.Worksheet("Priorities"), [PriorityHeader, "الإجمالي", "مفتوحة", "متأخرة", "متوسط العمر", "ضمن المهلة"]);
+        AssertHeaders(workbook.Worksheet("Data Quality"), ["الكود", "الملاحظة", "العدد", "النسبة", SeverityHeader, "الحقول", "التصحيح"]);
+        AssertHeaders(recommendations, [PriorityHeader, "النتيجة", "الإجراء", "المسؤول", "المدة المقترحة", "الحالة", "الدليل"]);
+    }
+
+    private static void AssertHeaders(IXLWorksheet worksheet, IReadOnlyList<string> expectedHeaders)
+    {
+        for (var column = 1; column <= expectedHeaders.Count; column++)
+            Assert.Equal(expectedHeaders[column - 1], worksheet.Cell(1, column).GetString());
     }
 }

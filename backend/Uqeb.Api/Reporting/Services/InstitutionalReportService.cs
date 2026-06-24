@@ -285,17 +285,19 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             IntegrityWarnings = ValidateIntegrity(metrics)
         };
 
-        model.Analysis = InstitutionalReportAnalysisService.Build(
-            request,
-            model.Metadata,
-            model.Filters,
-            metrics,
-            metricSnapshots,
-            comparisonMetrics,
-            comparisonSnapshots,
-            _reportingOptions.Analysis,
-            detailLimit,
-            detailRowsTruncated);
+        model.Analysis = InstitutionalReportAnalysisService.Build(new InstitutionalReportAnalysisService.InstitutionalReportAnalysisInput
+        {
+            Request = request,
+            Metadata = model.Metadata,
+            Filters = model.Filters,
+            CurrentMetrics = metrics,
+            CurrentSnapshots = metricSnapshots,
+            PreviousMetrics = comparisonMetrics,
+            PreviousSnapshots = comparisonSnapshots,
+            Options = _reportingOptions.Analysis,
+            DetailLimit = detailLimit,
+            DetailRowsTruncated = detailRowsTruncated
+        });
 
         if (detailRowsTruncated && totalMatched > detailSnapshots.Count)
         {

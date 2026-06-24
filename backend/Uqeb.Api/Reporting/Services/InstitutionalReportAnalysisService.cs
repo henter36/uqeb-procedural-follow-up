@@ -11,19 +11,52 @@ namespace Uqeb.Api.Reporting.Services;
 internal static class InstitutionalReportAnalysisService
 {
     private const string NotAvailable = "غير متاح من البيانات الحالية";
+    private const string TransactionUnit = "معاملة";
 
-    internal static InstitutionalReportAnalysisResult Build(
-        ReportBuildRequestDto request,
-        ReportMetadataDto metadata,
-        ReportFiltersDto filters,
-        InstitutionalMetricsResult currentMetrics,
-        IReadOnlyList<TransactionReportSnapshot> currentSnapshots,
-        InstitutionalMetricsResult? previousMetrics,
-        IReadOnlyList<TransactionReportSnapshot> previousSnapshots,
-        ReportingAnalysisOptions options,
-        int detailLimit,
-        bool detailRowsTruncated)
+    private static class MetricValueTypes
     {
+        public const string Number = "number";
+        public const string Percent = "percent";
+        public const string Decimal = "decimal";
+    }
+
+    internal sealed record InstitutionalReportAnalysisInput
+    {
+        public required ReportBuildRequestDto Request { get; init; }
+        public required ReportMetadataDto Metadata { get; init; }
+        public required ReportFiltersDto Filters { get; init; }
+        public required InstitutionalMetricsResult CurrentMetrics { get; init; }
+        public required IReadOnlyList<TransactionReportSnapshot> CurrentSnapshots { get; init; }
+        public InstitutionalMetricsResult? PreviousMetrics { get; init; }
+        public required IReadOnlyList<TransactionReportSnapshot> PreviousSnapshots { get; init; }
+        public required ReportingAnalysisOptions Options { get; init; }
+        public required int DetailLimit { get; init; }
+        public required bool DetailRowsTruncated { get; init; }
+    }
+
+    private sealed record AnalysisMetricDefinition
+    {
+        public required string Key { get; init; }
+        public required string Title { get; init; }
+        public required string Definition { get; init; }
+        public required string Formula { get; init; }
+        public required string FieldsUsed { get; init; }
+        public required string Unit { get; init; }
+        public required string Format { get; init; }
+        public required int MinimumSampleSize { get; init; }
+        public required KpiDirection Direction { get; init; }
+    }
+
+    internal static InstitutionalReportAnalysisResult Build(InstitutionalReportAnalysisInput input)
+    {
+        var request = input.Request;
+        var metadata = input.Metadata;
+        var filters = input.Filters;
+        var currentMetrics = input.CurrentMetrics;
+        var currentSnapshots = input.CurrentSnapshots;
+        var previousMetrics = input.PreviousMetrics;
+        var previousSnapshots = input.PreviousSnapshots;
+        var options = input.Options;
         var contentLevel = request.ContentLevel ?? ReportContentLevel.Analytical;
         var comparisonMode = request.IncludeComparison == false
             ? ReportComparisonMode.None
@@ -93,7 +126,7 @@ internal static class InstitutionalReportAnalysisService
             DataQualityIssues = dataQuality,
             DataCompletenessRate = completenessRate,
             Recommendations = recommendations,
-            Methodology = BuildMethodology(metadata, filters, request, detailLimit, detailRowsTruncated, comparisonMode)
+            Methodology = BuildMethodology(metadata, filters, request, input.DetailLimit, input.DetailRowsTruncated, comparisonMode)
         };
     }
 
@@ -208,59 +241,51 @@ internal static class InstitutionalReportAnalysisService
 
         return
         [
-            Kpi("TotalTransactions", "إجمالي المعاملات", "عدد المعاملات الفريدة المطابقة للفلاتر.", "count(distinct TransactionId)", "Transaction.Id", current.TotalTransactions, "معاملة", "number", current.TotalTransactions, 1, KpiDirection.Neutral, previous?.TotalTransactions, options),
-            Kpi("IncomingTransactions", "المعاملات الواردة", "عدد المعاملات حسب تاريخ الوارد في الفترة.", "count by IncomingDate", "IncomingDate", current.TotalTransactions, "معاملة", "number", current.TotalTransactions, 1, KpiDirection.Neutral, previousTotal, options),
-            Kpi("ClosedTransactions", "المعاملات المغلقة", "عدد المعاملات ذات الحالة المغلقة.", "count(IsClosed)", "Status, ClosedAt", current.ClosedCount, "معاملة", "number", current.ClosedCount, 1, KpiDirection.HigherIsBetter, previous?.ClosedCount, options),
-            Kpi("OpenTransactions", "المعاملات المفتوحة", "عدد المعاملات التشغيلية غير المغلقة.", "count(IsOpen)", "Status", current.OpenCount, "معاملة", "number", current.OpenCount, 1, KpiDirection.LowerIsBetter, previous?.OpenCount, options),
-            Kpi("OnTimeCompletionRate", "نسبة الإنجاز ضمن المهلة", "نسبة المعاملات المغلقة قبل أو في تاريخ المهلة.", "on-time closed / measurable closed", "ClosedAt, ResponseDueDate", (decimal)current.OnTimeCompletionRate, "%", "percent", current.ClosedCount, options.MinimumComparisonSampleSize, KpiDirection.HigherIsBetter, previous is null ? null : (decimal)previous.OnTimeCompletionRate, options),
-            Kpi("OverdueRate", "نسبة التأخر", "نسبة المعاملات المفتوحة المتأخرة من إجمالي المعاملات.", "overdue open / total", "ResponseDueDate, AssignmentDueDate, Status", Rate(current.OverdueCount, current.TotalTransactions), "%", "percent", current.TotalTransactions, options.MinimumComparisonSampleSize, KpiDirection.LowerIsBetter, previous is null ? null : Rate(previous.OverdueCount, previous.TotalTransactions), options),
-            Kpi("AverageCompletionDays", "متوسط مدة الإنجاز", "متوسط الأيام بين الوارد والإغلاق للمعاملات المغلقة.", "avg(ClosedAt - IncomingDate)", "IncomingDate, ClosedAt", (decimal)current.AverageCompletionDays, "يوم", "decimal", closedDurations.Count, options.MinimumComparisonSampleSize, KpiDirection.LowerIsBetter, previous is null ? null : (decimal)previous.AverageCompletionDays, options),
-            Kpi("MedianCompletionDays", "وسيط مدة الإنجاز", "وسيط أيام الإنجاز لتقليل أثر القيم الشاذة.", "median(ClosedAt - IncomingDate)", "IncomingDate, ClosedAt", (decimal)completionMedian, "يوم", "decimal", closedDurations.Count, options.MinimumComparisonSampleSize, KpiDirection.LowerIsBetter, null, options),
-            Kpi("AverageResponseDays", "متوسط زمن الرد", "متوسط الأيام بين الوارد وتاريخ إكمال الرد عند توفره.", "avg(ResponseCompletedDate proxy via ClosedAt when response completed)", "IncomingDate, ClosedAt, ResponseCompleted", (decimal)responseAverage, "يوم", "decimal", responseDurations.Count, options.MinimumComparisonSampleSize, KpiDirection.LowerIsBetter, null, options),
-            Kpi("PendingAssignmentsCount", "الإفادات المعلقة", "عدد الإفادات/التكليفات المطلوبة ولم ترد.", "sum(PendingReplyAssignmentCount)", "Assignments", pendingAssignments, "إفادة", "number", current.TotalTransactions, 1, KpiDirection.LowerIsBetter, null, options),
-            Kpi("PartialRepliesCount", "الردود الجزئية", "عدد المعاملات المفتوحة ذات رد جزئي.", "count(IsPartialReply)", "Assignments, Status", current.PartialResponseCount, "معاملة", "number", current.TotalTransactions, 1, KpiDirection.LowerIsBetter, previous?.PartialResponseCount, options),
-            Kpi("ResponseRequiredOpenCount", "مفتوحة تتطلب ردًا", "عدد المعاملات المفتوحة التي تتطلب ردًا.", "count(IsOpen && RequiresResponse)", "RequiresResponse, Status", open.Count(s => s.RequiresResponse), "معاملة", "number", open.Count, 1, KpiDirection.LowerIsBetter, null, options),
-            Kpi("StaleTransactionsCount", "معاملات بلا تحديث حديث", $"معاملات مفتوحة بلا تحديث أو متابعة منذ {options.StaleTransactionDays} أيام فأكثر.", "last action age >= threshold", "UpdatedAt, CreatedAt, LastFollowUpDate", stale, "معاملة", "number", open.Count, 1, KpiDirection.LowerIsBetter, null, options),
-            Kpi("BacklogGrowthRate", "تغير الرصيد المفتوح", "الفرق بين الرصيد المفتوح الحالي والسابق.", "current open - previous open", "Status", backlogGrowth, "معاملة", "number", current.TotalTransactions, options.MinimumComparisonSampleSize, KpiDirection.LowerIsBetter, previousOpen, options),
-            Kpi("ClosureToIncomingRatio", "نسبة الإغلاق إلى الوارد", "نسبة المغلق إلى إجمالي الوارد في الفترة.", "closed / incoming", "Status, IncomingDate", (decimal)closureToIncomingRatio, "%", "percent", current.TotalTransactions, options.MinimumComparisonSampleSize, KpiDirection.HigherIsBetter, previous is null ? null : Rate(previous.ClosedCount, previous.TotalTransactions), options),
-            Kpi("OldestOpenTransactionAgeDays", "عمر أقدم معاملة مفتوحة", "أكبر عمر بالأيام بين المعاملات المفتوحة.", "max(ElapsedDays where IsOpen)", "IncomingDate, Status", oldestOpen, "يوم", "number", open.Count, 1, KpiDirection.LowerIsBetter, null, options),
-            Kpi("AverageFollowUpsPerTransaction", "متوسط المتابعات لكل معاملة", "مؤشر تقريبي يعتمد على وجود آخر متابعة؛ لا يحسب كل أحداث المتابعة.", "transactions with follow-up / total", "LastFollowUpDate", (decimal)followUpAverage, "متابعة", "decimal", current.TotalTransactions, 1, KpiDirection.Neutral, null, options),
-            Kpi("DataCompletenessRate", "نسبة اكتمال البيانات", "نسبة اكتمال الحقول التشغيلية المطلوبة والشرطية.", "completed required fields / expected fields", "category, party, department, due date, priority", (decimal)completeness, "%", "percent", current.TotalTransactions, 1, KpiDirection.HigherIsBetter, null, options),
+            Kpi(new AnalysisMetricDefinition { Key = "TotalTransactions", Title = "إجمالي المعاملات", Definition = "عدد المعاملات الفريدة المطابقة للفلاتر.", Formula = "count(distinct TransactionId)", FieldsUsed = "Transaction.Id", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.Neutral }, current.TotalTransactions, current.TotalTransactions, previous?.TotalTransactions, options),
+            Kpi(new AnalysisMetricDefinition { Key = "IncomingTransactions", Title = "المعاملات الواردة", Definition = "عدد المعاملات حسب تاريخ الوارد في الفترة.", Formula = "count by IncomingDate", FieldsUsed = "IncomingDate", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.Neutral }, current.TotalTransactions, current.TotalTransactions, previousTotal, options),
+            Kpi(new AnalysisMetricDefinition { Key = "ClosedTransactions", Title = "المعاملات المغلقة", Definition = "عدد المعاملات ذات الحالة المغلقة.", Formula = "count(IsClosed)", FieldsUsed = "Status, ClosedAt", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.HigherIsBetter }, current.ClosedCount, current.ClosedCount, previous?.ClosedCount, options),
+            Kpi(new AnalysisMetricDefinition { Key = "OpenTransactions", Title = "المعاملات المفتوحة", Definition = "عدد المعاملات التشغيلية غير المغلقة.", Formula = "count(IsOpen)", FieldsUsed = "Status", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.LowerIsBetter }, current.OpenCount, current.OpenCount, previous?.OpenCount, options),
+            Kpi(new AnalysisMetricDefinition { Key = "OnTimeCompletionRate", Title = "نسبة الإنجاز ضمن المهلة", Definition = "نسبة المعاملات المغلقة قبل أو في تاريخ المهلة.", Formula = "on-time closed / measurable closed", FieldsUsed = "ClosedAt, ResponseDueDate", Unit = "%", Format = MetricValueTypes.Percent, MinimumSampleSize = options.MinimumComparisonSampleSize, Direction = KpiDirection.HigherIsBetter }, (decimal)current.OnTimeCompletionRate, current.ClosedCount, previous is null ? null : (decimal)previous.OnTimeCompletionRate, options),
+            Kpi(new AnalysisMetricDefinition { Key = "OverdueRate", Title = "نسبة التأخر", Definition = "نسبة المعاملات المفتوحة المتأخرة من إجمالي المعاملات.", Formula = "overdue open / total", FieldsUsed = "ResponseDueDate, AssignmentDueDate, Status", Unit = "%", Format = MetricValueTypes.Percent, MinimumSampleSize = options.MinimumComparisonSampleSize, Direction = KpiDirection.LowerIsBetter }, Rate(current.OverdueCount, current.TotalTransactions), current.TotalTransactions, previous is null ? null : Rate(previous.OverdueCount, previous.TotalTransactions), options),
+            Kpi(new AnalysisMetricDefinition { Key = "AverageCompletionDays", Title = "متوسط مدة الإنجاز", Definition = "متوسط الأيام بين الوارد والإغلاق للمعاملات المغلقة.", Formula = "avg(ClosedAt - IncomingDate)", FieldsUsed = "IncomingDate, ClosedAt", Unit = "يوم", Format = MetricValueTypes.Decimal, MinimumSampleSize = options.MinimumComparisonSampleSize, Direction = KpiDirection.LowerIsBetter }, (decimal)current.AverageCompletionDays, closedDurations.Count, previous is null ? null : (decimal)previous.AverageCompletionDays, options),
+            Kpi(new AnalysisMetricDefinition { Key = "MedianCompletionDays", Title = "وسيط مدة الإنجاز", Definition = "وسيط أيام الإنجاز لتقليل أثر القيم الشاذة.", Formula = "median(ClosedAt - IncomingDate)", FieldsUsed = "IncomingDate, ClosedAt", Unit = "يوم", Format = MetricValueTypes.Decimal, MinimumSampleSize = options.MinimumComparisonSampleSize, Direction = KpiDirection.LowerIsBetter }, (decimal)completionMedian, closedDurations.Count, null, options),
+            Kpi(new AnalysisMetricDefinition { Key = "AverageResponseDays", Title = "متوسط زمن الرد", Definition = "متوسط الأيام بين الوارد وتاريخ إكمال الرد عند توفره.", Formula = "avg(ResponseCompletedDate proxy via ClosedAt when response completed)", FieldsUsed = "IncomingDate, ClosedAt, ResponseCompleted", Unit = "يوم", Format = MetricValueTypes.Decimal, MinimumSampleSize = options.MinimumComparisonSampleSize, Direction = KpiDirection.LowerIsBetter }, (decimal)responseAverage, responseDurations.Count, null, options),
+            Kpi(new AnalysisMetricDefinition { Key = "PendingAssignmentsCount", Title = "الإفادات المعلقة", Definition = "عدد الإفادات/التكليفات المطلوبة ولم ترد.", Formula = "sum(PendingReplyAssignmentCount)", FieldsUsed = "Assignments", Unit = "إفادة", Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.LowerIsBetter }, pendingAssignments, current.TotalTransactions, null, options),
+            Kpi(new AnalysisMetricDefinition { Key = "PartialRepliesCount", Title = "الردود الجزئية", Definition = "عدد المعاملات المفتوحة ذات رد جزئي.", Formula = "count(IsPartialReply)", FieldsUsed = "Assignments, Status", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.LowerIsBetter }, current.PartialResponseCount, current.TotalTransactions, previous?.PartialResponseCount, options),
+            Kpi(new AnalysisMetricDefinition { Key = "ResponseRequiredOpenCount", Title = "مفتوحة تتطلب ردًا", Definition = "عدد المعاملات المفتوحة التي تتطلب ردًا.", Formula = "count(IsOpen && RequiresResponse)", FieldsUsed = "RequiresResponse, Status", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.LowerIsBetter }, open.Count(s => s.RequiresResponse), open.Count, null, options),
+            Kpi(new AnalysisMetricDefinition { Key = "StaleTransactionsCount", Title = "معاملات بلا تحديث حديث", Definition = $"معاملات مفتوحة بلا تحديث أو متابعة منذ {options.StaleTransactionDays} أيام فأكثر.", Formula = "last action age >= threshold", FieldsUsed = "UpdatedAt, CreatedAt, LastFollowUpDate", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.LowerIsBetter }, stale, open.Count, null, options),
+            Kpi(new AnalysisMetricDefinition { Key = "BacklogGrowthRate", Title = "تغير الرصيد المفتوح", Definition = "الفرق بين الرصيد المفتوح الحالي والسابق.", Formula = "current open - previous open", FieldsUsed = "Status", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = options.MinimumComparisonSampleSize, Direction = KpiDirection.LowerIsBetter }, backlogGrowth, current.TotalTransactions, previousOpen, options),
+            Kpi(new AnalysisMetricDefinition { Key = "ClosureToIncomingRatio", Title = "نسبة الإغلاق إلى الوارد", Definition = "نسبة المغلق إلى إجمالي الوارد في الفترة.", Formula = "closed / incoming", FieldsUsed = "Status, IncomingDate", Unit = "%", Format = MetricValueTypes.Percent, MinimumSampleSize = options.MinimumComparisonSampleSize, Direction = KpiDirection.HigherIsBetter }, (decimal)closureToIncomingRatio, current.TotalTransactions, previous is null ? null : Rate(previous.ClosedCount, previous.TotalTransactions), options),
+            Kpi(new AnalysisMetricDefinition { Key = "OldestOpenTransactionAgeDays", Title = "عمر أقدم معاملة مفتوحة", Definition = "أكبر عمر بالأيام بين المعاملات المفتوحة.", Formula = "max(ElapsedDays where IsOpen)", FieldsUsed = "IncomingDate, Status", Unit = "يوم", Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.LowerIsBetter }, oldestOpen, open.Count, null, options),
+            Kpi(new AnalysisMetricDefinition { Key = "AverageFollowUpsPerTransaction", Title = "متوسط المتابعات لكل معاملة", Definition = "مؤشر تقريبي يعتمد على وجود آخر متابعة؛ لا يحسب كل أحداث المتابعة.", Formula = "transactions with follow-up / total", FieldsUsed = "LastFollowUpDate", Unit = "متابعة", Format = MetricValueTypes.Decimal, MinimumSampleSize = 1, Direction = KpiDirection.Neutral }, (decimal)followUpAverage, current.TotalTransactions, null, options),
+            Kpi(new AnalysisMetricDefinition { Key = "DataCompletenessRate", Title = "نسبة اكتمال البيانات", Definition = "نسبة اكتمال الحقول التشغيلية المطلوبة والشرطية.", Formula = "completed required fields / expected fields", FieldsUsed = "category, party, department, due date, priority", Unit = "%", Format = MetricValueTypes.Percent, MinimumSampleSize = 1, Direction = KpiDirection.HigherIsBetter }, (decimal)completeness, current.TotalTransactions, null, options),
             UnavailableKpi("AverageFirstActionHours", "متوسط ساعات أول إجراء", "لا توجد علامة زمنية موثوقة لأول إجراء في snapshot الحالي."),
             UnavailableKpi("ReopenedTransactionsRate", "نسبة إعادة الفتح", "لا توجد حالة أو حدث إعادة فتح مستقل في بيانات التقرير الحالية.")
         ];
     }
 
     private static AnalyticalKpiDto Kpi(
-        string key,
-        string title,
-        string definition,
-        string formula,
-        string fields,
+        AnalysisMetricDefinition metric,
         decimal value,
-        string unit,
-        string format,
         int sampleSize,
-        int minimumSampleSize,
-        KpiDirection direction,
         decimal? previousValue,
         ReportingAnalysisOptions options)
     {
         return new AnalyticalKpiDto
         {
-            Key = key,
-            Title = title,
-            Definition = definition,
-            Formula = formula,
-            FieldsUsed = fields,
+            Key = metric.Key,
+            Title = metric.Title,
+            Definition = metric.Definition,
+            Formula = metric.Formula,
+            FieldsUsed = metric.FieldsUsed,
             NumericValue = value,
-            DisplayValue = FormatValue(value, unit, format),
-            Unit = unit,
-            Format = format,
+            DisplayValue = FormatValue(value, metric.Unit, metric.Format),
+            Unit = metric.Unit,
+            Format = metric.Format,
             SampleSize = sampleSize,
-            MinimumSampleSize = minimumSampleSize,
-            Direction = direction,
-            Comparison = Compare(value, previousValue, direction, options)
+            MinimumSampleSize = metric.MinimumSampleSize,
+            Direction = metric.Direction,
+            Comparison = Compare(value, previousValue, metric.Direction, options)
         };
     }
 
@@ -956,7 +981,7 @@ internal static class InstitutionalReportAnalysisService
 
     private static string FormatValue(decimal value, string unit, string format)
     {
-        if (format == "percent")
+        if (format == MetricValueTypes.Percent)
             return $"{value:N1}%";
 
         return string.IsNullOrWhiteSpace(unit)

@@ -200,6 +200,141 @@ public class InstitutionalReportServiceBuildValidationTests
     }
 }
 
+public class InstitutionalReportServiceSideEffectTests
+{
+    [Fact]
+    public async Task BuildPreviewAndXlsxExport_DoNotPersistTransactionOrAssignmentChanges()
+    {
+        var updatedAt = new DateTime(2026, 6, 1, 10, 0, 0, DateTimeKind.Utc);
+        var factory = new CountingDbContextFactory(new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"reporting-side-effects-{Guid.NewGuid():N}")
+            .Options);
+
+        await SeedTransactionAsync(factory, updatedAt);
+        factory.ResetSaveChangesCount();
+        var service = InstitutionalReportServiceTestHelpers.CreateService(factory);
+        var buildRequest = CreateAnalyticalBuildRequest();
+
+        await service.BuildReportModelAsync(buildRequest);
+        await service.RenderPreviewAsync(buildRequest);
+        await service.ExportAsync(new ReportExportRequestDto
+        {
+            ExportFormat = ExportFormat.Xlsx,
+            BuildRequest = buildRequest
+        });
+
+        Assert.Equal(0, factory.SaveChangesCount);
+
+        await using var db = factory.CreateDbContext();
+        var transaction = await db.Transactions.Include(t => t.Assignments).SingleAsync();
+        var assignment = Assert.Single(transaction.Assignments);
+        Assert.Equal(TransactionStatus.New, transaction.Status);
+        Assert.Equal(ReplyStatus.Pending, assignment.ReplyStatus);
+        Assert.Equal(updatedAt, transaction.UpdatedAt);
+    }
+
+    private static ReportBuildRequestDto CreateAnalyticalBuildRequest() => new()
+    {
+        ReportType = InstitutionalReportType.ExecutiveComprehensive,
+        SectionIds =
+        [
+            ReportSectionId.ExecutiveSummary,
+            ReportSectionId.KeyPerformanceIndicators,
+            ReportSectionId.SignificantFindings,
+            ReportSectionId.CriticalCases,
+            ReportSectionId.TransactionDetails
+        ],
+        Filters = new ReportFiltersDto
+        {
+            IncludeDetails = true
+        }
+    };
+
+    private static async Task SeedTransactionAsync(CountingDbContextFactory factory, DateTime updatedAt)
+    {
+        await using var db = factory.CreateDbContext();
+        var user = new User
+        {
+            Username = "report-side-effects",
+            PasswordHash = "hash",
+            FullName = "Report Side Effects",
+            Role = UserRole.Admin,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+        var department = new Department
+        {
+            Name = "الشؤون الإدارية",
+            NameNormalized = "الشؤون الإدارية",
+            Code = "ADMIN"
+        };
+        db.Users.Add(user);
+        db.Departments.Add(department);
+        await db.SaveChangesAsync();
+
+        var transaction = new Transaction
+        {
+            InternalTrackingNumber = "INT-SIDE-001",
+            IncomingNumber = "IN-SIDE-001",
+            IncomingDate = DateTime.UtcNow.Date.AddDays(-15),
+            Subject = "معاملة اختبار آثار جانبية",
+            IncomingFrom = "جهة اختبار",
+            Status = TransactionStatus.New,
+            Priority = Priority.Urgent,
+            RequiresResponse = true,
+            ResponseDueDate = DateTime.UtcNow.Date.AddDays(-2),
+            CreatedById = user.Id,
+            CreatedAt = DateTime.UtcNow.AddDays(-15),
+            UpdatedAt = updatedAt,
+            Assignments =
+            [
+                new Assignment
+                {
+                    DepartmentId = department.Id,
+                    AssignedDate = DateTime.UtcNow.Date.AddDays(-10),
+                    RequiresReply = true,
+                    DueDate = DateTime.UtcNow.Date.AddDays(-2),
+                    ReplyStatus = ReplyStatus.Pending,
+                    Status = AssignmentStatus.Active,
+                    CreatedById = user.Id,
+                    CreatedAt = DateTime.UtcNow.AddDays(-10)
+                }
+            ]
+        };
+        db.Transactions.Add(transaction);
+        await db.SaveChangesAsync();
+    }
+
+    private sealed class CountingDbContextFactory(DbContextOptions<AppDbContext> options) : IDbContextFactory<AppDbContext>
+    {
+        public int SaveChangesCount { get; private set; }
+
+        public AppDbContext CreateDbContext() => new CountingAppDbContext(options, () => SaveChangesCount++);
+
+        public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(CreateDbContext());
+
+        public void ResetSaveChangesCount() => SaveChangesCount = 0;
+    }
+
+    private sealed class CountingAppDbContext(
+        DbContextOptions<AppDbContext> options,
+        Action onSaveChanges) : AppDbContext(options)
+    {
+        public override int SaveChanges()
+        {
+            onSaveChanges();
+            return base.SaveChanges();
+        }
+
+        public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+        {
+            onSaveChanges();
+            return base.SaveChangesAsync(cancellationToken);
+        }
+    }
+}
+
 internal static class InstitutionalReportServiceTestHelpers
 {
     internal static InstitutionalReportService CreateService(
