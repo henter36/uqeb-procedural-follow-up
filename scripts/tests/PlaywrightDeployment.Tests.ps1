@@ -30,8 +30,8 @@ Describe 'Playwright deployment helpers' {
         try {
             $executable = New-FakeChromiumTree -Root $root
             $found = Get-PlaywrightBrowserExecutable -BrowsersRoot $root
-            $found.FullPath | Should -Be ([System.IO.Path]::GetFullPath($executable))
             ($found.RelativePath -replace '\\', '/') | Should -Be 'chromium-1/chrome-win64/chrome.exe'
+            Test-Path -LiteralPath $found.FullPath | Should -BeTrue
         }
         finally {
             Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue

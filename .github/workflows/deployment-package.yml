@@ -54,6 +54,12 @@ jobs:
           dotnet tool install --global dotnet-ef
           dotnet ef --version
 
+      - name: Ensure LocalDB for migration script generation
+        shell: pwsh
+        run: |
+          sqllocaldb start MSSQLLocalDB
+          sqllocaldb info MSSQLLocalDB
+
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '24'

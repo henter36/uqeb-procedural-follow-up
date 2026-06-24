@@ -155,6 +155,8 @@ if (Test-Path -LiteralPath $migrationSqlPath) {
 }
 
 Invoke-ExternalCommand "توليد سكربت EF Core idempotent migrations" {
+    $env:ConnectionStrings__DefaultConnection =
+        "Server=(localdb)\mssqllocaldb;Database=UqebPackageBuild;Trusted_Connection=True;TrustServerCertificate=True"
     dotnet ef migrations script `
         --idempotent `
         --project $backendProject `
