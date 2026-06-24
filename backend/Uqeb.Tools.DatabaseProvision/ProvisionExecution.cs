@@ -1,4 +1,3 @@
-using System.Data;
 using System.Security.Cryptography;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -144,18 +143,6 @@ internal static class ProvisionExecution
                 return (10, "Backup SHA256 mismatch.");
         }
 
-        await VerifyBackupAsync(connectionString, parsed.BackupPath!);
         return null;
-    }
-
-    private static async Task VerifyBackupAsync(string connectionString, string backupPath)
-    {
-        await using var connection = new SqlConnection(connectionString);
-        await connection.OpenAsync();
-        var escapedPath = backupPath.Replace("'", "''");
-        await using var command = connection.CreateCommand();
-        command.CommandText = $"RESTORE VERIFYONLY FROM DISK = N'{escapedPath}'";
-        command.CommandType = CommandType.Text;
-        await command.ExecuteNonQueryAsync();
     }
 }

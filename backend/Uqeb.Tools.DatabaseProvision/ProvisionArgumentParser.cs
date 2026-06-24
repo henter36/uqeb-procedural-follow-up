@@ -52,7 +52,11 @@ internal static class ProvisionArgumentParser
             result.ShowHelp = true;
 
         if (!string.IsNullOrWhiteSpace(result.BackupSha256)
-            && !Regex.IsMatch(result.BackupSha256, "^[0-9A-Fa-f]{64}$"))
+            && !Regex.IsMatch(
+                result.BackupSha256,
+                "^[0-9A-Fa-f]{64}$",
+                RegexOptions.None,
+                TimeSpan.FromSeconds(1)))
         {
             throw new ArgumentException("Backup SHA256 must be a 64-character hex string.");
         }

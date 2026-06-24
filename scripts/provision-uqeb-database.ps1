@@ -24,6 +24,17 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+$commonCandidates = @(
+    (Join-Path $PSScriptRoot "deployment/Common.ps1"),
+    (Join-Path $PSScriptRoot "../deployment/Common.ps1")
+)
+foreach ($candidate in $commonCandidates) {
+    if (Test-Path -LiteralPath $candidate) {
+        . $candidate
+        break
+    }
+}
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $toolProject = Join-Path $repoRoot "backend/Uqeb.Tools.DatabaseProvision/Uqeb.Tools.DatabaseProvision.csproj"
 
@@ -33,6 +44,32 @@ if (-not (Test-Path -LiteralPath $toolProject)) {
 
 if (-not $ApplyMigrations -and -not $CreateReferenceData -and -not $CreateDefaultUsers -and -not $CreateDemoData) {
     throw "Select at least one provisioning action."
+}
+
+if ($BackupPath) {
+    $resolvedBackup = (Resolve-Path -LiteralPath $BackupPath).Path
+    if ($BackupSha256) {
+        $actualHash = (Get-FileHash -LiteralPath $resolvedBackup -Algorithm SHA256).Hash
+        if ($actualHash -ne $BackupSha256) {
+            throw "Backup SHA256 mismatch."
+        }
+    }
+
+    if (Get-Command New-SqlDeploymentConnection -ErrorAction SilentlyContinue) {
+        $sqlInfo = Get-SqlConnectionInfoFromSettings -SettingsPath (Resolve-Path -LiteralPath $SettingsPath).Path
+        $connection = New-SqlDeploymentConnection -ConnectionString $sqlInfo.ConnectionString -Database $sqlInfo.Database
+        try {
+            $connection.Open()
+            $escapedPath = $resolvedBackup.Replace("'", "''")
+            $command = $connection.CreateCommand()
+            $command.CommandText = "RESTORE VERIFYONLY FROM DISK = N'$escapedPath'"
+            [void]$command.ExecuteNonQuery()
+        }
+        finally {
+            $connection.Close()
+            $connection.Dispose()
+        }
+    }
 }
 
 $arguments = @(
