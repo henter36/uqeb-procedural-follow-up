@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Uqeb.Api.Reporting.Configuration;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
 using Uqeb.Api.Reporting.Exporters;
@@ -116,6 +117,59 @@ public class InstitutionalReportsFeatureFlagEnabledTests : IClassFixture<Institu
     }
 }
 
+public class InstitutionalReportsMissingFeatureFlagTests : IClassFixture<InstitutionalReportsMissingFeatureFlagWebApplicationFactory>
+{
+    private readonly HttpClient _client;
+
+    public InstitutionalReportsMissingFeatureFlagTests(InstitutionalReportsMissingFeatureFlagWebApplicationFactory factory) =>
+        _client = factory.CreateClient();
+
+    [Fact]
+    public async Task GetTemplates_ReturnsOk_WhenFeatureFlagMissingAndUserIsAdmin()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/institutional-reports/templates")
+        {
+            Headers =
+            {
+                Authorization = new AuthenticationHeaderValue(
+                    "Bearer",
+                    TestJwtHelper.CreateToken("Admin")),
+            },
+        };
+
+        var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetTemplates_ReturnsOk_WhenFeatureFlagMissingAndUserIsSupervisor()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/institutional-reports/templates")
+        {
+            Headers =
+            {
+                Authorization = new AuthenticationHeaderValue(
+                    "Bearer",
+                    TestJwtHelper.CreateToken("Supervisor")),
+            },
+        };
+
+        var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+}
+
+public sealed class InstitutionalReportsMissingFeatureFlagWebApplicationFactory : WebApplicationFactory<Program>
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder) =>
+        InstitutionalReportsTestHostBuilder.Configure(
+            builder,
+            institutionalReportsEnabled: null,
+            useDefaultRoleRollout: false);
+}
+
 public sealed class InstitutionalReportsDisabledWebApplicationFactory : WebApplicationFactory<Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder) =>
@@ -132,22 +186,28 @@ internal static class InstitutionalReportsTestHostBuilder
 {
     internal static void Configure(
         IWebHostBuilder builder,
-        bool institutionalReportsEnabled,
+        bool? institutionalReportsEnabled = true,
         bool useRealInstitutionalReportService = false,
+        bool useDefaultRoleRollout = true,
         Action<IServiceCollection>? configureServices = null,
         Dictionary<string, string?>? extraConfig = null,
         string? inMemoryDatabaseName = null)
     {
-        var config = new Dictionary<string, string?>
-        {
-            ["FeatureFlags:InstitutionalReports"] = institutionalReportsEnabled ? "true" : "false",
-        };
+        var config = new Dictionary<string, string?>();
 
-        if (institutionalReportsEnabled)
+        if (institutionalReportsEnabled.HasValue)
+            config["FeatureFlags:InstitutionalReports"] = institutionalReportsEnabled.Value ? "true" : "false";
+
+        if (institutionalReportsEnabled is not false)
         {
+            config["ReportingRollout:EnforcementMode"] = ReportingRolloutEnforcementMode.ObserveOnly.ToString();
             config["ReportingRollout:EmergencyDisable"] = "false";
-            config["ReportingRollout:EnabledForRoles:0"] = "Admin";
-            config["ReportingRollout:EnabledForRoles:1"] = "Supervisor";
+
+            if (useDefaultRoleRollout)
+            {
+                config["ReportingRollout:EnabledForRoles:0"] = "Admin";
+                config["ReportingRollout:EnabledForRoles:1"] = "Supervisor";
+            }
         }
 
         if (extraConfig is not null)
@@ -186,10 +246,15 @@ internal sealed class StubInstitutionalReportService : IInstitutionalReportServi
         throw new NotSupportedException();
 
     public Task<RenderedReportManifestDto> RenderPreviewAsync(ReportBuildRequestDto request, CancellationToken ct = default) =>
-        throw new NotSupportedException();
+        Task.FromResult(new RenderedReportManifestDto());
 
     public Task<ReportExportResultDto> ExportAsync(ReportExportRequestDto request, CancellationToken ct = default) =>
-        throw new NotSupportedException();
+        Task.FromResult(new ReportExportResultDto
+        {
+            Content = [0x25, 0x50, 0x44, 0x46],
+            ContentType = "application/pdf",
+            FileName = "stub.pdf",
+        });
 
     public Task<List<ReportTemplateDto>> GetTemplatesAsync(CancellationToken ct = default) =>
         Task.FromResult(new List<ReportTemplateDto>());

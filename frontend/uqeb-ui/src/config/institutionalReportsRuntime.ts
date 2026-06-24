@@ -1,3 +1,5 @@
 import { isInstitutionalReportsEnabled } from './featureFlags';
 
-export const institutionalReportsEnabled = isInstitutionalReportsEnabled();
+export function institutionalReportsEnabled(): boolean {
+  return isInstitutionalReportsEnabled();
+}

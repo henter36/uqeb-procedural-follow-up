@@ -43,7 +43,7 @@ export default function App() {
             <Route path="transactions/:id" element={<TransactionDetail />} />
             <Route path="transactions/:id/edit" element={<TransactionForm mode="edit" />} />
             <Route path="reports" element={<Reports />} />
-            {institutionalReportsEnabled && (
+            {institutionalReportsEnabled() && (
               <Route
                 path="report-builder"
                 element={(

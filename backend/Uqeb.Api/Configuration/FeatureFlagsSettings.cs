@@ -4,5 +4,5 @@ public sealed class FeatureFlagsSettings
 {
     public const string SectionName = "FeatureFlags";
 
-    public bool InstitutionalReports { get; set; }
+    public bool InstitutionalReports { get; set; } = true;
 }

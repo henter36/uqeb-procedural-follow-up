@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { isNavActive, navSections, type NavItem } from './navConfig';
+import { isNavActive, buildNavSections, type NavItem } from './navConfig';
 
 function findItem(path: string): NavItem {
-  const item = navSections.flatMap((s) => s.items).find((i) => i.path === path);
+  const item = buildNavSections().flatMap((s) => s.items).find((i) => i.path === path);
   if (!item) throw new Error(`Nav item not found: ${path}`);
   return item;
 }

@@ -11,8 +11,8 @@ This environment validates institutional reporting under conditions that mirror 
 - Playwright Chromium preinstalled
 - Arabic fonts and `institutional-report.css` deployed with API
 - Timezone `Asia/Riyadh`, culture `ar-SA`
-- Feature flag default: `InstitutionalReports=false`
-- Rollout default: `EmergencyDisable=true`
+- Feature flag default: `InstitutionalReports=true`
+- Rollout default: `EnforcementMode=ObserveOnly`, `EmergencyDisable=false`
 
 ## Requirements
 
@@ -41,8 +41,10 @@ This environment validates institutional reporting under conditions that mirror 
    {
      "FeatureFlags": { "InstitutionalReports": true },
      "ReportingRollout": {
+       "EnforcementMode": "ObserveOnly",
        "EmergencyDisable": false,
-       "EnabledForRoles": ["Admin"],
+       "EnabledForRoles": [],
+       "EnabledForUserIds": [],
        "Percentage": 0
      }
    }

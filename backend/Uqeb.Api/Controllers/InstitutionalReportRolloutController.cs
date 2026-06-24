@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Uqeb.Api.Authorization;
 using Uqeb.Api.Reporting.Services;
+using Uqeb.Api.Services;
 
 namespace Uqeb.Api.Controllers;
 
@@ -11,9 +12,17 @@ namespace Uqeb.Api.Controllers;
 public class InstitutionalReportRolloutController : ControllerBase
 {
     private readonly IReportingRolloutService _rollout;
+    private readonly ICurrentUserService _currentUser;
 
-    public InstitutionalReportRolloutController(IReportingRolloutService rollout) => _rollout = rollout;
+    public InstitutionalReportRolloutController(
+        IReportingRolloutService rollout,
+        ICurrentUserService currentUser)
+    {
+        _rollout = rollout;
+        _currentUser = currentUser;
+    }
 
     [HttpGet("rollout-status")]
-    public ActionResult<ReportingRolloutStatusDto> GetRolloutStatus() => Ok(_rollout.GetStatus());
+    public ActionResult<ReportingRolloutAccessStatusDto> GetRolloutStatus() =>
+        Ok(_rollout.GetAccessStatus(_currentUser));
 }

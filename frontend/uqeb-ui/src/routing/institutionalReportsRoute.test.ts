@@ -6,17 +6,24 @@ describe('report builder route registration', () => {
     vi.resetModules();
   });
 
+  it('enables report builder route when env var is missing', async () => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+    const { institutionalReportsEnabled } = await import('../config/institutionalReportsRuntime');
+    expect(institutionalReportsEnabled()).toBe(true);
+  });
+
   it('enables report builder route when feature flag is true', async () => {
     vi.stubEnv('VITE_ENABLE_INSTITUTIONAL_REPORTS', 'true');
     vi.resetModules();
     const { institutionalReportsEnabled } = await import('../config/institutionalReportsRuntime');
-    expect(institutionalReportsEnabled).toBe(true);
+    expect(institutionalReportsEnabled()).toBe(true);
   });
 
   it('disables report builder route when feature flag is false', async () => {
     vi.stubEnv('VITE_ENABLE_INSTITUTIONAL_REPORTS', 'false');
     vi.resetModules();
     const { institutionalReportsEnabled } = await import('../config/institutionalReportsRuntime');
-    expect(institutionalReportsEnabled).toBe(false);
+    expect(institutionalReportsEnabled()).toBe(false);
   });
 });

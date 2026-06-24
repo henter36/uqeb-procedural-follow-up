@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/useAuth';
 import { APP_DISPLAY_NAME, APP_SUBTITLE } from '../../constants/app';
-import { isNavActive, navSections, type NavItem } from './navConfig';
+import { isNavActive, buildNavSections, type NavItem } from './navConfig';
 import { IconChevron } from '../ui/icons';
 import { getStorageItem, setStorageItem } from '../../utils/safeStorage';
 
@@ -31,6 +31,8 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const handleNavClick = () => {
     if (mobileOpen) onMobileClose();
   };
+
+  const navSections = buildNavSections();
 
   return (
     <aside

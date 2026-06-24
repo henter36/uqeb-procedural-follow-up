@@ -11,11 +11,11 @@ internal static class TestJwtHelper
     private const string Issuer = "UqebApiTests";
     private const string Audience = "UqebClientTests";
 
-    public static string CreateToken(string role, int? departmentId = null)
+    public static string CreateToken(string role, int? departmentId = null, int userId = 1)
     {
         var claims = new List<Claim>
         {
-            new(ClaimTypes.NameIdentifier, "1"),
+            new(ClaimTypes.NameIdentifier, userId.ToString()),
             new(ClaimTypes.Name, "integration-test-user"),
             new(ClaimTypes.Role, role),
         };

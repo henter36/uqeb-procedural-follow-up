@@ -1,5 +1,7 @@
 using System.Diagnostics.Metrics;
+using Uqeb.Api.Reporting.Configuration;
 using Uqeb.Api.Reporting.Enums;
+using Uqeb.Api.Reporting.Services;
 
 namespace Uqeb.Api.Reporting.Operations;
 
@@ -19,6 +21,9 @@ public interface IReportingMetrics
     void RecordPdfParts(int parts, string reportType);
     void RecordTempCleanupFailure();
     void RecordChromiumLaunchFailure();
+    void RecordRolloutDecision(
+        ReportingRolloutEnforcementMode enforcementMode,
+        ReportingRolloutDecision decision);
 }
 
 public sealed class ReportingMetrics : IReportingMetrics
@@ -27,6 +32,9 @@ public sealed class ReportingMetrics : IReportingMetrics
     private const string FormatTagName = "format";
     private const string ResultTagName = "result";
     private const string OverflowActionTagName = "overflow_action";
+    private const string RolloutModeTagName = "mode";
+    private const string RolloutDecisionTagName = "decision";
+    private const string RolloutMatchSourceTagName = "match_source";
 
     private static readonly Meter Meter = new("Uqeb.Reporting", "1.0.0");
 
@@ -44,6 +52,7 @@ public sealed class ReportingMetrics : IReportingMetrics
     private readonly Counter<long> _cancellationsTotal = Meter.CreateCounter<long>("reporting_cancellations_total");
     private readonly Counter<long> _tempCleanupFailuresTotal = Meter.CreateCounter<long>("reporting_temp_cleanup_failures_total");
     private readonly Counter<long> _chromiumLaunchFailuresTotal = Meter.CreateCounter<long>("reporting_chromium_launch_failures_total");
+    private readonly Counter<long> _rolloutDecisionsTotal = Meter.CreateCounter<long>("reporting_rollout_decisions_total");
 
     public IDisposable TrackActiveExport() => new ActiveExportScope(_requestsActive);
 
@@ -105,6 +114,23 @@ public sealed class ReportingMetrics : IReportingMetrics
     public void RecordTempCleanupFailure() => _tempCleanupFailuresTotal.Add(1);
 
     public void RecordChromiumLaunchFailure() => _chromiumLaunchFailuresTotal.Add(1);
+
+    public void RecordRolloutDecision(
+        ReportingRolloutEnforcementMode enforcementMode,
+        ReportingRolloutDecision decision)
+    {
+        var mode = enforcementMode == ReportingRolloutEnforcementMode.ObserveOnly
+            ? "observe_only"
+            : "enforced";
+        var decisionLabel = decision.Allowed ? "would_allow" : "would_deny";
+        var matchSource = decision.MatchSource.ToString().ToLowerInvariant();
+
+        _rolloutDecisionsTotal.Add(
+            1,
+            new KeyValuePair<string, object?>(RolloutModeTagName, mode),
+            new KeyValuePair<string, object?>(RolloutDecisionTagName, decisionLabel),
+            new KeyValuePair<string, object?>(RolloutMatchSourceTagName, matchSource));
+    }
 
     private static KeyValuePair<string, object?>[] BuildTags(
         string format,
