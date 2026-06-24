@@ -2,12 +2,12 @@ import { useMemo } from 'react';
 import { sanitizeReportHtml } from '../utils/sanitizeReportHtml';
 import '../styles/institutional-report/report.css';
 
-type ReportPreviewDocumentProps = {
+type ReportPreviewDocumentProps = Readonly<{
   htmlContent: string;
   stylesheet?: string | null;
   zoom?: number;
   title?: string;
-};
+}>;
 
 export function ReportPreviewDocument({
   htmlContent,

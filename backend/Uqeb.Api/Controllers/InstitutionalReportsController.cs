@@ -13,23 +13,9 @@ namespace Uqeb.Api.Controllers;
 public class InstitutionalReportsController : ControllerBase
 {
     private readonly IInstitutionalReportService _service;
-    private readonly IReportingReadinessService _readiness;
 
-    public InstitutionalReportsController(
-        IInstitutionalReportService service,
-        IReportingReadinessService readiness)
-    {
+    public InstitutionalReportsController(IInstitutionalReportService service) =>
         _service = service;
-        _readiness = readiness;
-    }
-
-    [HttpGet("configuration")]
-    public ActionResult<ReportingConfigurationDto> GetConfiguration() =>
-        Ok(_readiness.GetConfiguration());
-
-    [HttpGet("readiness")]
-    public ActionResult<ReportingReadinessDto> GetReadiness() =>
-        Ok(_readiness.GetReadiness());
 
     [HttpPost("preview")]
     public async Task<IActionResult> Preview([FromBody] ReportBuildRequestDto request, CancellationToken ct)

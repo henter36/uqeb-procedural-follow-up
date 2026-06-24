@@ -117,7 +117,7 @@ body {
   border-right: 4px solid var(--report-warning);
   padding-right: 10px;
   line-height: 1.4;
-  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .cover {
@@ -163,7 +163,7 @@ body {
   color: var(--report-primary);
   font-weight: 800;
   margin: 0;
-  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .cover-period {
@@ -200,7 +200,7 @@ body {
   margin: 0 0 10px;
   font-weight: 700;
   color: var(--report-primary);
-  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .kpi-grid {
@@ -289,7 +289,7 @@ body {
   font-size: 9px;
   text-align: center;
   margin-top: 4px;
-  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .chart-footnote {
@@ -317,7 +317,7 @@ table.report-table td {
   border-bottom: 1px solid var(--report-border);
   padding: 7px 6px;
   vertical-align: top;
-  word-break: break-word;
+  overflow-wrap: break-word;
   overflow-wrap: anywhere;
   min-height: var(--report-table-row-height);
 }

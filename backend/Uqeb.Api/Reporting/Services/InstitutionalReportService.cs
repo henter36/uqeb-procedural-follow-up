@@ -220,7 +220,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService
             ContentType = contentType,
             FileName = BuildFileName(context.Model.Metadata.ReportNumber, context.Request, extension, selectedPages),
             FileFingerprint = fingerprint,
-            Manifest = EnrichManifest(exportManifest.CloneWithoutHtml(), context.Model, context.IncludeDetailsInDocument == false && context.OverflowAction == DetailOverflowAction.SummaryOnly, context.OverflowAction)
+            Manifest = EnrichManifest(exportManifest.CloneWithoutHtml(), context.Model, !context.IncludeDetailsInDocument && context.OverflowAction == DetailOverflowAction.SummaryOnly, context.OverflowAction)
         };
     }
 
