@@ -1,4 +1,5 @@
 using Microsoft.Playwright;
+using System.Text.RegularExpressions;
 using Uqeb.Api.Reporting.Enums;
 using Uqeb.Api.Reporting.Rendering;
 using Uqeb.Api.Reporting.Services;
@@ -41,7 +42,7 @@ public class InstitutionalReportVisualRegressionTests
     [InlineData(ReportSectionId.DepartmentPerformance, "departments")]
     [InlineData(ReportSectionId.RisksAndAlerts, "risks")]
     [InlineData(ReportSectionId.ExecutiveRecommendations, "recommendations")]
-    [InlineData(ReportSectionId.TransactionDetails, "details")]
+    [InlineData(ReportSectionId.TransactionDetails, "transactions")]
     [InlineData(ReportSectionId.ReportMetadata, "metadata")]
     public async Task Section_MatchesVisualBaseline(ReportSectionId section, string snapshotName)
     {
@@ -104,6 +105,66 @@ public class InstitutionalReportVisualRegressionTests
         });
         var content = await emptyState.InnerTextAsync();
         Assert.Contains("لا توجد توصيات", content);
+    }
+
+    [Fact]
+    public async Task FullReport_WritesVisualArtifactAndKeepsWideTablesInsidePageBounds()
+    {
+        await EnsurePlaywrightAvailableAsync();
+        if (!await IsPlaywrightAvailableAsync())
+            return;
+
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        var manifest = InstitutionalReportVisualFixtures.RenderAllSections(model);
+        var html = InstitutionalReportRenderer.RenderHtmlDocument(manifest);
+
+        using var playwright = await Playwright.CreateAsync();
+        await using var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions { Headless = true });
+        var page = await browser.NewPageAsync(new BrowserNewPageOptions
+        {
+            Locale = "ar-SA",
+            TimezoneId = "Asia/Riyadh",
+            ViewportSize = new ViewportSize { Width = 1500, Height = 1200 },
+        });
+
+        await page.SetContentAsync(html, new PageSetContentOptions { WaitUntil = WaitUntilState.NetworkIdle });
+        await page.EvaluateAsync("() => document.fonts ? document.fonts.ready : Promise.resolve()");
+
+        var everyPageHasOneFooter = await page.Locator(".report-page").EvaluateAllAsync<bool>(
+            "pages => pages.every(page => page.querySelectorAll('.report-footer').length === 1)");
+        Assert.True(everyPageHasOneFooter);
+
+        var footerTitle = await page.Locator(".report-footer .footer-title").First.InnerTextAsync();
+        var footerId = await page.Locator(".report-footer .footer-id").First.InnerTextAsync();
+        Assert.Equal(model.Metadata.Title, footerTitle);
+        Assert.Equal("REP-2026-000125", footerId);
+
+        var wideTablesStayInsidePage = await page.Locator(".report-table--departments, .report-table--transactions")
+            .EvaluateAllAsync<bool>(
+                """
+                tables => tables.every(table => {
+                    const page = table.closest('.report-page');
+                    const tableRect = table.getBoundingClientRect();
+                    const pageRect = page.getBoundingClientRect();
+                    return tableRect.left >= pageRect.left - 1 && tableRect.right <= pageRect.right + 1;
+                })
+                """);
+        Assert.True(wideTablesStayInsidePage);
+
+        var coverQrOnFirstPage = await page.Locator(".report-page").First
+            .EvaluateAsync<bool>("page => Boolean(page.querySelector('.qr-box'))");
+        Assert.True(coverQrOnFirstPage);
+
+        var screenshot = await page.ScreenshotAsync(new PageScreenshotOptions
+        {
+            FullPage = true,
+            Animations = ScreenshotAnimations.Disabled,
+        });
+        Assert.True(screenshot.Length > 4_000, "Full report screenshot is unexpectedly small.");
+
+        var artifactDir = Path.Combine(Path.GetTempPath(), "uqeb-reporting-pdf-layout");
+        Directory.CreateDirectory(artifactDir);
+        await File.WriteAllBytesAsync(Path.Combine(artifactDir, "full-report.actual.png"), screenshot);
     }
 
     private static async Task AssertRenderedSectionAsync(
@@ -178,5 +239,107 @@ public class InstitutionalReportStylesTests
         Assert.Contains("--report-primary", css);
         Assert.Contains("@font-face", css);
         Assert.Contains("Uqeb Report Arabic", css);
+        Assert.Contains("data:font/woff2;base64,", css);
+    }
+
+    [Fact]
+    public void BuildDocumentStylesheet_DefinesPdfProfilesAndReadableTableWrapping()
+    {
+        var css = InstitutionalReportStyles.BuildDocumentStylesheet();
+
+        Assert.Contains("@page report-standard-portrait", css);
+        Assert.Contains("@page report-standard-landscape", css);
+        Assert.Contains("@page report-wide-landscape", css);
+        Assert.Contains("@page report-extra-wide-landscape", css);
+        Assert.Contains(".report-table--departments", css);
+        Assert.Contains(".report-table--transactions", css);
+        Assert.DoesNotContain("word-break: break-all", css);
+        Assert.DoesNotContain("overflow-wrap: anywhere", css);
+    }
+
+    [Fact]
+    public void BuildDocumentStylesheet_KeepsScreenPageHeightAndPrintOverride()
+    {
+        var css = InstitutionalReportStyles.LayoutStylesheet;
+        var baseReportPage = ExtractCssBlock(css, ".report-page");
+        var printReportPage = ExtractNestedCssBlock(css, "@media print", ".report-page");
+
+        Assert.Single(Regex.Matches(css, @"min-height:\s*var\(--report-page-height\)"));
+        Assert.Contains("min-height: var(--report-page-height);", baseReportPage);
+        Assert.DoesNotContain("min-height: auto;", baseReportPage);
+        Assert.Contains("break-after: page;", baseReportPage);
+        Assert.Contains("min-height: auto;", printReportPage);
+        Assert.Contains("width: auto;", printReportPage);
+        Assert.Contains("padding: 0;", printReportPage);
+    }
+
+    [Fact]
+    public void FrontendAndBackendStylesheets_KeepCriticalPageRulesInSync()
+    {
+        var backendCss = InstitutionalReportStyles.LayoutStylesheet;
+        var frontendCss = File.ReadAllText(ResolveFrontendReportStylesheetPath());
+
+        Assert.Equal(ExtractCssBlock(backendCss, ".report-page"), ExtractCssBlock(frontendCss, ".report-page"));
+        Assert.Equal(ExtractNestedCssBlock(backendCss, "@media print", ".report-page"), ExtractNestedCssBlock(frontendCss, "@media print", ".report-page"));
+        Assert.Equal(ExtractCssBlock(backendCss, ".report-page--standard-portrait"), ExtractCssBlock(frontendCss, ".report-page--standard-portrait"));
+        Assert.Equal(ExtractCssBlock(backendCss, ".report-page--standard-landscape"), ExtractCssBlock(frontendCss, ".report-page--standard-landscape"));
+        Assert.Equal(ExtractCssBlock(backendCss, ".report-page--wide-landscape"), ExtractCssBlock(frontendCss, ".report-page--wide-landscape"));
+        Assert.Equal(ExtractCssBlock(backendCss, ".report-page--extra-wide-landscape"), ExtractCssBlock(frontendCss, ".report-page--extra-wide-landscape"));
+    }
+
+    private static string ExtractCssBlock(string css, string selector)
+    {
+        var match = Regex.Match(
+            css,
+            $@"(?m)^{Regex.Escape(selector)}\s*\{{(?<body>.*?)^\}}",
+            RegexOptions.Singleline);
+        Assert.True(match.Success, $"CSS block not found: {selector}");
+        return NormalizeCssBlock(match.Groups["body"].Value);
+    }
+
+    private static string ExtractNestedCssBlock(string css, string parentSelector, string childSelector)
+    {
+        var parentStart = css.IndexOf(parentSelector, StringComparison.Ordinal);
+        Assert.True(parentStart >= 0, $"CSS parent block not found: {parentSelector}");
+        var childStart = css.IndexOf(childSelector, parentStart, StringComparison.Ordinal);
+        Assert.True(childStart >= 0, $"CSS child block not found: {childSelector}");
+        var blockStart = css.IndexOf('{', childStart);
+        Assert.True(blockStart >= 0, $"CSS child block start not found: {childSelector}");
+
+        var depth = 0;
+        for (var i = blockStart; i < css.Length; i++)
+        {
+            if (css[i] == '{')
+                depth++;
+            else if (css[i] == '}')
+            {
+                depth--;
+                if (depth == 0)
+                    return NormalizeCssBlock(css.Substring(blockStart + 1, i - blockStart - 1));
+            }
+        }
+
+        throw new InvalidOperationException($"CSS child block end not found: {childSelector}");
+    }
+
+    private static string NormalizeCssBlock(string block) =>
+        string.Join(
+            "\n",
+            block.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => line.Trim()));
+
+    private static string ResolveFrontendReportStylesheetPath()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null)
+        {
+            var candidate = Path.Combine(dir.FullName, "frontend", "uqeb-ui", "src", "styles", "institutional-report", "report.css");
+            if (File.Exists(candidate))
+                return candidate;
+
+            dir = dir.Parent;
+        }
+
+        throw new InvalidOperationException("Unable to locate frontend institutional report stylesheet.");
     }
 }

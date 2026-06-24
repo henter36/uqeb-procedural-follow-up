@@ -21,9 +21,9 @@ public class InstitutionalReportRendererCoverTests
 
         var page = Assert.Single(manifest.Pages);
 
-        Assert.Contains("class=\"report-page\"", page.HtmlContent);
+        Assert.Contains("class=\"report-page report-page--standard-portrait\"", page.HtmlContent);
         Assert.Contains("REP-2026-000125", page.HtmlContent);
-        Assert.Single(Regex.Matches(page.HtmlContent, "class=\"report-page\""));
+        Assert.Single(Regex.Matches(page.HtmlContent, "class=\"report-page"));
     }
 
     [Fact]
