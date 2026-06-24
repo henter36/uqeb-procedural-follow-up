@@ -25,7 +25,9 @@ param(
 
     [string]$SettingsPath = "",
 
-    [string]$ProjectRoot = ""
+    [string]$ProjectRoot = "",
+
+    [int]$RequestTimeoutSec = 30
 )
 
 $ErrorActionPreference = "Stop"
@@ -35,7 +37,8 @@ function Invoke-UqebLogin {
     $body = @{ username = $Username; password = $Password } | ConvertTo-Json -Compress
     try {
         $response = Invoke-WebRequest -UseBasicParsing -Method Post `
-            -Uri "$ApiBaseUrl/auth/login" -ContentType "application/json" -Body $body
+            -Uri "$ApiBaseUrl/auth/login" -ContentType "application/json" -Body $body `
+            -TimeoutSec $RequestTimeoutSec
         return ($response.Content | ConvertFrom-Json).token
     }
     catch {
@@ -53,7 +56,13 @@ function Test-InstitutionalEndpoint {
     )
 
     $headers = @{ Authorization = "Bearer $Token" }
-    $params = @{ Uri = "$ApiBaseUrl$Path"; Method = $Method; Headers = $headers; UseBasicParsing = $true }
+    $params = @{
+        Uri = "$ApiBaseUrl$Path"
+        Method = $Method
+        Headers = $headers
+        UseBasicParsing = $true
+        TimeoutSec = $RequestTimeoutSec
+    }
     if ($Body) {
         $params.ContentType = "application/json"
         $params.Body = ($Body | ConvertTo-Json -Depth 8 -Compress)

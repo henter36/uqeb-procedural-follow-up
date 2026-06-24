@@ -129,8 +129,21 @@ $backupDir = Join-Path $resolvedBackupRoot "$EnvironmentName-before-phase1-$stam
 New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
 $backupFile = Join-Path $backupDir (Split-Path $resolvedSettingsPath -Leaf)
 
-if (-not $config.FeatureFlags) { $config | Add-Member -NotePropertyName FeatureFlags -NotePropertyValue (@{}) }
-if (-not $config.ReportingRollout) { $config | Add-Member -NotePropertyName ReportingRollout -NotePropertyValue (@{}) }
+if (-not $config.FeatureFlags) {
+    $config | Add-Member -NotePropertyName FeatureFlags -NotePropertyValue ([pscustomobject]@{
+        InstitutionalReports = $false
+    })
+}
+if (-not $config.ReportingRollout) {
+    $config | Add-Member -NotePropertyName ReportingRollout -NotePropertyValue ([pscustomobject]@{
+        EnforcementMode = "ObserveOnly"
+        EmergencyDisable = $false
+        EnabledForUserIds = @()
+        EnabledForRoles = @()
+        EnabledForDepartments = @()
+        Percentage = 0
+    })
+}
 
 Write-Host "Resolved admin user ID (masked): $maskedUserId"
 Write-Host "Current mode: $($currentSnapshot.EnforcementMode)"

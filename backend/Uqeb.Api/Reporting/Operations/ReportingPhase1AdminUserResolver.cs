@@ -29,13 +29,14 @@ public sealed class ReportingPhase1AdminUserResolver(AppDbContext db) : IReporti
         string adminUsername,
         CancellationToken cancellationToken = default)
     {
-        var normalized = adminUsername.Trim();
-        if (string.IsNullOrWhiteSpace(normalized))
+        if (string.IsNullOrWhiteSpace(adminUsername))
         {
             return new ReportingPhase1AdminUserResolution(
                 ReportingPhase1AdminUserResolutionStatus.NotFound,
                 Detail: "Admin username is required.");
         }
+
+        var normalized = adminUsername.Trim();
 
         var normalizedLower = normalized.ToLowerInvariant();
         var matches = await db.Users
