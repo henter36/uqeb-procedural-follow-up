@@ -277,6 +277,9 @@ public class InstitutionalReportPreviewSqlServerIntegrationTests
             correlationIdProvider,
             concurrencyGate);
         var pdfExporter = new TestInstitutionalReportPdfExporter();
+        var analysisInstrumentation = new ReportingAnalysisInstrumentation(
+            metrics,
+            NullLogger<ReportingAnalysisInstrumentation>.Instance);
         InstitutionalReportService? serviceRef = null;
         serviceRef = new InstitutionalReportService(
             dbFactory,
@@ -285,6 +288,7 @@ public class InstitutionalReportPreviewSqlServerIntegrationTests
             reportingOptions,
             NullLogger<InstitutionalReportService>.Instance,
             correlationIdProvider,
+            analysisInstrumentation,
             () => new InstitutionalReportExportService(
                 serviceRef!,
                 pdfExporter,

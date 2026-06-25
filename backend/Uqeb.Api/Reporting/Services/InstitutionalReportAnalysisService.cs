@@ -1,9 +1,11 @@
+using System.Diagnostics;
 using System.Globalization;
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Reporting.Configuration;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
 using Uqeb.Api.Reporting.Models;
+using Uqeb.Api.Reporting.Operations;
 using Uqeb.Api.Reporting.Rendering;
 
 namespace Uqeb.Api.Reporting.Services;
@@ -47,8 +49,11 @@ internal static class InstitutionalReportAnalysisService
         public required KpiDirection Direction { get; init; }
     }
 
-    internal static InstitutionalReportAnalysisResult Build(InstitutionalReportAnalysisInput input)
+    internal static InstitutionalReportAnalysisResult Build(
+        InstitutionalReportAnalysisInput input,
+        IReportingAnalysisInstrumentation? instrumentation = null)
     {
+        var totalStopwatch = Stopwatch.StartNew();
         var request = input.Request;
         var metadata = input.Metadata;
         var filters = input.Filters;
@@ -67,46 +72,113 @@ internal static class InstitutionalReportAnalysisService
         var maxCriticalCases = ResolvePositive(request.MaxCriticalCases, options.MaxExecutiveCriticalCases);
         var maxRecommendations = ResolvePositive(request.MaxRecommendations, options.MaxRecommendations);
         var referenceDate = ReportingTemporalCalculator.ResolveReferenceDate(metadata);
+        var reportType = request.ReportType.ToString();
+        var snapshotCount = currentSnapshots.Count;
 
-        var kpis = BuildKpis(currentMetrics, currentSnapshots, previousMetrics, options, referenceDate);
+        var kpis = MeasureStage(
+            instrumentation,
+            "kpis",
+            reportType,
+            snapshotCount,
+            () => BuildKpis(currentMetrics, currentSnapshots, previousMetrics, options, referenceDate));
         var criticalCases = request.IncludeCriticalCases == false
             ? []
-            : BuildCriticalCases(currentSnapshots, options, referenceDate).Take(maxCriticalCases).ToList();
+            : MeasureStage(
+                instrumentation,
+                "critical_cases",
+                reportType,
+                snapshotCount,
+                () => BuildCriticalCases(currentSnapshots, options, referenceDate).Take(maxCriticalCases).ToList());
         var departments = request.IncludeDepartmentPerformance == false
             ? []
-            : BuildDepartments(currentSnapshots, previousSnapshots, options);
+            : MeasureStage(
+                instrumentation,
+                "departments",
+                reportType,
+                snapshotCount,
+                () => BuildDepartments(currentSnapshots, previousSnapshots, options));
         var externalParties = request.IncludeExternalPartyAnalysis == false
             ? []
-            : BuildExternalParties(currentSnapshots);
+            : MeasureStage(
+                instrumentation,
+                "external_parties",
+                reportType,
+                snapshotCount,
+                () => BuildExternalParties(currentSnapshots));
         var categories = request.IncludeCategoryAnalysis == false
             ? []
-            : BuildCategories(currentSnapshots);
+            : MeasureStage(
+                instrumentation,
+                "categories",
+                reportType,
+                snapshotCount,
+                () => BuildCategories(currentSnapshots));
         var priorities = request.IncludeCategoryAnalysis == false
             ? []
-            : BuildPriorities(currentSnapshots);
+            : MeasureStage(
+                instrumentation,
+                "priorities",
+                reportType,
+                snapshotCount,
+                () => BuildPriorities(currentSnapshots));
         var bottlenecks = request.IncludeBottleneckAnalysis == false
             ? []
-            : BuildBottlenecks(currentSnapshots, referenceDate);
+            : MeasureStage(
+                instrumentation,
+                "bottlenecks",
+                reportType,
+                snapshotCount,
+                () => BuildBottlenecks(currentSnapshots, referenceDate));
         var dataQuality = request.IncludeDataQuality == false
             ? []
-            : BuildDataQualityIssues(currentSnapshots);
-        var completenessRate = CalculateCompletenessRate(currentSnapshots);
-        var findings = BuildFindings(currentMetrics, previousMetrics, departments, externalParties, dataQuality, options)
-            .Take(maxFindings)
-            .ToList();
+            : MeasureStage(
+                instrumentation,
+                "data_quality",
+                reportType,
+                snapshotCount,
+                () => BuildDataQualityIssues(currentSnapshots));
+        var completenessRate = MeasureStage(
+            instrumentation,
+            "completeness_rate",
+            reportType,
+            snapshotCount,
+            () => CalculateCompletenessRate(currentSnapshots));
+        var findings = MeasureStage(
+            instrumentation,
+            "findings",
+            reportType,
+            snapshotCount,
+            () => BuildFindings(currentMetrics, previousMetrics, departments, externalParties, dataQuality, options)
+                .Take(maxFindings)
+                .ToList());
         var recommendations = request.IncludeRecommendations == false
             ? []
-            : BuildRecommendations(findings, criticalCases, dataQuality).Take(maxRecommendations).ToList();
+            : MeasureStage(
+                instrumentation,
+                "recommendations",
+                reportType,
+                snapshotCount,
+                () => BuildRecommendations(findings, criticalCases, dataQuality).Take(maxRecommendations).ToList());
         var timeSeries = request.IncludeTimeTrends == false
             ? []
-            : BuildTimeSeries(currentSnapshots, timeGrouping);
+            : MeasureStage(
+                instrumentation,
+                "time_series",
+                reportType,
+                snapshotCount,
+                () => BuildTimeSeries(currentSnapshots, timeGrouping));
         var insights = request.IncludeExecutiveSummary == false
             ? []
-            : BuildExecutiveInsights(currentMetrics, findings, criticalCases, departments, externalParties, options)
-                .Take(options.MaxExecutiveFindings)
-                .ToList();
+            : MeasureStage(
+                instrumentation,
+                "executive_insights",
+                reportType,
+                snapshotCount,
+                () => BuildExecutiveInsights(currentMetrics, findings, criticalCases, departments, externalParties, options)
+                    .Take(options.MaxExecutiveFindings)
+                    .ToList());
 
-        return new InstitutionalReportAnalysisResult
+        var result = new InstitutionalReportAnalysisResult
         {
             ContentLevel = contentLevel,
             ComparisonMode = comparisonMode,
@@ -125,16 +197,47 @@ internal static class InstitutionalReportAnalysisService
             DataQualityIssues = dataQuality,
             DataCompletenessRate = completenessRate,
             Recommendations = recommendations,
-            Methodology = BuildMethodology(
-                metadata,
-                filters,
-                request,
-                comparisonRequest,
-                previousSnapshots,
-                input.DetailLimit,
-                input.DetailRowsTruncated,
-                comparisonMode)
+            Methodology = MeasureStage(
+                instrumentation,
+                "methodology",
+                reportType,
+                snapshotCount,
+                () => BuildMethodology(
+                    metadata,
+                    filters,
+                    request,
+                    comparisonRequest,
+                    previousSnapshots,
+                    input.DetailLimit,
+                    input.DetailRowsTruncated,
+                    comparisonMode))
         };
+
+        totalStopwatch.Stop();
+        instrumentation?.RecordTotal(totalStopwatch.Elapsed.TotalMilliseconds, reportType, snapshotCount);
+        return result;
+    }
+
+    private static T MeasureStage<T>(
+        IReportingAnalysisInstrumentation? instrumentation,
+        string stage,
+        string reportType,
+        int snapshotCount,
+        Func<T> work)
+    {
+        if (instrumentation is null)
+            return work();
+
+        var stopwatch = Stopwatch.StartNew();
+        try
+        {
+            return work();
+        }
+        finally
+        {
+            stopwatch.Stop();
+            instrumentation.RecordStage(stage, stopwatch.Elapsed.TotalMilliseconds, reportType, snapshotCount);
+        }
     }
 
     internal static ReportBuildRequestDto? CreateComparisonRequest(ReportBuildRequestDto request)

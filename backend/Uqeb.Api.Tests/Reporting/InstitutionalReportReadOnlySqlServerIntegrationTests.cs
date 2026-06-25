@@ -247,6 +247,9 @@ public class InstitutionalReportReadOnlySqlServerIntegrationTests
             correlationIdProvider,
             concurrencyGate);
         var pdfExporter = new StubPdfExporter();
+        var analysisInstrumentation = new ReportingAnalysisInstrumentation(
+            metrics,
+            NullLogger<ReportingAnalysisInstrumentation>.Instance);
         InstitutionalReportService? serviceRef = null;
         serviceRef = new InstitutionalReportService(
             dbFactory,
@@ -255,6 +258,7 @@ public class InstitutionalReportReadOnlySqlServerIntegrationTests
             reportingOptions,
             NullLogger<InstitutionalReportService>.Instance,
             correlationIdProvider,
+            analysisInstrumentation,
             () => new InstitutionalReportExportService(
                 serviceRef!,
                 pdfExporter,

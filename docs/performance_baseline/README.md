@@ -33,6 +33,16 @@ dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj \
 
 Use `artifacts/reporting-acceptance/reporting-benchmark-results.json` as the measured source.
 
+## Record a baseline (analysis pipeline stages)
+
+```bash
+export RUN_REPORTING_ANALYSIS_BENCHMARK=1
+dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj \
+  --filter "FullyQualifiedName~InstitutionalReportAnalysisPipelineBenchmarkTests"
+```
+
+Stage timings are written to `artifacts/performance-baseline/analysis-pipeline-<snapshotCount>.json`.
+
 ## Comparison policy (later phases)
 
 Future phases compare new runs against these records. Do not edit templates in `records/` with live numbers; store measurements under `artifacts/performance-baseline/`.

@@ -39,6 +39,23 @@
         "totalDurationMsMax": 120000,
         "peakWorkingSetBytesMax": 1073741824
       }
+    },
+    {
+      "scenarioId": "reporting-analysis-pipeline",
+      "recordedAtUtc": "1970-01-01T00:00:00Z",
+      "commitSha": "unrecorded",
+      "environment": {
+        "host": "ci-or-local",
+        "apiBaseUrl": "n/a",
+        "notes": "Use RUN_REPORTING_ANALYSIS_BENCHMARK=1 to write analysis-pipeline-*.json stage timings."
+      },
+      "metrics": {
+        "totalDurationMs": null,
+        "stageDurationMs": {}
+      },
+      "thresholds": {
+        "totalDurationMsMax": 30000
+      }
     }
   ]
 }

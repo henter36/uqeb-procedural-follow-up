@@ -76,6 +76,7 @@ builder.Services.AddScoped<IInstitutionalReportNumberAllocator, InstitutionalRep
 builder.Services.AddScoped<IReportNumberSequenceSchemaProbe, ReportNumberSequenceSchemaProbe>();
 builder.Services.AddSingleton<IInstitutionalReportPdfExporter, InstitutionalReportPlaywrightPdfExporter>();
 builder.Services.AddSingleton<IReportingMetrics, ReportingMetrics>();
+builder.Services.AddSingleton<IReportingAnalysisInstrumentation, ReportingAnalysisInstrumentation>();
 builder.Services.AddSingleton<IReportingExportConcurrencyGate, ReportingExportConcurrencyGate>();
 builder.Services.AddSingleton<IReportingChromiumProbe, ReportingChromiumProbe>();
 builder.Services.AddSingleton<IReportingTempFileManager, ReportingTempFileManager>();
