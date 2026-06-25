@@ -298,6 +298,15 @@ public class InstitutionalReportExportServiceExceptionTests
 
     private sealed class NoOpAuditService : IAuditService
     {
+        public void TrackLog(
+            int userId,
+            AuditAction action,
+            string? entityName,
+            int? entityId,
+            int? transactionId,
+            string? oldValue,
+            string? newValue) { }
+
         public Task LogAsync(
             int userId,
             AuditAction action,

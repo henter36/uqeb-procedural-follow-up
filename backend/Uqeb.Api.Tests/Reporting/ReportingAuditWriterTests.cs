@@ -77,6 +77,19 @@ public class ReportingAuditWriterTests
         public string? EntityName { get; private set; }
         public string? NewValue { get; private set; }
 
+        public void TrackLog(
+            int userId,
+            AuditAction action,
+            string? entityName,
+            int? entityId,
+            int? transactionId,
+            string? oldValue,
+            string? newValue)
+        {
+            EntityName = entityName;
+            NewValue = newValue;
+        }
+
         public Task LogAsync(
             int userId,
             AuditAction action,
