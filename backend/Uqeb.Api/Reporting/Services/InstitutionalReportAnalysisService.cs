@@ -214,7 +214,7 @@ internal static class InstitutionalReportAnalysisService
         };
 
         totalStopwatch.Stop();
-        instrumentation?.RecordTotal(totalStopwatch.Elapsed.TotalMilliseconds, reportType, snapshotCount);
+        instrumentation?.RecordTotal(totalStopwatch.Elapsed.TotalMilliseconds, reportType, snapshotCount, succeeded: true);
         return result;
     }
 
@@ -231,12 +231,16 @@ internal static class InstitutionalReportAnalysisService
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            return work();
+            var result = work();
+            stopwatch.Stop();
+            instrumentation.RecordStage(stage, stopwatch.Elapsed.TotalMilliseconds, reportType, snapshotCount, succeeded: true);
+            return result;
         }
-        finally
+        catch
         {
             stopwatch.Stop();
-            instrumentation.RecordStage(stage, stopwatch.Elapsed.TotalMilliseconds, reportType, snapshotCount);
+            instrumentation.RecordStage(stage, stopwatch.Elapsed.TotalMilliseconds, reportType, snapshotCount, succeeded: false);
+            throw;
         }
     }
 

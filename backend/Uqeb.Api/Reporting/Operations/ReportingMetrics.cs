@@ -13,7 +13,7 @@ public interface IReportingMetrics
     void RecordCancellation(string format, string reportType);
     void RecordFailure(string format, string reportType, string result);
     void RecordBuildDuration(double milliseconds, string reportType);
-    void RecordAnalysisStageDuration(double milliseconds, string stage, string reportType);
+    void RecordAnalysisStageDuration(double milliseconds, string stage, string reportType, bool succeeded = true);
     void RecordAnalysisDuration(double milliseconds, string reportType, int snapshotCount);
     void RecordRenderDuration(double milliseconds, string format, string reportType);
     void RecordExportDuration(double milliseconds, string format, string reportType, string result);
@@ -38,7 +38,8 @@ public sealed class ReportingMetrics : IReportingMetrics
     private const string RolloutDecisionTagName = "decision";
     private const string RolloutMatchSourceTagName = "match_source";
     private const string StageTagName = "stage";
-    private const string SnapshotCountTagName = "snapshot_count";
+    private const string StageOutcomeTagName = "stage_outcome";
+    private const string SnapshotCountBucketTagName = "snapshot_count_bucket";
 
     private static readonly Meter Meter = new("Uqeb.Reporting", "1.0.0");
 
@@ -99,17 +100,27 @@ public sealed class ReportingMetrics : IReportingMetrics
     public void RecordBuildDuration(double milliseconds, string reportType) =>
         _buildDurationMs.Record(milliseconds, new KeyValuePair<string, object?>(ReportTypeTagName, reportType));
 
-    public void RecordAnalysisStageDuration(double milliseconds, string stage, string reportType) =>
+    public void RecordAnalysisStageDuration(double milliseconds, string stage, string reportType, bool succeeded = true) =>
         _analysisStageDurationMs.Record(
             milliseconds,
             new KeyValuePair<string, object?>(StageTagName, stage),
-            new KeyValuePair<string, object?>(ReportTypeTagName, reportType));
+            new KeyValuePair<string, object?>(ReportTypeTagName, reportType),
+            new KeyValuePair<string, object?>(StageOutcomeTagName, succeeded ? "success" : "failed"));
 
     public void RecordAnalysisDuration(double milliseconds, string reportType, int snapshotCount) =>
         _analysisDurationMs.Record(
             milliseconds,
             new KeyValuePair<string, object?>(ReportTypeTagName, reportType),
-            new KeyValuePair<string, object?>(SnapshotCountTagName, snapshotCount));
+            new KeyValuePair<string, object?>(SnapshotCountBucketTagName, BucketSnapshotCount(snapshotCount)));
+
+    public static string BucketSnapshotCount(int snapshotCount) => snapshotCount switch
+    {
+        <= 0 => "0",
+        <= 100 => "1-100",
+        <= 1000 => "101-1000",
+        <= 5000 => "1001-5000",
+        _ => "5001+"
+    };
 
     public void RecordRenderDuration(double milliseconds, string format, string reportType) =>
         _renderDurationMs.Record(milliseconds, BuildTags(format, reportType, "success", null));

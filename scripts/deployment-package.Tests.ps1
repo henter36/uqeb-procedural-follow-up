@@ -1,8 +1,17 @@
 #Requires -Version 5.1
 
 BeforeAll {
-    $script:RepoScriptsRoot = $PSScriptRoot
-    . (Join-Path $PSScriptRoot 'tests\DeploymentTestHelpers.ps1')
+    function Resolve-DeploymentScriptsRoot {
+        $candidate = $PSScriptRoot
+        if (Test-Path (Join-Path $candidate 'deployment\Common.ps1')) {
+            return $candidate
+        }
+
+        throw "Unable to resolve deployment scripts root from $PSScriptRoot"
+    }
+
+    $script:RepoScriptsRoot = Resolve-DeploymentScriptsRoot
+    . (Join-Path $script:RepoScriptsRoot 'tests\DeploymentTestHelpers.ps1')
     $script:CommonPath = Join-Path $script:RepoScriptsRoot 'deployment\Common.ps1'
     $script:InstallScript = Join-Path $script:RepoScriptsRoot 'install-production-package.ps1'
     . $script:CommonPath

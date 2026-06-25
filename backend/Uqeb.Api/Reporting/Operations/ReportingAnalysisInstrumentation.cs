@@ -8,12 +8,14 @@ public interface IReportingAnalysisInstrumentation
         string stage,
         double milliseconds,
         string reportType,
-        int snapshotCount);
+        int snapshotCount,
+        bool succeeded = true);
 
     void RecordTotal(
         double milliseconds,
         string reportType,
-        int snapshotCount);
+        int snapshotCount,
+        bool succeeded = true);
 }
 
 public sealed class ReportingAnalysisInstrumentation(
@@ -24,11 +26,23 @@ public sealed class ReportingAnalysisInstrumentation(
         string stage,
         double milliseconds,
         string reportType,
-        int snapshotCount)
+        int snapshotCount,
+        bool succeeded = true)
     {
-        metrics.RecordAnalysisStageDuration(milliseconds, stage, reportType);
-        logger.LogDebug(
-            "Institutional report analysis stage completed. AnalysisStage={AnalysisStage} DurationMs={DurationMs} SnapshotCount={SnapshotCount} ReportType={ReportType}",
+        metrics.RecordAnalysisStageDuration(milliseconds, stage, reportType, succeeded);
+        if (succeeded)
+        {
+            logger.LogDebug(
+                "Institutional report analysis stage completed. AnalysisStage={AnalysisStage} DurationMs={DurationMs} SnapshotCount={SnapshotCount} ReportType={ReportType}",
+                stage,
+                milliseconds,
+                snapshotCount,
+                reportType);
+            return;
+        }
+
+        logger.LogWarning(
+            "Institutional report analysis stage failed. AnalysisStage={AnalysisStage} DurationMs={DurationMs} SnapshotCount={SnapshotCount} ReportType={ReportType}",
             stage,
             milliseconds,
             snapshotCount,
@@ -38,11 +52,24 @@ public sealed class ReportingAnalysisInstrumentation(
     public void RecordTotal(
         double milliseconds,
         string reportType,
-        int snapshotCount)
+        int snapshotCount,
+        bool succeeded = true)
     {
-        metrics.RecordAnalysisDuration(milliseconds, reportType, snapshotCount);
-        logger.LogDebug(
-            "Institutional report analysis completed. AnalysisStage=total DurationMs={DurationMs} SnapshotCount={SnapshotCount} ReportType={ReportType}",
+        if (succeeded)
+            metrics.RecordAnalysisDuration(milliseconds, reportType, snapshotCount);
+
+        if (succeeded)
+        {
+            logger.LogDebug(
+                "Institutional report analysis completed. AnalysisStage=total DurationMs={DurationMs} SnapshotCount={SnapshotCount} ReportType={ReportType}",
+                milliseconds,
+                snapshotCount,
+                reportType);
+            return;
+        }
+
+        logger.LogWarning(
+            "Institutional report analysis failed. AnalysisStage=total DurationMs={DurationMs} SnapshotCount={SnapshotCount} ReportType={ReportType}",
             milliseconds,
             snapshotCount,
             reportType);
@@ -53,11 +80,11 @@ public sealed class NullReportingAnalysisInstrumentation : IReportingAnalysisIns
 {
     public static NullReportingAnalysisInstrumentation Instance { get; } = new();
 
-    public void RecordStage(string stage, double milliseconds, string reportType, int snapshotCount)
+    public void RecordStage(string stage, double milliseconds, string reportType, int snapshotCount, bool succeeded = true)
     {
     }
 
-    public void RecordTotal(double milliseconds, string reportType, int snapshotCount)
+    public void RecordTotal(double milliseconds, string reportType, int snapshotCount, bool succeeded = true)
     {
     }
 }
