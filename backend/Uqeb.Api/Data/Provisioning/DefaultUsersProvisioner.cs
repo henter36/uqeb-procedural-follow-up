@@ -29,7 +29,12 @@ public static class DefaultUsersProvisioner
         var existing = existingUsernames.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var departments = await db.Departments.ToListAsync(cancellationToken);
-        var departmentByCode = departments.ToDictionary(d => d.Code, d => d.Id, StringComparer.OrdinalIgnoreCase);
+        var departmentByCode = departments
+            .Where(department => !string.IsNullOrWhiteSpace(department.Code))
+            .ToDictionary(
+                department => department.Code!,
+                department => department.Id,
+                StringComparer.OrdinalIgnoreCase);
 
         var added = 0;
         foreach (var definition in DefaultUsers)
