@@ -183,6 +183,7 @@ public class FollowUpPrintIdempotencySqlServerTests : FollowUpPrintSqlServerTest
             Subject = "اختبار",
             Status = TransactionStatus.InProgress,
             Priority = Priority.Normal,
+            CreatedById = user.Id,
             CreatedAt = DateTime.UtcNow,
         });
         await db.SaveChangesAsync();
@@ -191,6 +192,7 @@ public class FollowUpPrintIdempotencySqlServerTests : FollowUpPrintSqlServerTest
         {
             TransactionId = db.Transactions.Single().Id,
             DepartmentId = department.Id,
+            CreatedById = user.Id,
         });
         db.FollowUps.Add(new FollowUp
         {

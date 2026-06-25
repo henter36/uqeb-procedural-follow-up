@@ -89,15 +89,22 @@ public class FollowUpPrintJobResumeSqlServerTests : FollowUpPrintSqlServerTestBa
 
             var processor = scope.ServiceProvider.GetRequiredService<FollowUpPrintJobProcessorHostedService>();
             await processor.ProcessOnceAsync(CancellationToken.None);
-            await processor.ProcessOnceAsync(CancellationToken.None);
 
-            var assignedCount = await db.FollowUpPrintJobPayloads.CountAsync(p => p.JobId == job.Id && p.PartId != null);
-            var partCount = await db.FollowUpPrintJobParts.CountAsync(p => p.JobId == job.Id);
+            await using var verifyScope = context.Provider.CreateAsyncScope();
+            var verifyDb = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var assignedCount = await verifyDb.FollowUpPrintJobPayloads.CountAsync(p => p.JobId == job.Id && p.PartId != null);
+            var partCount = await verifyDb.FollowUpPrintJobParts.CountAsync(p => p.JobId == job.Id);
+            var jobStatus = await verifyDb.FollowUpPrintJobs
+                .Where(j => j.Id == job.Id)
+                .Select(j => j.Status)
+                .FirstAsync();
 
             Assert.Equal(3, assignedCount);
             Assert.Equal(2, partCount);
+            Assert.Equal(FollowUpPrintJobStatus.ReadyToPrint, jobStatus);
             Assert.All(
-                await db.FollowUpPrintJobPayloads.Where(p => p.JobId == job.Id).ToListAsync(),
+                await verifyDb.FollowUpPrintJobPayloads.Where(p => p.JobId == job.Id).ToListAsync(),
                 p => Assert.NotNull(p.PartId));
         }
         finally

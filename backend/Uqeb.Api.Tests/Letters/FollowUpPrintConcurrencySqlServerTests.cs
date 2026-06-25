@@ -6,6 +6,7 @@ using Uqeb.Api.HostedServices;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Models.Letters;
+using Uqeb.Api.Services;
 using Xunit;
 
 namespace Uqeb.Api.Tests.Letters;
@@ -35,6 +36,17 @@ public class FollowUpPrintConcurrencySqlServerTests : FollowUpPrintSqlServerTest
                 IsActive = true,
             };
             db.Users.Add(user);
+
+            var template = new LetterTemplate
+            {
+                Code = $"follow_up_{Guid.NewGuid():N}",
+                Name = "Follow Up",
+                TemplateType = LetterTemplateType.FollowUp,
+                Content = FollowUpLetterRenderService.DefaultFollowUpContent,
+                IsActive = true,
+                IsDefault = true,
+            };
+            db.LetterTemplates.Add(template);
             await db.SaveChangesAsync();
 
             var job = new FollowUpPrintJob
@@ -42,7 +54,7 @@ public class FollowUpPrintConcurrencySqlServerTests : FollowUpPrintSqlServerTest
                 RequestedById = user.Id,
                 Status = FollowUpPrintJobStatus.Queued,
                 FilterSnapshotJson = "{}",
-                TemplateId = 1,
+                TemplateId = template.Id,
                 BatchSize = 5,
                 TotalTransactions = 4,
                 TotalLetters = 4,
@@ -81,8 +93,11 @@ public class FollowUpPrintConcurrencySqlServerTests : FollowUpPrintSqlServerTest
 
             await Task.WhenAll(workerTasks);
 
-            var partCount = await db.FollowUpPrintJobParts.CountAsync(p => p.JobId == job.Id);
-            var assignedPayloads = await db.FollowUpPrintJobPayloads.CountAsync(p => p.JobId == job.Id && p.PartId != null);
+            await using var verifyScope = context.Provider.CreateAsyncScope();
+            var verifyDb = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var partCount = await verifyDb.FollowUpPrintJobParts.CountAsync(p => p.JobId == job.Id);
+            var assignedPayloads = await verifyDb.FollowUpPrintJobPayloads.CountAsync(p => p.JobId == job.Id && p.PartId != null);
 
             Assert.Equal(1, partCount);
             Assert.Equal(4, assignedPayloads);

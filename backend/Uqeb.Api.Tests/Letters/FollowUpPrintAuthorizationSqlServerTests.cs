@@ -7,6 +7,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Uqeb.Api.Data;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
+using Uqeb.Api.Models.Letters;
+using Uqeb.Api.Services;
 using Xunit;
 
 namespace Uqeb.Api.Tests.Letters;
@@ -98,6 +100,17 @@ public sealed class FollowUpPrintAuthorizationWebApplicationFactory : WebApplica
             IsActive = true,
         };
         db.Users.AddRange(owner, other);
+
+        var template = new LetterTemplate
+        {
+            Code = "follow_up_auth_test",
+            Name = "Follow Up",
+            TemplateType = LetterTemplateType.FollowUp,
+            Content = FollowUpLetterRenderService.DefaultFollowUpContent,
+            IsActive = true,
+            IsDefault = true,
+        };
+        db.LetterTemplates.Add(template);
         db.SaveChanges();
 
         OwnerUserId = owner.Id;
@@ -108,7 +121,7 @@ public sealed class FollowUpPrintAuthorizationWebApplicationFactory : WebApplica
             RequestedById = owner.Id,
             Status = FollowUpPrintJobStatus.ReadyToPrint,
             FilterSnapshotJson = "{}",
-            TemplateId = 1,
+            TemplateId = template.Id,
             BatchSize = 25,
             TotalTransactions = 1,
             TotalLetters = 1,
@@ -119,7 +132,7 @@ public sealed class FollowUpPrintAuthorizationWebApplicationFactory : WebApplica
             RequestedById = other.Id,
             Status = FollowUpPrintJobStatus.ReadyToPrint,
             FilterSnapshotJson = "{}",
-            TemplateId = 1,
+            TemplateId = template.Id,
             BatchSize = 25,
             TotalTransactions = 1,
             TotalLetters = 1,

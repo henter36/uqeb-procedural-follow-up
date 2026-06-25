@@ -131,6 +131,7 @@ public class FollowUpPrintEligibilityBenchmarkSqlServerTests : FollowUpPrintSqlS
                 Subject = $"Benchmark {i}",
                 Status = TransactionStatus.InProgress,
                 Priority = Priority.Normal,
+                CreatedById = user.Id,
                 CreatedAt = DateTime.UtcNow,
             });
         }
@@ -144,6 +145,7 @@ public class FollowUpPrintEligibilityBenchmarkSqlServerTests : FollowUpPrintSqlS
             {
                 TransactionId = transactionId,
                 DepartmentId = department.Id,
+                CreatedById = user.Id,
             });
             db.FollowUps.Add(new FollowUp
             {
