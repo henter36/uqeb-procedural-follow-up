@@ -234,12 +234,16 @@ function Invoke-TestInstallScript {
         $params[$key] = $AdditionalParameters[$key]
     }
 
+    $global:LASTEXITCODE = 0
+
     $output = @()
     & $InstallScript @params 3>&1 6>&1 | ForEach-Object { $output += $_.ToString() }
-    if ($LASTEXITCODE -ne 0) {
+    $exitCode = $global:LASTEXITCODE
+
+    if ($exitCode -ne 0) {
         $text = ($output -join [Environment]::NewLine)
         if ([string]::IsNullOrWhiteSpace($text)) {
-            throw "install script failed with exit code $LASTEXITCODE"
+            throw "install script failed with exit code $exitCode"
         }
 
         throw $text
@@ -427,6 +431,8 @@ function Get-InstallScriptOutput {
         [Parameter(Mandatory = $true)][scriptblock]$ScriptBlock
     )
 
+    $global:LASTEXITCODE = 0
+
     $output = @()
     $threw = $false
     try {
@@ -437,7 +443,8 @@ function Get-InstallScriptOutput {
         $output += $_.Exception.Message
     }
 
-    if ($LASTEXITCODE -ne 0) {
+    $exitCode = $global:LASTEXITCODE
+    if ($exitCode -ne 0) {
         $threw = $true
     }
 
@@ -445,5 +452,6 @@ function Get-InstallScriptOutput {
         Output = $output
         Text = ($output -join [Environment]::NewLine)
         Threw = $threw
+        ExitCode = $exitCode
     }
 }

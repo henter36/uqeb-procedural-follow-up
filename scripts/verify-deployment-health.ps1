@@ -233,28 +233,48 @@ function Invoke-InvalidLoginProbe {
     } | ConvertTo-Json
 
     Write-Output "Checking invalid-login probe => $uri"
-    try {
-        $response = Invoke-WebRequest `
-            -UseBasicParsing `
-            -Uri $uri `
-            -Method Post `
-            -ContentType 'application/json' `
-            -Body $body `
-            -TimeoutSec $TimeoutSec
+    $lastFailure = $null
 
-        if ([int]$response.StatusCode -ne 401) {
-            throw "invalid-login probe returned unexpected status $([int]$response.StatusCode)."
-        }
-    }
-    catch {
-        if ($_.Exception.PSObject.Properties.Name -contains 'Response' -and $_.Exception.Response) {
-            $statusCode = [int]$_.Exception.Response.StatusCode
+    for ($attempt = 1; $attempt -le $RetryCount; $attempt++) {
+        try {
+            $response = Invoke-WebRequest `
+                -UseBasicParsing `
+                -Uri $uri `
+                -Method Post `
+                -ContentType 'application/json' `
+                -Body $body `
+                -TimeoutSec $TimeoutSec
+
+            $statusCode = [int]$response.StatusCode
             if ($statusCode -eq 401) {
                 return
             }
+
+            $lastFailure = "unexpected status $statusCode"
         }
-        throw "invalid-login probe failed. Details: $($_.Exception.Message)"
+        catch {
+            if ($_.Exception.PSObject.Properties.Name -contains 'Response' -and $_.Exception.Response) {
+                $statusCode = [int]$_.Exception.Response.StatusCode
+                if ($statusCode -eq 401) {
+                    return
+                }
+
+                $lastFailure = "unexpected status $statusCode"
+            }
+            else {
+                $lastFailure = $_.Exception.Message
+            }
+        }
+
+        if ($attempt -eq $RetryCount) {
+            break
+        }
+
+        Write-Output "Retry $attempt/$RetryCount for invalid-login probe after failure: $lastFailure"
+        Start-Sleep -Seconds $RetryDelaySec
     }
+
+    throw "invalid-login probe failed after $RetryCount attempts at $uri. Last failure: $lastFailure"
 }
 
 if (-not $SkipPlaywrightFilesystemChecks) {

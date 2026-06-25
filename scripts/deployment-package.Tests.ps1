@@ -1041,7 +1041,7 @@ Describe 'install-production-package.ps1 scenarios' {
             throw 'simulate promotion failure'
         }
         catch {
-            Write-DeployError ("فشل النشر: " + $_.Exception.Message)
+            Write-DeployError ('deploy-failed: ' + $_.Exception.Message)
             $continued = $true
             Write-DeployInfo 'simulated rollback step after error log'
             $rollbackStepReached = $true

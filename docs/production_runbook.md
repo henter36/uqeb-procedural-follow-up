@@ -115,6 +115,14 @@ $staging = "C:\Uqeb\staging\<TIMESTAMP>"
 الأمر الرسمي:
 
 ```powershell
+$package = Get-ChildItem "C:\Uqeb\incoming\Uqeb-*.zip" |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+
+if (-not $package) {
+    throw "لم يتم العثور على حزمة Uqeb في C:\Uqeb\incoming."
+}
+
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File "C:\UqebTools\install-production-package.ps1" `
   -PackagePath $package.FullName

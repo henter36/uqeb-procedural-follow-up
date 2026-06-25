@@ -459,6 +459,91 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
     }
 }
 
+Describe 'verify-deployment-health.ps1 invalid-login retry' {
+    BeforeEach {
+        Mock Start-Sleep {}
+    }
+
+    function script:Mock-HealthyEndpointsForLoginRetry {
+        Mock Invoke-WebRequest {
+            param($Uri)
+            switch (([uri]$Uri).AbsolutePath) {
+                '/health/live' { return (New-HealthResponse -Status 200 -HealthStatus 'live') }
+                '/health/ready' { return (New-HealthResponse -Status 200 -HealthStatus 'ready') }
+                '/health' { return (New-HealthResponse -Status 200 -HealthStatus 'healthy') }
+                default { throw "Unexpected path $(([uri]$Uri).AbsolutePath)" }
+            }
+        }
+    }
+
+    It 'PASS: invalid-login probe returns 401 on first attempt' {
+        Mock-HealthyEndpointsForLoginRetry
+        Mock Invoke-WebRequest -ParameterFilter {
+            ([uri]$Uri).AbsolutePath -eq '/api/auth/login'
+        } {
+            return [pscustomobject]@{ StatusCode = 401; Content = ''; Headers = @{} }
+        }
+
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -IncludeInvalidLoginProbe -RetryCount 1 } |
+            Should -Not -Throw
+
+        Assert-MockCalled Invoke-WebRequest -ParameterFilter {
+            ([uri]$Uri).AbsolutePath -eq '/api/auth/login'
+        } -Times 1 -Exactly
+    }
+
+    It 'PASS: invalid-login probe retries then accepts 401' {
+        Mock-HealthyEndpointsForLoginRetry
+        $global:loginAttemptCount = 0
+        Mock Invoke-WebRequest -ParameterFilter {
+            ([uri]$Uri).AbsolutePath -eq '/api/auth/login'
+        } {
+            $global:loginAttemptCount++
+            if ($global:loginAttemptCount -lt 2) {
+                throw 'connection refused'
+            }
+
+            return [pscustomobject]@{ StatusCode = 401; Content = ''; Headers = @{} }
+        }
+
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -IncludeInvalidLoginProbe -RetryCount 3 -RetryDelaySec 1 } |
+            Should -Not -Throw
+
+        Assert-MockCalled Invoke-WebRequest -ParameterFilter {
+            ([uri]$Uri).AbsolutePath -eq '/api/auth/login'
+        } -Times 2 -Exactly
+        Assert-MockCalled Start-Sleep -Times 1 -Exactly
+    }
+
+    It 'FAIL: invalid-login probe exhausts retries' {
+        Mock-HealthyEndpointsForLoginRetry
+        Mock Invoke-WebRequest -ParameterFilter {
+            ([uri]$Uri).AbsolutePath -eq '/api/auth/login'
+        } {
+            throw 'connection refused'
+        }
+
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -IncludeInvalidLoginProbe -RetryCount 2 -RetryDelaySec 1 } |
+            Should -Throw '*invalid-login probe failed after 2 attempts*'
+
+        Assert-MockCalled Invoke-WebRequest -ParameterFilter {
+            ([uri]$Uri).AbsolutePath -eq '/api/auth/login'
+        } -Times 2 -Exactly
+    }
+
+    It 'FAIL: invalid-login probe rejects unexpected status 500' {
+        Mock-HealthyEndpointsForLoginRetry
+        Mock Invoke-WebRequest -ParameterFilter {
+            ([uri]$Uri).AbsolutePath -eq '/api/auth/login'
+        } {
+            return [pscustomobject]@{ StatusCode = 500; Content = ''; Headers = @{} }
+        }
+
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -IncludeInvalidLoginProbe -RetryCount 1 } |
+            Should -Throw '*unexpected status 500*'
+    }
+}
+
 Describe 'verify-deployment-health Common.ps1 requirements' {
     It 'fails when Common.ps1 is missing from script and tools roots' {
         $root = Join-Path ([System.IO.Path]::GetTempPath()) ("uqeb-health-common-" + [Guid]::NewGuid().ToString('N'))
