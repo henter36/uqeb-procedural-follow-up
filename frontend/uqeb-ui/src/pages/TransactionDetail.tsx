@@ -128,6 +128,23 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const [error, setError] = useState('');
   const [workspaceLoading, setWorkspaceLoading] = useState(true);
 
+  const applyWorkspaceData = useCallback((data: import('../api/types').TransactionWorkspace) => {
+    setTx(data.transaction);
+    setAssignments(data.assignments ?? []);
+    setFollowUps(data.followUps ?? []);
+    setAttachments(data.attachments ?? []);
+  }, []);
+
+  const handleWorkspaceFailure = useCallback((err: unknown, signal?: AbortSignal) => {
+    if (signal?.aborted || (isAxiosError(err) && err.code === 'ERR_CANCELED')) return;
+    if (isAxiosError(err) && err.response?.status === 404) {
+      navigate('/transactions');
+      return;
+    }
+    setError('تعذر تحميل بيانات المعاملة');
+    setTx(null);
+  }, [navigate]);
+
   const loadWorkspace = useCallback(async (options?: { signal?: AbortSignal; silent?: boolean }) => {
     if (!id) return;
     if (!options?.silent) {
@@ -142,26 +159,18 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     try {
       const res = await transactionsApi.getWorkspace(+id, { signal: options?.signal });
       if (options?.signal?.aborted) return;
-      setTx(res.data.transaction);
-      setAssignments(res.data.assignments ?? []);
-      setFollowUps(res.data.followUps ?? []);
-      setAttachments(res.data.attachments ?? []);
+      applyWorkspaceData(res.data);
     } catch (err: unknown) {
-      if (options?.signal?.aborted || (isAxiosError(err) && err.code === 'ERR_CANCELED')) return;
-      if (isAxiosError(err) && err.response?.status === 404) {
-        navigate('/transactions');
-        return;
-      }
-      setError('تعذر تحميل بيانات المعاملة');
-      setTx(null);
+      handleWorkspaceFailure(err, options?.signal);
     } finally {
-      if (options?.signal?.aborted) return;
-      setWorkspaceLoading(false);
-      setAssignmentsLoading(false);
-      setFollowUpsLoading(false);
-      setAttachmentsLoading(false);
+      if (!options?.signal?.aborted) {
+        setWorkspaceLoading(false);
+        setAssignmentsLoading(false);
+        setFollowUpsLoading(false);
+        setAttachmentsLoading(false);
+      }
     }
-  }, [id, navigate]);
+  }, [id, applyWorkspaceData, handleWorkspaceFailure]);
 
   const loadAssignments = useCallback(async () => {
     if (!id) return;
@@ -262,16 +271,30 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
 
   useEffect(() => {
     const controller = new AbortController();
-    setWorkspaceLoading(true);
+    let active = true;
 
-    loadWorkspace({ signal: controller.signal }).catch(() => {
-      if (!controller.signal.aborted) {
-        setError('تعذر تحميل بيانات المعاملة');
-      }
-    });
+    transactionsApi.getWorkspace(+id, { signal: controller.signal })
+      .then((res) => {
+        if (!active || controller.signal.aborted) return;
+        applyWorkspaceData(res.data);
+      })
+      .catch((err: unknown) => {
+        if (!active || controller.signal.aborted) return;
+        handleWorkspaceFailure(err, controller.signal);
+      })
+      .finally(() => {
+        if (!active || controller.signal.aborted) return;
+        setWorkspaceLoading(false);
+        setAssignmentsLoading(false);
+        setFollowUpsLoading(false);
+        setAttachmentsLoading(false);
+      });
 
-    return () => controller.abort();
-  }, [id, loadWorkspace]);
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [id, applyWorkspaceData, handleWorkspaceFailure]);
 
   useEffect(() => {
     const tab = parseDetailTab(tabFromUrl);
