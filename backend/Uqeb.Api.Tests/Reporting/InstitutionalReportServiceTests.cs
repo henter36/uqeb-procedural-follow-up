@@ -454,6 +454,9 @@ internal static class InstitutionalReportServiceTestHelpers
         var options = Options.Create(reportingOptions ?? new ReportingOptions { MaxPdfDetailRows = 10_000 });
         var exportGuard = CreateExportGuard(reportingOptions, audit);
         var metrics = new ReportingMetrics();
+        var analysisInstrumentation = new ReportingAnalysisInstrumentation(
+            metrics,
+            NullLogger<ReportingAnalysisInstrumentation>.Instance);
         var correlationIdProvider = new ReportingCorrelationIdProvider(new HttpContextAccessor());
         var pdf = pdfExporter ?? new StubPdfExporter();
         InstitutionalReportService? serviceRef = null;
@@ -464,6 +467,7 @@ internal static class InstitutionalReportServiceTestHelpers
             options,
             NullLogger<InstitutionalReportService>.Instance,
             correlationIdProvider,
+            analysisInstrumentation,
             () => new InstitutionalReportExportService(
                 serviceRef!,
                 pdf,

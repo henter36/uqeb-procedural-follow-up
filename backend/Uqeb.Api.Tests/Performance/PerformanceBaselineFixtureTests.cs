@@ -33,6 +33,7 @@ public class PerformanceBaselineFixtureTests
 
         Assert.Contains("api-read-smoke", scenarioIds);
         Assert.Contains("reporting-export-xlsx-1000", scenarioIds);
+        Assert.Contains("reporting-analysis-pipeline", scenarioIds);
     }
 
     [Fact]

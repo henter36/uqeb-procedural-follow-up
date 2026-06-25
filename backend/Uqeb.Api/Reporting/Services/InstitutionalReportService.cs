@@ -42,6 +42,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
     private readonly InstitutionalReportRenderer _renderer = new();
     private readonly ILogger<InstitutionalReportService> _logger;
     private readonly IReportingCorrelationIdProvider _correlationIdProvider;
+    private readonly IReportingAnalysisInstrumentation _analysisInstrumentation;
     private readonly Func<IInstitutionalReportExportService> _exportServiceFactory;
 
     public InstitutionalReportService(
@@ -51,6 +52,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         IOptions<ReportingOptions> reportingOptions,
         ILogger<InstitutionalReportService> logger,
         IReportingCorrelationIdProvider correlationIdProvider,
+        IReportingAnalysisInstrumentation analysisInstrumentation,
         Func<IInstitutionalReportExportService> exportServiceFactory)
     {
         _dbFactory = dbFactory;
@@ -59,6 +61,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         _reportingOptions = reportingOptions.Value;
         _logger = logger;
         _correlationIdProvider = correlationIdProvider;
+        _analysisInstrumentation = analysisInstrumentation;
         _exportServiceFactory = exportServiceFactory;
     }
 
@@ -286,19 +289,21 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             IntegrityWarnings = ValidateIntegrity(metrics)
         };
 
-        model.Analysis = InstitutionalReportAnalysisService.Build(new InstitutionalReportAnalysisService.InstitutionalReportAnalysisInput
-        {
-            Request = request,
-            Metadata = model.Metadata,
-            Filters = model.Filters,
-            CurrentMetrics = metrics,
-            CurrentSnapshots = metricSnapshots,
-            PreviousMetrics = comparisonMetrics,
-            PreviousSnapshots = comparisonSnapshots,
-            Options = _reportingOptions.Analysis,
-            DetailLimit = detailLimit,
-            DetailRowsTruncated = detailRowsTruncated
-        });
+        model.Analysis = InstitutionalReportAnalysisService.Build(
+            new InstitutionalReportAnalysisService.InstitutionalReportAnalysisInput
+            {
+                Request = request,
+                Metadata = model.Metadata,
+                Filters = model.Filters,
+                CurrentMetrics = metrics,
+                CurrentSnapshots = metricSnapshots,
+                PreviousMetrics = comparisonMetrics,
+                PreviousSnapshots = comparisonSnapshots,
+                Options = _reportingOptions.Analysis,
+                DetailLimit = detailLimit,
+                DetailRowsTruncated = detailRowsTruncated
+            },
+            _analysisInstrumentation);
 
         if (detailRowsTruncated && totalMatched > detailSnapshots.Count)
         {

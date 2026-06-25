@@ -13,6 +13,8 @@ public interface IReportingMetrics
     void RecordCancellation(string format, string reportType);
     void RecordFailure(string format, string reportType, string result);
     void RecordBuildDuration(double milliseconds, string reportType);
+    void RecordAnalysisStageDuration(double milliseconds, string stage, string reportType);
+    void RecordAnalysisDuration(double milliseconds, string reportType, int snapshotCount);
     void RecordRenderDuration(double milliseconds, string format, string reportType);
     void RecordExportDuration(double milliseconds, string format, string reportType, string result);
     void RecordExportFileSize(long bytes, string format);
@@ -35,6 +37,8 @@ public sealed class ReportingMetrics : IReportingMetrics
     private const string RolloutModeTagName = "mode";
     private const string RolloutDecisionTagName = "decision";
     private const string RolloutMatchSourceTagName = "match_source";
+    private const string StageTagName = "stage";
+    private const string SnapshotCountTagName = "snapshot_count";
 
     private static readonly Meter Meter = new("Uqeb.Reporting", "1.0.0");
 
@@ -42,6 +46,8 @@ public sealed class ReportingMetrics : IReportingMetrics
     private readonly UpDownCounter<long> _requestsActive = Meter.CreateUpDownCounter<long>("reporting_requests_active");
     private readonly Counter<long> _requestsRejectedTotal = Meter.CreateCounter<long>("reporting_requests_rejected_total");
     private readonly Histogram<double> _buildDurationMs = Meter.CreateHistogram<double>("reporting_build_duration_ms");
+    private readonly Histogram<double> _analysisStageDurationMs = Meter.CreateHistogram<double>("reporting_analysis_stage_duration_ms");
+    private readonly Histogram<double> _analysisDurationMs = Meter.CreateHistogram<double>("reporting_analysis_duration_ms");
     private readonly Histogram<double> _renderDurationMs = Meter.CreateHistogram<double>("reporting_render_duration_ms");
     private readonly Histogram<double> _exportDurationMs = Meter.CreateHistogram<double>("reporting_export_duration_ms");
     private readonly Histogram<long> _exportFileSizeBytes = Meter.CreateHistogram<long>("reporting_export_file_size_bytes");
@@ -92,6 +98,18 @@ public sealed class ReportingMetrics : IReportingMetrics
 
     public void RecordBuildDuration(double milliseconds, string reportType) =>
         _buildDurationMs.Record(milliseconds, new KeyValuePair<string, object?>(ReportTypeTagName, reportType));
+
+    public void RecordAnalysisStageDuration(double milliseconds, string stage, string reportType) =>
+        _analysisStageDurationMs.Record(
+            milliseconds,
+            new KeyValuePair<string, object?>(StageTagName, stage),
+            new KeyValuePair<string, object?>(ReportTypeTagName, reportType));
+
+    public void RecordAnalysisDuration(double milliseconds, string reportType, int snapshotCount) =>
+        _analysisDurationMs.Record(
+            milliseconds,
+            new KeyValuePair<string, object?>(ReportTypeTagName, reportType),
+            new KeyValuePair<string, object?>(SnapshotCountTagName, snapshotCount));
 
     public void RecordRenderDuration(double milliseconds, string format, string reportType) =>
         _renderDurationMs.Record(milliseconds, BuildTags(format, reportType, "success", null));
