@@ -161,6 +161,9 @@ public class TransactionSearchRequest
     public int PageSize { get; set; } = 20;
     public string? SortBy { get; set; } = "IncomingDate";
     public bool SortDesc { get; set; } = true;
+    public string PaginationMode { get; set; } = "offset";
+    public string? Cursor { get; set; }
+    public bool IncludeTotalCount { get; set; }
 }
 
 public class PagedResult<T>
@@ -172,6 +175,9 @@ public class PagedResult<T>
     public int TotalPages { get; set; }
     public bool HasNextPage { get; set; }
     public bool HasPreviousPage { get; set; }
+    public string PaginationMode { get; set; } = "offset";
+    public string? NextCursor { get; set; }
+    public bool TotalCountIncluded { get; set; } = true;
 
     public static PagedResult<T> Create(List<T> items, int totalCount, int page, int pageSize) =>
         new()
@@ -182,7 +188,31 @@ public class PagedResult<T>
             PageSize = pageSize,
             TotalPages = pageSize > 0 ? (int)Math.Ceiling((double)totalCount / pageSize) : 0,
             HasNextPage = pageSize > 0 && page * pageSize < totalCount,
-            HasPreviousPage = page > 1
+            HasPreviousPage = page > 1,
+            PaginationMode = "offset",
+            TotalCountIncluded = true
+        };
+
+    public static PagedResult<T> CreateCursor(
+        List<T> items,
+        int pageSize,
+        string? nextCursor,
+        int? totalCount,
+        bool totalCountIncluded) =>
+        new()
+        {
+            Items = items,
+            PageSize = pageSize,
+            PaginationMode = "cursor",
+            NextCursor = nextCursor,
+            HasNextPage = !string.IsNullOrEmpty(nextCursor),
+            HasPreviousPage = false,
+            TotalCountIncluded = totalCountIncluded,
+            TotalCount = totalCountIncluded ? totalCount ?? 0 : 0,
+            TotalPages = totalCountIncluded && totalCount.HasValue && pageSize > 0
+                ? (int)Math.Ceiling((double)totalCount.Value / pageSize)
+                : 0,
+            Page = 0
         };
 }
 
