@@ -32,6 +32,10 @@ public interface ITransactionService
 
 public class TransactionService : ITransactionService
 {
+    private const string AssignmentEntityName = "Assignment";
+    private const string OutgoingDepartmentsEntityName = "TransactionOutgoingDepartments";
+    private const string TransactionEntityName = "Transaction";
+
     private readonly AppDbContext _db;
     private readonly IAuditService _audit;
     private readonly ITrackingNumberService _trackingNumbers;
@@ -443,6 +447,23 @@ public class TransactionService : ITransactionService
         if (await _db.Transactions.AnyAsync(t => t.IncomingNumber == request.IncomingNumber))
             throw new DuplicateIncomingNumberException();
 
+        var transaction = BuildNewTransaction(request, userId);
+        await ApplyIncomingSourceAsync(
+            transaction,
+            request.IncomingSourceType!,
+            request.IncomingFromPartyId,
+            request.IncomingFromDepartmentId);
+        await PersistNewTransactionAsync(
+            transaction,
+            request.OutgoingDepartmentIds ?? new List<int>(),
+            userId);
+
+        _cacheInvalidation.InvalidateOnTransactionChange();
+        return (await GetByIdAsync(transaction.Id, new SystemUser(userId)))!;
+    }
+
+    private static Transaction BuildNewTransaction(CreateTransactionRequest request, int userId)
+    {
         var hasOutgoing = TransactionRequestValidator.HasAnyOutgoingData(request);
         var responseType = EnumHelper.ParseResponseType(request.ResponseType ?? "External");
         var requiresResponse = responseType != ResponseType.None;
@@ -466,66 +487,105 @@ public class TransactionService : ITransactionService
         };
 
         WorkflowHelper.RecalculateResponseDueDate(transaction);
+        return transaction;
+    }
 
-        await ApplyIncomingSourceAsync(transaction, request.IncomingSourceType!, request.IncomingFromPartyId, request.IncomingFromDepartmentId);
-
-        await using var dbTransaction = await _db.Database.BeginTransactionAsync();
+    private async Task PersistNewTransactionAsync(
+        Transaction transaction,
+        IReadOnlyCollection<int> outgoingDepartmentIds,
+        int userId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var dbTransaction = await _db.Database.BeginTransactionAsync(cancellationToken);
         try
         {
-            const int maxAttempts = 3;
-            for (var attempt = 1; attempt <= maxAttempts; attempt++)
-            {
-                var pendingAudits = new List<AuditLog>();
-                ResetCreatePersistenceState(transaction);
-
-                transaction.InternalTrackingNumber = await _trackingNumbers.GenerateNextAsync();
-                _db.Transactions.Add(transaction);
-
-                await SyncOutgoingDepartmentsAsync(
-                    transaction,
-                    request.OutgoingDepartmentIds ?? new List<int>(),
-                    userId,
-                    pendingAudits);
-
-                try
-                {
-                    await _db.SaveChangesAsync();
-                    BackfillAuditLogsForTransaction(transaction, pendingAudits);
-                    foreach (var pendingAudit in pendingAudits)
-                        _db.AuditLogs.Add(pendingAudit);
-                    break;
-                }
-                catch (DbUpdateException ex) when (SqlExceptionHelper.IsDuplicateKey(ex, "IX_Transactions_IncomingNumber"))
-                {
-                    ResetCreatePersistenceState(transaction, pendingAudits);
-                    DetachTransaction(transaction);
-                    throw new DuplicateIncomingNumberException();
-                }
-                catch (DbUpdateException ex) when (SqlExceptionHelper.IsDuplicateKey(ex, "IX_Transactions_InternalTrackingNumber") && attempt < maxAttempts)
-                {
-                    ResetCreatePersistenceState(transaction, pendingAudits);
-                }
-                catch (DbUpdateException ex) when (SqlExceptionHelper.IsDuplicateKey(ex, "IX_Transactions_InternalTrackingNumber"))
-                {
-                    ResetCreatePersistenceState(transaction, pendingAudits);
-                    throw new DuplicateTrackingNumberException();
-                }
-            }
-
-            _audit.TrackLog(userId, AuditAction.Create, "Transaction", transaction.Id, transaction.Id, null,
-                JsonSerializer.Serialize(new { transaction.IncomingNumber, transaction.Subject }));
-            await _db.SaveChangesAsync();
-
-            await dbTransaction.CommitAsync();
+            await ExecuteCreatePersistenceAttemptsAsync(
+                transaction,
+                outgoingDepartmentIds,
+                userId,
+                cancellationToken);
+            await dbTransaction.CommitAsync(cancellationToken);
         }
         catch
         {
-            await dbTransaction.RollbackAsync();
+            await dbTransaction.RollbackAsync(cancellationToken);
             throw;
         }
+    }
 
-        _cacheInvalidation.InvalidateOnTransactionChange();
-        return (await GetByIdAsync(transaction.Id, new SystemUser(userId)))!;
+    private async Task ExecuteCreatePersistenceAttemptsAsync(
+        Transaction transaction,
+        IReadOnlyCollection<int> outgoingDepartmentIds,
+        int userId,
+        CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 3;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            var pendingAudits = new List<AuditLog>();
+            ResetCreatePersistenceState(transaction);
+
+            transaction.InternalTrackingNumber = await _trackingNumbers.GenerateNextAsync(cancellationToken);
+            _db.Transactions.Add(transaction);
+
+            await SyncOutgoingDepartmentsAsync(
+                transaction,
+                outgoingDepartmentIds.ToList(),
+                userId,
+                pendingAudits);
+
+            try
+            {
+                await _db.SaveChangesAsync(cancellationToken);
+                BackfillAuditLogsForTransaction(transaction, pendingAudits);
+                foreach (var pendingAudit in pendingAudits)
+                    _db.AuditLogs.Add(pendingAudit);
+                break;
+            }
+            catch (DbUpdateException ex)
+            {
+                HandleCreatePersistenceFailure(ex, transaction, pendingAudits, attempt, maxAttempts);
+            }
+        }
+
+        _audit.TrackLog(
+            userId,
+            AuditAction.Create,
+            TransactionEntityName,
+            transaction.Id,
+            transaction.Id,
+            null,
+            JsonSerializer.Serialize(new { transaction.IncomingNumber, transaction.Subject }));
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    private void HandleCreatePersistenceFailure(
+        DbUpdateException exception,
+        Transaction transaction,
+        IReadOnlyList<AuditLog> pendingAudits,
+        int attempt,
+        int maxAttempts)
+    {
+        if (SqlExceptionHelper.IsDuplicateKey(exception, "IX_Transactions_IncomingNumber"))
+        {
+            ResetCreatePersistenceState(transaction, pendingAudits);
+            DetachTransaction(transaction);
+            throw new DuplicateIncomingNumberException();
+        }
+
+        if (SqlExceptionHelper.IsDuplicateKey(exception, "IX_Transactions_InternalTrackingNumber") && attempt < maxAttempts)
+        {
+            ResetCreatePersistenceState(transaction, pendingAudits);
+            return;
+        }
+
+        if (SqlExceptionHelper.IsDuplicateKey(exception, "IX_Transactions_InternalTrackingNumber"))
+        {
+            ResetCreatePersistenceState(transaction, pendingAudits);
+            throw new DuplicateTrackingNumberException();
+        }
+
+        throw exception;
     }
 
     public async Task<TransactionDetailDto?> UpdateAsync(int id, UpdateTransactionRequest request, int userId, UserRole role)
@@ -1118,13 +1178,14 @@ public class TransactionService : ITransactionService
         await SyncAssignmentsFromOutgoingDepartmentsAsync(transaction, addedIds, removedIds, userId, deferredCreateAudits);
         TrackAuditLog(
             deferredCreateAudits,
-            userId,
-            AuditAction.Update,
-            "TransactionOutgoingDepartments",
-            transaction.Id > 0 ? transaction.Id : null,
-            transaction.Id > 0 ? transaction.Id : null,
-            JsonSerializer.Serialize(existing.Select(e => e.DepartmentId)),
-            JsonSerializer.Serialize(newIds));
+            new AuditLogDraft(
+                userId,
+                AuditAction.Update,
+                OutgoingDepartmentsEntityName,
+                transaction.Id > 0 ? transaction.Id : null,
+                transaction.Id > 0 ? transaction.Id : null,
+                JsonSerializer.Serialize(existing.Select(e => e.DepartmentId)),
+                JsonSerializer.Serialize(newIds)));
     }
 
     private async Task SyncAssignmentsFromOutgoingDepartmentsAsync(
@@ -1186,13 +1247,14 @@ public class TransactionService : ITransactionService
                     var reactivatedDeptName = departmentNames.GetValueOrDefault(departmentId, departmentId.ToString());
                     TrackAuditLog(
                         deferredCreateAudits,
-                        userId,
-                        AuditAction.StatusChange,
-                        "Assignment",
-                        existing.Id,
-                        transaction.Id > 0 ? transaction.Id : null,
-                        AssignmentStatus.Cancelled.ToString(),
-                        JsonSerializer.Serialize(new { existing.Status, deptName = reactivatedDeptName, source = "OutgoingDepartment", reactivated = true }));
+                        new AuditLogDraft(
+                            userId,
+                            AuditAction.StatusChange,
+                            AssignmentEntityName,
+                            existing.Id,
+                            transaction.Id > 0 ? transaction.Id : null,
+                            AssignmentStatus.Cancelled.ToString(),
+                            JsonSerializer.Serialize(new { existing.Status, deptName = reactivatedDeptName, source = "OutgoingDepartment", reactivated = true })));
                 }
                 continue;
             }
@@ -1228,20 +1290,21 @@ public class TransactionService : ITransactionService
 
             TrackAuditLog(
                 deferredCreateAudits,
-                userId,
-                AuditAction.AddAssignment,
-                "Assignment",
-                null,
-                transaction.Id > 0 ? transaction.Id : null,
-                null,
-                JsonSerializer.Serialize(new
-                {
-                    deptName = deptNameNew,
-                    departmentId,
-                    dueDate,
-                    source = "OutgoingDepartment",
-                    autoCreated = true
-                }));
+                new AuditLogDraft(
+                    userId,
+                    AuditAction.AddAssignment,
+                    AssignmentEntityName,
+                    null,
+                    transaction.Id > 0 ? transaction.Id : null,
+                    null,
+                    JsonSerializer.Serialize(new
+                    {
+                        deptName = deptNameNew,
+                        departmentId,
+                        dueDate,
+                        source = "OutgoingDepartment",
+                        autoCreated = true
+                    })));
         }
 
         if (removedDepartmentIds.Count > 0)
@@ -1269,18 +1332,19 @@ public class TransactionService : ITransactionService
                     ?? departmentNames.GetValueOrDefault(assignment.DepartmentId, assignment.DepartmentId.ToString());
                 TrackAuditLog(
                     deferredCreateAudits,
-                    userId,
-                    AuditAction.StatusChange,
-                    "Assignment",
-                    assignment.Id,
-                    transaction.Id > 0 ? transaction.Id : null,
-                    AssignmentStatus.Active.ToString(),
-                    JsonSerializer.Serialize(new
-                    {
-                        assignment.Status,
-                        departmentName,
-                        reason = "RemovedFromOutgoingDepartments"
-                    }));
+                    new AuditLogDraft(
+                        userId,
+                        AuditAction.StatusChange,
+                        AssignmentEntityName,
+                        assignment.Id,
+                        transaction.Id > 0 ? transaction.Id : null,
+                        AssignmentStatus.Active.ToString(),
+                        JsonSerializer.Serialize(new
+                        {
+                            assignment.Status,
+                            departmentName,
+                            reason = "RemovedFromOutgoingDepartments"
+                        })));
             }
 
             if (toCancel.Count > 0)
@@ -1296,17 +1360,25 @@ public class TransactionService : ITransactionService
         }
     }
 
-    private void TrackAuditLog(
-        ICollection<AuditLog>? deferredCreateAudits,
-        int userId,
-        AuditAction action,
-        string? entityName,
-        int? entityId,
-        int? transactionId,
-        string? oldValue,
-        string? newValue)
+    private sealed record AuditLogDraft(
+        int UserId,
+        AuditAction Action,
+        string? EntityName,
+        int? EntityId,
+        int? TransactionId,
+        string? OldValue,
+        string? NewValue);
+
+    private void TrackAuditLog(ICollection<AuditLog>? deferredCreateAudits, AuditLogDraft draft)
     {
-        var audit = _audit.TrackLog(userId, action, entityName, entityId, transactionId, oldValue, newValue);
+        var audit = _audit.TrackLog(
+            draft.UserId,
+            draft.Action,
+            draft.EntityName,
+            draft.EntityId,
+            draft.TransactionId,
+            draft.OldValue,
+            draft.NewValue);
         if (deferredCreateAudits is null)
             return;
 
@@ -1321,23 +1393,29 @@ public class TransactionService : ITransactionService
     {
         foreach (var audit in audits)
         {
-            if (audit.TransactionId == null)
-                audit.TransactionId = transaction.Id;
+            audit.TransactionId ??= transaction.Id;
 
-            if (audit.EntityName == "TransactionOutgoingDepartments" && audit.EntityId == null)
-                audit.EntityId = transaction.Id;
-
-            if (audit.EntityName == "Assignment" && audit.EntityId == null)
-            {
-                var departmentId = TryReadDepartmentIdFromAuditPayload(audit.NewValue);
-                if (departmentId.HasValue)
-                {
-                    var assignment = transaction.Assignments.FirstOrDefault(a => a.DepartmentId == departmentId.Value);
-                    if (assignment?.Id > 0)
-                        audit.EntityId = assignment.Id;
-                }
-            }
+            if (audit.EntityId is null)
+                audit.EntityId = ResolveAuditEntityId(transaction, audit);
         }
+    }
+
+    private static int? ResolveAuditEntityId(Transaction transaction, AuditLog audit) =>
+        audit.EntityName switch
+        {
+            OutgoingDepartmentsEntityName => transaction.Id,
+            AssignmentEntityName => ResolveAssignmentAuditEntityId(transaction, audit.NewValue),
+            _ => null
+        };
+
+    private static int? ResolveAssignmentAuditEntityId(Transaction transaction, string? newValue)
+    {
+        var departmentId = TryReadDepartmentIdFromAuditPayload(newValue);
+        if (!departmentId.HasValue)
+            return null;
+
+        var assignment = transaction.Assignments.FirstOrDefault(a => a.DepartmentId == departmentId.Value);
+        return assignment?.Id > 0 ? assignment.Id : null;
     }
 
     private static int? TryReadDepartmentIdFromAuditPayload(string? payload)
