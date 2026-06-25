@@ -65,15 +65,16 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 2. فك الحزمة إلى `C:\Uqeb\staging\<timestamp>`.
 3. التحقق من `manifest.json` والملفات الأساسية.
 4. **إنشاء نسخة احتياطية إلزامية لقاعدة البيانات** في `C:\Uqeb\backup\db\UqebDb-before-<timestamp>.bak` باستخدام `BACKUP DATABASE ... WITH CHECKSUM` ثم `RESTORE VERIFYONLY ... WITH CHECKSUM` والتحقق من الحجم والتجزئة واسم القاعدة.
-5. إيقاف مهمة `UqebApi` والانتظار حتى يتحرر المنفذ 5000.
-6. نسخة احتياطية اختيارية للملفات في `C:\Uqeb\backup\before-<timestamp>` (يمكن تخطيها بـ `-SkipFileBackup` فقط — **لا يغني عن نسخة قاعدة البيانات**).
-7. تطبيق `database\migrations-idempotent.sql` عبر `apply-migrations.ps1` (بدون `sqlcmd`).
-8. نسخ API وWeb دون `appsettings.Production.json` من الحزمة.
+5. تطبيق `database\migrations-idempotent.sql` عبر `apply-migrations.ps1` (بدون `sqlcmd`) والتحقق من آخر migration.
+6. إيقاف مهمة `UqebApi` والانتظار حتى يتحرر المنفذ 5000.
+7. نسخة احتياطية اختيارية للملفات في `C:\Uqeb\backup\before-<timestamp>` (يمكن تخطيها بـ `-SkipFileBackup` فقط — **لا يغني عن نسخة قاعدة البيانات أو migrations**).
+8. ترقية الإصدار عبر `releases/current` ونسخ API/Web دون `appsettings.Production.json` من الحزمة.
 9. إعادة وضع الإعداد المعتمد من `C:\Uqeb\config\appsettings.Production.json`.
-10. تشغيل API وفحص `/health/live` و`/health/ready` و`/health` مع `database=pass`.
-11. فحص السجل بحثًا عن أخطاء SQL أو أعمدة غير صالحة.
-12. تطبيق سياسة الاحتفاظ بآخر 10 نسخ قاعدة بيانات على الأقل.
-13. نقل الحزمة الناجحة إلى `C:\Uqeb\incoming\deployed`.
+10. تحديث `run-api.cmd` ليستمع على `http://10.0.177.17:5000` افتراضيًا.
+11. تشغيل API وفحص `/health/live` و`/health/ready` و`/health` مع `database=pass`.
+12. فحص السجل بحثًا عن أخطاء SQL أو أعمدة غير صالحة.
+13. تطبيق سياسة الاحتفاظ بآخر 10 نسخ قاعدة بيانات على الأقل.
+14. نقل الحزمة الناجحة إلى `C:\Uqeb\incoming\deployed`.
 
 ## سياسة نسخ قاعدة البيانات
 
@@ -96,9 +97,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 | `-ConfigPath` | `C:\Uqeb\config\appsettings.Production.json` | إعداد الإنتاج المعتمد |
 | `-TaskName` | `UqebApi` | مهمة الجدولة |
 | `-ApiPort` | `5000` | منفذ API |
-| `-ApiBaseUrl` | `http://localhost:5000` | لفحص الصحة محليًا |
-| `-SkipFileBackup` | — | تخطي النسخة الاحتياطية للملفات فقط (نسخة قاعدة البيانات تبقى إلزامية) |
-| `-SkipDatabaseMigration` | — | تخطي migrations (نسخة قاعدة البيانات تُنفَّذ قبل ذلك) |
+| `-ApiBindAddress` | `10.0.177.17` | عنوان IPv4 لربط Kestrel في `run-api.cmd` |
+| `-ApiBaseUrl` | `http://10.0.177.17:5000` | لفحص الصحة على عنوان الإنتاج |
+| `-SkipFileBackup` | — | تخطي النسخة الاحتياطية للملفات فقط (نسخة قاعدة البيانات وmigrations تبقى إلزامية) |
+| `-ApplyDatabaseMigration` | — | **مهمل** — النسخ الاحتياطي وتطبيق migrations يتمان افتراضيًا |
 
 > **لا يمكن تنفيذ نشر إنتاج أو migrations دون نسخة قاعدة بيانات مكتملة ومتحقق منها. لا يوجد خيار تجاوز لهذه الخطوة.**
 
@@ -129,7 +131,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File "C:\UqebTools\verify-deployment-health.ps1" `
-  -ApiBaseUrl "http://localhost:5000"
+  -ApiBaseUrl "http://10.0.177.17:5000"
 ```
 
 ## اختبارات Pester

@@ -677,6 +677,47 @@ function Assert-DatabaseBackupNotBypassed {
     }
 }
 
+function Assert-ValidApiBindAddress {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ApiBindAddress
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ApiBindAddress)) {
+        throw "ApiBindAddress فارغ."
+    }
+
+    if ($ApiBindAddress -match '[:/\\]|https?://') {
+        throw "ApiBindAddress يجب أن يكون عنوان IPv4 حرفيًا فقط."
+    }
+
+    $parsed = $null
+    if (-not [System.Net.IPAddress]::TryParse($ApiBindAddress, [ref]$parsed)) {
+        throw "ApiBindAddress غير صالح: $ApiBindAddress"
+    }
+
+    if ($parsed.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork) {
+        throw "ApiBindAddress يجب أن يكون IPv4 فقط: $ApiBindAddress"
+    }
+}
+
+function Assert-JunctionTargetUnderInstallRoot {
+    param(
+        [Parameter(Mandatory = $true)][string]$InstallRoot,
+        [Parameter(Mandatory = $true)][string]$TargetPath
+    )
+
+    $rootFull = [System.IO.Path]::GetFullPath($InstallRoot)
+    if (-not $rootFull.EndsWith([System.IO.Path]::DirectorySeparatorChar)) {
+        $rootFull += [System.IO.Path]::DirectorySeparatorChar
+    }
+
+    $targetFull = [System.IO.Path]::GetFullPath($TargetPath)
+    if (-not $targetFull.StartsWith($rootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "مسار الهدف للرابط الرمزي يجب أن يكون ضمن InstallRoot: $TargetPath"
+    }
+}
+
 function Get-SqlBracketedIdentifier {
     param([string]$Name)
     if ([string]::IsNullOrWhiteSpace($Name)) {
@@ -1459,9 +1500,11 @@ function Remove-ReparsePointSafe {
 
     $item = Get-Item -LiteralPath $Path -Force
     if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
-        cmd /c rmdir "$Path" | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            throw "تعذر إزالة الرابط الرمزي: $Path"
+        if ($item.PSIsContainer) {
+            [System.IO.Directory]::Delete($Path, $false)
+        }
+        else {
+            [System.IO.File]::Delete($Path)
         }
         return
     }
@@ -1472,15 +1515,21 @@ function Remove-ReparsePointSafe {
 function Set-PublishDirectoryJunction {
     param(
         [Parameter(Mandatory = $true)][string]$LinkPath,
-        [Parameter(Mandatory = $true)][string]$TargetPath
+        [Parameter(Mandatory = $true)][string]$TargetPath,
+        [string]$InstallRoot
     )
+
+    if (-not [string]::IsNullOrWhiteSpace($InstallRoot)) {
+        Assert-JunctionTargetUnderInstallRoot -InstallRoot $InstallRoot -TargetPath $TargetPath
+    }
 
     Ensure-Directory (Split-Path -Parent $LinkPath)
     Ensure-Directory $TargetPath
     Remove-ReparsePointSafe -Path $LinkPath
 
-    cmd /c mklink /J "$LinkPath" "$TargetPath" | Out-Null
-    if ($LASTEXITCODE -ne 0) {
+    New-Item -ItemType Junction -Path $LinkPath -Target $TargetPath -Force | Out-Null
+    $created = Get-Item -LiteralPath $LinkPath -Force
+    if (($created.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) {
         throw "تعذر إنشاء الرابط الرمزي من $LinkPath إلى $TargetPath"
     }
 }
@@ -1489,8 +1538,8 @@ function Sync-PublishCompatibilityLinks {
     param([Parameter(Mandatory = $true)][string]$InstallRoot)
 
     $paths = Get-ReleaseLayoutPaths -InstallRoot $InstallRoot -Version 'unused'
-    Set-PublishDirectoryJunction -LinkPath $paths.PublishApi -TargetPath $paths.CurrentApi
-    Set-PublishDirectoryJunction -LinkPath $paths.PublishWeb -TargetPath $paths.CurrentWeb
+    Set-PublishDirectoryJunction -LinkPath $paths.PublishApi -TargetPath $paths.CurrentApi -InstallRoot $InstallRoot
+    Set-PublishDirectoryJunction -LinkPath $paths.PublishWeb -TargetPath $paths.CurrentWeb -InstallRoot $InstallRoot
 }
 
 function Initialize-ReleaseLayout {
@@ -1948,7 +1997,7 @@ function Write-ApiRunScript {
         [string]$RunScriptPath,
         [string]$ApiPath,
         [int]$ApiPort,
-        [string]$ApiBindAddress = '0.0.0.0',
+        [string]$ApiBindAddress = '10.0.177.17',
         [string]$PlaywrightBrowsersPath,
         [string]$LogPath
     )

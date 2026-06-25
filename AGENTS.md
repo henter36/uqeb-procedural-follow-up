@@ -360,7 +360,7 @@ else {
 cd /d C:\Uqeb\publish\api
 set ASPNETCORE_ENVIRONMENT=Production
 set DOTNET_ENVIRONMENT=Production
-set ASPNETCORE_URLS=http://0.0.0.0:5000
+set ASPNETCORE_URLS=http://10.0.177.17:5000
 C:\Uqeb\publish\api\Uqeb.Api.exe >> C:\Uqeb\logs\api-runtime.log 2>&1
 ```
 

@@ -114,12 +114,14 @@ $staging = "C:\Uqeb\staging\<TIMESTAMP>"
 
 #### نسخة قاعدة البيانات الإلزامية
 
-قبل إيقاف API أو تطبيق migrations، ينفّذ `install-production-package.ps1` تلقائيًا:
+بعد التحقق من الحزمة وقبل إيقاف API، ينفّذ `install-production-package.ps1` تلقائيًا:
 
 1. `BACKUP DATABASE ... WITH CHECKSUM` إلى `C:\Uqeb\backup\db\<Database>-before-<timestamp>.bak`
 2. `RESTORE VERIFYONLY ... WITH CHECKSUM`
 3. التحقق من الحجم وSHA256 واسم القاعدة
-4. تسجيل المسار والحجم والوقت في تقرير النشر و`release-manifest.json`
+4. تطبيق `database\migrations-idempotent.sql` والتحقق من آخر migration
+5. تسجيل المسار والحجم والوقت في تقرير النشر و`release-manifest.json`
+6. إيقاف API ثم ترقية الملفات
 
 عند فشل أي خطوة: يتوقف النشر فورًا دون migrations أو استبدال ملفات. عند فشل مرحلة لاحقة: يُعرض أمر `RESTORE DATABASE` اليدوي دون استعادة تلقائية.
 

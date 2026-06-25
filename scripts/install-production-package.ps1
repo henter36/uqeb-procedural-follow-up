@@ -14,6 +14,7 @@ param(
     [string]$ConfigPath = "C:\Uqeb\config\appsettings.Production.json",
     [string]$TaskName = "UqebApi",
     [int]$ApiPort = 5000,
+    [string]$ApiBindAddress = "10.0.177.17",
     [string]$ApiBaseUrl = "",
     [string]$InstallRoot = "C:\Uqeb",
     [string]$ToolsRoot = "C:\UqebTools",
@@ -34,8 +35,14 @@ if (-not (Test-Path -LiteralPath $commonPath)) {
 }
 . $commonPath
 
+Assert-ValidApiBindAddress -ApiBindAddress $ApiBindAddress
+
 if ([string]::IsNullOrWhiteSpace($ApiBaseUrl)) {
-    $ApiBaseUrl = "http://localhost:$ApiPort"
+    $ApiBaseUrl = "http://${ApiBindAddress}:$ApiPort"
+}
+
+if ($ApplyDatabaseMigration) {
+    Write-Warning "معامل ApplyDatabaseMigration مهمل ولا يؤثر على السلوك؛ النسخ الاحتياطي وتطبيق migrations يتمان افتراضيًا."
 }
 
 $deploymentResult = "فشل"
@@ -63,6 +70,11 @@ $releaseManifestPath = Join-Path (Split-Path $ApiPath -Parent) "release-manifest
 $rollbackStatePath = Get-RollbackStatePath -InstallRoot $InstallRoot
 $currentApiPath = Join-Path $InstallRoot "current\api"
 $deployStartedAt = [DateTime]::UtcNow
+$packageValidated = $false
+$backupVerified = $false
+$migrationsApplied = $false
+$serviceStopped = $false
+$promotionCompleted = $false
 
 try {
     if (-not (Test-IsAdministrator)) {
@@ -117,12 +129,7 @@ try {
     $sqlInfo = Get-SqlConnectionInfoFromSettings -SettingsPath $ConfigPath
     Write-DeployInfo ("خادم SQL: " + $sqlInfo.Server)
     Write-DeployInfo ("قاعدة البيانات: " + $sqlInfo.Database)
-
-    Write-DeployStep "التحقق من migration المطلوبة قبل الترقية"
-    Test-RequiredMigrationApplied `
-        -ConnectionString $sqlInfo.ConnectionString `
-        -RequiredMigrationId ([string]$manifest.minimumDatabaseMigration)
-    Write-DeployInfo ("migration المطلوبة مطبقة: " + $manifest.minimumDatabaseMigration)
+    $packageValidated = $true
 
     if (-not (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue)) {
         throw "مهمة الجدولة '$TaskName' غير موجودة."
@@ -132,35 +139,46 @@ try {
     $databaseBackupDirectory = Join-Path $backupRoot "db"
     $configTarget = Join-Path $currentApiPath "appsettings.Production.json"
 
-    if ($ApplyDatabaseMigration) {
-        Write-DeployStep "إنشاء نسخة احتياطية إلزامية لقاعدة البيانات"
-        $databaseBackup = Invoke-ProductionDatabaseBackup `
-            -Server $sqlInfo.Server `
-            -Database $sqlInfo.Database `
-            -ConnectionString $sqlInfo.ConnectionString `
-            -BackupDirectory $databaseBackupDirectory `
-            -Timestamp $stamp
+    Write-DeployStep "إنشاء نسخة احتياطية إلزامية لقاعدة البيانات"
+    $databaseBackup = Invoke-ProductionDatabaseBackup `
+        -Server $sqlInfo.Server `
+        -Database $sqlInfo.Database `
+        -ConnectionString $sqlInfo.ConnectionString `
+        -BackupDirectory $databaseBackupDirectory `
+        -Timestamp $stamp
 
-        $databaseBackupPath = $databaseBackup.Path
-        $databaseBackupSizeBytes = [long]$databaseBackup.SizeBytes
-        $databaseBackupCreatedAtUtc = [string]$databaseBackup.CreatedAtUtc
-        $databaseBackupSha256 = [string]$databaseBackup.Sha256
-        $databaseBackupStatus = "نجح"
-        $manualRestoreCommand = Get-ManualDatabaseRestoreCommand `
-            -Server $sqlInfo.Server `
-            -Database $sqlInfo.Database `
-            -BackupPath $databaseBackupPath
+    $databaseBackupPath = $databaseBackup.Path
+    $databaseBackupSizeBytes = [long]$databaseBackup.SizeBytes
+    $databaseBackupCreatedAtUtc = [string]$databaseBackup.CreatedAtUtc
+    $databaseBackupSha256 = [string]$databaseBackup.Sha256
+    $databaseBackupStatus = "نجح"
+    $backupVerified = $true
+    $manualRestoreCommand = Get-ManualDatabaseRestoreCommand `
+        -Server $sqlInfo.Server `
+        -Database $sqlInfo.Database `
+        -BackupPath $databaseBackupPath
 
-        Write-DeployInfo ("مسار نسخة قاعدة البيانات: " + $databaseBackupPath)
-        Write-DeployInfo ("حجم النسخة (بايت): " + $databaseBackupSizeBytes)
-        Write-DeployInfo ("وقت إنشاء النسخة (UTC): " + $databaseBackupCreatedAtUtc)
-        Write-DeployInfo ("تجزئة SHA256 للنسخة: " + $databaseBackupSha256)
+    Write-DeployInfo ("مسار نسخة قاعدة البيانات: " + $databaseBackupPath)
+    Write-DeployInfo ("حجم النسخة (بايت): " + $databaseBackupSizeBytes)
+    Write-DeployInfo ("وقت إنشاء النسخة (UTC): " + $databaseBackupCreatedAtUtc)
+    Write-DeployInfo ("تجزئة SHA256 للنسخة: " + $databaseBackupSha256)
+
+    Write-DeployStep "تطبيق migrations"
+    $migrationScript = Join-Path $stagingPath "scripts\apply-migrations.ps1"
+    if (-not (Test-Path -LiteralPath $migrationScript)) {
+        $migrationScript = Join-Path $ToolsRoot "apply-migrations.ps1"
     }
-    else {
-        Write-DeployInfo "لم يُطلب ApplyDatabaseMigration؛ لن يُنشئ المثبت نسخة قاعدة بيانات ولا يطبّق migrations."
-        $databaseBackupStatus = "متخطى"
-        $databaseStatus = "متخطى"
+    if (-not (Test-Path -LiteralPath $migrationScript)) {
+        throw "سكربت apply-migrations.ps1 غير موجود في الحزمة أو في C:\UqebTools."
     }
+
+    & $migrationScript `
+        -SettingsPath $ConfigPath `
+        -MigrationFile (Join-Path $stagingPath "database\migrations-idempotent.sql") `
+        -ExpectedLatestMigration $manifest.minimumDatabaseMigration
+
+    $databaseStatus = "نجح"
+    $migrationsApplied = $true
 
     Write-DeployStep "إيقاف API"
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
@@ -168,6 +186,7 @@ try {
     if (-not (Wait-PortReleased -Port $ApiPort -TimeoutSec 30)) {
         throw "المنفذ $ApiPort ما زال مستخدماً بعد إيقاف API."
     }
+    $serviceStopped = $true
 
     $backupPath = Join-Path $backupRoot ("before-" + $stamp)
     $backupApi = Join-Path $backupPath "api"
@@ -203,26 +222,8 @@ try {
         }
     }
     else {
-        Write-DeployInfo "تم تخطي النسخة الاحتياطية للملفات (-SkipFileBackup). نسخة قاعدة البيانات ما زالت إلزامية."
+        Write-DeployInfo "تم تخطي النسخة الاحتياطية للملفات (-SkipFileBackup). نسخة قاعدة البيانات وتطبيق migrations ما زالا إلزاميين."
         $backupPath = "(متخطى)"
-    }
-
-    if ($ApplyDatabaseMigration) {
-        Write-DeployStep "تطبيق migrations"
-        $migrationScript = Join-Path $stagingPath "scripts\apply-migrations.ps1"
-        if (-not (Test-Path -LiteralPath $migrationScript)) {
-            $migrationScript = Join-Path $ToolsRoot "apply-migrations.ps1"
-        }
-        if (-not (Test-Path -LiteralPath $migrationScript)) {
-            throw "سكربت apply-migrations.ps1 غير موجود في الحزمة أو في C:\UqebTools."
-        }
-
-        & $migrationScript `
-            -SettingsPath $ConfigPath `
-            -MigrationFile (Join-Path $stagingPath "database\migrations-idempotent.sql") `
-            -ExpectedLatestMigration $manifest.minimumDatabaseMigration
-
-        $databaseStatus = "نجح"
     }
 
     Write-DeployStep "ترقية الإصدار عبر releases/current"
@@ -236,6 +237,7 @@ try {
 
     $configTarget = $promotion.ConfigTarget
     $releasePaths = $promotion.Paths
+    $promotionCompleted = $true
 
     Write-DeployStep "تثبيت Chromium في مسار الإنتاج"
     $packageBrowsersSource = Join-Path $stagingPath "browsers"
@@ -254,6 +256,7 @@ try {
         -RunScriptPath $runApiPath `
         -ApiPath $currentApiPath `
         -ApiPort $ApiPort `
+        -ApiBindAddress $ApiBindAddress `
         -PlaywrightBrowsersPath $PlaywrightBrowsersPath `
         -LogPath $logsPath
 
@@ -320,7 +323,7 @@ try {
 
     Remove-DirectoryIfExists -Path $browserPreviousPath
 
-    if ($ApplyDatabaseMigration -and $databaseBackupPath) {
+    if ($databaseBackupPath) {
         $databaseRetentionDeleted = Invoke-DatabaseBackupRetentionPolicy `
             -BackupDirectory $databaseBackupDirectory `
             -InstallRoot $InstallRoot `
@@ -356,41 +359,58 @@ catch {
         Write-DeployInfo "لا يوجد استعادة تلقائية لقاعدة البيانات."
     }
 
-    $releaseRollback = Invoke-ReleaseRollbackFromState `
-        -InstallRoot $InstallRoot `
-        -TaskName $TaskName `
-        -ApiPort $ApiPort `
-        -ConfigPath (Join-Path $backupPath "appsettings.Production.json") `
-        -ReleaseManifestPath $releaseManifestPath
-    if ($releaseRollback) {
-        $rollbackPerformed = $true
-        Write-DeployInfo "تم استرجاع الإصدار السابق من rollback-state.json."
-    }
-
-    if (-not $rollbackPerformed -and -not $SkipFileBackup -and $backupPath -and $backupPath -ne "(متخطى)") {
-        $rollbackPerformed = Invoke-DeploymentFileRollback `
+    if ($promotionCompleted) {
+        $releaseRollback = Invoke-ReleaseRollbackFromState `
+            -InstallRoot $InstallRoot `
             -TaskName $TaskName `
             -ApiPort $ApiPort `
-            -BackupApi (Join-Path $backupPath "api") `
-            -BackupWeb (Join-Path $backupPath "web") `
-            -ApiTarget $currentApiPath `
-            -WebTarget (Join-Path $InstallRoot "current\web") `
-            -ConfigTarget $configTarget `
-            -ConfigSource (Join-Path $backupPath "appsettings.Production.json") `
-            -BackupBrowsers (Join-Path $backupPath "browsers") `
-            -PlaywrightBrowsersPath $PlaywrightBrowsersPath `
-            -ReleaseManifestPath $releaseManifestPath `
-            -BackupReleaseManifest (Join-Path $backupPath "release-manifest.json")
-
-        if ($rollbackPerformed) {
-            try {
-                Sync-PublishCompatibilityLinks -InstallRoot $InstallRoot
-            }
-            catch {
-                Write-DeployInfo ("تعذر تحديث روابط publish بعد rollback: " + $_.Exception.Message)
-            }
-            Write-DeployInfo "تم استرجاع ملفات API/Web/Chromium من النسخة الاحتياطية. لا يوجد rollback تلقائي لقاعدة البيانات."
+            -ConfigPath (Join-Path $backupPath "appsettings.Production.json") `
+            -ReleaseManifestPath $releaseManifestPath
+        if ($releaseRollback) {
+            $rollbackPerformed = $true
+            Write-DeployInfo "تم استرجاع الإصدار السابق من rollback-state.json."
         }
+
+        if (-not $rollbackPerformed -and -not $SkipFileBackup -and $backupPath -and $backupPath -ne "(متخطى)") {
+            $rollbackPerformed = Invoke-DeploymentFileRollback `
+                -TaskName $TaskName `
+                -ApiPort $ApiPort `
+                -BackupApi (Join-Path $backupPath "api") `
+                -BackupWeb (Join-Path $backupPath "web") `
+                -ApiTarget $currentApiPath `
+                -WebTarget (Join-Path $InstallRoot "current\web") `
+                -ConfigTarget $configTarget `
+                -ConfigSource (Join-Path $backupPath "appsettings.Production.json") `
+                -BackupBrowsers (Join-Path $backupPath "browsers") `
+                -PlaywrightBrowsersPath $PlaywrightBrowsersPath `
+                -ReleaseManifestPath $releaseManifestPath `
+                -BackupReleaseManifest (Join-Path $backupPath "release-manifest.json")
+
+            if ($rollbackPerformed) {
+                try {
+                    Sync-PublishCompatibilityLinks -InstallRoot $InstallRoot
+                }
+                catch {
+                    Write-DeployInfo ("تعذر تحديث روابط publish بعد rollback: " + $_.Exception.Message)
+                }
+                Write-DeployInfo "تم استرجاع ملفات API/Web/Chromium من النسخة الاحتياطية. لا يوجد rollback تلقائي لقاعدة البيانات."
+            }
+        }
+    }
+    elseif ($serviceStopped) {
+        Write-DeployInfo "فشل بعد إيقاف API وقبل اكتمال الترقية؛ إعادة تشغيل الإصدار الحالي دون rollback للملفات."
+        try {
+            Start-ScheduledTask -TaskName $TaskName
+            if (-not (Test-PortListener -Port $ApiPort -TimeoutSec 45)) {
+                Write-DeployError "تعذر إعادة تشغيل API بعد الفشل."
+            }
+        }
+        catch {
+            Write-DeployError ("تعذر إعادة تشغيل API بعد الفشل: " + $_.Exception.Message)
+        }
+    }
+    else {
+        Write-DeployInfo "فشل قبل إيقاف API؛ لا rollback للملفات ولا إعادة تشغيل."
     }
 
     exit 1

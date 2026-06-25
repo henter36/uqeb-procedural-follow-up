@@ -256,6 +256,13 @@ BeforeAll {
             Jwt = @{ Key = '12345678901234567890123456789012' }
         } | ConvertTo-Json -Compress)
     }
+
+    if (-not (Get-Command robocopy -ErrorAction SilentlyContinue)) {
+        function script:robocopy {
+            param($args)
+            $global:LASTEXITCODE = 1
+        }
+    }
 }
 
 Describe 'PowerShell deployment script parse checks' {
@@ -655,6 +662,15 @@ Describe 'Application file copy policy' {
 }
 
 Describe 'Invoke-DeploymentFileRollback' {
+    BeforeEach {
+        if (-not (Get-Command Stop-ScheduledTask -ErrorAction SilentlyContinue)) {
+            function script:Stop-ScheduledTask { param([string]$TaskName) }
+        }
+        if (-not (Get-Command Start-ScheduledTask -ErrorAction SilentlyContinue)) {
+            function script:Start-ScheduledTask { param([string]$TaskName) }
+        }
+    }
+
     It 'restores backed-up API and Web folders' {
         Mock Stop-ScheduledTask {}
         Mock Start-ScheduledTask {}
@@ -693,6 +709,22 @@ Describe 'Invoke-DeploymentFileRollback' {
 
 Describe 'install-production-package.ps1 scenarios' {
     BeforeEach {
+        if (-not (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue)) {
+            function script:Get-ScheduledTask {
+                param([string]$TaskName)
+                return [pscustomobject]@{ TaskName = $TaskName }
+            }
+        }
+        if (-not (Get-Command Stop-ScheduledTask -ErrorAction SilentlyContinue)) {
+            function script:Stop-ScheduledTask { param([string]$TaskName) }
+        }
+        if (-not (Get-Command Start-ScheduledTask -ErrorAction SilentlyContinue)) {
+            function script:Start-ScheduledTask { param([string]$TaskName) }
+        }
+        if (-not (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue)) {
+            function script:Get-NetTCPConnection { return @() }
+        }
+
         Mock Test-IsAdministrator { $true }
         Mock Get-ScheduledTask { return [pscustomobject]@{ TaskName = 'UqebApi' } }
         Mock Stop-ScheduledTask {}
@@ -740,6 +772,12 @@ Describe 'install-production-package.ps1 scenarios' {
                 DatabaseName = 'UqebDb'
             }
         }
+        Mock Install-PlaywrightBrowserToProduction { return '' }
+        Mock Test-PlaywrightBrowserPayload {
+            $executablePath = Join-Path $TestDrive ('chrome-' + [guid]::NewGuid().ToString('N') + '.exe')
+            Set-Content -LiteralPath $executablePath -Value 'fake-chromium' -Encoding ASCII
+            return [pscustomobject]@{ FullPath = $executablePath }
+        }
     }
 
     It 'does not expose SkipDatabaseBackup parameter' {
@@ -754,7 +792,7 @@ Describe 'install-production-package.ps1 scenarios' {
         $names | Should -Not -Contain 'SkipDatabaseBackup'
     }
 
-    It 'uses ApplyDatabaseMigration instead of SkipDatabaseMigration' {
+    It 'uses deprecated ApplyDatabaseMigration switch for backward compatibility' {
         $errors = $null
         $ast = [System.Management.Automation.Language.Parser]::ParseFile(
             $script:InstallScript,
@@ -765,6 +803,7 @@ Describe 'install-production-package.ps1 scenarios' {
         $names = @($paramBlock.Parameters | ForEach-Object { $_.Name.Extent.Text })
         $names | Should -Not -Contain '$SkipDatabaseMigration'
         $names | Should -Contain '$ApplyDatabaseMigration'
+        $names | Should -Contain '$ApiBindAddress'
     }
 
     It 'blocks database backup bypass environment variables' {
@@ -785,16 +824,18 @@ Describe 'install-production-package.ps1 scenarios' {
     }
 
     It 'rejects folder path instead of ZIP' {
+        $env = New-InstallTestEnvironment
         $folder = New-TempDirectory
-        { & $script:InstallScript -PackagePath $folder } | Should -Throw '*ZIP*'
+        { Invoke-TestInstallScript -Environment $env -AdditionalParameters @{ PackagePath = $folder } } | Should -Throw '*ZIP*'
     }
 
-    It 'stops on migration failure when ApplyDatabaseMigration is requested' {
+    It 'stops on migration failure during default install path' {
         $env = New-InstallTestEnvironment -PackageMigrationContent 'throw "migration failed"'
         'throw "migration failed"' | Set-Content (Join-Path $env.ToolsRoot 'apply-migrations.ps1') -Encoding ASCII
 
-        { Invoke-TestInstallScript -Environment $env -AdditionalParameters @{ ApplyDatabaseMigration = $true } } |
+        { Invoke-TestInstallScript -Environment $env } |
             Should -Throw
+        Assert-MockCalled Install-StagedReleaseToProduction -Times 0 -Exactly
     }
 
     It 'fails deployment when health verification fails' {
@@ -805,13 +846,29 @@ Describe 'install-production-package.ps1 scenarios' {
             Should -Throw
     }
 
-    It 'succeeds on full mocked deployment path without applying migrations' {
+    It 'succeeds on full mocked deployment path and applies migrations by default' {
         $env = New-InstallTestEnvironment
         'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
         { Invoke-TestInstallScript -Environment $env } | Should -Not -Throw
-        Assert-MockCalled Test-RequiredMigrationApplied -Times 1 -Exactly
+        Assert-MockCalled Invoke-ProductionDatabaseBackup -Times 1 -Exactly
         Assert-MockCalled Install-StagedReleaseToProduction -Times 1 -Exactly
+    }
+
+    It 'documents deprecated ApplyDatabaseMigration switch as no-op warning' {
+        $content = Get-Content -LiteralPath $script:InstallScript -Raw
+        $content | Should -Match 'ApplyDatabaseMigration'
+        $content | Should -Match 'Write-Warning'
+        $content | Should -Match 'مهمل'
+    }
+
+    It 'still runs database backup and migrations when SkipFileBackup is set' {
+        $env = New-InstallTestEnvironment
+        'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
+
+        { Invoke-TestInstallScript -Environment $env -AdditionalParameters @{ SkipFileBackup = $true } } |
+            Should -Not -Throw
+        Assert-MockCalled Invoke-ProductionDatabaseBackup -Times 1 -Exactly
     }
 
     It 'does not declare success when API port never opens' {
@@ -830,14 +887,14 @@ Describe 'install-production-package.ps1 scenarios' {
 
         $env = New-InstallTestEnvironment
 
-        { Invoke-TestInstallScript -Environment $env -AdditionalParameters @{ ApplyDatabaseMigration = $true } } |
+        { Invoke-TestInstallScript -Environment $env } |
             Should -Throw
 
         $global:deployOrder | Should -Not -Contain 'stop-api'
         Assert-MockCalled Install-StagedReleaseToProduction -Times 0 -Exactly
     }
 
-    It 'runs database backup before API stop when ApplyDatabaseMigration is requested' {
+    It 'runs database backup and migrations before API stop by default' {
         $global:deployOrder = @()
         Mock Invoke-ProductionDatabaseBackup {
             $global:deployOrder += 'db-backup'
@@ -856,10 +913,11 @@ Describe 'install-production-package.ps1 scenarios' {
         $env = New-InstallTestEnvironment
         'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
-        Invoke-TestInstallScript -Environment $env -AdditionalParameters @{ ApplyDatabaseMigration = $true } | Out-Null
+        Invoke-TestInstallScript -Environment $env | Out-Null
 
         $global:deployOrder[0] | Should -Be 'db-backup'
         ($global:deployOrder.IndexOf('db-backup') -lt $global:deployOrder.IndexOf('stop-api')) | Should -BeTrue
+        Test-Path (Join-Path $env.InstallRoot 'incoming\deployed\Uqeb-test.zip') | Should -BeTrue
     }
 
     It 'shows manual restore command when a later deployment step fails' {
@@ -880,7 +938,7 @@ Describe 'install-production-package.ps1 scenarios' {
 
         $output = @()
         try {
-            Invoke-TestInstallScript -Environment $env -AdditionalParameters @{ ApplyDatabaseMigration = $true } *>&1 |
+            Invoke-TestInstallScript -Environment $env *>&1 |
                 ForEach-Object { $output += $_.ToString() }
         }
         catch {
@@ -896,10 +954,34 @@ Describe 'install-production-package.ps1 scenarios' {
         $env = New-InstallTestEnvironment
         'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
-        { Invoke-TestInstallScript -Environment $env -AdditionalParameters @{ ApiPort = 5001; ApplyDatabaseMigration = $true } } | Should -Not -Throw
+        { Invoke-TestInstallScript -Environment $env -AdditionalParameters @{ ApiPort = 5001 } } | Should -Not -Throw
     }
 
-    It 'derives ApiBaseUrl from ApiPort when URL is omitted' {
+    It 'does not move package to deployed when deployment fails' {
+        $env = New-InstallTestEnvironment
+        'throw "health failed"' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
+
+        { Invoke-TestInstallScript -Environment $env } | Should -Throw
+        Test-Path (Join-Path $env.InstallRoot 'incoming\deployed\Uqeb-test.zip') | Should -BeFalse
+        Test-Path $env.ZipPath | Should -BeTrue
+    }
+
+    It 'writes production bind address into run-api.cmd' {
+        $runApiPath = $null
+        Mock Write-ApiRunScript {
+            param($RunScriptPath, $ApiBindAddress)
+            $script:runApiPath = $RunScriptPath
+            Set-Content -LiteralPath $RunScriptPath -Value "set ASPNETCORE_URLS=http://${ApiBindAddress}:5000" -Encoding ASCII
+        }
+
+        $env = New-InstallTestEnvironment
+        'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
+
+        Invoke-TestInstallScript -Environment $env | Out-Null
+        Assert-MockCalled Write-ApiRunScript -ParameterFilter { $ApiBindAddress -eq '10.0.177.17' } -Times 1 -Exactly
+    }
+
+    It 'derives ApiBaseUrl from ApiBindAddress and ApiPort when URL is omitted' {
         $errors = $null
         $ast = [System.Management.Automation.Language.Parser]::ParseFile(
             $script:InstallScript,
@@ -908,11 +990,27 @@ Describe 'install-production-package.ps1 scenarios' {
         $errors | Should -BeNullOrEmpty
         $content = Get-Content -LiteralPath $script:InstallScript -Raw
         $content | Should -Match 'IsNullOrWhiteSpace\(\$ApiBaseUrl\)'
-        $content | Should -Match 'http://localhost:\$ApiPort'
+        $content | Should -Match 'http://\$\{ApiBindAddress\}:\$ApiPort'
+        $content | Should -Not -Match 'http://localhost:\$ApiPort'
+    }
+
+    It 'rejects invalid ApiBindAddress values' {
+        { Assert-ValidApiBindAddress -ApiBindAddress 'http://10.0.177.17' } | Should -Throw
+        { Assert-ValidApiBindAddress -ApiBindAddress '0.0.0.0:5000' } | Should -Throw
+        { Assert-ValidApiBindAddress -ApiBindAddress '10.0.177.17' } | Should -Not -Throw
     }
 }
 
 Describe 'Release promotion and rollback state' {
+    BeforeEach {
+        if (-not (Get-Command Stop-ScheduledTask -ErrorAction SilentlyContinue)) {
+            function script:Stop-ScheduledTask { param([string]$TaskName) }
+        }
+        if (-not (Get-Command Start-ScheduledTask -ErrorAction SilentlyContinue)) {
+            function script:Start-ScheduledTask { param([string]$TaskName) }
+        }
+    }
+
     It 'writes and reads rollback-state.json' {
         $root = New-TempDirectory
         $state = [ordered]@{
@@ -1274,7 +1372,39 @@ Describe 'apply-migrations.ps1 encoding' {
     }
 }
 
+Describe 'Publish directory junction safety' {
+    It 'removes junction without deleting the target directory on Windows' -Skip:(-not $IsWindows) {
+        $installRoot = New-TempDirectory
+        $target = Join-Path $installRoot 'current\api (junction test)'
+        $link = Join-Path $installRoot 'publish\api'
+        Ensure-Directory $target
+        Set-Content (Join-Path $target 'marker.txt') 'keep-me' -Encoding ASCII
+
+        Set-PublishDirectoryJunction -LinkPath $link -TargetPath $target -InstallRoot $installRoot
+        Remove-ReparsePointSafe -Path $link
+
+        Test-Path -LiteralPath $target | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $target 'marker.txt') | Should -BeTrue
+        Test-Path -LiteralPath $link | Should -BeFalse
+    }
+
+    It 'rejects junction targets outside InstallRoot' {
+        $installRoot = New-TempDirectory
+        $outside = New-TempDirectory
+        $link = Join-Path $installRoot 'publish\api'
+
+        { Set-PublishDirectoryJunction -LinkPath $link -TargetPath $outside -InstallRoot $installRoot } |
+            Should -Throw '*InstallRoot*'
+    }
+}
+
 Describe 'build-production-package.ps1 policy' {
+    It 'injects production frontend API base URL during build' {
+        $content = Get-Content (Join-Path $PSScriptRoot 'build-production-package.ps1') -Raw
+        $content | Should -Match 'VITE_API_BASE_URL'
+        $content | Should -Match '10\.0\.177\.17:5000/api'
+    }
+
     It 'does not use invalid dotnet test no-restore syntax' {
         $content = Get-Content (Join-Path $PSScriptRoot 'build-production-package.ps1') -Raw
         $content | Should -Not -Match '--no-restore:\$false'

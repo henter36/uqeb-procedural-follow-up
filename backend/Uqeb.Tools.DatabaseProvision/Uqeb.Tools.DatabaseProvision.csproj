@@ -9,4 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Uqeb.Api\Uqeb.Api.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Uqeb.Tools.DatabaseProvision.Tests" />
+  </ItemGroup>
 </Project>

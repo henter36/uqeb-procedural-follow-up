@@ -203,9 +203,9 @@ C:\UqebTools\install-production-package.ps1 -PackagePath C:\Uqeb\incoming\Uqeb-<
 
 إعداد أولي: `.\scripts\setup-production-tools.ps1` على جهاز الإنتاج.
 
-> **لا يمكن تنفيذ نشر إنتاج أو migrations دون نسخة قاعدة بيانات مكتملة ومتحقق منها. لا يوجد خيار تجاوز لهذه الخطوة.** `-SkipDatabaseMigration` مسموح فقط إذا كانت migration المطلوبة (`manifest.minimumDatabaseMigration`) مطبقة مسبقًا في قاعدة الإنتاج.
+> **لا يمكن تنفيذ نشر إنتاج أو migrations دون نسخة قاعدة بيانات مكتملة ومتحقق منها. لا يوجد خيار تجاوز لهذه الخطوة.** `install-production-package.ps1` ينفّذ النسخ الاحتياطي وتطبيق migrations افتراضيًا دون معاملات إضافية.
 
-قبل أي migrations، يُنشأ تلقائيًا نسخ احتياطي كامل في `C:\Uqeb\backup\db\` مع `WITH CHECKSUM` و`RESTORE VERIFYONLY`.
+قبل إيقاف API، يُنشأ تلقائيًا نسخ احتياطي كامل في `C:\Uqeb\backup\db\` مع `WITH CHECKSUM` و`RESTORE VERIFYONLY`، ثم تُطبَّق migrations من الحزمة.
 
 ---
 
