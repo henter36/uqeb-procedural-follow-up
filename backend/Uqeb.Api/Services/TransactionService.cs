@@ -13,6 +13,7 @@ public interface ITransactionService
     Task<PagedResult<TransactionListDto>> SearchAsync(TransactionSearchRequest request, ICurrentUserService currentUser);
     Task<TransactionDetailDto?> GetByIdAsync(int id, ICurrentUserService currentUser);
     Task<TransactionDetailDto?> GetBasicByIdAsync(int id, ICurrentUserService currentUser);
+    Task<TransactionWorkspaceDto?> GetWorkspaceAsync(int id, ICurrentUserService currentUser);
     Task<List<AssignmentDto>?> GetAssignmentsAsync(int transactionId, ICurrentUserService currentUser);
     Task<List<FollowUpDto>?> GetFollowUpsAsync(int transactionId, ICurrentUserService currentUser);
     Task<TransactionDetailDto> CreateAsync(CreateTransactionRequest request, int userId);
@@ -295,6 +296,43 @@ public class TransactionService : ITransactionService
         dto.Attachments = new();
         dto.AuditLogs = new();
         return dto;
+    }
+
+    public async Task<TransactionWorkspaceDto?> GetWorkspaceAsync(int id, ICurrentUserService currentUser)
+    {
+        var transaction = await GetBasicByIdAsync(id, currentUser);
+        if (transaction == null) return null;
+
+        var entity = await _db.Transactions.AsNoTracking().FirstOrDefaultAsync(t => t.Id == id);
+        if (entity == null) return null;
+
+        var now = DateTime.UtcNow;
+        var assignments = await GetAssignmentsAsync(id, currentUser) ?? new();
+        var followUps = await GetFollowUpsAsync(id, currentUser) ?? new();
+        var attachments = await _db.Attachments.AsNoTracking()
+            .Where(a => a.TransactionId == id)
+            .OrderByDescending(a => a.UploadedAt)
+            .Select(a => new AttachmentDto
+            {
+                Id = a.Id,
+                AttachmentType = a.AttachmentType,
+                OriginalFileName = a.OriginalFileName,
+                ContentType = a.ContentType,
+                FileSize = a.FileSize,
+                UploadedByName = a.UploadedBy != null ? a.UploadedBy.FullName : "",
+                UploadedAt = a.UploadedAt
+            })
+            .ToListAsync();
+
+        return new TransactionWorkspaceDto
+        {
+            Transaction = transaction,
+            Assignments = assignments,
+            FollowUps = followUps,
+            Attachments = attachments,
+            TemporalFacts = TransactionWorkspaceHelper.BuildTemporalFacts(entity, assignments, now),
+            AllowedActions = TransactionWorkspaceHelper.BuildAllowedActions(transaction, currentUser)
+        };
     }
 
     public async Task<List<AssignmentDto>?> GetAssignmentsAsync(int transactionId, ICurrentUserService currentUser)

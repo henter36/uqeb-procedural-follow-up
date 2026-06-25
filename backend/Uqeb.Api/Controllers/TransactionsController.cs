@@ -48,6 +48,13 @@ public class TransactionsController : ControllerBase
         return result == null ? NotFound() : Ok(result);
     }
 
+    [HttpGet("{id}/workspace")]
+    public async Task<IActionResult> GetWorkspace(int id)
+    {
+        var result = await _transactions.GetWorkspaceAsync(id, _currentUser);
+        return result == null ? NotFound() : Ok(result);
+    }
+
     [HttpGet("{id}")]
     public async Task<IActionResult> GetById(int id)
     {

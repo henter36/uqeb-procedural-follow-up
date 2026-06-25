@@ -2,7 +2,8 @@ import api from './client';
 import type {
   LoginResponse, TransactionListItem, TransactionDetail, PagedResult,
   DashboardSummary, Department, ExternalParty, User, FollowUp, Assignment, Category,
-  ReportTransactionRow, ReportSectionCounts, LetterTemplate, FollowUpLetterPreview
+  ReportTransactionRow, ReportSectionCounts, LetterTemplate, FollowUpLetterPreview,
+  TransactionWorkspace,
 } from './types';
 import type {
   InstitutionalReportManifest,
@@ -22,6 +23,8 @@ export const transactionsApi = {
     api.get<PagedResult<TransactionListItem>>('/transactions', { params }),
   getById: (id: number) => api.get<TransactionDetail>(`/transactions/${id}`),
   getBasic: (id: number) => api.get<TransactionDetail>(`/transactions/${id}/basic`),
+  getWorkspace: (id: number, config?: { signal?: AbortSignal }) =>
+    api.get<TransactionWorkspace>(`/transactions/${id}/workspace`, config),
   getAssignments: (id: number) => api.get<Assignment[]>(`/transactions/${id}/assignments`),
   getFollowUps: (id: number) => api.get<FollowUp[]>(`/transactions/${id}/followups`),
   getAttachments: (id: number) => api.get<import('./types').Attachment[]>(`/transactions/${id}/attachments`),

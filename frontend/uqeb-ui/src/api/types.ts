@@ -176,6 +176,35 @@ export interface AuditLog {
   createdAt: string;
 }
 
+export interface TransactionTemporalFacts {
+  isOpen: boolean;
+  isResponseOverdue: boolean;
+  isOverdue: boolean;
+  ageDays: number;
+  daysOverdue?: number | null;
+  completionDays?: number | null;
+}
+
+export interface TransactionWorkspaceAllowedActions {
+  canEdit: boolean;
+  canClose: boolean;
+  isDepartmentUser: boolean;
+  canRegisterResponse: boolean;
+  canShowClose: boolean;
+  showMutationActions: boolean;
+  canReply: boolean;
+  hasPendingDepartments: boolean;
+}
+
+export interface TransactionWorkspace {
+  transaction: TransactionDetail;
+  assignments: Assignment[];
+  followUps: FollowUp[];
+  attachments: Attachment[];
+  temporalFacts: TransactionTemporalFacts;
+  allowedActions: TransactionWorkspaceAllowedActions;
+}
+
 export interface PagedResult<T> {
   items: T[];
   totalCount: number;
