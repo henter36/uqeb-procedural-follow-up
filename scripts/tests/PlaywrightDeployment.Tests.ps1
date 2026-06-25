@@ -317,7 +317,7 @@ exit 1
 
 Describe 'Get-RelativePathFromDirectory' {
     BeforeAll {
-        $script:IsWindowsPlatform = ($IsWindows -or $env:OS -eq 'Windows_NT')
+        $script:IsWindowsPlatform = [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT
 
         function script:New-RelativePathTestRoot {
             $base = if ([string]::IsNullOrWhiteSpace($env:TEMP)) { '/tmp' } else { $env:TEMP }
@@ -700,9 +700,13 @@ Describe 'install-production-package.ps1 playwright policy' {
         $match.Success | Should -BeTrue
     }
 
-    It 'guards skip migration with required migration check' {
+    It 'runs automatically detected missing migrations after stopping API service' {
         $content = Get-Content (Join-Path (Split-Path $PSScriptRoot -Parent) 'install-production-package.ps1') -Raw
-        $content | Should -Match 'Test-RequiredMigrationApplied'
+        $match = [regex]::Match(
+            $content,
+            'Test-RequiredMigrationPresent[\s\S]+?Stop-ScheduledTask\s+-TaskName[\s\S]+?if\s*\(\$requiredMigrationMissing\)[\s\S]+?&\s+\$migrationScript\b[\s\S]+?Test-RequiredMigrationApplied[\s\S]+?Install-StagedReleaseToProduction'
+        )
+        $match.Success | Should -BeTrue
     }
 
     It 'sets PLAYWRIGHT_BROWSERS_PATH via run-api wrapper' {

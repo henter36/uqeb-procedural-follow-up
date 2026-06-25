@@ -138,11 +138,17 @@ internal static class ProvisionExecution
 
         if (!string.IsNullOrWhiteSpace(parsed.BackupSha256))
         {
-            var actualHash = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(parsed.BackupPath!)));
+            var actualHash = await ComputeFileSha256HexAsync(parsed.BackupPath!);
             if (!string.Equals(actualHash, parsed.BackupSha256, StringComparison.OrdinalIgnoreCase))
                 return (10, "Backup SHA256 mismatch.");
         }
 
         return null;
+    }
+
+    internal static async Task<string> ComputeFileSha256HexAsync(string path)
+    {
+        await using var stream = File.OpenRead(path);
+        return Convert.ToHexString(await SHA256.HashDataAsync(stream));
     }
 }
