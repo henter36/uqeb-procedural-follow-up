@@ -37,7 +37,7 @@ public interface IReportService
     Task<byte[]> ExportDepartmentIncomingClosedExcelAsync(ReportFilterRequest? filter = null);
     Task<byte[]> ExportDepartmentIncomingClosedPdfAsync(ReportFilterRequest? filter = null);
     Task<List<MonthlyReportDto>> GetMonthlyAsync(int year);
-    Task<byte[]> ExportToExcelAsync(string reportType, ReportFilterRequest? filter = null);
+    Task<byte[]> ExportToExcelAsync(string reportType, ReportFilterRequest? filter = null, CancellationToken cancellationToken = default);
     Task<PagedResult<ReportTransactionRowDto>> GetResponseRequiredDetailsAsync(ReportPagedFilterRequest filter);
     Task<PagedResult<ReportTransactionRowDto>> GetOverdueResponsesDetailsAsync(ReportPagedFilterRequest filter);
     Task<PagedResult<ReportTransactionRowDto>> GetOpenAssignmentsDetailsAsync(ReportPagedFilterRequest filter);
@@ -45,7 +45,7 @@ public interface IReportService
     Task<PagedResult<ReportTransactionRowDto>> GetOverdueDetailsAsync(ReportPagedFilterRequest filter);
     Task<PagedResult<ReportTransactionRowDto>> GetWaitingReplyDetailsAsync(ReportPagedFilterRequest filter);
     Task<PagedResult<ReportTransactionRowDto>> GetOpenDetailsAsync(ReportPagedFilterRequest filter);
-    Task<byte[]> ExportReportDetailsExcelAsync(string reportType, ReportPagedFilterRequest filter, bool currentPageOnly);
+    Task<byte[]> ExportReportDetailsExcelAsync(string reportType, ReportPagedFilterRequest filter, bool currentPageOnly, CancellationToken cancellationToken = default);
     Task<ReportSectionCountsDto> GetPageSummaryAsync(ReportFilterRequest? filter = null);
 }
 
@@ -218,7 +218,11 @@ public class ReportService : IReportService
             t.Status != TransactionStatus.Closed && t.Status != TransactionStatus.Cancelled && t.Status != TransactionStatus.Archived),
             orderByOverdue: false);
 
-    public async Task<byte[]> ExportReportDetailsExcelAsync(string reportType, ReportPagedFilterRequest filter, bool currentPageOnly)
+    public async Task<byte[]> ExportReportDetailsExcelAsync(
+        string reportType,
+        ReportPagedFilterRequest filter,
+        bool currentPageOnly,
+        CancellationToken cancellationToken = default)
     {
         using var workbook = new XLWorkbook();
         var ws = workbook.Worksheets.Add("التقرير");
@@ -227,6 +231,7 @@ public class ReportService : IReportService
 
         if (currentPageOnly)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var paged = await GetDetailsByReportTypeAsync(reportType, filter);
             WriteReportExcelRows(ws, row, paged.Items);
         }
@@ -236,6 +241,7 @@ public class ReportService : IReportService
             int? lastId = null;
             while (true)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var batch = await GetReportDetailsExportBatchAsync(reportType, filter, lastCreatedAt, lastId, ExportBatchSize);
                 if (batch.Count == 0)
                     break;
@@ -247,6 +253,7 @@ public class ReportService : IReportService
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         ws.RightToLeft = true;
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
@@ -747,8 +754,8 @@ public class ReportService : IReportService
             CreatedAt = r.CreatedAt
         }).ToList();
 
-    public Task<byte[]> ExportToExcelAsync(string reportType, ReportFilterRequest? filter = null) =>
-        ExportReportDetailsExcelAsync(reportType, ToPagedFilter(filter), currentPageOnly: true);
+    public Task<byte[]> ExportToExcelAsync(string reportType, ReportFilterRequest? filter = null, CancellationToken cancellationToken = default) =>
+        ExportReportDetailsExcelAsync(reportType, ToPagedFilter(filter), currentPageOnly: true, cancellationToken);
 
     private async Task<PagedResult<ReportTransactionRowDto>> GetReportDetailsPagedAsync(
         ReportPagedFilterRequest filter,
