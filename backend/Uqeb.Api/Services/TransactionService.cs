@@ -33,6 +33,8 @@ public interface ITransactionService
 public class TransactionService : ITransactionService
 {
     private const string AssignmentEntityName = "Assignment";
+    private const string AssignmentSourceName = "Assignment";
+    private const string OutgoingDepartmentSourceName = "OutgoingDepartment";
     private const string OutgoingDepartmentsEntityName = "TransactionOutgoingDepartments";
     private const string TransactionEntityName = "Transaction";
 
@@ -635,7 +637,7 @@ public class TransactionService : ITransactionService
             var oldType = t.ResponseType;
             t.ResponseType = newType;
             if (oldType != newType)
-                _audit.TrackLog(userId, AuditAction.Update, "Transaction", id, id, oldType.ToString(), newType.ToString());
+                _audit.TrackLog(userId, AuditAction.Update, TransactionEntityName, id, id, oldType.ToString(), newType.ToString());
         }
         if (request.ResponseDueDays.HasValue) t.ResponseDueDays = request.ResponseDueDays;
         if (request.ResponseCompleted.HasValue || request.ResponseCompletedDate.HasValue)
@@ -654,14 +656,14 @@ public class TransactionService : ITransactionService
             var oldPriority = t.Priority;
             t.Priority = EnumHelper.ParsePriority(request.Priority);
             if (oldPriority != t.Priority)
-                _audit.TrackLog(userId, AuditAction.Update, "Transaction", id, id, oldPriority.ToString(), t.Priority.ToString());
+                _audit.TrackLog(userId, AuditAction.Update, TransactionEntityName, id, id, oldPriority.ToString(), t.Priority.ToString());
         }
         if (request.CategoryId.HasValue)
         {
             var oldCategoryId = t.CategoryId;
             t.CategoryId = request.CategoryId;
             if (oldCategoryId != request.CategoryId)
-                _audit.TrackLog(userId, AuditAction.Update, "Transaction", id, id, oldCategoryId?.ToString(), request.CategoryId.ToString());
+                _audit.TrackLog(userId, AuditAction.Update, TransactionEntityName, id, id, oldCategoryId?.ToString(), request.CategoryId.ToString());
         }
         if (request.Notes != null) t.Notes = request.Notes;
 
@@ -676,7 +678,7 @@ public class TransactionService : ITransactionService
             t.UpdatedById = userId;
             t.UpdatedAt = DateTime.UtcNow;
 
-            _audit.TrackLog(userId, AuditAction.Update, "Transaction", id, id, oldValues,
+            _audit.TrackLog(userId, AuditAction.Update, TransactionEntityName, id, id, oldValues,
                 JsonSerializer.Serialize(new { t.IncomingNumber, t.Subject, t.Status, t.CategoryId, t.ResponseDueDays }));
 
             await _db.SaveChangesAsync();
@@ -705,7 +707,7 @@ public class TransactionService : ITransactionService
             t.Status = TransactionStatus.Cancelled;
             t.UpdatedById = userId;
             t.UpdatedAt = DateTime.UtcNow;
-            _audit.TrackLog(userId, AuditAction.Cancel, "Transaction", id, id, null, "Cancelled");
+            _audit.TrackLog(userId, AuditAction.Cancel, TransactionEntityName, id, id, null, "Cancelled");
             return Task.CompletedTask;
         });
         return true;
@@ -726,7 +728,7 @@ public class TransactionService : ITransactionService
             t.Status = TransactionStatus.Archived;
             t.UpdatedById = userId;
             t.UpdatedAt = DateTime.UtcNow;
-            _audit.TrackLog(userId, AuditAction.Archive, "Transaction", id, id, null, "Archived");
+            _audit.TrackLog(userId, AuditAction.Archive, TransactionEntityName, id, id, null, "Archived");
             return Task.CompletedTask;
         });
         return true;
@@ -746,7 +748,7 @@ public class TransactionService : ITransactionService
         }
         catch (InvalidOperationException ex)
         {
-            await _audit.LogAsync(userId, AuditAction.CloseAttemptFailed, "Transaction", id, id, null, ex.Message);
+            await _audit.LogAsync(userId, AuditAction.CloseAttemptFailed, TransactionEntityName, id, id, null, ex.Message);
             throw;
         }
 
@@ -756,7 +758,7 @@ public class TransactionService : ITransactionService
             t.ClosedAt = DateTime.UtcNow;
             t.UpdatedById = userId;
             t.UpdatedAt = DateTime.UtcNow;
-            _audit.TrackLog(userId, AuditAction.Close, "Transaction", id, id, null,
+            _audit.TrackLog(userId, AuditAction.Close, TransactionEntityName, id, id, null,
                 JsonSerializer.Serialize(new { ClosedAt = t.ClosedAt }));
             return Task.CompletedTask;
         });
@@ -817,7 +819,7 @@ public class TransactionService : ITransactionService
             t.Status = TransactionStatus.ResponseCompleted;
             t.UpdatedById = userId;
             t.UpdatedAt = DateTime.UtcNow;
-            _audit.TrackLog(userId, AuditAction.CompleteResponse, "Transaction", id, id, null,
+            _audit.TrackLog(userId, AuditAction.CompleteResponse, TransactionEntityName, id, id, null,
                 JsonSerializer.Serialize(new
                 {
                     responseDate = t.ResponseCompletedDate,
@@ -934,7 +936,7 @@ public class TransactionService : ITransactionService
                 DepartmentId = od.DepartmentId,
                 DepartmentName = od.Department.Name,
                 IsDefaultSelected = true,
-                Source = "OutgoingDepartment"
+                Source = OutgoingDepartmentSourceName
             };
         }
 
@@ -948,7 +950,7 @@ public class TransactionService : ITransactionService
                 DepartmentId = a.DepartmentId,
                 DepartmentName = a.Department.Name,
                 IsDefaultSelected = !hasOutgoing,
-                Source = "Assignment"
+                Source = AssignmentSourceName
             };
         }
 
@@ -1014,7 +1016,7 @@ public class TransactionService : ITransactionService
             },
             () =>
             {
-                _audit.TrackLog(userId, AuditAction.AddAssignment, "Assignment", assignment.Id, transactionId, null,
+                _audit.TrackLog(userId, AuditAction.AddAssignment, AssignmentEntityName, assignment.Id, transactionId, null,
                     JsonSerializer.Serialize(new { dept.Name, dueDate, request.ReplyDueDays }));
                 return Task.CompletedTask;
             });
@@ -1046,7 +1048,7 @@ public class TransactionService : ITransactionService
             },
             () =>
             {
-                _audit.TrackLog(currentUser.UserId, AuditAction.RecordReply, "Assignment", assignmentId, transactionId, null, request.ReplySummary);
+                _audit.TrackLog(currentUser.UserId, AuditAction.RecordReply, AssignmentEntityName, assignmentId, transactionId, null, request.ReplySummary);
                 return Task.CompletedTask;
             });
 
