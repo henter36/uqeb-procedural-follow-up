@@ -4,7 +4,7 @@ BeforeAll {
     function Resolve-DeploymentScriptsRoot {
         $candidate = $PSScriptRoot
         $commonPath = Join-Path $candidate 'deployment\Common.ps1'
-        if (-not (Test-Path $commonPath)) {
+        if (-not (Test-Path -LiteralPath $commonPath -PathType Leaf)) {
             throw "Helper script missing: Common.ps1 could not be found at $commonPath"
         }
 
@@ -12,7 +12,21 @@ BeforeAll {
     }
 
     $script:RepoScriptsRoot = Resolve-DeploymentScriptsRoot
-    . (Join-Path $script:RepoScriptsRoot 'tests\DeploymentTestHelpers.ps1')
+
+    $script:DeploymentHelpersPath = Join-Path `
+        $script:RepoScriptsRoot `
+        'tests\DeploymentTestHelpers.ps1'
+
+    if (-not (Test-Path -LiteralPath $script:DeploymentHelpersPath -PathType Leaf)) {
+        throw "Helper script missing: DeploymentTestHelpers.ps1 could not be found at $script:DeploymentHelpersPath"
+    }
+
+    . $script:DeploymentHelpersPath
+
+    if (-not (Get-Command -Name 'Initialize-DeploymentTestSession' -ErrorAction SilentlyContinue)) {
+        throw "Required function 'Initialize-DeploymentTestSession' is not defined after dot-sourcing DeploymentTestHelpers.ps1."
+    }
+
     $script:CommonPath = Join-Path $script:RepoScriptsRoot 'deployment\Common.ps1'
     $script:InstallScript = Join-Path $script:RepoScriptsRoot 'install-production-package.ps1'
     . $script:CommonPath
