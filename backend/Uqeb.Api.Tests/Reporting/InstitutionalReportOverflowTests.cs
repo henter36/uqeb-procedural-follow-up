@@ -197,6 +197,16 @@ public class InstitutionalReportOverflowTests
     {
         public string? LastNewValue { get; private set; }
 
+        public void TrackLog(
+            int userId,
+            AuditAction action,
+            string? entityName,
+            int? entityId,
+            int? transactionId,
+            string? oldValue,
+            string? newValue) =>
+            LastNewValue = newValue;
+
         public Task LogAsync(
             int userId,
             AuditAction action,

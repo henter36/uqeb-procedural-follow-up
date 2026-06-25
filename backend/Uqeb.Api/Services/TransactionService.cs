@@ -400,36 +400,52 @@ public class TransactionService : ITransactionService
 
         await ApplyIncomingSourceAsync(transaction, request.IncomingSourceType!, request.IncomingFromPartyId, request.IncomingFromDepartmentId);
 
-        const int maxAttempts = 3;
-        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        await using var dbTransaction = await _db.Database.BeginTransactionAsync();
+        try
         {
-            transaction.InternalTrackingNumber = await _trackingNumbers.GenerateNextAsync();
-            _db.Transactions.Add(transaction);
-            try
+            const int maxAttempts = 3;
+            for (var attempt = 1; attempt <= maxAttempts; attempt++)
             {
-                await _db.SaveChangesAsync();
-                break;
+                ResetCreatePersistenceState(transaction);
+
+                transaction.InternalTrackingNumber = await _trackingNumbers.GenerateNextAsync();
+                _db.Transactions.Add(transaction);
+
+                await SyncOutgoingDepartmentsAsync(transaction, request.OutgoingDepartmentIds ?? new List<int>(), userId);
+
+                try
+                {
+                    await _db.SaveChangesAsync();
+                    BackfillAuditTransactionIds(transaction.Id);
+                    break;
+                }
+                catch (DbUpdateException ex) when (SqlExceptionHelper.IsDuplicateKey(ex, "IX_Transactions_IncomingNumber"))
+                {
+                    DetachTransaction(transaction);
+                    throw new DuplicateIncomingNumberException();
+                }
+                catch (DbUpdateException ex) when (SqlExceptionHelper.IsDuplicateKey(ex, "IX_Transactions_InternalTrackingNumber") && attempt < maxAttempts)
+                {
+                    ResetCreatePersistenceState(transaction);
+                }
+                catch (DbUpdateException ex) when (SqlExceptionHelper.IsDuplicateKey(ex, "IX_Transactions_InternalTrackingNumber"))
+                {
+                    ResetCreatePersistenceState(transaction);
+                    throw new DuplicateTrackingNumberException();
+                }
             }
-            catch (DbUpdateException ex) when (SqlExceptionHelper.IsDuplicateKey(ex, "IX_Transactions_IncomingNumber"))
-            {
-                DetachTransaction(transaction);
-                throw new DuplicateIncomingNumberException();
-            }
-            catch (DbUpdateException ex) when (SqlExceptionHelper.IsDuplicateKey(ex, "IX_Transactions_InternalTrackingNumber") && attempt < maxAttempts)
-            {
-                DetachTransaction(transaction);
-            }
-            catch (DbUpdateException ex) when (SqlExceptionHelper.IsDuplicateKey(ex, "IX_Transactions_InternalTrackingNumber"))
-            {
-                DetachTransaction(transaction);
-                throw new DuplicateTrackingNumberException();
-            }
+
+            _audit.TrackLog(userId, AuditAction.Create, "Transaction", transaction.Id, transaction.Id, null,
+                JsonSerializer.Serialize(new { transaction.IncomingNumber, transaction.Subject }));
+            await _db.SaveChangesAsync();
+
+            await dbTransaction.CommitAsync();
         }
-
-        await SyncOutgoingDepartmentsAsync(transaction.Id, request.OutgoingDepartmentIds ?? new List<int>(), userId);
-
-        await _audit.LogAsync(userId, AuditAction.Create, "Transaction", transaction.Id, transaction.Id, null,
-            JsonSerializer.Serialize(new { transaction.IncomingNumber, transaction.Subject }));
+        catch
+        {
+            await dbTransaction.RollbackAsync();
+            throw;
+        }
 
         _cacheInvalidation.InvalidateOnTransactionChange();
         return (await GetByIdAsync(transaction.Id, new SystemUser(userId)))!;
@@ -482,7 +498,7 @@ public class TransactionService : ITransactionService
             var oldType = t.ResponseType;
             t.ResponseType = newType;
             if (oldType != newType)
-                await _audit.LogAsync(userId, AuditAction.Update, "Transaction", id, id, oldType.ToString(), newType.ToString());
+                _audit.TrackLog(userId, AuditAction.Update, "Transaction", id, id, oldType.ToString(), newType.ToString());
         }
         if (request.ResponseDueDays.HasValue) t.ResponseDueDays = request.ResponseDueDays;
         if (request.ResponseCompleted.HasValue || request.ResponseCompletedDate.HasValue)
@@ -501,28 +517,39 @@ public class TransactionService : ITransactionService
             var oldPriority = t.Priority;
             t.Priority = EnumHelper.ParsePriority(request.Priority);
             if (oldPriority != t.Priority)
-                await _audit.LogAsync(userId, AuditAction.Update, "Transaction", id, id, oldPriority.ToString(), t.Priority.ToString());
+                _audit.TrackLog(userId, AuditAction.Update, "Transaction", id, id, oldPriority.ToString(), t.Priority.ToString());
         }
         if (request.CategoryId.HasValue)
         {
             var oldCategoryId = t.CategoryId;
             t.CategoryId = request.CategoryId;
             if (oldCategoryId != request.CategoryId)
-                await _audit.LogAsync(userId, AuditAction.Update, "Transaction", id, id, oldCategoryId?.ToString(), request.CategoryId.ToString());
+                _audit.TrackLog(userId, AuditAction.Update, "Transaction", id, id, oldCategoryId?.ToString(), request.CategoryId.ToString());
         }
         if (request.Notes != null) t.Notes = request.Notes;
 
         WorkflowHelper.RecalculateResponseDueDate(t);
 
-        if (request.OutgoingDepartmentIds != null)
-            await SyncOutgoingDepartmentsAsync(id, request.OutgoingDepartmentIds, userId);
+        await using var dbTransaction = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            if (request.OutgoingDepartmentIds != null)
+                await SyncOutgoingDepartmentsAsync(t, request.OutgoingDepartmentIds, userId);
 
-        t.UpdatedById = userId;
-        t.UpdatedAt = DateTime.UtcNow;
+            t.UpdatedById = userId;
+            t.UpdatedAt = DateTime.UtcNow;
 
-        await _db.SaveChangesAsync();
-        await _audit.LogAsync(userId, AuditAction.Update, "Transaction", id, id, oldValues,
-            JsonSerializer.Serialize(new { t.IncomingNumber, t.Subject, t.Status, t.CategoryId, t.ResponseDueDays }));
+            _audit.TrackLog(userId, AuditAction.Update, "Transaction", id, id, oldValues,
+                JsonSerializer.Serialize(new { t.IncomingNumber, t.Subject, t.Status, t.CategoryId, t.ResponseDueDays }));
+
+            await _db.SaveChangesAsync();
+            await dbTransaction.CommitAsync();
+        }
+        catch
+        {
+            await dbTransaction.RollbackAsync();
+            throw;
+        }
 
         _cacheInvalidation.InvalidateOnTransactionChange();
         return await GetByIdAsync(id, new SystemUser(userId));
@@ -961,9 +988,11 @@ public class TransactionService : ITransactionService
         }
     }
 
-    private async Task SyncOutgoingDepartmentsAsync(int transactionId, List<int> departmentIds, int userId)
+    private async Task SyncOutgoingDepartmentsAsync(Transaction transaction, List<int> departmentIds, int userId)
     {
-        var existing = await _db.TransactionOutgoingDepartments.Where(x => x.TransactionId == transactionId).ToListAsync();
+        var existing = transaction.Id > 0
+            ? await _db.TransactionOutgoingDepartments.Where(x => x.TransactionId == transaction.Id).ToListAsync()
+            : transaction.OutgoingDepartments.ToList();
         var newIds = departmentIds.Distinct().ToHashSet();
         var removedIds = existing.Where(e => !newIds.Contains(e.DepartmentId)).Select(e => e.DepartmentId).ToList();
 
@@ -973,24 +1002,32 @@ public class TransactionService : ITransactionService
         var addedIds = newIds.Where(id => !existingIds.Contains(id)).ToList();
         foreach (var departmentId in addedIds)
         {
-            _db.TransactionOutgoingDepartments.Add(new TransactionOutgoingDepartment
+            var outgoing = new TransactionOutgoingDepartment
             {
-                TransactionId = transactionId,
                 DepartmentId = departmentId,
                 CreatedById = userId,
                 CreatedAt = DateTime.UtcNow
-            });
+            };
+
+            if (transaction.Id > 0)
+            {
+                outgoing.TransactionId = transaction.Id;
+                _db.TransactionOutgoingDepartments.Add(outgoing);
+            }
+            else
+            {
+                transaction.OutgoingDepartments.Add(outgoing);
+            }
         }
 
-        await _db.SaveChangesAsync();
-        await SyncAssignmentsFromOutgoingDepartmentsAsync(transactionId, addedIds, removedIds, userId);
-        await _audit.LogAsync(userId, AuditAction.Update, "TransactionOutgoingDepartments", transactionId, transactionId,
+        await SyncAssignmentsFromOutgoingDepartmentsAsync(transaction, addedIds, removedIds, userId);
+        _audit.TrackLog(userId, AuditAction.Update, "TransactionOutgoingDepartments", transaction.Id > 0 ? transaction.Id : null, transaction.Id > 0 ? transaction.Id : null,
             JsonSerializer.Serialize(existing.Select(e => e.DepartmentId)),
             JsonSerializer.Serialize(newIds));
     }
 
     private async Task SyncAssignmentsFromOutgoingDepartmentsAsync(
-        int transactionId,
+        Transaction transaction,
         IReadOnlyList<int> addedDepartmentIds,
         IReadOnlyList<int> removedDepartmentIds,
         int userId)
@@ -998,19 +1035,31 @@ public class TransactionService : ITransactionService
         if (addedDepartmentIds.Count == 0 && removedDepartmentIds.Count == 0)
             return;
 
-        var transaction = await _db.Transactions.AsNoTracking()
-            .Where(t => t.Id == transactionId)
-            .Select(t => new { t.IncomingDate, t.ResponseDueDate, t.ResponseDueDays })
-            .FirstOrDefaultAsync();
-        if (transaction == null) return;
-
-        var existingAssignments = await _db.Assignments
-            .Where(a => a.TransactionId == transactionId)
-            .ToListAsync();
-
         var assignedDate = transaction.IncomingDate;
         var dueDate = transaction.ResponseDueDate;
         var assignmentsChanged = false;
+
+        List<Assignment> existingAssignments;
+        if (transaction.Id > 0)
+        {
+            existingAssignments = await _db.Assignments
+                .Where(a => a.TransactionId == transaction.Id)
+                .ToListAsync();
+        }
+        else
+        {
+            existingAssignments = transaction.Assignments.ToList();
+        }
+
+        var departmentIdsForNames = addedDepartmentIds
+            .Concat(removedDepartmentIds)
+            .Distinct()
+            .ToList();
+        var departmentNames = departmentIdsForNames.Count == 0
+            ? new Dictionary<int, string>()
+            : await _db.Departments
+                .Where(d => departmentIdsForNames.Contains(d.Id))
+                .ToDictionaryAsync(d => d.Id, d => d.Name);
 
         foreach (var departmentId in addedDepartmentIds.Distinct())
         {
@@ -1032,26 +1081,17 @@ public class TransactionService : ITransactionService
                     existing.ReplyDueDays = transaction.ResponseDueDays;
                     assignmentsChanged = true;
 
-                    var reactivatedDeptName = await _db.Departments
-                        .Where(d => d.Id == departmentId)
-                        .Select(d => d.Name)
-                        .FirstOrDefaultAsync() ?? departmentId.ToString();
-
-                    await _audit.LogAsync(userId, AuditAction.StatusChange, "Assignment", existing.Id, transactionId,
+                    var reactivatedDeptName = departmentNames.GetValueOrDefault(departmentId, departmentId.ToString());
+                    _audit.TrackLog(userId, AuditAction.StatusChange, "Assignment", existing.Id, transaction.Id > 0 ? transaction.Id : null,
                         AssignmentStatus.Cancelled.ToString(),
                         JsonSerializer.Serialize(new { existing.Status, deptName = reactivatedDeptName, source = "OutgoingDepartment", reactivated = true }));
                 }
                 continue;
             }
 
-            var deptNameNew = await _db.Departments
-                .Where(d => d.Id == departmentId)
-                .Select(d => d.Name)
-                .FirstOrDefaultAsync() ?? departmentId.ToString();
-
+            var deptNameNew = departmentNames.GetValueOrDefault(departmentId, departmentId.ToString());
             var assignment = new Assignment
             {
-                TransactionId = transactionId,
                 DepartmentId = departmentId,
                 AssignedDate = assignedDate,
                 RequiredAction = "متابعة - صادر لها",
@@ -1064,12 +1104,21 @@ public class TransactionService : ITransactionService
                 CreatedAt = DateTime.UtcNow
             };
 
-            _db.Assignments.Add(assignment);
-            await _db.SaveChangesAsync();
+            if (transaction.Id > 0)
+            {
+                assignment.TransactionId = transaction.Id;
+                _db.Assignments.Add(assignment);
+            }
+            else
+            {
+                assignment.Transaction = transaction;
+                transaction.Assignments.Add(assignment);
+            }
+
             existingAssignments.Add(assignment);
             assignmentsChanged = true;
 
-            await _audit.LogAsync(userId, AuditAction.AddAssignment, "Assignment", assignment.Id, transactionId, null,
+            _audit.TrackLog(userId, AuditAction.AddAssignment, "Assignment", null, transaction.Id > 0 ? transaction.Id : null, null,
                 JsonSerializer.Serialize(new
                 {
                     deptName = deptNameNew,
@@ -1082,37 +1131,87 @@ public class TransactionService : ITransactionService
 
         if (removedDepartmentIds.Count > 0)
         {
-            var toCancel = await _db.Assignments
-                .Include(a => a.Department)
-                .Where(a => a.TransactionId == transactionId
-                    && removedDepartmentIds.Contains(a.DepartmentId)
-                    && a.Status == AssignmentStatus.Active
-                    && a.ReplyStatus != ReplyStatus.Replied
-                    && a.ReplySummary == null)
-                .ToListAsync();
+            var toCancel = transaction.Id > 0
+                ? await _db.Assignments
+                    .Include(a => a.Department)
+                    .Where(a => a.TransactionId == transaction.Id
+                        && removedDepartmentIds.Contains(a.DepartmentId)
+                        && a.Status == AssignmentStatus.Active
+                        && a.ReplyStatus != ReplyStatus.Replied
+                        && a.ReplySummary == null)
+                    .ToListAsync()
+                : existingAssignments
+                    .Where(a => removedDepartmentIds.Contains(a.DepartmentId)
+                        && a.Status == AssignmentStatus.Active
+                        && a.ReplyStatus != ReplyStatus.Replied
+                        && a.ReplySummary == null)
+                    .ToList();
 
             foreach (var assignment in toCancel)
             {
                 assignment.Status = AssignmentStatus.Cancelled;
-                await _audit.LogAsync(userId, AuditAction.StatusChange, "Assignment", assignment.Id, transactionId,
+                var departmentName = assignment.Department?.Name
+                    ?? departmentNames.GetValueOrDefault(assignment.DepartmentId, assignment.DepartmentId.ToString());
+                _audit.TrackLog(userId, AuditAction.StatusChange, "Assignment", assignment.Id, transaction.Id > 0 ? transaction.Id : null,
                     AssignmentStatus.Active.ToString(),
                     JsonSerializer.Serialize(new
                     {
                         assignment.Status,
-                        departmentName = assignment.Department.Name,
+                        departmentName,
                         reason = "RemovedFromOutgoingDepartments"
                     }));
             }
 
             if (toCancel.Count > 0)
-            {
                 assignmentsChanged = true;
-                await _db.SaveChangesAsync();
-            }
         }
 
         if (assignmentsChanged || addedDepartmentIds.Count > 0 || removedDepartmentIds.Count > 0)
-            await UpdateTransactionReplyStatusAsync(transactionId);
+        {
+            if (transaction.Id > 0 && !_db.Entry(transaction).Collection(x => x.Assignments).IsLoaded)
+                await _db.Entry(transaction).Collection(x => x.Assignments).LoadAsync();
+
+            WorkflowHelper.UpdateTransactionStatusFromAssignments(transaction);
+        }
+    }
+
+    private void BackfillAuditTransactionIds(int transactionId)
+    {
+        foreach (var entry in _db.ChangeTracker.Entries<AuditLog>()
+                     .Where(e => e.State == EntityState.Added && e.Entity.TransactionId == null))
+        {
+            entry.Entity.TransactionId = transactionId;
+            if (entry.Entity.EntityName is "TransactionOutgoingDepartments")
+                entry.Entity.EntityId = transactionId;
+        }
+    }
+
+    private void ResetCreatePersistenceState(Transaction transaction)
+    {
+        DetachTransaction(transaction);
+
+        foreach (var outgoing in transaction.OutgoingDepartments.ToList())
+        {
+            var entry = _db.Entry(outgoing);
+            if (entry.State != EntityState.Detached)
+                entry.State = EntityState.Detached;
+        }
+        transaction.OutgoingDepartments.Clear();
+
+        foreach (var assignment in transaction.Assignments.ToList())
+        {
+            var entry = _db.Entry(assignment);
+            if (entry.State != EntityState.Detached)
+                entry.State = EntityState.Detached;
+        }
+        transaction.Assignments.Clear();
+
+        foreach (var auditEntry in _db.ChangeTracker.Entries<AuditLog>()
+                     .Where(e => e.State == EntityState.Added)
+                     .ToList())
+        {
+            auditEntry.State = EntityState.Detached;
+        }
     }
 
     private void DetachTransaction(Transaction transaction)

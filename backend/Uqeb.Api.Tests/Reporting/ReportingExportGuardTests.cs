@@ -57,6 +57,15 @@ public class ReportingExportGuardTests
 
     private sealed class NoOpAuditService : Uqeb.Api.Services.IAuditService
     {
+        public void TrackLog(
+            int userId,
+            Uqeb.Api.Models.Enums.AuditAction action,
+            string? entityName,
+            int? entityId,
+            int? transactionId,
+            string? oldValue,
+            string? newValue) { }
+
         public Task LogAsync(
             int userId,
             Uqeb.Api.Models.Enums.AuditAction action,
