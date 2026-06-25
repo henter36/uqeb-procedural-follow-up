@@ -79,22 +79,54 @@ public class TransactionPersistenceSqlServerIntegrationTests
         public void InvalidateReferenceData() { }
     }
 
-    private static CreateTransactionRequest BuildCreateRequest(params int[] outgoingDepartmentIds) =>
+    private sealed record SeededReferenceData(
+        int AdminUserId,
+        int CategoryId,
+        int PartyId,
+        int DepartmentAId,
+        int DepartmentBId);
+
+    private static CreateTransactionRequest BuildCreateRequest(
+        SeededReferenceData seed,
+        params int[] outgoingDepartmentIds) =>
         new()
         {
             IncomingNumber = "IN-1001",
             IncomingDate = DateTime.UtcNow.Date,
             Subject = "معاملة اختبار",
             IncomingSourceType = IncomingSourceType.External.ToString(),
-            IncomingFromPartyId = 1,
+            IncomingFromPartyId = seed.PartyId,
             OutgoingNumber = "OUT-1001",
             OutgoingDate = DateTime.UtcNow.Date,
             OutgoingDepartmentIds = outgoingDepartmentIds.ToList(),
             ResponseType = ResponseType.External.ToString(),
             ResponseDueDays = 7,
             Priority = Priority.Normal.ToString(),
-            CategoryId = 1
+            CategoryId = seed.CategoryId
         };
+
+    private static async Task<SeededReferenceData> SeedReferenceDataAsync(AppDbContext db)
+    {
+        var user = new User
+        {
+            Username = "admin",
+            PasswordHash = "hash",
+            FullName = "Admin",
+            Role = UserRole.Admin,
+            IsActive = true
+        };
+        var category = new Category { Name = "عام", NameNormalized = "عام", IsActive = true };
+        var party = new ExternalParty { Name = "جهة", NameNormalized = "جهة", IsActive = true };
+        var deptA = new Department { Name = "المالية", NameNormalized = "المالية", IsActive = true };
+        var deptB = new Department { Name = "الموارد", NameNormalized = "الموارد", IsActive = true };
+        db.Users.Add(user);
+        db.Categories.Add(category);
+        db.ExternalParties.Add(party);
+        db.Departments.AddRange(deptA, deptB);
+        await db.SaveChangesAsync();
+
+        return new SeededReferenceData(user.Id, category.Id, party.Id, deptA.Id, deptB.Id);
+    }
 
     private static async Task<(AppDbContext Db, string TestConnectionString, string DatabaseName)> CreateSqlDbAsync()
     {
@@ -171,25 +203,6 @@ public class TransactionPersistenceSqlServerIntegrationTests
         Assert.Equal(1, count);
     }
 
-    private static async Task SeedReferenceDataAsync(AppDbContext db, int adminUserId = 1)
-    {
-        db.Users.Add(new User
-        {
-            Id = adminUserId,
-            Username = "admin",
-            PasswordHash = "hash",
-            FullName = "Admin",
-            Role = UserRole.Admin,
-            IsActive = true
-        });
-        db.Categories.Add(new Category { Id = 1, Name = "عام", NameNormalized = "عام", IsActive = true });
-        db.ExternalParties.Add(new ExternalParty { Id = 1, Name = "جهة", NameNormalized = "جهة", IsActive = true });
-        db.Departments.AddRange(
-            new Department { Id = 10, Name = "المالية", NameNormalized = "المالية", IsActive = true },
-            new Department { Id = 11, Name = "الموارد", NameNormalized = "الموارد", IsActive = true });
-        await db.SaveChangesAsync();
-    }
-
     [Fact]
     public async Task CreateAsync_retries_after_tracking_number_collision_without_duplicates()
     {
@@ -206,7 +219,7 @@ public class TransactionPersistenceSqlServerIntegrationTests
         try
         {
             await AssertUniqueIndexExistsAsync(db, InternalTrackingNumberIndexName);
-            await SeedReferenceDataAsync(db);
+            var seed = await SeedReferenceDataAsync(db);
 
             db.Transactions.Add(new Transaction
             {
@@ -215,10 +228,10 @@ public class TransactionPersistenceSqlServerIntegrationTests
                 IncomingDate = DateTime.UtcNow.Date,
                 Subject = "existing",
                 IncomingSourceType = IncomingSourceType.External,
-                IncomingFromPartyId = 1,
+                IncomingFromPartyId = seed.PartyId,
                 IncomingFrom = "جهة",
                 Status = TransactionStatus.New,
-                CreatedById = 1,
+                CreatedById = seed.AdminUserId,
                 CreatedAt = DateTime.UtcNow
             });
             await db.SaveChangesAsync();
@@ -230,7 +243,9 @@ public class TransactionPersistenceSqlServerIntegrationTests
                 trackingService,
                 new TestCacheInvalidation());
 
-            var created = await service.CreateAsync(BuildCreateRequest(10, 11), userId: 1);
+            var created = await service.CreateAsync(
+                BuildCreateRequest(seed, seed.DepartmentAId, seed.DepartmentBId),
+                userId: seed.AdminUserId);
 
             Assert.NotNull(created);
             Assert.Equal(2, trackingService.Calls);
