@@ -67,7 +67,7 @@ export default function DashboardPage() {
     if (rows.length === 0) {
       return <tr><td colSpan={colSpan} className="text-center">{emptyLabel}</td></tr>;
     }
-    return rows.map(renderItem);
+    return rows.map((item, index) => renderItem(item, index));
   };
 
   if (loading) {

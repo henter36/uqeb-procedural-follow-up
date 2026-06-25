@@ -13,11 +13,11 @@ public class CacheCoordinatorTests
         var coordinator = new MemoryCacheCoordinator(cache);
         var executions = 0;
 
-        Task<DashboardAggregateProbe> Factory()
+        async Task<DashboardAggregateProbe> Factory()
         {
             Interlocked.Increment(ref executions);
-            Thread.Sleep(50);
-            return Task.FromResult(new DashboardAggregateProbe { Value = 42 });
+            await Task.Delay(50);
+            return new DashboardAggregateProbe { Value = 42 };
         }
 
         var tasks = Enumerable.Range(0, 8)
