@@ -16,6 +16,8 @@ public static class DefaultUsersProvisioner
         new("reader", "Read@123", "قارئ", UserRole.Reader, null, null),
     ];
 
+    private sealed record DepartmentCodeSnapshot(int Id, string? Code, string NameNormalized);
+
     public static async Task<int> ApplyAsync(AppDbContext db, bool enabled, CancellationToken cancellationToken = default)
     {
         if (!enabled)
@@ -28,8 +30,8 @@ public static class DefaultUsersProvisioner
             .ToListAsync(cancellationToken);
         var existing = existingUsernames.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        var departments = await db.Departments.ToListAsync(cancellationToken);
-        var departmentByCode = departments.ToDictionary(d => d.Code, d => d.Id, StringComparer.OrdinalIgnoreCase);
+        var departmentByCode = await BuildDepartmentCodeMapAsync(db, cancellationToken);
+        ValidateRequiredDepartmentCodes(departmentByCode);
 
         var added = 0;
         foreach (var definition in DefaultUsers)
@@ -38,10 +40,9 @@ public static class DefaultUsersProvisioner
                 continue;
 
             int? departmentId = null;
-            if (!string.IsNullOrWhiteSpace(definition.DepartmentCode)
-                && departmentByCode.TryGetValue(definition.DepartmentCode, out var resolvedDepartmentId))
+            if (!string.IsNullOrWhiteSpace(definition.DepartmentCode))
             {
-                departmentId = resolvedDepartmentId;
+                departmentId = departmentByCode[definition.DepartmentCode];
             }
 
             db.Users.Add(new User
@@ -63,27 +64,162 @@ public static class DefaultUsersProvisioner
         return added;
     }
 
-    private static async Task EnsureRequiredDepartmentsAsync(AppDbContext db, CancellationToken cancellationToken)
+    private static async Task<Dictionary<string, int>> BuildDepartmentCodeMapAsync(
+        AppDbContext db,
+        CancellationToken cancellationToken)
     {
-        var existingCodes = await db.Departments.Select(d => d.Code).ToListAsync(cancellationToken);
-        var known = existingCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var added = false;
+        var snapshots = await db.Departments
+            .Where(department => department.Code != null)
+            .Select(department => new DepartmentCodeSnapshot(
+                department.Id,
+                department.Code,
+                department.NameNormalized))
+            .ToListAsync(cancellationToken);
 
-        foreach (var departmentCode in DefaultUsers
-                     .Select(definition => definition.DepartmentCode)
-                     .Where(code => !string.IsNullOrWhiteSpace(code))
-                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        AssertNoDuplicateDepartmentCodes(snapshots);
+
+        return snapshots
+            .Where(department => !string.IsNullOrWhiteSpace(department.Code))
+            .ToDictionary(
+                department => department.Code!,
+                department => department.Id,
+                StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static void ValidateRequiredDepartmentCodes(IReadOnlyDictionary<string, int> departmentByCode)
+    {
+        foreach (var definition in DefaultUsers)
         {
-            if (known.Contains(departmentCode!))
+            if (string.IsNullOrWhiteSpace(definition.DepartmentCode))
                 continue;
 
-            db.Departments.Add(CreateDepartment("الشؤون الإدارية", departmentCode!));
-            known.Add(departmentCode!);
-            added = true;
+            if (!departmentByCode.ContainsKey(definition.DepartmentCode))
+            {
+                throw new InvalidOperationException(
+                    $"Default user provisioning failed: department code '{definition.DepartmentCode}' required by user '{definition.Username}' could not be resolved.");
+            }
+        }
+    }
+
+    private static async Task EnsureRequiredDepartmentsAsync(AppDbContext db, CancellationToken cancellationToken)
+    {
+        var requiredCodes = DefaultUsers
+            .Select(definition => definition.DepartmentCode)
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (requiredCodes.Count == 0)
+            return;
+
+        var snapshots = await db.Departments
+            .Select(department => new DepartmentCodeSnapshot(
+                department.Id,
+                department.Code,
+                department.NameNormalized))
+            .ToListAsync(cancellationToken);
+
+        AssertNoDuplicateDepartmentCodes(snapshots);
+
+        var changed = false;
+        foreach (var requiredCode in requiredCodes)
+        {
+            changed |= await EnsureRequiredDepartmentAsync(
+                db,
+                snapshots,
+                requiredCode!,
+                cancellationToken);
         }
 
-        if (added)
+        if (changed)
             await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private static async Task<bool> EnsureRequiredDepartmentAsync(
+        AppDbContext db,
+        List<DepartmentCodeSnapshot> snapshots,
+        string code,
+        CancellationToken cancellationToken)
+    {
+        var displayName = GetRequiredDepartmentDisplayName(code);
+        var expectedNameNormalized = ReferenceNameNormalizer.NormalizeKey(
+            ReferenceNameNormalizer.FormatDisplayName(displayName));
+
+        var byCode = snapshots.FirstOrDefault(department =>
+            !string.IsNullOrWhiteSpace(department.Code) &&
+            string.Equals(department.Code, code, StringComparison.OrdinalIgnoreCase));
+        if (byCode is not null)
+            return false;
+
+        var byName = snapshots.FirstOrDefault(department =>
+            department.NameNormalized == expectedNameNormalized);
+        if (byName is not null)
+            return await UpdateRequiredDepartmentCodeAsync(db, snapshots, byName, code, cancellationToken);
+
+        db.Departments.Add(CreateDepartment(displayName, code));
+        snapshots.Add(new DepartmentCodeSnapshot(0, code, expectedNameNormalized));
+        AssertNoDuplicateDepartmentCodes(snapshots);
+        return true;
+    }
+
+    private static async Task<bool> UpdateRequiredDepartmentCodeAsync(
+        AppDbContext db,
+        List<DepartmentCodeSnapshot> snapshots,
+        DepartmentCodeSnapshot byName,
+        string code,
+        CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(byName.Code))
+        {
+            throw new InvalidOperationException(
+                $"Default user provisioning failed: department id {byName.Id} (name key '{byName.NameNormalized}') has code '{byName.Code}' which conflicts with required code '{code}'.");
+        }
+
+        var department = await db.Departments.FindAsync([byName.Id], cancellationToken)
+            ?? throw new InvalidOperationException(
+                $"Default user provisioning failed: department id {byName.Id} was not found while assigning code '{code}'.");
+
+        department.Code = code;
+
+        var snapshotIndex = snapshots.FindIndex(snapshot => snapshot.Id == byName.Id);
+        if (snapshotIndex < 0)
+        {
+            throw new InvalidOperationException(
+                $"Default user provisioning failed: snapshot for department id {byName.Id} was not found.");
+        }
+
+        snapshots[snapshotIndex] = byName with { Code = code };
+        AssertNoDuplicateDepartmentCodes(snapshots);
+        return true;
+    }
+
+    private static void AssertNoDuplicateDepartmentCodes(IReadOnlyList<DepartmentCodeSnapshot> departments)
+    {
+        var duplicateGroups = departments
+            .Where(department => !string.IsNullOrWhiteSpace(department.Code))
+            .GroupBy(department => department.Code!, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1)
+            .ToList();
+
+        if (duplicateGroups.Count == 0)
+            return;
+
+        var details = string.Join(
+            "; ",
+            duplicateGroups.Select(group =>
+                $"code '{group.Key}' (department ids: {string.Join(", ", group.Select(department => department.Id))})"));
+
+        throw new InvalidOperationException(
+            $"Default user provisioning failed: duplicate department codes detected: {details}.");
+    }
+
+    private static string GetRequiredDepartmentDisplayName(string code)
+    {
+        if (string.Equals(code, "ADM", StringComparison.OrdinalIgnoreCase))
+            return "الشؤون الإدارية";
+
+        throw new InvalidOperationException(
+            $"Default user provisioning failed: unsupported required department code '{code}'.");
     }
 
     private static Department CreateDepartment(string name, string code)
