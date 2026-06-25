@@ -563,12 +563,14 @@ public class TransactionService : ITransactionService
         var t = await _db.Transactions.FindAsync(id);
         if (t == null) return false;
 
-        t.Status = TransactionStatus.Cancelled;
-        t.UpdatedById = userId;
-        t.UpdatedAt = DateTime.UtcNow;
-        await _db.SaveChangesAsync();
-        await _audit.LogAsync(userId, AuditAction.Cancel, "Transaction", id, id, null, "Cancelled");
-        _cacheInvalidation.InvalidateOnTransactionChange();
+        await CommitWorkflowMutationAsync(() =>
+        {
+            t.Status = TransactionStatus.Cancelled;
+            t.UpdatedById = userId;
+            t.UpdatedAt = DateTime.UtcNow;
+            _audit.TrackLog(userId, AuditAction.Cancel, "Transaction", id, id, null, "Cancelled");
+            return Task.CompletedTask;
+        });
         return true;
     }
 
@@ -580,14 +582,16 @@ public class TransactionService : ITransactionService
         var t = await _db.Transactions.FindAsync(id);
         if (t == null) return false;
 
-        t.IsArchived = true;
-        t.ArchivedAt = DateTime.UtcNow;
-        t.Status = TransactionStatus.Archived;
-        t.UpdatedById = userId;
-        t.UpdatedAt = DateTime.UtcNow;
-        await _db.SaveChangesAsync();
-        await _audit.LogAsync(userId, AuditAction.Archive, "Transaction", id, id, null, "Archived");
-        _cacheInvalidation.InvalidateOnTransactionChange();
+        await CommitWorkflowMutationAsync(() =>
+        {
+            t.IsArchived = true;
+            t.ArchivedAt = DateTime.UtcNow;
+            t.Status = TransactionStatus.Archived;
+            t.UpdatedById = userId;
+            t.UpdatedAt = DateTime.UtcNow;
+            _audit.TrackLog(userId, AuditAction.Archive, "Transaction", id, id, null, "Archived");
+            return Task.CompletedTask;
+        });
         return true;
     }
 
@@ -609,14 +613,16 @@ public class TransactionService : ITransactionService
             throw;
         }
 
-        t.Status = TransactionStatus.Closed;
-        t.ClosedAt = DateTime.UtcNow;
-        t.UpdatedById = userId;
-        t.UpdatedAt = DateTime.UtcNow;
-        await _db.SaveChangesAsync();
-        await _audit.LogAsync(userId, AuditAction.Close, "Transaction", id, id, null,
-            JsonSerializer.Serialize(new { ClosedAt = t.ClosedAt }));
-        _cacheInvalidation.InvalidateOnTransactionChange();
+        await CommitWorkflowMutationAsync(() =>
+        {
+            t.Status = TransactionStatus.Closed;
+            t.ClosedAt = DateTime.UtcNow;
+            t.UpdatedById = userId;
+            t.UpdatedAt = DateTime.UtcNow;
+            _audit.TrackLog(userId, AuditAction.Close, "Transaction", id, id, null,
+                JsonSerializer.Serialize(new { ClosedAt = t.ClosedAt }));
+            return Task.CompletedTask;
+        });
         return true;
     }
 
@@ -662,28 +668,29 @@ public class TransactionService : ITransactionService
                 throw new InvalidOperationException("تاريخ الصادر مطلوب لنوع الإفادة المحدد");
         }
 
-        t.ResponseCompleted = true;
-        t.ResponseCompletedDate = request.ResponseDate.Date;
-        t.ResponseSummary = request.ResponseSummary.Trim();
-        if (!string.IsNullOrWhiteSpace(request.OutgoingNumber))
-            t.OutgoingNumber = request.OutgoingNumber.Trim();
-        if (request.OutgoingDate.HasValue)
-            t.OutgoingDate = request.OutgoingDate.Value.Date;
-        t.Status = TransactionStatus.ResponseCompleted;
-        t.UpdatedById = userId;
-        t.UpdatedAt = DateTime.UtcNow;
+        await CommitWorkflowMutationAsync(() =>
+        {
+            t.ResponseCompleted = true;
+            t.ResponseCompletedDate = request.ResponseDate.Date;
+            t.ResponseSummary = request.ResponseSummary.Trim();
+            if (!string.IsNullOrWhiteSpace(request.OutgoingNumber))
+                t.OutgoingNumber = request.OutgoingNumber.Trim();
+            if (request.OutgoingDate.HasValue)
+                t.OutgoingDate = request.OutgoingDate.Value.Date;
+            t.Status = TransactionStatus.ResponseCompleted;
+            t.UpdatedById = userId;
+            t.UpdatedAt = DateTime.UtcNow;
+            _audit.TrackLog(userId, AuditAction.CompleteResponse, "Transaction", id, id, null,
+                JsonSerializer.Serialize(new
+                {
+                    responseDate = t.ResponseCompletedDate,
+                    responseSummary = t.ResponseSummary,
+                    outgoingNumber = t.OutgoingNumber,
+                    outgoingDate = t.OutgoingDate
+                }));
+            return Task.CompletedTask;
+        });
 
-        await _db.SaveChangesAsync();
-        await _audit.LogAsync(userId, AuditAction.CompleteResponse, "Transaction", id, id, null,
-            JsonSerializer.Serialize(new
-            {
-                responseDate = t.ResponseCompletedDate,
-                responseSummary = t.ResponseSummary,
-                outgoingNumber = t.OutgoingNumber,
-                outgoingDate = t.OutgoingDate
-            }));
-
-        _cacheInvalidation.InvalidateOnTransactionChange();
         return await GetByIdAsync(id, currentUser);
     }
 
@@ -720,7 +727,6 @@ public class TransactionService : ITransactionService
                 .Select(d => d.Name)
                 .ToListAsync();
             var msg = $"لا يمكن إرسال التعقيب لإدارات غير مرتبطة بالمعاملة: {string.Join("، ", invalidNames)}";
-            await _audit.LogAsync(userId, AuditAction.AddFollowUp, "FollowUp", null, transactionId, null, msg);
             throw new InvalidOperationException(msg);
         }
 
@@ -742,25 +748,30 @@ public class TransactionService : ITransactionService
             CreatedAt = DateTime.UtcNow
         };
 
-        _db.FollowUps.Add(followUp);
-        await _db.SaveChangesAsync();
-
         foreach (var deptId in departmentIds)
         {
-            _db.FollowUpDepartments.Add(new FollowUpDepartment
+            followUp.Departments.Add(new FollowUpDepartment
             {
-                FollowUpId = followUp.Id,
                 DepartmentId = deptId,
                 CreatedById = userId,
                 CreatedAt = DateTime.UtcNow
             });
         }
 
-        if (t.Status == TransactionStatus.New) t.Status = TransactionStatus.InProgress;
-        await _db.SaveChangesAsync();
-
-        await _audit.LogAsync(userId, AuditAction.AddFollowUp, "FollowUp", followUp.Id, transactionId, null,
-            JsonSerializer.Serialize(new { departmentIds, deptNames, request.Notes }));
+        await CommitWorkflowMutationAsync(
+            () =>
+            {
+                _db.FollowUps.Add(followUp);
+                if (t.Status == TransactionStatus.New)
+                    t.Status = TransactionStatus.InProgress;
+                return Task.CompletedTask;
+            },
+            () =>
+            {
+                _audit.TrackLog(userId, AuditAction.AddFollowUp, "FollowUp", followUp.Id, transactionId, null,
+                    JsonSerializer.Serialize(new { departmentIds, deptNames, request.Notes }));
+                return Task.CompletedTask;
+            });
 
         return await MapFollowUpDtoAsync(followUp.Id);
     }
@@ -813,17 +824,26 @@ public class TransactionService : ITransactionService
             .FirstOrDefaultAsync(f => f.Id == followUpId && f.TransactionId == transactionId);
         if (followUp == null) return null;
 
-        followUp.ReplyStatus = ReplyStatus.Replied;
-        followUp.ReplyDate = request.ReplyDate;
-        followUp.ReplySummary = request.ReplySummary;
-        await _db.SaveChangesAsync();
-        await _audit.LogAsync(userId, AuditAction.RecordReply, "FollowUp", followUpId, transactionId, null, request.ReplySummary);
+        await CommitWorkflowMutationAsync(
+            () =>
+            {
+                followUp.ReplyStatus = ReplyStatus.Replied;
+                followUp.ReplyDate = request.ReplyDate;
+                followUp.ReplySummary = request.ReplySummary;
+                return Task.CompletedTask;
+            },
+            () =>
+            {
+                _audit.TrackLog(userId, AuditAction.RecordReply, "FollowUp", followUpId, transactionId, null, request.ReplySummary);
+                return Task.CompletedTask;
+            });
+
         return await MapFollowUpDtoAsync(followUpId);
     }
 
     public async Task<AssignmentDto> AddAssignmentAsync(int transactionId, CreateAssignmentRequest request, int userId)
     {
-        var t = await _db.Transactions.FindAsync(transactionId)
+        var t = await _db.Transactions.Include(x => x.Assignments).FirstOrDefaultAsync(x => x.Id == transactionId)
             ?? throw new InvalidOperationException("المعاملة غير موجودة");
 
         var dept = await _db.Departments.FindAsync(request.DepartmentId)
@@ -846,13 +866,20 @@ public class TransactionService : ITransactionService
             CreatedAt = DateTime.UtcNow
         };
 
-        _db.Assignments.Add(assignment);
-        t.Status = TransactionStatus.Assigned;
-        await _db.SaveChangesAsync();
-
-        await UpdateTransactionReplyStatusAsync(transactionId);
-        await _audit.LogAsync(userId, AuditAction.AddAssignment, "Assignment", assignment.Id, transactionId, null,
-            JsonSerializer.Serialize(new { dept.Name, dueDate, request.ReplyDueDays }));
+        await CommitWorkflowMutationAsync(
+            () =>
+            {
+                _db.Assignments.Add(assignment);
+                t.Status = TransactionStatus.Assigned;
+                ApplyTransactionReplyStatus(t);
+                return Task.CompletedTask;
+            },
+            () =>
+            {
+                _audit.TrackLog(userId, AuditAction.AddAssignment, "Assignment", assignment.Id, transactionId, null,
+                    JsonSerializer.Serialize(new { dept.Name, dueDate, request.ReplyDueDays }));
+                return Task.CompletedTask;
+            });
 
         return MapAssignment(assignment, dept.Name, "");
     }
@@ -862,20 +889,29 @@ public class TransactionService : ITransactionService
         var assignment = await _db.Assignments
             .Include(a => a.Department)
             .Include(a => a.CreatedBy)
+            .Include(a => a.Transaction).ThenInclude(t => t.Assignments)
             .FirstOrDefaultAsync(a => a.Id == assignmentId && a.TransactionId == transactionId);
         if (assignment == null) return null;
 
         if (currentUser.Role == UserRole.DepartmentUser && currentUser.DepartmentId != assignment.DepartmentId)
             throw new UnauthorizedAccessException("لا يمكنك الرد على تحويل ليس لإدارتك");
 
-        assignment.ReplyStatus = ReplyStatus.Replied;
-        assignment.ReplyDate = request.ReplyDate;
-        assignment.ReplySummary = request.ReplySummary;
-        assignment.Status = AssignmentStatus.Completed;
-        await _db.SaveChangesAsync();
-        await _audit.LogAsync(currentUser.UserId, AuditAction.RecordReply, "Assignment", assignmentId, transactionId, null, request.ReplySummary);
+        await CommitWorkflowMutationAsync(
+            () =>
+            {
+                assignment.ReplyStatus = ReplyStatus.Replied;
+                assignment.ReplyDate = request.ReplyDate;
+                assignment.ReplySummary = request.ReplySummary;
+                assignment.Status = AssignmentStatus.Completed;
+                ApplyTransactionReplyStatus(assignment.Transaction);
+                return Task.CompletedTask;
+            },
+            () =>
+            {
+                _audit.TrackLog(currentUser.UserId, AuditAction.RecordReply, "Assignment", assignmentId, transactionId, null, request.ReplySummary);
+                return Task.CompletedTask;
+            });
 
-        await UpdateTransactionReplyStatusAsync(transactionId);
         return MapAssignment(assignment, assignment.Department.Name, assignment.CreatedBy.FullName);
     }
 
@@ -938,13 +974,31 @@ public class TransactionService : ITransactionService
             throw new InvalidOperationException("لا يمكن إغلاق المعاملة قبل تسجيل الإفادة.");
     }
 
-    private async Task UpdateTransactionReplyStatusAsync(int transactionId)
-    {
-        var t = await _db.Transactions.Include(x => x.Assignments).FirstOrDefaultAsync(x => x.Id == transactionId);
-        if (t == null) return;
-
+    private static void ApplyTransactionReplyStatus(Transaction t) =>
         WorkflowHelper.UpdateTransactionStatusFromAssignments(t);
-        await _db.SaveChangesAsync();
+
+    private async Task CommitWorkflowMutationAsync(Func<Task> mutateAsync, Func<Task>? afterFirstSaveAsync = null)
+    {
+        await using var dbTransaction = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            await mutateAsync();
+            await _db.SaveChangesAsync();
+            if (afterFirstSaveAsync != null)
+            {
+                await afterFirstSaveAsync();
+                await _db.SaveChangesAsync();
+            }
+
+            await dbTransaction.CommitAsync();
+        }
+        catch
+        {
+            await dbTransaction.RollbackAsync();
+            throw;
+        }
+
+        _cacheInvalidation.InvalidateOnTransactionChange();
     }
 
     private async Task UpdateOverdueStatusesForTransactionAsync(int transactionId)
