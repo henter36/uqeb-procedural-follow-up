@@ -62,20 +62,23 @@ public class TransactionPersistenceAtomicityTests
         public void InvalidateReferenceData() { }
     }
 
-    private static (AppDbContext Db, SaveChangesCounterInterceptor Counter) CreateDb(string name)
+    private static (AppDbContext Db, SaveChangesCounterInterceptor Counter) CreateDb(string name, params SaveChangesInterceptor[] extraInterceptors)
     {
         var counter = new SaveChangesCounterInterceptor();
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase(name)
             .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
-            .AddInterceptors(counter)
+            .AddInterceptors(new SaveChangesInterceptor[] { counter }.Concat(extraInterceptors).ToArray())
             .Options;
         return (new AppDbContext(options), counter);
     }
 
-    private static async Task<(TransactionService Service, AppDbContext Db, SaveChangesCounterInterceptor Counter, TestCacheInvalidation Cache)> CreateServiceAsync(string dbName)
+    private static async Task<(TransactionService Service, AppDbContext Db, SaveChangesCounterInterceptor Counter, TestCacheInvalidation Cache)> CreateServiceAsync(
+        string dbName,
+        ITrackingNumberService? trackingNumbers = null,
+        params SaveChangesInterceptor[] extraInterceptors)
     {
-        var (db, counter) = CreateDb(dbName);
+        var (db, counter) = CreateDb(dbName, extraInterceptors);
         var cache = new TestCacheInvalidation();
         var user = new User
         {
@@ -100,7 +103,7 @@ public class TransactionPersistenceAtomicityTests
         var service = new TransactionService(
             db,
             new AuditService(db),
-            new StubTrackingNumberService(),
+            trackingNumbers ?? new StubTrackingNumberService(),
             cache);
 
         return (service, db, counter, cache);
@@ -225,5 +228,110 @@ public class TransactionPersistenceAtomicityTests
         Assert.Equal(auditCountBefore + 2, await db.AuditLogs.CountAsync());
         Assert.Contains(await db.AuditLogs.ToListAsync(), a =>
             a.Action == AuditAction.Update && a.OldValue == Priority.Normal.ToString() && a.NewValue == Priority.Urgent.ToString());
+    }
+
+    private sealed class CollisionThenUniqueTrackingService : ITrackingNumberService
+    {
+        private int _calls;
+
+        public const string CollisionNumber = "UQEB-COLLISION";
+
+        public Task<string> GenerateNextAsync(CancellationToken cancellationToken = default)
+        {
+            _calls++;
+            return Task.FromResult(_calls == 1 ? CollisionNumber : $"UQEB-2026-{_calls:00000}");
+        }
+    }
+
+    private sealed class FailSecondSaveChangesInterceptor : SaveChangesInterceptor
+    {
+        private int _count;
+
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            _count++;
+            if (_count == 2)
+                throw new InvalidOperationException("simulated audit persistence failure");
+
+            return base.SavingChangesAsync(eventData, result, cancellationToken);
+        }
+    }
+
+    [Fact]
+    public async Task CreateAsync_retries_after_tracking_number_collision_without_duplicates()
+    {
+        var (service, db, _, _) = await CreateServiceAsync(
+            nameof(CreateAsync_retries_after_tracking_number_collision_without_duplicates),
+            new CollisionThenUniqueTrackingService());
+
+        db.Transactions.Add(new Transaction
+        {
+            IncomingNumber = "IN-EXISTING",
+            InternalTrackingNumber = CollisionThenUniqueTrackingService.CollisionNumber,
+            IncomingDate = DateTime.UtcNow.Date,
+            Subject = "existing",
+            IncomingSourceType = IncomingSourceType.External,
+            IncomingFromPartyId = 1,
+            IncomingFrom = "جهة",
+            Status = TransactionStatus.New,
+            CreatedById = 1,
+            CreatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        var created = await service.CreateAsync(BuildCreateRequest(10, 11), userId: 1);
+
+        Assert.NotNull(created);
+        Assert.Equal(2, await db.Transactions.CountAsync());
+        Assert.Equal(1, await db.Transactions.CountAsync(t => t.IncomingNumber == "IN-1001"));
+        Assert.Equal(2, await db.TransactionOutgoingDepartments.CountAsync(tod => tod.TransactionId == created.Id));
+        Assert.Equal(2, await db.Assignments.CountAsync(a => a.TransactionId == created.Id));
+        Assert.Equal(1, await db.AuditLogs.CountAsync(a => a.Action == AuditAction.Create && a.TransactionId == created.Id));
+        Assert.DoesNotContain(
+            await db.AuditLogs.Where(a => a.TransactionId == created.Id).ToListAsync(),
+            audit => audit.Action == AuditAction.Create && audit.EntityId != created.Id);
+    }
+
+    [Fact]
+    public async Task CreateAsync_does_not_attach_unrelated_pending_audit_log()
+    {
+        var (service, db, _, _) = await CreateServiceAsync(nameof(CreateAsync_does_not_attach_unrelated_pending_audit_log));
+        var auditService = new AuditService(db);
+        var unrelated = auditService.TrackLog(
+            1,
+            AuditAction.Update,
+            "Department",
+            99,
+            transactionId: null,
+            oldValue: null,
+            newValue: """{"name":"other"}""");
+
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+
+        Assert.Null(unrelated.TransactionId);
+        Assert.Equal(99, unrelated.EntityId);
+        Assert.DoesNotContain(
+            await db.AuditLogs.Where(a => a.TransactionId == created!.Id).ToListAsync(),
+            audit => audit.EntityName == "Department" && audit.EntityId == 99);
+        Assert.True(await db.AuditLogs.AnyAsync(a => a.Action == AuditAction.Create && a.TransactionId == created.Id));
+    }
+
+    [Fact]
+    public async Task CreateAsync_rolls_back_transaction_when_final_audit_save_fails()
+    {
+        var (service, db, _, _) = await CreateServiceAsync(
+            nameof(CreateAsync_rolls_back_transaction_when_final_audit_save_fails),
+            extraInterceptors: new FailSecondSaveChangesInterceptor());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateAsync(BuildCreateRequest(10, 11), userId: 1));
+
+        Assert.Equal(0, await db.Transactions.CountAsync());
+        Assert.Equal(0, await db.TransactionOutgoingDepartments.CountAsync());
+        Assert.Equal(0, await db.Assignments.CountAsync());
+        Assert.False(await db.AuditLogs.AnyAsync(a => a.Action == AuditAction.Create));
     }
 }
