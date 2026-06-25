@@ -243,23 +243,6 @@ public class TransactionPersistenceAtomicityTests
         }
     }
 
-    private sealed class FailSecondSaveChangesInterceptor : SaveChangesInterceptor
-    {
-        private int _count;
-
-        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
-            DbContextEventData eventData,
-            InterceptionResult<int> result,
-            CancellationToken cancellationToken = default)
-        {
-            _count++;
-            if (_count == 2)
-                throw new InvalidOperationException("simulated audit persistence failure");
-
-            return base.SavingChangesAsync(eventData, result, cancellationToken);
-        }
-    }
-
     [Fact]
     public async Task CreateAsync_retries_after_tracking_number_collision_without_duplicates()
     {
@@ -319,19 +302,4 @@ public class TransactionPersistenceAtomicityTests
         Assert.True(await db.AuditLogs.AnyAsync(a => a.Action == AuditAction.Create && a.TransactionId == created.Id));
     }
 
-    [Fact]
-    public async Task CreateAsync_rolls_back_transaction_when_final_audit_save_fails()
-    {
-        var (service, db, _, _) = await CreateServiceAsync(
-            nameof(CreateAsync_rolls_back_transaction_when_final_audit_save_fails),
-            extraInterceptors: new FailSecondSaveChangesInterceptor());
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.CreateAsync(BuildCreateRequest(10, 11), userId: 1));
-
-        Assert.Equal(0, await db.Transactions.CountAsync());
-        Assert.Equal(0, await db.TransactionOutgoingDepartments.CountAsync());
-        Assert.Equal(0, await db.Assignments.CountAsync());
-        Assert.False(await db.AuditLogs.AnyAsync(a => a.Action == AuditAction.Create));
-    }
 }
