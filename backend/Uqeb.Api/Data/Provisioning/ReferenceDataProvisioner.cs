@@ -21,7 +21,10 @@ public static class ReferenceDataProvisioner
                 Code = LetterTemplateService.FollowUpTemplateCode,
                 Name = "قالب خطاب التعقيب",
                 Content = LetterTemplateService.DefaultFollowUpContent,
+                TemplateType = Models.Enums.LetterTemplateType.FollowUp,
                 IsActive = true,
+                IsDefault = true,
+                SortOrder = 0,
                 CreatedAt = DateTime.UtcNow,
             });
             changes++;

@@ -18,6 +18,14 @@ vi.mock('../api/services', () => ({
   },
 }));
 
+vi.mock('../hooks/usePendingPrintSummary', () => ({
+  usePendingPrintSummary: () => ({ pendingTotal: 0, refresh: vi.fn() }),
+}));
+
+vi.mock('../context/useAuth', () => ({
+  useAuth: () => ({ canClose: false }),
+}));
+
 const emptyDashboard = {
   totalOpen: 0,
   requiresResponsePending: 0,

@@ -10,8 +10,10 @@ using Microsoft.IdentityModel.Tokens;
 using Uqeb.Api.Authorization;
 using Uqeb.Api.Configuration;
 using Uqeb.Api.Data;
+using Uqeb.Api.Helpers;
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Middleware;
+using Uqeb.Api.HostedServices;
 using Uqeb.Api.Reporting.Exporters;
 using Uqeb.Api.Reporting.Configuration;
 using Uqeb.Api.Reporting.Operations;
@@ -47,6 +49,15 @@ builder.Services.AddOptions<DatabaseStartupOptions>()
         return true;
     }, "DatabaseStartup configuration is invalid.")
     .ValidateOnStart();
+builder.Services.AddOptions<FollowUpLettersOptions>()
+    .Bind(builder.Configuration.GetSection(FollowUpLettersOptions.SectionName))
+    .Validate(o =>
+    {
+        o.Validate();
+        return true;
+    }, "FollowUpLetters configuration is invalid.")
+    .ValidateOnStart();
+builder.Services.Configure<OrganizationBrandingOptions>(builder.Configuration.GetSection(OrganizationBrandingOptions.SectionName));
 
 var useInMemoryDatabase = builder.Configuration.GetValue<bool>("Testing:UseInMemoryDatabase");
 if (!useInMemoryDatabase)
@@ -95,6 +106,16 @@ builder.Services.AddScoped<IDepartmentService, DepartmentService>();
 builder.Services.AddScoped<IExternalPartyService, ExternalPartyService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddScoped<ILetterTemplateService, LetterTemplateService>();
+builder.Services.AddScoped<ILetterTemplateAdminService, LetterTemplateAdminService>();
+builder.Services.AddScoped<IFollowUpLetterTimeZone, FollowUpLetterTimeZone>();
+builder.Services.AddScoped<IFollowUpLetterDocumentBuilder, FollowUpLetterDocumentBuilder>();
+builder.Services.AddScoped<IFollowUpLetterRenderService, FollowUpLetterRenderService>();
+builder.Services.AddScoped<IFollowUpPrintEligibilityService, FollowUpPrintEligibilityService>();
+builder.Services.AddScoped<IFollowUpPrintJobService, FollowUpPrintJobService>();
+builder.Services.AddScoped<IFollowUpLetterPrintRecordService, FollowUpLetterPrintRecordService>();
+builder.Services.AddScoped<IUserNotificationService, UserNotificationService>();
+builder.Services.AddSingleton<IFollowUpLetterPdfExporter, FollowUpLetterPdfExporter>();
+builder.Services.AddHostedService<FollowUpPrintJobProcessorHostedService>();
 builder.Services.AddScoped<ISecurityAuditService, SecurityAuditService>();
 builder.Services.AddScoped<IAuditIntegrityDiagnosticService, AuditIntegrityDiagnosticService>();
 builder.Services.AddScoped<IHealthDatabaseProbe, DbContextHealthDatabaseProbe>();
@@ -138,6 +159,22 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy(Policies.CanCloseTransactions, p => p.RequireRole(
         UserRole.Admin.ToString(), UserRole.Supervisor.ToString()));
     options.AddPolicy(Policies.CanManageUsers, p => p.RequireRole(UserRole.Admin.ToString()));
+    options.AddPolicy(Policies.ManageLetterTemplates, p => p.RequireRole(
+        UserRole.Admin.ToString(), UserRole.Supervisor.ToString()));
+    options.AddPolicy(Policies.CreateFollowUpPrintJob, p => p.RequireRole(
+        UserRole.Admin.ToString(), UserRole.Supervisor.ToString()));
+    options.AddPolicy(Policies.ViewFollowUpPrintJobs, p => p.RequireRole(
+        UserRole.Admin.ToString(), UserRole.Supervisor.ToString(), UserRole.DataEntry.ToString()));
+    options.AddPolicy(Policies.CancelFollowUpPrintJob, p => p.RequireRole(
+        UserRole.Admin.ToString(), UserRole.Supervisor.ToString()));
+    options.AddPolicy(Policies.RetryFollowUpPrintJob, p => p.RequireRole(
+        UserRole.Admin.ToString(), UserRole.Supervisor.ToString()));
+    options.AddPolicy(Policies.PrintFollowUpLetters, p => p.RequireRole(
+        UserRole.Admin.ToString(), UserRole.Supervisor.ToString(), UserRole.DataEntry.ToString()));
+    options.AddPolicy(Policies.RegisterPrintedFollowUp, p => p.RequireRole(
+        UserRole.Admin.ToString(), UserRole.Supervisor.ToString(), UserRole.DataEntry.ToString()));
+    options.AddPolicy(Policies.CancelFollowUpPrintRecord, p => p.RequireRole(
+        UserRole.Admin.ToString(), UserRole.Supervisor.ToString()));
 });
 
 builder.Services.AddMemoryCache();

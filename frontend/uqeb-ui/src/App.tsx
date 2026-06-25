@@ -12,6 +12,11 @@ import Reports from './pages/Reports';
 import ReportBuilder from './pages/ReportBuilder';
 import { UsersPage, DepartmentsPage, ExternalPartiesPage, CategoriesPage } from './pages/AdminPages';
 import LetterTemplatePage from './pages/LetterTemplatePage';
+import FollowUpPrintEligiblePage from './pages/FollowUpPrintEligiblePage';
+import FollowUpPrintJobsPage from './pages/FollowUpPrintJobsPage';
+import FollowUpPrintJobDetailPage from './pages/FollowUpPrintJobDetailPage';
+import FollowUpPrintPendingPage from './pages/FollowUpPrintPendingPage';
+import FollowUpPrintPartPage from './pages/FollowUpPrintPartPage';
 import SecurityPage from './pages/SecurityPage';
 import TransactionImport from './pages/TransactionImport';
 import { institutionalReportsEnabled } from './config/institutionalReportsRuntime';
@@ -54,6 +59,46 @@ export default function App() {
               />
             )}
             <Route path="letter-template" element={<LetterTemplatePage />} />
+            <Route
+              path="follow-up-print/eligible"
+              element={(
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor']}>
+                  <FollowUpPrintEligiblePage />
+                </ProtectedRoute>
+              )}
+            />
+            <Route
+              path="follow-up-print/jobs"
+              element={(
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor']}>
+                  <FollowUpPrintJobsPage />
+                </ProtectedRoute>
+              )}
+            />
+            <Route
+              path="follow-up-print/jobs/:id"
+              element={(
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor']}>
+                  <FollowUpPrintJobDetailPage />
+                </ProtectedRoute>
+              )}
+            />
+            <Route
+              path="follow-up-print/pending"
+              element={(
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor']}>
+                  <FollowUpPrintPendingPage />
+                </ProtectedRoute>
+              )}
+            />
+            <Route
+              path="follow-up-print/parts/:jobId/:partNumber/print"
+              element={(
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor']}>
+                  <FollowUpPrintPartPage />
+                </ProtectedRoute>
+              )}
+            />
             <Route
               path="users"
               element={(

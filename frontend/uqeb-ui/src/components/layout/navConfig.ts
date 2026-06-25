@@ -1,7 +1,7 @@
 import type { ComponentType, SVGProps } from 'react';
 import {
   IconDashboard, IconTransactions, IconReports, IconUsers,
-  IconSettings, IconImport, IconSecurity, IconLetter,
+  IconSettings, IconImport, IconSecurity, IconLetter, IconPrint,
 } from '../ui/icons';
 import { isInstitutionalReportsEnabled } from '../../config/featureFlags';
 
@@ -12,6 +12,7 @@ export type NavItem = {
   adminOnly?: boolean;
   supervisorOnly?: boolean;
   matchPrefix?: boolean;
+  badgeKey?: 'pendingPrints';
 };
 
 export type NavSection = {
@@ -36,7 +37,10 @@ export function buildNavSections(institutionalReportsEnabled = isInstitutionalRe
       label: 'العمليات',
       items: [
         { path: '/reports?tab=waiting', label: 'التحويلات والردود', icon: IconReports },
-        { path: '/letter-template', label: 'قالب خطاب التعقيب', icon: IconLetter, supervisorOnly: true },
+        { path: '/letter-template', label: 'قوالب خطاب التعقيب', icon: IconLetter, supervisorOnly: true, matchPrefix: true },
+        { path: '/follow-up-print/eligible', label: 'طباعة التعقيب — المستحقة', icon: IconPrint, supervisorOnly: true, matchPrefix: true },
+        { path: '/follow-up-print/jobs', label: 'مهام طباعة التعقيب', icon: IconPrint, supervisorOnly: true, matchPrefix: true },
+        { path: '/follow-up-print/pending', label: 'بانتظار تسجيل التعقيب', icon: IconPrint, supervisorOnly: true, badgeKey: 'pendingPrints' },
         { path: '/transactions/import', label: 'استيراد Excel', icon: IconImport, adminOnly: true },
       ],
     },
@@ -62,6 +66,8 @@ export type RouteMeta = {
 
 const TRANSACTION_EDIT_REGEX = /^\/transactions\/(\d+)\/edit$/;
 const TRANSACTION_DETAIL_REGEX = /^\/transactions\/(\d+)$/;
+const FOLLOW_UP_PRINT_JOB_REGEX = /^\/follow-up-print\/jobs\/(\d+)$/;
+const FOLLOW_UP_PRINT_PART_REGEX = /^\/follow-up-print\/parts\/(\d+)\/(\d+)\/print$/;
 
 export function getRouteMeta(pathname: string, search: string): RouteMeta {
   const full = pathname + search;
@@ -72,7 +78,10 @@ export function getRouteMeta(pathname: string, search: string): RouteMeta {
     '/transactions/new': { title: 'إضافة معاملة', breadcrumbs: [{ label: 'المعاملات', path: '/transactions' }, { label: 'إضافة معاملة' }] },
     '/transactions/import': { title: 'استيراد المعاملات', breadcrumbs: [{ label: 'المعاملات', path: '/transactions' }, { label: 'استيراد' }] },
     '/reports': { title: 'التقارير', breadcrumbs: [{ label: 'التقارير' }] },
-    '/letter-template': { title: 'قالب خطاب التعقيب', breadcrumbs: [{ label: 'قالب خطاب التعقيب' }] },
+    '/letter-template': { title: 'قوالب خطاب التعقيب', breadcrumbs: [{ label: 'قوالب خطاب التعقيب' }] },
+    '/follow-up-print/eligible': { title: 'المعاملات المستحقة للتعقيب', breadcrumbs: [{ label: 'طباعة التعقيب' }, { label: 'المستحقة' }] },
+    '/follow-up-print/jobs': { title: 'مهام طباعة التعقيب', breadcrumbs: [{ label: 'طباعة التعقيب' }, { label: 'المهام' }] },
+    '/follow-up-print/pending': { title: 'بانتظار تسجيل التعقيب', breadcrumbs: [{ label: 'طباعة التعقيب' }, { label: 'بانتظار التسجيل' }] },
     '/users': { title: 'المستخدمون', breadcrumbs: [{ label: 'الإدارة' }, { label: 'المستخدمون' }] },
     '/departments': { title: 'الإدارات', breadcrumbs: [{ label: 'الإدارة' }, { label: 'الإدارات' }] },
     '/external-parties': { title: 'الجهات الخارجية', breadcrumbs: [{ label: 'الإدارة' }, { label: 'الجهات الخارجية' }] },
@@ -98,6 +107,29 @@ export function getRouteMeta(pathname: string, search: string): RouteMeta {
       breadcrumbs: [
         { label: 'المعاملات', path: '/transactions' },
         { label: 'تفاصيل المعاملة' },
+      ],
+    };
+  }
+
+  const jobMatch = FOLLOW_UP_PRINT_JOB_REGEX.exec(pathname);
+  if (jobMatch) {
+    return {
+      title: `مهمة الطباعة #${jobMatch[1]}`,
+      breadcrumbs: [
+        { label: 'طباعة التعقيب', path: '/follow-up-print/jobs' },
+        { label: `مهمة #${jobMatch[1]}` },
+      ],
+    };
+  }
+
+  const partMatch = FOLLOW_UP_PRINT_PART_REGEX.exec(pathname);
+  if (partMatch) {
+    return {
+      title: `طباعة الجزء ${partMatch[2]}`,
+      breadcrumbs: [
+        { label: 'طباعة التعقيب', path: '/follow-up-print/jobs' },
+        { label: `مهمة #${partMatch[1]}`, path: `/follow-up-print/jobs/${partMatch[1]}` },
+        { label: `الجزء ${partMatch[2]}` },
       ],
     };
   }

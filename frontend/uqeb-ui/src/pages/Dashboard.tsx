@@ -2,6 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { reportsApi } from '../api/services';
 import type { DashboardSummary, TransactionListItem } from '../api/types';
+import { useAuth } from '../context/useAuth';
+import { usePendingPrintSummary } from '../hooks/usePendingPrintSummary';
 import { statusLabels } from '../utils/labels';
 import DateDisplay from '../components/DateDisplay';
 import DepartmentBadges from '../components/DepartmentBadges';
@@ -16,6 +18,8 @@ function resolveActionRequiredView(actionRequired: TransactionListItem[] | undef
 }
 
 export default function DashboardPage() {
+  const { canClose } = useAuth();
+  const { pendingTotal } = usePendingPrintSummary(canClose);
   const [data, setData] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -123,6 +127,14 @@ export default function DashboardPage() {
             link={c.link}
           />
         ))}
+        {canClose && (
+          <StatCard
+            label="بانتظار تسجيل التعقيب"
+            value={String(pendingTotal)}
+            color="orange"
+            link="/follow-up-print/pending"
+          />
+        )}
       </div>
 
       <div className="dashboard-grid mt-4">

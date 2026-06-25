@@ -21,6 +21,11 @@ public class AppDbContext : DbContext
     public DbSet<Attachment> Attachments => Set<Attachment>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<LetterTemplate> LetterTemplates => Set<LetterTemplate>();
+    public DbSet<FollowUpPrintJob> FollowUpPrintJobs => Set<FollowUpPrintJob>();
+    public DbSet<FollowUpPrintJobPart> FollowUpPrintJobParts => Set<FollowUpPrintJobPart>();
+    public DbSet<FollowUpLetterPrintRecord> FollowUpLetterPrintRecords => Set<FollowUpLetterPrintRecord>();
+    public DbSet<FollowUpPrintIdempotencyKey> FollowUpPrintIdempotencyKeys => Set<FollowUpPrintIdempotencyKey>();
+    public DbSet<UserNotification> UserNotifications => Set<UserNotification>();
     public DbSet<LoginAttemptLog> LoginAttemptLogs => Set<LoginAttemptLog>();
     public DbSet<SecurityAlert> SecurityAlerts => Set<SecurityAlert>();
     public DbSet<ReportExportTemplate> ReportExportTemplates => Set<ReportExportTemplate>();
@@ -150,6 +155,9 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<LetterTemplate>(e =>
         {
             e.HasIndex(t => t.Code).IsUnique();
+            e.Property(t => t.RowVersion).IsRowVersion();
+            e.HasOne(t => t.CreatedBy).WithMany().HasForeignKey(t => t.CreatedById).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(t => t.UpdatedBy).WithMany().HasForeignKey(t => t.UpdatedById).OnDelete(DeleteBehavior.NoAction);
         });
 
         modelBuilder.Entity<LoginAttemptLog>(e =>
@@ -181,6 +189,51 @@ public class AppDbContext : DbContext
 
             e.Property(s => s.Year)
                 .ValueGeneratedNever();
+        });
+
+        modelBuilder.Entity<FollowUpPrintJob>(e =>
+        {
+            e.HasIndex(j => new { j.Status, j.CreatedAt });
+            e.Property(j => j.RowVersion).IsRowVersion();
+            e.HasOne(j => j.RequestedBy).WithMany().HasForeignKey(j => j.RequestedById).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(j => j.Template).WithMany().HasForeignKey(j => j.TemplateId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        modelBuilder.Entity<FollowUpPrintJobPart>(e =>
+        {
+            e.HasIndex(p => new { p.JobId, p.PartNumber }).IsUnique();
+            e.Property(p => p.RowVersion).IsRowVersion();
+            e.HasOne(p => p.Job).WithMany(j => j.Parts).HasForeignKey(p => p.JobId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<FollowUpLetterPrintRecord>(e =>
+        {
+            e.HasIndex(r => new { r.TransactionId, r.PrintRequestedAt });
+            e.HasIndex(r => r.RegisteredFollowUpId).HasFilter("[RegisteredFollowUpId] IS NULL");
+            e.Property(r => r.RowVersion).IsRowVersion();
+            e.HasOne(r => r.Transaction).WithMany().HasForeignKey(r => r.TransactionId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(r => r.TargetDepartment).WithMany().HasForeignKey(r => r.TargetDepartmentId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(r => r.TargetEntity).WithMany().HasForeignKey(r => r.TargetEntityId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(r => r.Template).WithMany().HasForeignKey(r => r.TemplateId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(r => r.PrintRequestedBy).WithMany().HasForeignKey(r => r.PrintRequestedById).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(r => r.PrintConfirmedBy).WithMany().HasForeignKey(r => r.PrintConfirmedById).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(r => r.RegisteredFollowUp).WithMany().HasForeignKey(r => r.RegisteredFollowUpId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(r => r.CancelledBy).WithMany().HasForeignKey(r => r.CancelledById).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(r => r.BatchJob).WithMany(j => j.PrintRecords).HasForeignKey(r => r.BatchJobId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(r => r.BatchJobPart).WithMany().HasForeignKey(r => r.BatchJobPartId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(r => r.ReprintOf).WithMany().HasForeignKey(r => r.ReprintOfId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        modelBuilder.Entity<FollowUpPrintIdempotencyKey>(e =>
+        {
+            e.HasIndex(k => new { k.UserId, k.Key, k.Operation }).IsUnique();
+            e.HasOne(k => k.User).WithMany().HasForeignKey(k => k.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<UserNotification>(e =>
+        {
+            e.HasIndex(n => new { n.UserId, n.IsRead, n.CreatedAt });
+            e.HasOne(n => n.User).WithMany().HasForeignKey(n => n.UserId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

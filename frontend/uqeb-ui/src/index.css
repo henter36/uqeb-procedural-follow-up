@@ -59,6 +59,100 @@ body {
 .topbar-dept { font-size: 0.8rem; }
 .topbar-user-name { font-weight: 500; color: var(--color-text); }
 .topbar-user-role { font-size: 0.75rem; }
+.topbar-pending-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  text-decoration: none;
+  color: inherit;
+}
+.topbar-pending-label { font-size: 0.8rem; }
+
+.follow-up-letter-preview-body,
+.preview-readonly {
+  width: 100%;
+  white-space: pre-wrap;
+  text-align: right;
+  direction: rtl;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0.75rem;
+  font-family: inherit;
+  line-height: 1.8;
+}
+
+.letter-template-layout {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr) 260px;
+  gap: 1rem;
+  align-items: start;
+}
+.letter-template-items { list-style: none; padding: 0; margin: 0; }
+.letter-template-item {
+  width: 100%;
+  text-align: right;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  cursor: pointer;
+}
+.letter-template-item.active {
+  border-color: var(--color-primary);
+  background: var(--color-primary-bg, #eff6ff);
+}
+.letter-template-item-name { display: block; font-weight: 600; }
+.letter-template-item-meta { display: flex; gap: 0.35rem; margin-top: 0.35rem; }
+.letter-variable-list { list-style: none; padding: 0; margin: 0; }
+.letter-variable-btn {
+  width: 100%;
+  text-align: right;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  padding: 0.5rem 0.65rem;
+  margin-bottom: 0.5rem;
+  cursor: pointer;
+}
+.letter-variable-btn code { display: block; margin-bottom: 0.25rem; }
+
+.follow-up-letter-print-view {
+  min-height: calc(100vh - 120px);
+  display: flex;
+  flex-direction: column;
+}
+.follow-up-print-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+.follow-up-print-frame {
+  flex: 1;
+  width: 100%;
+  min-height: 70vh;
+  border: 0;
+}
+.sidebar-link-badge { margin-inline-start: auto; }
+
+@media (max-width: 1100px) {
+  .letter-template-layout { grid-template-columns: 1fr; }
+}
+
+@media print {
+  .follow-up-print-toolbar.no-print,
+  .no-print {
+    display: none !important;
+  }
+  .follow-up-print-frame {
+    min-height: auto;
+    height: auto;
+  }
+}
 
 .table-wrapper-spaced { margin-top: var(--space-3); }
 .details-banner-row {
