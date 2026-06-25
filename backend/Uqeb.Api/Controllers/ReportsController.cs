@@ -150,8 +150,15 @@ public class ReportsController : ControllerBase
             Page = page,
             PageSize = ReportPageSize.Normalize(pageSize)
         };
-        var bytes = await _reports.ExportReportDetailsExcelAsync(reportType, pagedFilter, currentPageOnly);
-        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"report-{reportType}.xlsx");
+        var bytes = await _reports.ExportReportDetailsExcelAsync(
+            reportType,
+            pagedFilter,
+            currentPageOnly,
+            HttpContext.RequestAborted);
+        return File(
+            bytes,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            LegacyReportExportHelper.BuildExcelFileName(reportType));
     }
 
     [HttpGet("response-required/details")]
