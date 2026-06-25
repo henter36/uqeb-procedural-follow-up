@@ -6,6 +6,7 @@ namespace Uqeb.Api.Tests.Reporting;
 public class ReportingMetricsTests
 {
     [Theory]
+    [InlineData(-5, "0")]
     [InlineData(0, "0")]
     [InlineData(1, "1-100")]
     [InlineData(100, "1-100")]
