@@ -2,6 +2,7 @@ import {
   useCallback, useEffect, useRef, useState, type ReactNode,
 } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { isAxiosError } from 'axios';
 import { transactionsApi } from '../api/services';
 import type {
   TransactionDetail, Assignment, FollowUp, Attachment, AuditLog,
@@ -125,16 +126,51 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const [actionDirty, setActionDirty] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [workspaceLoading, setWorkspaceLoading] = useState(true);
 
-  const loadBasic = useCallback(async () => {
-    if (!id) return;
-    try {
-      const res = await transactionsApi.getBasic(+id);
-      setTx(res.data);
-    } catch {
+  const applyWorkspaceData = useCallback((data: import('../api/types').TransactionWorkspace) => {
+    setTx(data.transaction);
+    setAssignments(data.assignments ?? []);
+    setFollowUps(data.followUps ?? []);
+    setAttachments(data.attachments ?? []);
+  }, []);
+
+  const handleWorkspaceFailure = useCallback((err: unknown, signal?: AbortSignal) => {
+    if (signal?.aborted || (isAxiosError(err) && err.code === 'ERR_CANCELED')) return;
+    if (isAxiosError(err) && err.response?.status === 404) {
       navigate('/transactions');
+      return;
     }
-  }, [id, navigate]);
+    setError('تعذر تحميل بيانات المعاملة');
+    setTx(null);
+  }, [navigate]);
+
+  const loadWorkspace = useCallback(async (options?: { signal?: AbortSignal; silent?: boolean }) => {
+    if (!id) return;
+    if (!options?.silent) {
+      setAssignmentsLoading(true);
+      setFollowUpsLoading(true);
+      setAttachmentsLoading(true);
+    }
+    setAssignmentsError('');
+    setFollowUpsError('');
+    setAttachmentsError('');
+    if (!options?.silent) setError('');
+    try {
+      const res = await transactionsApi.getWorkspace(+id, { signal: options?.signal });
+      if (options?.signal?.aborted) return;
+      applyWorkspaceData(res.data);
+    } catch (err: unknown) {
+      handleWorkspaceFailure(err, options?.signal);
+    } finally {
+      if (!options?.signal?.aborted) {
+        setWorkspaceLoading(false);
+        setAssignmentsLoading(false);
+        setFollowUpsLoading(false);
+        setAttachmentsLoading(false);
+      }
+    }
+  }, [id, applyWorkspaceData, handleWorkspaceFailure]);
 
   const loadAssignments = useCallback(async () => {
     if (!id) return;
@@ -234,48 +270,31 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   };
 
   useEffect(() => {
+    const controller = new AbortController();
     let active = true;
 
-    const loadInitialData = async () => {
-      await loadBasic();
+    transactionsApi.getWorkspace(+id, { signal: controller.signal })
+      .then((res) => {
+        if (!active || controller.signal.aborted) return;
+        applyWorkspaceData(res.data);
+      })
+      .catch((err: unknown) => {
+        if (!active || controller.signal.aborted) return;
+        handleWorkspaceFailure(err, controller.signal);
+      })
+      .finally(() => {
+        if (!active || controller.signal.aborted) return;
+        setWorkspaceLoading(false);
+        setAssignmentsLoading(false);
+        setFollowUpsLoading(false);
+        setAttachmentsLoading(false);
+      });
 
-      const [assignmentsResult, followUpsResult, attachmentsResult] = await Promise.allSettled([
-        transactionsApi.getAssignments(+id),
-        transactionsApi.getFollowUps(+id),
-        transactionsApi.getAttachments(+id),
-      ]);
-
-      if (!active) return;
-
-      if (assignmentsResult.status === 'fulfilled') {
-        setAssignments(assignmentsResult.value.data ?? []);
-      } else {
-        setAssignmentsError('تعذر تحميل التحويلات');
-      }
-      setAssignmentsLoading(false);
-
-      if (followUpsResult.status === 'fulfilled') {
-        setFollowUps(followUpsResult.value.data ?? []);
-      } else {
-        setFollowUpsError('تعذر تحميل التعقيبات');
-      }
-      setFollowUpsLoading(false);
-
-      if (attachmentsResult.status === 'fulfilled') {
-        setAttachments(attachmentsResult.value.data ?? []);
-      } else {
-        setAttachmentsError('تعذر تحميل المرفقات');
-        setAttachments([]);
-      }
-      setAttachmentsLoading(false);
+    return () => {
+      active = false;
+      controller.abort();
     };
-
-    loadInitialData().catch(() => {
-      if (active) setError('تعذر تحميل بيانات المعاملة');
-    });
-
-    return () => { active = false; };
-  }, [id, loadBasic]);
+  }, [id, applyWorkspaceData, handleWorkspaceFailure]);
 
   useEffect(() => {
     const tab = parseDetailTab(tabFromUrl);
@@ -364,28 +383,28 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   }, [resetAndCloseAction, refreshAuditIfLoaded]);
 
   const handleAssignmentSuccess = async () => {
-    await handleActionSuccess('تم إضافة التحويل بنجاح.', [loadAssignments, loadBasic]);
+    await handleActionSuccess('تم إضافة التحويل بنجاح.', [() => loadWorkspace({ silent: true })]);
   };
 
   const handleFollowUpSuccess = async () => {
-    await handleActionSuccess('تم إضافة التعقيب بنجاح.', [loadFollowUps, loadBasic]);
+    await handleActionSuccess('تم إضافة التعقيب بنجاح.', [() => loadWorkspace({ silent: true })]);
   };
 
   const handleAttachmentSuccess = async () => {
-    await handleActionSuccess('تم رفع المرفق بنجاح.', [loadAttachments]);
+    await handleActionSuccess('تم رفع المرفق بنجاح.', [() => loadWorkspace({ silent: true })]);
   };
 
   const handleReplyAssignmentSuccess = async () => {
-    await handleActionSuccess('تم تسجيل الرد بنجاح.', [loadAssignments, loadBasic]);
+    await handleActionSuccess('تم تسجيل الرد بنجاح.', [() => loadWorkspace({ silent: true })]);
   };
 
   const handleReplyFollowUpSuccess = async () => {
-    await handleActionSuccess('تم تسجيل الرد بنجاح.', [loadFollowUps, loadBasic]);
+    await handleActionSuccess('تم تسجيل الرد بنجاح.', [() => loadWorkspace({ silent: true })]);
   };
 
   const handleCompleteResponseSuccess = async (result?: { attachmentWarning?: string }) => {
     const successMessage = result?.attachmentWarning ?? 'تم تسجيل الإفادة بنجاح.';
-    await handleActionSuccess(successMessage, [loadBasic, loadAssignments]);
+    await handleActionSuccess(successMessage, [() => loadWorkspace({ silent: true })]);
   };
 
   const handleCloseTransaction = async () => {
@@ -399,7 +418,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     setError('');
     try {
       await transactionsApi.close(+id);
-      await Promise.all([loadBasic(), loadAssignments()]);
+      await loadWorkspace({ silent: true });
       setMessage('تم إغلاق المعاملة');
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
@@ -423,6 +442,29 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     globalThis.open(url, '_blank', 'noopener,noreferrer');
     globalThis.setTimeout(() => globalThis.URL.revokeObjectURL(url), 60_000);
   };
+
+  if (workspaceLoading) return <div className="loading"><LoadingInline /></div>;
+
+  if (error && !tx) {
+    return (
+      <ErrorState
+        title="تعذر تحميل المعاملة"
+        description={error}
+        action={(
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => {
+              setWorkspaceLoading(true);
+              loadWorkspace().catch(() => {});
+            }}
+          >
+            إعادة المحاولة
+          </button>
+        )}
+      />
+    );
+  }
 
   if (!tx) return <div className="loading"><LoadingInline /></div>;
 

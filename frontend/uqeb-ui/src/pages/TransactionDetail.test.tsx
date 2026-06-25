@@ -92,9 +92,39 @@ const sampleAttachment = {
   contentType: 'application/pdf',
 };
 
+const defaultAllowedActions = {
+  canEdit: true,
+  canClose: true,
+  isDepartmentUser: false,
+  canRegisterResponse: false,
+  canShowClose: true,
+  showMutationActions: true,
+  canReply: true,
+  hasPendingDepartments: false,
+};
+
+const defaultTemporalFacts = {
+  isOpen: true,
+  isResponseOverdue: false,
+  isOverdue: false,
+  ageDays: 1,
+  daysOverdue: null,
+  completionDays: null,
+};
+
+const defaultWorkspace = {
+  transaction: baseTx,
+  assignments: [sampleAssignment],
+  followUps: [sampleFollowUp],
+  attachments: [sampleAttachment],
+  temporalFacts: defaultTemporalFacts,
+  allowedActions: defaultAllowedActions,
+};
+
 vi.mock('../api/services', () => ({
   transactionsApi: {
     getBasic: vi.fn(),
+    getWorkspace: vi.fn(),
     getAssignments: vi.fn(),
     getFollowUps: vi.fn(),
     getAttachments: vi.fn(),
@@ -151,6 +181,7 @@ function renderDetail(path = '/transactions/1') {
 }
 
 function setupDefaultMocks() {
+  vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({ data: defaultWorkspace } as never);
   vi.mocked(services.transactionsApi.getBasic).mockResolvedValue({ data: baseTx } as never);
   vi.mocked(services.transactionsApi.getAssignments).mockResolvedValue({ data: [sampleAssignment] } as never);
   vi.mocked(services.transactionsApi.getFollowUps).mockResolvedValue({ data: [sampleFollowUp] } as never);
@@ -227,15 +258,16 @@ describe('TransactionDetailPage three-tab layout', () => {
     });
   });
 
-  it('loads core data in parallel on first open', async () => {
+  it('loads workspace on first open', async () => {
     renderDetail();
 
     await waitFor(() => {
-      expect(services.transactionsApi.getBasic).toHaveBeenCalled();
-      expect(services.transactionsApi.getAssignments).toHaveBeenCalled();
-      expect(services.transactionsApi.getFollowUps).toHaveBeenCalled();
-      expect(services.transactionsApi.getAttachments).toHaveBeenCalled();
+      expect(services.transactionsApi.getWorkspace).toHaveBeenCalled();
     });
+    expect(services.transactionsApi.getBasic).not.toHaveBeenCalled();
+    expect(services.transactionsApi.getAssignments).not.toHaveBeenCalled();
+    expect(services.transactionsApi.getFollowUps).not.toHaveBeenCalled();
+    expect(services.transactionsApi.getAttachments).not.toHaveBeenCalled();
     expect(services.transactionsApi.getAuditLog).not.toHaveBeenCalled();
   });
 
@@ -277,7 +309,7 @@ describe('TransactionDetailPage three-tab layout', () => {
       expect(screen.getByRole('tab', { name: 'تفاصيل المعاملة' })).toHaveAttribute('aria-selected', 'true');
       expect(getAssignmentsCard()).toBeInTheDocument();
     });
-    expect(services.transactionsApi.getAttachments).toHaveBeenCalled();
+    expect(services.transactionsApi.getWorkspace).toHaveBeenCalled();
     expect(services.transactionsApi.getAuditLog).not.toHaveBeenCalled();
   });
 
@@ -290,19 +322,18 @@ describe('TransactionDetailPage three-tab layout', () => {
     });
   });
 
-  it('refreshes only assignments card after adding assignment from card button', async () => {
+  it('refreshes workspace after adding assignment from card button', async () => {
     const user = userEvent.setup();
     vi.mocked(services.transactionsApi.addAssignment).mockResolvedValue({ data: { id: 99 } } as never);
-    vi.mocked(services.transactionsApi.getAssignments)
-      .mockResolvedValueOnce({ data: [] } as never)
-      .mockResolvedValueOnce({ data: [sampleAssignment] } as never);
+    vi.mocked(services.transactionsApi.getWorkspace)
+      .mockResolvedValueOnce({ data: { ...defaultWorkspace, assignments: [] } } as never)
+      .mockResolvedValueOnce({ data: defaultWorkspace } as never);
 
     renderDetail();
     await waitForDetailsReady();
     const card = getAssignmentsCard();
     await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة تحويل' })).toBeInTheDocument());
 
-    const callsBefore = vi.mocked(services.transactionsApi.getFollowUps).mock.calls.length;
     await user.click(within(card).getByRole('button', { name: '+ إضافة تحويل' }));
     expect(within(card).getByTestId('assignment-form-panel')).toBeInTheDocument();
 
@@ -316,30 +347,34 @@ describe('TransactionDetailPage three-tab layout', () => {
       expect(within(card).queryByTestId('assignment-form-panel')).not.toBeInTheDocument();
     });
     expect(services.transactionsApi.addAssignment).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(services.transactionsApi.getAssignments).mock.calls.length).toBeGreaterThan(1);
-    expect(vi.mocked(services.transactionsApi.getFollowUps).mock.calls).toHaveLength(callsBefore);
+    expect(vi.mocked(services.transactionsApi.getWorkspace).mock.calls.length).toBeGreaterThan(1);
+    expect(services.transactionsApi.getFollowUps).not.toHaveBeenCalled();
     expect(screen.getByRole('heading', { level: 2, name: 'IN-1' })).toBeInTheDocument();
   });
 
-  it('shows attachments card error with retry', async () => {
+  it('shows page error with retry when workspace load fails', async () => {
     const user = userEvent.setup();
-    vi.mocked(services.transactionsApi.getAttachments)
-      .mockRejectedValueOnce(new Error('fail'))
-      .mockResolvedValueOnce({ data: [] } as never);
+    vi.mocked(services.transactionsApi.getWorkspace)
+      .mockRejectedValueOnce(Object.assign(new Error('server error'), {
+        isAxiosError: true,
+        response: { status: 500 },
+        code: 'ERR_BAD_RESPONSE',
+      }))
+      .mockResolvedValueOnce({ data: defaultWorkspace } as never);
 
     renderDetail();
 
     await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent('تعذر تحميل المرفقات');
+      expect(screen.getByText('تعذر تحميل المعاملة')).toBeInTheDocument();
     });
 
-    const attachmentsCard = getAttachmentsCard();
-    await user.click(within(attachmentsCard).getByRole('button', { name: 'إعادة المحاولة' }));
+    await user.click(screen.getByRole('button', { name: 'إعادة المحاولة' }));
 
     await waitFor(() => {
-      expect(screen.getByText('لا توجد مرفقات لهذه المعاملة.')).toBeInTheDocument();
+      expect(screen.getByRole('region', { name: 'معلومات المعاملة' })).toBeInTheDocument();
     });
   });
+
 });
 
 describe('TransactionDetailPage card interaction flows', () => {
@@ -388,9 +423,9 @@ describe('TransactionDetailPage card interaction flows', () => {
   it('saves assignment from card form and refreshes data', async () => {
     const user = userEvent.setup();
     vi.mocked(services.transactionsApi.addAssignment).mockResolvedValue({ data: { id: 9 } } as never);
-    vi.mocked(services.transactionsApi.getAssignments)
-      .mockResolvedValueOnce({ data: [] } as never)
-      .mockResolvedValue({ data: [sampleAssignment] } as never);
+    vi.mocked(services.transactionsApi.getWorkspace)
+      .mockResolvedValueOnce({ data: { ...defaultWorkspace, assignments: [] } } as never)
+      .mockResolvedValue({ data: defaultWorkspace } as never);
 
     renderDetail();
     await waitForDetailsReady();
@@ -407,8 +442,7 @@ describe('TransactionDetailPage card interaction flows', () => {
       expect(within(card).queryByTestId('assignment-form-panel')).not.toBeInTheDocument();
     });
     expect(services.transactionsApi.addAssignment).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(services.transactionsApi.getAssignments).mock.calls.length).toBeGreaterThan(1);
-    expect(vi.mocked(services.transactionsApi.getBasic).mock.calls.length).toBeGreaterThan(1);
+    expect(vi.mocked(services.transactionsApi.getWorkspace).mock.calls.length).toBeGreaterThan(1);
   });
 
   it('keeps assignment form open when save fails', async () => {
@@ -503,9 +537,9 @@ describe('TransactionDetailPage card interaction flows', () => {
   it('opens follow-up form inside follow-ups card and saves', async () => {
     const user = userEvent.setup();
     vi.mocked(services.transactionsApi.addFollowUp).mockResolvedValue({ data: { id: 21 } } as never);
-    vi.mocked(services.transactionsApi.getFollowUps)
-      .mockResolvedValueOnce({ data: [] } as never)
-      .mockResolvedValue({ data: [sampleFollowUp] } as never);
+    vi.mocked(services.transactionsApi.getWorkspace)
+      .mockResolvedValueOnce({ data: { ...defaultWorkspace, followUps: [] } } as never)
+      .mockResolvedValue({ data: defaultWorkspace } as never);
 
     renderDetail();
     await waitForDetailsReady();
@@ -525,16 +559,15 @@ describe('TransactionDetailPage card interaction flows', () => {
       expect(within(card).queryByTestId('followup-form-panel')).not.toBeInTheDocument();
     });
     expect(services.transactionsApi.addFollowUp).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(services.transactionsApi.getFollowUps).mock.calls.length).toBeGreaterThan(1);
-    expect(vi.mocked(services.transactionsApi.getBasic).mock.calls.length).toBeGreaterThan(1);
+    expect(vi.mocked(services.transactionsApi.getWorkspace).mock.calls.length).toBeGreaterThan(1);
   });
 
   it('opens attachment form inside attachments card and uploads file', async () => {
     const user = userEvent.setup();
     vi.mocked(services.transactionsApi.uploadAttachment).mockResolvedValue({ data: sampleAttachment } as never);
-    vi.mocked(services.transactionsApi.getAttachments)
-      .mockResolvedValueOnce({ data: [] } as never)
-      .mockResolvedValue({ data: [sampleAttachment] } as never);
+    vi.mocked(services.transactionsApi.getWorkspace)
+      .mockResolvedValueOnce({ data: { ...defaultWorkspace, attachments: [] } } as never)
+      .mockResolvedValue({ data: defaultWorkspace } as never);
 
     renderDetail();
     await waitForDetailsReady();
@@ -557,7 +590,7 @@ describe('TransactionDetailPage card interaction flows', () => {
       expect(screen.getByText('file.pdf')).toBeInTheDocument();
     });
     expect(services.transactionsApi.uploadAttachment).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(services.transactionsApi.getAttachments).mock.calls.length).toBeGreaterThan(1);
+    expect(vi.mocked(services.transactionsApi.getWorkspace).mock.calls.length).toBeGreaterThan(1);
   });
 
   it('shows only one inline add form at a time when switching cards', async () => {
@@ -571,26 +604,6 @@ describe('TransactionDetailPage card interaction flows', () => {
     await user.click(within(getFollowUpsCard()).getByRole('button', { name: '+ إضافة تعقيب' }));
     expect(screen.queryByTestId('assignment-form-panel')).not.toBeInTheDocument();
     expect(within(getFollowUpsCard()).getByTestId('followup-form-panel')).toBeInTheDocument();
-  });
-
-  it('keeps open assignment form after assignments list finishes loading', async () => {
-    const user = userEvent.setup();
-    let resolveAssignments: ((value: never) => void) | undefined;
-    vi.mocked(services.transactionsApi.getAssignments).mockImplementation(
-      () => new Promise((resolve) => { resolveAssignments = resolve; }),
-    );
-
-    renderDetail();
-    await waitForDetailsReady();
-    const card = getAssignmentsCard();
-    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة تحويل' })).toBeInTheDocument());
-
-    await user.click(within(card).getByRole('button', { name: '+ إضافة تحويل' }));
-    expect(within(card).getByTestId('assignment-form-panel')).toBeInTheDocument();
-
-    resolveAssignments!({ data: [] } as never);
-    await waitFor(() => expect(screen.getByText('لا توجد تحويلات مسجلة لهذه المعاملة.')).toBeInTheDocument());
-    expect(within(card).getByTestId('assignment-form-panel')).toBeInTheDocument();
   });
 
   it('opens reply form inside assignments card for pending assignment', async () => {

@@ -296,3 +296,35 @@ public class AuditLogDto
     public string UserName { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
 }
+
+public class TransactionTemporalFactsDto
+{
+    public bool IsOpen { get; set; }
+    public bool IsResponseOverdue { get; set; }
+    public bool IsOverdue { get; set; }
+    public int AgeDays { get; set; }
+    public int? DaysOverdue { get; set; }
+    public int? CompletionDays { get; set; }
+}
+
+public class TransactionWorkspaceAllowedActionsDto
+{
+    public bool CanEdit { get; set; }
+    public bool CanClose { get; set; }
+    public bool IsDepartmentUser { get; set; }
+    public bool CanRegisterResponse { get; set; }
+    public bool CanShowClose { get; set; }
+    public bool ShowMutationActions { get; set; }
+    public bool CanReply { get; set; }
+    public bool HasPendingDepartments { get; set; }
+}
+
+public class TransactionWorkspaceDto
+{
+    public TransactionDetailDto Transaction { get; set; } = new();
+    public List<AssignmentDto> Assignments { get; set; } = new();
+    public List<FollowUpDto> FollowUps { get; set; } = new();
+    public List<AttachmentDto> Attachments { get; set; } = new();
+    public TransactionTemporalFactsDto TemporalFacts { get; set; } = new();
+    public TransactionWorkspaceAllowedActionsDto AllowedActions { get; set; } = new();
+}

@@ -1,0 +1,230 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Uqeb.Api.Data;
+using Uqeb.Api.Models.Entities;
+using Uqeb.Api.Models.Enums;
+using Uqeb.Api.Services;
+using Xunit;
+
+namespace Uqeb.Api.Tests;
+
+public class TransactionWorkspaceReadModelTests
+{
+    private sealed class StubTrackingNumberService : ITrackingNumberService
+    {
+        public Task<string> GenerateNextAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult("UQEB-2026-00001");
+    }
+
+    private sealed class TestCacheInvalidation : ICacheInvalidationService
+    {
+        public string DashboardSummaryKey => "dashboard";
+        public TimeSpan DashboardCacheDuration => TimeSpan.FromMinutes(1);
+        public TimeSpan ReportsPageSummaryCacheDuration => TimeSpan.FromMinutes(1);
+        public TimeSpan ReferenceDataCacheDuration => TimeSpan.FromMinutes(1);
+        public string BuildReportsPageSummaryKey(DTOs.Reports.ReportFilterRequest? filter) => "reports";
+        public string BuildDepartmentsKey(bool activeOnly) => $"departments-{activeOnly}";
+        public string BuildCategoriesKey(bool activeOnly) => $"categories-{activeOnly}";
+        public string BuildExternalPartiesKey(bool activeOnly) => $"parties-{activeOnly}";
+        public void InvalidateOnTransactionChange() { }
+        public void InvalidateReferenceData() { }
+    }
+
+    private sealed class TestCurrentUser : ICurrentUserService
+    {
+        public TestCurrentUser(UserRole role, int userId = 1, int? departmentId = null)
+        {
+            Role = role;
+            UserId = userId;
+            DepartmentId = departmentId;
+        }
+
+        public int UserId { get; }
+        public string Username => "tester";
+        public UserRole Role { get; }
+        public int? DepartmentId { get; }
+        public bool IsAuthenticated => true;
+    }
+
+    private static async Task<(TransactionService Service, AppDbContext Db)> CreateServiceAsync(string dbName)
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(dbName)
+            .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
+            .Options;
+        var db = new AppDbContext(options);
+        db.Users.Add(new User
+        {
+            Id = 1,
+            Username = "admin",
+            PasswordHash = "hash",
+            FullName = "Admin",
+            Role = UserRole.Admin,
+            IsActive = true
+        });
+        db.Users.Add(new User
+        {
+            Id = 2,
+            Username = "dept-user",
+            PasswordHash = "hash",
+            FullName = "Dept User",
+            Role = UserRole.DepartmentUser,
+            DepartmentId = 10,
+            IsActive = true
+        });
+        db.Departments.Add(new Department { Id = 10, Name = "المالية", NameNormalized = "المالية", IsActive = true });
+        db.Departments.Add(new Department { Id = 20, Name = "الموارد", NameNormalized = "الموارد", IsActive = true });
+        await db.SaveChangesAsync();
+
+        var service = new TransactionService(
+            db,
+            new AuditService(db),
+            new StubTrackingNumberService(),
+            new TestCacheInvalidation());
+
+        return (service, db);
+    }
+
+    private static async Task<Transaction> SeedTransactionAsync(AppDbContext db, int id = 100)
+    {
+        var transaction = new Transaction
+        {
+            Id = id,
+            InternalTrackingNumber = $"UQEB-2026-{id:00000}",
+            IncomingNumber = $"IN-{id}",
+            IncomingDate = DateTime.UtcNow.AddDays(-7),
+            Subject = "معاملة مساحة العمل",
+            IncomingSourceType = IncomingSourceType.External,
+            IncomingFrom = "جهة",
+            RequiresResponse = true,
+            ResponseType = ResponseType.External,
+            ResponseDueDate = DateTime.UtcNow.AddDays(3),
+            ResponseDueDays = 10,
+            Priority = Priority.Normal,
+            Status = TransactionStatus.InProgress,
+            CreatedById = 1,
+            CreatedAt = DateTime.UtcNow.AddDays(-7)
+        };
+        db.Transactions.Add(transaction);
+        await db.SaveChangesAsync();
+        return transaction;
+    }
+
+    [Fact]
+    public async Task GetWorkspaceAsync_returns_null_when_transaction_missing()
+    {
+        var (service, _) = await CreateServiceAsync(nameof(GetWorkspaceAsync_returns_null_when_transaction_missing));
+        var result = await service.GetWorkspaceAsync(999, new TestCurrentUser(UserRole.Admin));
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetWorkspaceAsync_returns_null_when_department_user_has_no_assignment()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(GetWorkspaceAsync_returns_null_when_department_user_has_no_assignment));
+        await SeedTransactionAsync(db);
+
+        var result = await service.GetWorkspaceAsync(100, new TestCurrentUser(UserRole.DepartmentUser, userId: 2, departmentId: 10));
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetWorkspaceAsync_returns_consolidated_payload_for_admin()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(GetWorkspaceAsync_returns_consolidated_payload_for_admin));
+        var transaction = await SeedTransactionAsync(db);
+
+        db.Assignments.Add(new Assignment
+        {
+            TransactionId = transaction.Id,
+            DepartmentId = 10,
+            AssignedDate = DateTime.UtcNow.AddDays(-2),
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Pending,
+            Status = AssignmentStatus.Active,
+            DueDate = DateTime.UtcNow.AddDays(1),
+            CreatedById = 1
+        });
+        db.FollowUps.Add(new FollowUp
+        {
+            TransactionId = transaction.Id,
+            FollowUpDate = DateTime.UtcNow.AddDays(-1),
+            RequiresReply = false,
+            ReplyStatus = ReplyStatus.Pending,
+            CreatedById = 1
+        });
+        db.Attachments.Add(new Attachment
+        {
+            TransactionId = transaction.Id,
+            OriginalFileName = "doc.pdf",
+            StoredFileName = "stored.pdf",
+            FilePath = "/tmp/doc.pdf",
+            ContentType = "application/pdf",
+            FileSize = 100,
+            UploadedById = 1,
+            UploadedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        var result = await service.GetWorkspaceAsync(transaction.Id, new TestCurrentUser(UserRole.Admin));
+
+        Assert.NotNull(result);
+        Assert.Equal(transaction.Id, result!.Transaction.Id);
+        Assert.Single(result.Assignments);
+        Assert.Single(result.FollowUps);
+        Assert.Single(result.Attachments);
+        Assert.True(result.TemporalFacts.IsOpen);
+        Assert.True(result.AllowedActions.CanEdit);
+        Assert.True(result.AllowedActions.ShowMutationActions);
+        Assert.True(result.AllowedActions.CanRegisterResponse);
+    }
+
+    [Fact]
+    public async Task GetWorkspaceAsync_includes_data_for_department_user_with_assignment()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(GetWorkspaceAsync_includes_data_for_department_user_with_assignment));
+        var transaction = await SeedTransactionAsync(db);
+        db.Assignments.Add(new Assignment
+        {
+            TransactionId = transaction.Id,
+            DepartmentId = 10,
+            AssignedDate = DateTime.UtcNow.AddDays(-1),
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Pending,
+            Status = AssignmentStatus.Active,
+            CreatedById = 1
+        });
+        await db.SaveChangesAsync();
+
+        var result = await service.GetWorkspaceAsync(
+            transaction.Id,
+            new TestCurrentUser(UserRole.DepartmentUser, userId: 2, departmentId: 10));
+
+        Assert.NotNull(result);
+        Assert.Single(result!.Assignments);
+        Assert.False(result.AllowedActions.ShowMutationActions);
+        Assert.True(result.AllowedActions.CanReply);
+    }
+
+    [Fact]
+    public async Task GetWorkspaceAsync_does_not_include_audit_logs()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(GetWorkspaceAsync_does_not_include_audit_logs));
+        var transaction = await SeedTransactionAsync(db);
+        db.AuditLogs.Add(new AuditLog
+        {
+            TransactionId = transaction.Id,
+            UserId = 1,
+            Action = AuditAction.Create,
+            EntityName = "Transaction",
+            EntityId = transaction.Id,
+            CreatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        var result = await service.GetWorkspaceAsync(transaction.Id, new TestCurrentUser(UserRole.Admin));
+
+        Assert.NotNull(result);
+        Assert.Empty(result!.Transaction.AuditLogs);
+    }
+}
