@@ -42,7 +42,7 @@ public class FollowUpPrintMigrationSqlServerTests : FollowUpPrintSqlServerTestBa
         if (!ShouldRunSqlServerTest())
             return;
 
-        var databaseName = $"UqebFollowUpPrint_Migration_{Guid.NewGuid():N}";
+        var databaseName = $"Uqeb_FollowUpPrint_Migration_{Guid.NewGuid():N}";
         var connectionString = await CreateDatabaseAsync(databaseName);
 
         var services = new ServiceCollection();

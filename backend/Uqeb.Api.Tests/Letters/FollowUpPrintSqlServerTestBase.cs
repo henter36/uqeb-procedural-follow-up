@@ -54,7 +54,7 @@ public abstract class FollowUpPrintSqlServerTestBase
 
     protected static async Task<FollowUpPrintSqlServerContext> CreateMigratedContextAsync(string? databaseName = null)
     {
-        databaseName ??= $"UqebFollowUpPrint_{Guid.NewGuid():N}";
+        databaseName ??= $"Uqeb_FollowUpPrint_{Guid.NewGuid():N}";
         var testConnectionString = await CreateDatabaseAsync(databaseName);
 
         var services = new ServiceCollection();
