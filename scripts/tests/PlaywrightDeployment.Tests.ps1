@@ -700,11 +700,11 @@ Describe 'install-production-package.ps1 playwright policy' {
         $match.Success | Should -BeTrue
     }
 
-    It 'runs explicitly authorized migrations after stopping API service' {
+    It 'runs automatically detected missing migrations after stopping API service' {
         $content = Get-Content (Join-Path (Split-Path $PSScriptRoot -Parent) 'install-production-package.ps1') -Raw
         $match = [regex]::Match(
             $content,
-            'Stop-ScheduledTask\s+-TaskName[\s\S]+?if\s*\(\$ApplyDatabaseMigration\)[\s\S]+?&\s+\$migrationScript\b'
+            'Test-RequiredMigrationPresent[\s\S]+?Stop-ScheduledTask\s+-TaskName[\s\S]+?if\s*\(\$requiredMigrationMissing\)[\s\S]+?&\s+\$migrationScript\b[\s\S]+?Test-RequiredMigrationApplied[\s\S]+?Install-StagedReleaseToProduction'
         )
         $match.Success | Should -BeTrue
     }

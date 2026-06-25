@@ -468,14 +468,22 @@ Describe 'Application file copy policy' {
     }
 
     It 'allows robocopy /MIR for Web targets' {
+        $source = New-TempDirectory
+        $destination = New-TempDirectory
+
         Mock robocopy {
             param($args)
             ($args -join ' ') | Should -Match '/MIR'
             $global:LASTEXITCODE = 1
         }
 
-        { Invoke-RobocopySafe -Source 'C:\src' -Destination 'C:\dst' -TargetType Web -ExtraArguments @('/MIR') } |
-            Should -Not -Throw
+        {
+            Invoke-RobocopySafe `
+                -Source $source `
+                -Destination $destination `
+                -TargetType Web `
+                -ExtraArguments @('/MIR')
+        } | Should -Not -Throw
     }
 
     It 'copies API and Web without /MIR in default payload flow' {
@@ -511,21 +519,7 @@ Describe 'Application file copy policy' {
 }
 
 Describe 'Invoke-DeploymentFileRollback' {
-    BeforeEach {
-        if (-not (Get-Command Stop-ScheduledTask -ErrorAction SilentlyContinue)) {
-            function script:Stop-ScheduledTask { param([string]$TaskName) }
-        }
-        if (-not (Get-Command Start-ScheduledTask -ErrorAction SilentlyContinue)) {
-            function script:Start-ScheduledTask { param([string]$TaskName) }
-        }
-    }
-
-    It 'restores backed-up API and Web folders' {
-        Mock Stop-ScheduledTask {}
-        Mock Start-ScheduledTask {}
-        Mock Stop-ApiListenersOnPort {}
-        Mock Wait-PortReleased { $true }
-
+    It 'restores API and Web atomically without stale API files' {
         $backupApi = New-TempDirectory
         $backupWeb = New-TempDirectory
         $apiTarget = New-TempDirectory
@@ -533,17 +527,16 @@ Describe 'Invoke-DeploymentFileRollback' {
         Set-Content (Join-Path $backupApi 'Uqeb.Api.dll') 'old-api'
         Set-Content (Join-Path $backupWeb 'index.html') 'old-web'
         Set-Content (Join-Path $apiTarget 'Uqeb.Api.dll') 'new-api'
+        Set-Content (Join-Path $apiTarget 'failed-release-only.dll') 'stale'
         Set-Content (Join-Path $webTarget 'index.html') 'new-web'
 
-        $configSource = Join-Path $backupApi 'appsettings.Production.json'
+        $configRoot = New-TempDirectory
+        $configSource = Join-Path $configRoot 'appsettings.Production.json'
         $configTarget = Join-Path $apiTarget 'appsettings.Production.json'
-        (@{ Jwt = @{ Key = '12345678901234567890123456789012' } } | ConvertTo-Json -Compress) | Set-Content $configSource -Encoding UTF8
-
-        Mock robocopy { $global:LASTEXITCODE = 1 }
+        New-TestProductionSettingsJson -ConfigMarker 'approved' | Set-Content $configSource -Encoding UTF8
+        Mock-RobocopyAsCopyOnNonWindows
 
         $restored = Invoke-DeploymentFileRollback `
-            -TaskName 'UqebApi' `
-            -ApiPort 5000 `
             -BackupApi $backupApi `
             -BackupWeb $backupWeb `
             -ApiTarget $apiTarget `
@@ -552,7 +545,136 @@ Describe 'Invoke-DeploymentFileRollback' {
             -ConfigSource $configSource
 
         $restored | Should -BeTrue
-        Assert-MockCalled robocopy -Times 2 -Exactly
+        (Get-Content (Join-Path $apiTarget 'Uqeb.Api.dll') -Raw).Trim() | Should -Be 'old-api'
+        Test-Path (Join-Path $apiTarget 'failed-release-only.dll') | Should -BeFalse
+        (Get-Content (Join-Path $webTarget 'index.html') -Raw).Trim() | Should -Be 'old-web'
+        ([string](Get-Content $configTarget -Raw | ConvertFrom-Json).ConfigMarker) | Should -Be 'approved'
+    }
+
+    It 'throws before partial restore when ConfigSource is missing' {
+        $backupApi = New-TempDirectory
+        $backupWeb = New-TempDirectory
+        $apiTarget = New-TempDirectory
+        $webTarget = New-TempDirectory
+        Set-Content (Join-Path $backupApi 'Uqeb.Api.dll') 'old-api'
+        Set-Content (Join-Path $backupWeb 'index.html') 'old-web'
+        Set-Content (Join-Path $apiTarget 'Uqeb.Api.dll') 'new-api'
+        Set-Content (Join-Path $apiTarget 'failed-release-only.dll') 'stale'
+        Set-Content (Join-Path $webTarget 'index.html') 'new-web'
+
+        $configSource = Join-Path (New-TempDirectory) 'appsettings.Production.json'
+        $configTarget = Join-Path $apiTarget 'appsettings.Production.json'
+        Mock-RobocopyAsCopyOnNonWindows
+
+        $errorRecord = $null
+        try {
+            Invoke-DeploymentFileRollback `
+                -BackupApi $backupApi `
+                -BackupWeb $backupWeb `
+                -ApiTarget $apiTarget `
+                -WebTarget $webTarget `
+                -ConfigTarget $configTarget `
+                -ConfigSource $configSource
+        }
+        catch {
+            $errorRecord = $_
+        }
+
+        $errorRecord | Should -Not -BeNullOrEmpty
+        $errorRecord.Exception.Message | Should -Match 'إعداد الإنتاج المعتمد غير موجود أثناء file rollback'
+        $errorRecord.Exception.Message | Should -Match ([regex]::Escape($configSource))
+        (Get-Content (Join-Path $apiTarget 'Uqeb.Api.dll') -Raw).Trim() | Should -Be 'new-api'
+        Test-Path (Join-Path $apiTarget 'failed-release-only.dll') | Should -BeTrue
+        (Get-Content (Join-Path $webTarget 'index.html') -Raw).Trim() | Should -Be 'new-web'
+    }
+}
+
+Describe 'Deployment package archival safety' {
+    It 'archives a new ZIP and SHA256 pair' {
+        $root = New-TempDirectory
+        $archive = Join-Path $root 'deployed'
+        $zip = Join-Path $root 'Uqeb-test.zip'
+        $sha = Join-Path $root 'Uqeb-test.sha256.txt'
+        Set-Content $zip 'zip-content' -Encoding ASCII
+        Set-Content $sha ('a' * 64) -Encoding ASCII
+
+        $result = Move-DeploymentPackageToArchive -ZipPath $zip -Sha256Path $sha -ArchiveDirectory $archive
+
+        $result.Status | Should -Be 'archived'
+        Test-Path (Join-Path $archive 'Uqeb-test.zip') | Should -BeTrue
+        Test-Path (Join-Path $archive 'Uqeb-test.sha256.txt') | Should -BeTrue
+        Test-Path $zip | Should -BeFalse
+        Test-Path $sha | Should -BeFalse
+    }
+
+    It 'treats an identical archived pair as already archived without overwrite' {
+        $root = New-TempDirectory
+        $archive = Join-Path $root 'deployed'
+        Ensure-Directory $archive
+        $zip = Join-Path $root 'Uqeb-test.zip'
+        $sha = Join-Path $root 'Uqeb-test.sha256.txt'
+        Set-Content $zip 'zip-content' -Encoding ASCII
+        Set-Content $sha ('a' * 64) -Encoding ASCII
+        Copy-Item $zip (Join-Path $archive 'Uqeb-test.zip')
+        Copy-Item $sha (Join-Path $archive 'Uqeb-test.sha256.txt')
+
+        $result = Move-DeploymentPackageToArchive -ZipPath $zip -Sha256Path $sha -ArchiveDirectory $archive
+
+        $result.Status | Should -Be 'already_archived'
+        Test-Path $zip | Should -BeFalse
+        Test-Path $sha | Should -BeFalse
+    }
+
+    It 'rejects an archived ZIP with the same name and different hash' {
+        $root = New-TempDirectory
+        $archive = Join-Path $root 'deployed'
+        Ensure-Directory $archive
+        $zip = Join-Path $root 'Uqeb-test.zip'
+        $sha = Join-Path $root 'Uqeb-test.sha256.txt'
+        Set-Content $zip 'new-zip' -Encoding ASCII
+        Set-Content $sha ('a' * 64) -Encoding ASCII
+        Set-Content (Join-Path $archive 'Uqeb-test.zip') 'old-zip' -Encoding ASCII
+        Copy-Item $sha (Join-Path $archive 'Uqeb-test.sha256.txt')
+
+        { Move-DeploymentPackageToArchive -ZipPath $zip -Sha256Path $sha -ArchiveDirectory $archive } |
+            Should -Throw '*محتوى مختلف*'
+    }
+
+    It 'rejects an archived SHA256 sidecar with different content' {
+        $root = New-TempDirectory
+        $archive = Join-Path $root 'deployed'
+        Ensure-Directory $archive
+        $zip = Join-Path $root 'Uqeb-test.zip'
+        $sha = Join-Path $root 'Uqeb-test.sha256.txt'
+        Set-Content $zip 'zip-content' -Encoding ASCII
+        Set-Content $sha ('a' * 64) -Encoding ASCII
+        Copy-Item $zip (Join-Path $archive 'Uqeb-test.zip')
+        Set-Content (Join-Path $archive 'Uqeb-test.sha256.txt') ('b' * 64) -Encoding ASCII
+
+        { Move-DeploymentPackageToArchive -ZipPath $zip -Sha256Path $sha -ArchiveDirectory $archive } |
+            Should -Throw '*محتوى مختلف*'
+    }
+
+    It 'restores ZIP source when SHA256 move fails' {
+        $root = New-TempDirectory
+        $archive = Join-Path $root 'deployed'
+        $zip = Join-Path $root 'Uqeb-test.zip'
+        $sha = Join-Path $root 'Uqeb-test.sha256.txt'
+        Set-Content $zip 'zip-content' -Encoding ASCII
+        Set-Content $sha ('a' * 64) -Encoding ASCII
+
+        try {
+            $script:PackageArchiveFailureInjection = 'before_sha_move'
+            { Move-DeploymentPackageToArchive -ZipPath $zip -Sha256Path $sha -ArchiveDirectory $archive } |
+                Should -Throw '*simulated SHA move failure*'
+        }
+        finally {
+            $script:PackageArchiveFailureInjection = $null
+        }
+
+        Test-Path $zip | Should -BeTrue
+        Test-Path $sha | Should -BeTrue
+        Test-Path (Join-Path $archive 'Uqeb-test.zip') | Should -BeFalse
     }
 }
 
@@ -573,7 +695,7 @@ Describe 'install-production-package.ps1 scenarios' {
         $names | Should -Not -Contain 'SkipDatabaseBackup'
     }
 
-    It 'requires ApplyDatabaseMigration for explicit migration authorization' {
+    It 'keeps ApplyDatabaseMigration only for backward-compatible deprecation' {
         $errors = $null
         $ast = [System.Management.Automation.Language.Parser]::ParseFile(
             $script:InstallScript,
@@ -610,13 +732,16 @@ Describe 'install-production-package.ps1 scenarios' {
         { Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env -AdditionalParameters @{ PackagePath = $folder } } | Should -Throw '*ZIP*'
     }
 
-    It 'stops on migration failure when migration is explicitly authorized' {
+    It 'stops on automatic migration failure and does not promote' {
+        Mock Test-RequiredMigrationPresent { return $false }
+        Mock Invoke-RestartCurrentReleaseService {}
         $env = New-InstallTestEnvironment -CommonPath $script:CommonPath -PackageMigrationContent 'throw "migration failed"'
         'throw "migration failed"' | Set-Content (Join-Path $env.ToolsRoot 'apply-migrations.ps1') -Encoding ASCII
 
-        { Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env -AdditionalParameters @{ ApplyDatabaseMigration = $true } } |
+        { Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env } |
             Should -Throw
         Assert-MockCalled Install-StagedReleaseToProduction -Times 0 -Exactly
+        Assert-MockCalled Invoke-RestartCurrentReleaseService -Times 1
     }
 
     It 'fails deployment when health verification fails' {
@@ -627,20 +752,55 @@ Describe 'install-production-package.ps1 scenarios' {
             Should -Throw
     }
 
-    It 'succeeds without applying migrations when required migration is already present' {
+    It 'skips migration execution when required migration is already present' {
         $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
+        'throw "migration script must not run"' | Set-Content (Join-Path $env.ToolsRoot 'apply-migrations.ps1') -Encoding ASCII
         'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
-        { Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env } | Should -Not -Throw
+        $result = Get-InstallScriptOutput {
+            Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env
+        }
+        $result.Threw | Should -BeFalse
+        $result.Text | Should -Match 'Required migration already applied; migration execution skipped.'
         Assert-MockCalled Invoke-ProductionDatabaseBackup -Times 1 -Exactly
-        Assert-MockCalled Test-RequiredMigrationApplied -Times 1 -Exactly
+        Assert-MockCalled Test-RequiredMigrationPresent -Times 1 -Exactly
+        Assert-MockCalled Test-RequiredMigrationApplied -Times 0 -Exactly
         Assert-MockCalled Install-StagedReleaseToProduction -Times 1 -Exactly
     }
 
-    It 'does not treat ApplyDatabaseMigration as a deprecated no-op' {
-        $content = Get-Content -LiteralPath $script:InstallScript -Raw
-        $content | Should -Match 'ApplyDatabaseMigration'
-        $content | Should -Not -Match 'معامل ApplyDatabaseMigration مهمل'
+    It 'prints deprecation warning when ApplyDatabaseMigration is supplied without changing behavior' {
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
+        'throw "migration script must not run"' | Set-Content (Join-Path $env.ToolsRoot 'apply-migrations.ps1') -Encoding ASCII
+        'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
+
+        $result = Get-InstallScriptOutput {
+            Invoke-TestInstallScript `
+                -InstallScript $script:InstallScript `
+                -Environment $env `
+                -AdditionalParameters @{ ApplyDatabaseMigration = $true }
+        }
+
+        $result.Threw | Should -BeFalse
+        $result.Text | Should -Match 'deprecated and no longer required'
+        Assert-MockCalled Test-RequiredMigrationPresent -Times 1 -Exactly
+        Assert-MockCalled Test-RequiredMigrationApplied -Times 0 -Exactly
+    }
+
+    It 'still applies a missing migration when deprecated ApplyDatabaseMigration is supplied' {
+        Mock Test-RequiredMigrationPresent { return $false }
+        $global:deprecatedMigrationApplied = $false
+        $env = New-InstallTestEnvironment `
+            -CommonPath $script:CommonPath `
+            -PackageMigrationContent '$global:deprecatedMigrationApplied = $true'
+        'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
+
+        Invoke-TestInstallScript `
+            -InstallScript $script:InstallScript `
+            -Environment $env `
+            -AdditionalParameters @{ ApplyDatabaseMigration = $true } | Out-Null
+
+        $global:deprecatedMigrationApplied | Should -BeTrue
+        Assert-MockCalled Test-RequiredMigrationApplied -Times 1 -Exactly
     }
 
     It 'still runs database backup when SkipFileBackup is set' {
@@ -675,7 +835,7 @@ Describe 'install-production-package.ps1 scenarios' {
         Assert-MockCalled Install-StagedReleaseToProduction -Times 0 -Exactly
     }
 
-    It 'runs database backup before API stop and authorized migration after API stop' {
+    It 'runs database backup before API stop and missing migration before promotion' {
         $global:deployOrder = @()
         Mock Invoke-ProductionDatabaseBackup {
             $global:deployOrder += 'db-backup'
@@ -690,6 +850,25 @@ Describe 'install-production-package.ps1 scenarios' {
             }
         }
         Mock Stop-ScheduledTask { $global:deployOrder += 'stop-api' }
+        Mock Test-RequiredMigrationPresent {
+            $global:deployOrder += 'migration-check'
+            return $false
+        }
+        Mock Test-RequiredMigrationApplied {
+            $global:deployOrder += 'migration-verified'
+        }
+        Mock Install-StagedReleaseToProduction {
+            param($InstallRoot, $Version)
+            $global:deployOrder += 'promotion'
+            return [pscustomobject]@{
+                Paths = [pscustomobject]@{
+                    ReleaseRoot = Join-Path $InstallRoot ("releases\" + $Version)
+                    CurrentApi = Join-Path $InstallRoot 'current\api'
+                    CurrentWeb = Join-Path $InstallRoot 'current\web'
+                }
+                ConfigTarget = Join-Path $InstallRoot 'current\api\appsettings.Production.json'
+            }
+        }
 
         $env = New-InstallTestEnvironment `
             -CommonPath $script:CommonPath `
@@ -698,28 +877,44 @@ Describe 'install-production-package.ps1 scenarios' {
 
         Invoke-TestInstallScript `
             -InstallScript $script:InstallScript `
-            -Environment $env `
-            -AdditionalParameters @{ ApplyDatabaseMigration = $true } | Out-Null
+            -Environment $env | Out-Null
 
         $global:deployOrder[0] | Should -Be 'db-backup'
+        ($global:deployOrder.IndexOf('db-backup') -lt $global:deployOrder.IndexOf('migration-check')) | Should -BeTrue
         ($global:deployOrder.IndexOf('db-backup') -lt $global:deployOrder.IndexOf('stop-api')) | Should -BeTrue
         ($global:deployOrder.IndexOf('stop-api') -lt $global:deployOrder.IndexOf('migration')) | Should -BeTrue
+        ($global:deployOrder.IndexOf('migration') -lt $global:deployOrder.IndexOf('migration-verified')) | Should -BeTrue
+        ($global:deployOrder.IndexOf('migration-verified') -lt $global:deployOrder.IndexOf('promotion')) | Should -BeTrue
         Test-Path (Join-Path $env.InstallRoot 'incoming\deployed\Uqeb-test.zip') | Should -BeTrue
     }
 
-    It 'stops before service shutdown when migration is missing and authorization is absent' {
-        Mock Test-RequiredMigrationApplied { throw 'required migration missing' }
+    It 'does not interpret migration verification infrastructure failure as missing migration' {
+        Mock Test-RequiredMigrationPresent { throw 'SQL timeout while reading history' }
         $global:deployOrder = @()
         Mock Stop-ScheduledTask { $global:deployOrder += 'stop-api' }
 
         $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
 
         { Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env } |
-            Should -Throw '*required migration missing*'
+            Should -Throw '*SQL timeout while reading history*'
 
         $global:deployOrder | Should -Not -Contain 'stop-api'
         Assert-MockCalled Invoke-ProductionDatabaseBackup -Times 1 -Exactly
+        Assert-MockCalled Test-RequiredMigrationApplied -Times 0 -Exactly
         Assert-MockCalled Install-StagedReleaseToProduction -Times 0 -Exactly
+    }
+
+    It 'fails before promotion when migration remains missing after apply' {
+        Mock Test-RequiredMigrationPresent { return $false }
+        Mock Test-RequiredMigrationApplied { throw 'required migration still missing' }
+        Mock Invoke-RestartCurrentReleaseService {}
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
+
+        { Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env } |
+            Should -Throw '*required migration still missing*'
+
+        Assert-MockCalled Install-StagedReleaseToProduction -Times 0 -Exactly
+        Assert-MockCalled Invoke-RestartCurrentReleaseService -Times 1
     }
 
     It 'shows manual restore command when a later deployment step fails' {
@@ -766,6 +961,22 @@ Describe 'install-production-package.ps1 scenarios' {
         { Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env } | Should -Throw
         Test-Path (Join-Path $env.InstallRoot 'incoming\deployed\Uqeb-test.zip') | Should -BeFalse
         Test-Path $env.ZipPath | Should -BeTrue
+    }
+
+    It 'reports archival failure without rolling back a healthy published release' {
+        Mock Move-DeploymentPackageToArchive { throw 'archive collision' }
+        Mock Invoke-ReleaseRollbackFromState { throw 'release rollback must not run' }
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
+        'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
+
+        $result = Get-InstallScriptOutput {
+            Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env
+        }
+
+        $result.Threw | Should -BeFalse
+        $result.Text | Should -Match 'فشلت أرشفة حزمة ZIP/SHA256'
+        $result.Text | Should -Match 'حالة أرشفة الحزمة: فشلت'
+        Assert-MockCalled Invoke-ReleaseRollbackFromState -Times 0 -Exactly
     }
 
     It 'writes production bind address into run-api.cmd' {
@@ -819,6 +1030,25 @@ Describe 'install-production-package.ps1 scenarios' {
         }
 
         $continued | Should -BeTrue
+    }
+
+    It 'Write-DeployError does not terminate rollback cleanup under Stop preference' {
+        $ErrorActionPreference = 'Stop'
+        $continued = $false
+        $rollbackStepReached = $false
+
+        try {
+            throw 'simulate promotion failure'
+        }
+        catch {
+            Write-DeployError ("فشل النشر: " + $_.Exception.Message)
+            $continued = $true
+            Write-DeployInfo 'simulated rollback step after error log'
+            $rollbackStepReached = $true
+        }
+
+        $continued | Should -BeTrue
+        $rollbackStepReached | Should -BeTrue
     }
 
     It 'continues catch with service restart and final report after stop-before-promotion failure' {
@@ -1410,11 +1640,16 @@ Describe 'Release promotion safety' {
         $v2Staging = Initialize-PromotionFixture -Root $installRoot -Version '20260102-120000' -ApiMarker 'v2'
         Invoke-TestReleasePromotion -InstallRoot $installRoot -StagingPath $v2Staging -Version '20260102-120000' -ConfigPath $configPath
 
+        $healthScript = Join-Path $installRoot 'verify-rollback-health.ps1'
+        'Write-Output "rollback health passed"' | Set-Content $healthScript -Encoding ASCII
         $rolledBack = Invoke-ReleaseRollbackFromState `
             -InstallRoot $installRoot `
             -TaskName 'UqebApi' `
             -ApiPort 5000 `
-            -ConfigPath $configPath
+            -ConfigPath $configPath `
+            -ApiBaseUrl 'http://10.0.177.17:5000' `
+            -HealthScriptPath $healthScript `
+            -RequireHealthVerification
         $rolledBack | Should -BeTrue
 
         $rolledBackConfig = Join-Path $installRoot 'current\api\appsettings.Production.json'
@@ -1489,6 +1724,60 @@ Describe 'install-production-package rollback and service recovery' {
         $global:UqebTestStartCalls | Should -Be 1
     }
 
+    It 'requires health script and ApiBaseUrl when rollback health verification is mandatory' {
+        Mock Start-ScheduledTask {}
+        Mock Test-PortListener { $true }
+
+        {
+            Invoke-RestartCurrentReleaseService `
+                -TaskName 'UqebApi' `
+                -ApiPort 5000 `
+                -RequireHealthVerification
+        } | Should -Throw '*ApiBaseUrl is required*'
+
+        {
+            Invoke-RestartCurrentReleaseService `
+                -TaskName 'UqebApi' `
+                -ApiPort 5000 `
+                -ApiBaseUrl 'http://10.0.177.17:5000' `
+                -HealthScriptPath (Join-Path $TestDrive 'missing-health.ps1') `
+                -RequireHealthVerification
+        } | Should -Throw '*required but missing*'
+        Assert-MockCalled Start-ScheduledTask -Times 0 -Exactly
+    }
+
+    It 'fails mandatory rollback verification when health script fails' {
+        Mock Start-ScheduledTask {}
+        Mock Test-PortListener { $true }
+        $healthScript = Join-Path $TestDrive 'health-fail.ps1'
+        'throw "database check failed"' | Set-Content $healthScript -Encoding ASCII
+
+        {
+            Invoke-RestartCurrentReleaseService `
+                -TaskName 'UqebApi' `
+                -ApiPort 5000 `
+                -ApiBaseUrl 'http://10.0.177.17:5000' `
+                -HealthScriptPath $healthScript `
+                -RequireHealthVerification
+        } | Should -Throw '*database check failed*'
+    }
+
+    It 'passes mandatory rollback verification only after port and health succeed' {
+        Mock Start-ScheduledTask {}
+        Mock Test-PortListener { $true }
+        $healthScript = Join-Path $TestDrive 'health-pass.ps1'
+        'Write-Output "health-pass"' | Set-Content $healthScript -Encoding ASCII
+
+        {
+            Invoke-RestartCurrentReleaseService `
+                -TaskName 'UqebApi' `
+                -ApiPort 5000 `
+                -ApiBaseUrl 'http://10.0.177.17:5000' `
+                -HealthScriptPath $healthScript `
+                -RequireHealthVerification
+        } | Should -Not -Throw
+    }
+
     It 'does not report release rollback success when the restored API fails verification' {
         Mock Start-ScheduledTask {}
         Mock Stop-ScheduledTask {}
@@ -1510,6 +1799,48 @@ Describe 'install-production-package rollback and service recovery' {
                 -ApiPort 5000 `
                 -ConfigPath $configPath
         } | Should -Throw '*did not restart*'
+    }
+
+    It 'marks file rollback successful only after restart and health verification' {
+        Register-StandardDeploymentInstallMocks -IncludePromotionMock -IncludeHealthMocks
+        Mock Invoke-ReleaseRollbackFromState { return $false }
+        Mock Invoke-DeploymentFileRollback { return $true }
+        Mock Sync-PublishCompatibilityLinks {}
+        Mock Invoke-RestartCurrentReleaseService {}
+
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
+        'throw "new release health failed"' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
+
+        $result = Get-InstallScriptOutput {
+            Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env
+        }
+
+        $result.Text | Should -Match 'تم استرجاع ملفات API/Web/Chromium والتحقق من صحة الإصدار'
+        Assert-MockCalled Invoke-DeploymentFileRollback -Times 1 -Exactly -ParameterFilter {
+            $ConfigSource -eq $env.ConfigPath
+        }
+        Assert-MockCalled Invoke-RestartCurrentReleaseService -Times 1 -Exactly -ParameterFilter {
+            $RequireHealthVerification
+        }
+    }
+
+    It 'does not mark file rollback successful when health verification fails' {
+        Register-StandardDeploymentInstallMocks -IncludePromotionMock -IncludeHealthMocks
+        Mock Invoke-ReleaseRollbackFromState { return $false }
+        Mock Invoke-DeploymentFileRollback { return $true }
+        Mock Sync-PublishCompatibilityLinks {}
+        Mock Invoke-RestartCurrentReleaseService { throw 'rollback health failed' }
+
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
+        'throw "new release health failed"' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
+
+        $result = Get-InstallScriptOutput {
+            Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env
+        }
+
+        $result.Text | Should -Match 'فشل التحقق بعد file rollback'
+        $result.Text | Should -Not -Match 'تم استرجاع ملفات API/Web/Chromium والتحقق من صحة الإصدار'
+        $result.Text | Should -Not -Match 'تم تنفيذ rollback للملفات فقط'
     }
 
     It 'tracks service stop phases and restarts current release when stop started before promotion' {
@@ -1559,6 +1890,7 @@ Describe 'build-production-package.ps1 policy' {
         $buildContent | Should -Match 'promotionModel = "releases-current-v1"'
         $buildContent | Should -Match 'packageContractVersion = 2'
         $installContent | Should -Match 'Install-StagedReleaseToProduction'
-        $installContent | Should -Match 'ApplyDatabaseMigration'
+        $installContent | Should -Match 'Test-RequiredMigrationPresent'
+        $installContent | Should -Match 'deprecated and no longer required'
     }
 }

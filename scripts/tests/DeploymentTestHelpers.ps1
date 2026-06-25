@@ -235,7 +235,7 @@ function Invoke-TestInstallScript {
     }
 
     $output = @()
-    & $InstallScript @params 6>&1 | ForEach-Object { $output += $_.ToString() }
+    & $InstallScript @params 3>&1 6>&1 | ForEach-Object { $output += $_.ToString() }
     if ($LASTEXITCODE -ne 0) {
         $text = ($output -join [Environment]::NewLine)
         if ([string]::IsNullOrWhiteSpace($text)) {
@@ -244,6 +244,8 @@ function Invoke-TestInstallScript {
 
         throw $text
     }
+
+    return $output
 }
 
 function Ensure-ScheduledTaskCommandStubs {
@@ -300,6 +302,7 @@ function Register-StandardDeploymentInstallMocks {
     Mock Stop-Process {}
     Mock Get-NetTCPConnection { return @() }
     Mock Test-RecentLogErrors { return @() }
+    Mock Test-RequiredMigrationPresent { return $true }
     Mock Test-RequiredMigrationApplied {}
     Mock Copy-ApplicationPayload {}
     Mock Test-PackageManifestHashes {}

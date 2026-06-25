@@ -8,7 +8,8 @@ BeforeAll {
         param(
             [string]$ApiBaseUrl,
             [int]$RetryCount = 1,
-            [int]$RetryDelaySec = 2
+            [int]$RetryDelaySec = 2,
+            [switch]$IncludeInvalidLoginProbe
         )
 
         & $script:HealthScript `
@@ -16,7 +17,8 @@ BeforeAll {
             -RetryCount $RetryCount `
             -RetryDelaySec $RetryDelaySec `
             -SkipPlaywrightFilesystemChecks `
-            -SkipPlaywrightProcessSmokeTest
+            -SkipPlaywrightProcessSmokeTest `
+            -SkipInvalidLoginProbe:(-not $IncludeInvalidLoginProbe)
     }
 
     function Test-ValidCorrelationId {
@@ -34,16 +36,19 @@ BeforeAll {
             [string]$Status,
             [string]$HealthStatus,
             [hashtable]$Headers = @{ 'X-Correlation-ID' = 'abc123' },
-            [string]$DatabaseCheck = 'pass'
+            [string]$DatabaseCheck = 'pass',
+            [string]$PlaywrightCheck = 'pass',
+            [string]$ReportNumberSequenceCheck = 'pass',
+            [string]$InstitutionalReportingCheck = 'pass'
         )
 
         $body = @{ status = $HealthStatus }
         if ($HealthStatus -eq 'healthy') {
             $body.checks = @{
                 database = $DatabaseCheck
-                playwrightChromium = 'pass'
-                reportNumberSequence = 'pass'
-                institutionalReporting = 'pass'
+                playwrightChromium = $PlaywrightCheck
+                reportNumberSequence = $ReportNumberSequenceCheck
+                institutionalReporting = $InstitutionalReportingCheck
             }
         }
 
@@ -364,11 +369,99 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
         { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
             Should -Throw "*required check 'playwrightChromium'*"
     }
+
+    It 'FAIL: summary playwright check is not pass' {
+        Mock Invoke-WebRequest {
+            param($Uri)
+            switch (([uri]$Uri).AbsolutePath) {
+                '/health/live' { return (New-HealthResponse -Status 200 -HealthStatus 'live') }
+                '/health/ready' { return (New-HealthResponse -Status 200 -HealthStatus 'ready') }
+                '/health' {
+                    return (New-HealthResponse -Status 200 -HealthStatus 'healthy' -PlaywrightCheck 'fail')
+                }
+            }
+        }
+
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' } |
+            Should -Throw "*playwrightChromium='fail'*"
+    }
+
+    It 'FAIL: summary report number sequence check is not pass' {
+        Mock Invoke-WebRequest {
+            param($Uri)
+            switch (([uri]$Uri).AbsolutePath) {
+                '/health/live' { return (New-HealthResponse -Status 200 -HealthStatus 'live') }
+                '/health/ready' { return (New-HealthResponse -Status 200 -HealthStatus 'ready') }
+                '/health' {
+                    return (New-HealthResponse -Status 200 -HealthStatus 'healthy' -ReportNumberSequenceCheck 'fail')
+                }
+            }
+        }
+
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' } |
+            Should -Throw "*reportNumberSequence='fail'*"
+    }
+
+    It 'FAIL: summary institutional reporting check is not pass' {
+        Mock Invoke-WebRequest {
+            param($Uri)
+            switch (([uri]$Uri).AbsolutePath) {
+                '/health/live' { return (New-HealthResponse -Status 200 -HealthStatus 'live') }
+                '/health/ready' { return (New-HealthResponse -Status 200 -HealthStatus 'ready') }
+                '/health' {
+                    return (New-HealthResponse -Status 200 -HealthStatus 'healthy' -InstitutionalReportingCheck 'fail')
+                }
+            }
+        }
+
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' } |
+            Should -Throw "*institutionalReporting='fail'*"
+    }
+
+    It 'PASS: optional invalid-login probe returns 401 after health checks' {
+        $global:healthProbeOrder = @()
+        Mock Invoke-WebRequest {
+            param($Uri, $Method)
+            $path = ([uri]$Uri).AbsolutePath
+            $global:healthProbeOrder += $path
+            switch ($path) {
+                '/health/live' { return (New-HealthResponse -Status 200 -HealthStatus 'live') }
+                '/health/ready' { return (New-HealthResponse -Status 200 -HealthStatus 'ready') }
+                '/health' { return (New-HealthResponse -Status 200 -HealthStatus 'healthy') }
+                '/api/auth/login' {
+                    $Method | Should -Be 'Post'
+                    return [pscustomobject]@{ StatusCode = 401; Content = ''; Headers = @{} }
+                }
+                default { throw "Unexpected path $path" }
+            }
+        }
+
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -IncludeInvalidLoginProbe } |
+            Should -Not -Throw
+        $global:healthProbeOrder | Should -Be @('/health/live', '/health/ready', '/health', '/api/auth/login')
+    }
+
+    It 'FAIL: optional invalid-login probe returning 200 is rejected' {
+        Mock Invoke-WebRequest {
+            param($Uri)
+            switch (([uri]$Uri).AbsolutePath) {
+                '/health/live' { return (New-HealthResponse -Status 200 -HealthStatus 'live') }
+                '/health/ready' { return (New-HealthResponse -Status 200 -HealthStatus 'ready') }
+                '/health' { return (New-HealthResponse -Status 200 -HealthStatus 'healthy') }
+                '/api/auth/login' {
+                    return [pscustomobject]@{ StatusCode = 200; Content = '{}'; Headers = @{} }
+                }
+            }
+        }
+
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -IncludeInvalidLoginProbe } |
+            Should -Throw '*unexpected status 200*'
+    }
 }
 
 Describe 'verify-deployment-health Common.ps1 requirements' {
     It 'fails when Common.ps1 is missing from script and tools roots' {
-        $root = Join-Path $env:TEMP ("uqeb-health-common-" + [Guid]::NewGuid().ToString('N'))
+        $root = Join-Path ([System.IO.Path]::GetTempPath()) ("uqeb-health-common-" + [Guid]::NewGuid().ToString('N'))
         $isolatedScript = Join-Path $root 'verify-deployment-health.ps1'
         $sourceScript = Join-Path $PSScriptRoot 'verify-deployment-health.ps1'
         New-Item -ItemType Directory -Path $root -Force | Out-Null
@@ -380,12 +473,13 @@ Describe 'verify-deployment-health Common.ps1 requirements' {
                 -ToolsRoot (Join-Path $root 'missing-tools') `
                 -SkipPlaywrightFilesystemChecks `
                 -SkipPlaywrightProcessSmokeTest `
+                -SkipInvalidLoginProbe `
                 -RetryCount 1
         } | Should -Throw '*Common.ps1*'
     }
 
     It 'loads Common.ps1 from deployment folder beside script' {
-        $root = Join-Path $env:TEMP ("uqeb-health-common-ok-" + [Guid]::NewGuid().ToString('N'))
+        $root = Join-Path ([System.IO.Path]::GetTempPath()) ("uqeb-health-common-ok-" + [Guid]::NewGuid().ToString('N'))
         $deploymentDir = Join-Path $root 'deployment'
         $isolatedScript = Join-Path $root 'verify-deployment-health.ps1'
         $sourceScript = Join-Path $PSScriptRoot 'verify-deployment-health.ps1'
@@ -411,6 +505,7 @@ Describe 'verify-deployment-health Common.ps1 requirements' {
                 -ApiBaseUrl 'http://localhost:5000' `
                 -SkipPlaywrightFilesystemChecks `
                 -SkipPlaywrightProcessSmokeTest `
+                -SkipInvalidLoginProbe `
                 -RetryCount 1
         } | Should -Not -Throw
     }

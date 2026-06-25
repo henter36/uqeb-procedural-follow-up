@@ -40,6 +40,9 @@ Assert-ValidApiBindAddress -ApiBindAddress $ApiBindAddress
 if ([string]::IsNullOrWhiteSpace($ApiBaseUrl)) {
     $ApiBaseUrl = "http://${ApiBindAddress}:$ApiPort"
 }
+if ($ApplyDatabaseMigration) {
+    Write-Warning '-ApplyDatabaseMigration is deprecated and no longer required. Migration execution is determined automatically from manifest.minimumDatabaseMigration.'
+}
 
 $deploymentResult = "فشل"
 $backupPath = ""
@@ -74,6 +77,8 @@ $listenersStopped = $false
 $portReleased = $false
 $promotionStarted = $false
 $promotionCompleted = $false
+$requiredMigrationMissing = $false
+$packageArchiveStatus = "لم تُنفَّذ"
 
 try {
     if (-not (Test-IsAdministrator)) {
@@ -121,6 +126,10 @@ try {
     Test-PackageManifestHashes -PackageRoot $stagingPath -Manifest $manifest
     $packageVersion = [string]$manifest.version
     $packageCommit = [string]$manifest.commitSha
+    $requiredMigration = [string]$manifest.minimumDatabaseMigration
+    if ([string]::IsNullOrWhiteSpace($requiredMigration)) {
+        throw "manifest.minimumDatabaseMigration غير موجود أو فارغ."
+    }
 
     Write-DeployStep "التحقق من حمولة Chromium قبل إيقاف الخدمة"
     $playwrightPreflight = Test-PlaywrightPackagePreflight -PackageRoot $stagingPath -Manifest $manifest
@@ -162,12 +171,26 @@ try {
     Write-DeployInfo ("وقت إنشاء النسخة (UTC): " + $databaseBackupCreatedAtUtc)
     Write-DeployInfo ("تجزئة SHA256 للنسخة: " + $databaseBackupSha256)
 
-    if (-not $ApplyDatabaseMigration) {
-        Write-DeployStep "التحقق من أن migration المطلوبة مطبقة مسبقًا"
-        Test-RequiredMigrationApplied `
-            -ConnectionString $sqlInfo.ConnectionString `
-            -RequiredMigrationId ([string]$manifest.minimumDatabaseMigration)
+    Write-DeployStep "فحص migration المطلوبة"
+    $requiredMigrationApplied = Test-RequiredMigrationPresent `
+        -ConnectionString $sqlInfo.ConnectionString `
+        -RequiredMigrationId $requiredMigration
+    if ($requiredMigrationApplied) {
+        Write-DeployInfo 'Required migration already applied; migration execution skipped.'
         $databaseStatus = "مطبقة مسبقًا"
+    }
+    else {
+        $requiredMigrationMissing = $true
+        $databaseStatus = "مطلوبة"
+        Write-DeployInfo ("Required migration is missing and will be applied automatically: " + $requiredMigration)
+    }
+
+    $healthScript = Join-Path $ToolsRoot "verify-deployment-health.ps1"
+    if (-not (Test-Path -LiteralPath $healthScript)) {
+        $healthScript = Join-Path $stagingPath "scripts\verify-deployment-health.ps1"
+    }
+    if (-not (Test-Path -LiteralPath $healthScript)) {
+        throw "سكربت verify-deployment-health.ps1 غير موجود."
     }
 
     Write-DeployStep "إيقاف API"
@@ -218,8 +241,8 @@ try {
         $backupPath = "(متخطى)"
     }
 
-    if ($ApplyDatabaseMigration) {
-        Write-DeployStep "تطبيق migrations بتفويض صريح"
+    if ($requiredMigrationMissing) {
+        Write-DeployStep "تطبيق migration المطلوبة تلقائيًا"
         $migrationScript = Join-Path $stagingPath "scripts\apply-migrations.ps1"
         if (-not (Test-Path -LiteralPath $migrationScript)) {
             $migrationScript = Join-Path $ToolsRoot "apply-migrations.ps1"
@@ -231,8 +254,11 @@ try {
         & $migrationScript `
             -SettingsPath $ConfigPath `
             -MigrationFile (Join-Path $stagingPath "database\migrations-idempotent.sql") `
-            -ExpectedLatestMigration $manifest.minimumDatabaseMigration
+            -ExpectedLatestMigration $requiredMigration
 
+        Test-RequiredMigrationApplied `
+            -ConnectionString $sqlInfo.ConnectionString `
+            -RequiredMigrationId $requiredMigration
         $databaseStatus = "نجح"
         $migrationsApplied = $true
     }
@@ -311,14 +337,6 @@ try {
         throw "لم يبدأ API على المنفذ $ApiPort."
     }
 
-    $healthScript = Join-Path $ToolsRoot "verify-deployment-health.ps1"
-    if (-not (Test-Path -LiteralPath $healthScript)) {
-        $healthScript = Join-Path $stagingPath "scripts\verify-deployment-health.ps1"
-    }
-    if (-not (Test-Path -LiteralPath $healthScript)) {
-        throw "سكربت verify-deployment-health.ps1 غير موجود."
-    }
-
     Write-DeployStep "فحص صحة API"
     & $healthScript `
         -ApiBaseUrl $ApiBaseUrl `
@@ -344,10 +362,16 @@ try {
     }
 
     $deployedDir = Join-Path $InstallRoot "incoming\deployed"
-    Ensure-Directory $deployedDir
-    Move-Item -LiteralPath $PackagePath -Destination (Join-Path $deployedDir (Split-Path -Leaf $PackagePath)) -Force
-    if (Test-Path -LiteralPath $shaPath) {
-        Move-Item -LiteralPath $shaPath -Destination (Join-Path $deployedDir (Split-Path -Leaf $shaPath)) -Force
+    try {
+        $archiveResult = Move-DeploymentPackageToArchive `
+            -ZipPath $PackagePath `
+            -Sha256Path $shaPath `
+            -ArchiveDirectory $deployedDir
+        $packageArchiveStatus = [string]$archiveResult.Status
+    }
+    catch {
+        $packageArchiveStatus = "فشلت: $($_.Exception.Message)"
+        Write-DeployFailure ("نجح النشر لكن فشلت أرشفة حزمة ZIP/SHA256: " + $_.Exception.Message)
     }
 
     if (Test-Path -LiteralPath $stagingPath) {
@@ -389,7 +413,8 @@ catch {
                 -HealthScriptPath $rollbackHealthScript `
                 -PlaywrightBrowsersPath $PlaywrightBrowsersPath `
                 -ExpectedBrowserExecutableSha256 ([string]$manifest.playwright.browserExecutableSha256) `
-                -SkipPlaywrightProcessSmokeTest
+                -SkipPlaywrightProcessSmokeTest `
+                -RequireHealthVerification
         }
         catch {
             Write-DeployFailure ("فشل التحقق من الإصدار السابق بعد rollback: " + $_.Exception.Message)
@@ -400,9 +425,7 @@ catch {
         }
 
         if (-not $rollbackPerformed -and -not $SkipFileBackup -and $backupPath -and $backupPath -ne "(متخطى)") {
-            $rollbackPerformed = Invoke-DeploymentFileRollback `
-                -TaskName $TaskName `
-                -ApiPort $ApiPort `
+            $filesRestored = Invoke-DeploymentFileRollback `
                 -BackupApi (Join-Path $backupPath "api") `
                 -BackupWeb (Join-Path $backupPath "web") `
                 -ApiTarget $currentApiPath `
@@ -414,14 +437,27 @@ catch {
                 -ReleaseManifestPath $releaseManifestPath `
                 -BackupReleaseManifest (Join-Path $backupPath "release-manifest.json")
 
-            if ($rollbackPerformed) {
+            if ($filesRestored) {
                 try {
                     Sync-PublishCompatibilityLinks -InstallRoot $InstallRoot
+                    Invoke-RestartCurrentReleaseService `
+                        -TaskName $TaskName `
+                        -ApiPort $ApiPort `
+                        -ApiBaseUrl $ApiBaseUrl `
+                        -HealthScriptPath $rollbackHealthScript `
+                        -PlaywrightBrowsersPath $PlaywrightBrowsersPath `
+                        -ExpectedBrowserExecutableSha256 ([string]$manifest.playwright.browserExecutableSha256) `
+                        -SkipPlaywrightProcessSmokeTest `
+                        -RequireHealthVerification
+                    $rollbackPerformed = $true
                 }
                 catch {
-                    Write-DeployInfo ("تعذر تحديث روابط publish بعد rollback: " + $_.Exception.Message)
+                    $rollbackPerformed = $false
+                    Write-DeployFailure ("فشل التحقق بعد file rollback ويتطلب تدخلًا يدويًا: " + $_.Exception.Message)
                 }
-                Write-DeployInfo "تم استرجاع ملفات API/Web/Chromium من النسخة الاحتياطية. لا يوجد rollback تلقائي لقاعدة البيانات."
+                if ($rollbackPerformed) {
+                    Write-DeployInfo "تم استرجاع ملفات API/Web/Chromium والتحقق من صحة الإصدار. لا يوجد rollback تلقائي لقاعدة البيانات."
+                }
             }
         }
     }
@@ -435,7 +471,8 @@ catch {
                 -ApiBaseUrl $ApiBaseUrl `
                 -HealthScriptPath $healthScript `
                 -PlaywrightBrowsersPath $PlaywrightBrowsersPath `
-                -SkipPlaywrightProcessSmokeTest
+                -SkipPlaywrightProcessSmokeTest `
+                -RequireHealthVerification
         }
         catch {
             Write-DeployFailure ("تعذر إعادة تشغيل API بعد فشل الترقية: " + $_.Exception.Message)
@@ -451,7 +488,8 @@ catch {
                 -ApiBaseUrl $ApiBaseUrl `
                 -HealthScriptPath $healthScript `
                 -PlaywrightBrowsersPath $PlaywrightBrowsersPath `
-                -SkipPlaywrightProcessSmokeTest
+                -SkipPlaywrightProcessSmokeTest `
+                -RequireHealthVerification
         }
         catch {
             Write-DeployFailure ("تعذر إعادة تشغيل API بعد الفشل: " + $_.Exception.Message)
@@ -478,6 +516,7 @@ finally {
     }
     Write-DeployInfo ("حالة migrations: " + $databaseStatus)
     Write-DeployInfo ("صحة API: " + $apiHealth)
+    Write-DeployInfo ("حالة أرشفة الحزمة: " + $packageArchiveStatus)
     Write-DeployInfo ("مسار rollback-state: " + $rollbackStatePath)
     Write-DeployInfo ("مسار current API: " + $currentApiPath)
     Write-DeployInfo ("مسار النسخة الاحتياطية للملفات: " + $backupPath)

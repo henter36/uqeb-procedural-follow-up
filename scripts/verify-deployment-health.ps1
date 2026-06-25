@@ -15,7 +15,8 @@
     [string]$ExpectedBrowserExecutableSha256 = "",
     [string]$ToolsRoot = "C:\UqebTools",
     [switch]$SkipPlaywrightProcessSmokeTest,
-    [switch]$SkipPlaywrightFilesystemChecks
+    [switch]$SkipPlaywrightFilesystemChecks,
+    [switch]$SkipInvalidLoginProbe
 )
 
 $ErrorActionPreference = "Stop"
@@ -224,6 +225,38 @@ function Invoke-HealthEndpoint {
     }
 }
 
+function Invoke-InvalidLoginProbe {
+    $uri = Get-HealthUri -BaseUrl $ApiBaseUrl -Path '/api/auth/login'
+    $body = @{
+        username = '__deployment_probe__'
+        password = '__deployment_probe__'
+    } | ConvertTo-Json
+
+    Write-Output "Checking invalid-login probe => $uri"
+    try {
+        $response = Invoke-WebRequest `
+            -UseBasicParsing `
+            -Uri $uri `
+            -Method Post `
+            -ContentType 'application/json' `
+            -Body $body `
+            -TimeoutSec $TimeoutSec
+
+        if ([int]$response.StatusCode -ne 401) {
+            throw "invalid-login probe returned unexpected status $([int]$response.StatusCode)."
+        }
+    }
+    catch {
+        if ($_.Exception.PSObject.Properties.Name -contains 'Response' -and $_.Exception.Response) {
+            $statusCode = [int]$_.Exception.Response.StatusCode
+            if ($statusCode -eq 401) {
+                return
+            }
+        }
+        throw "invalid-login probe failed. Details: $($_.Exception.Message)"
+    }
+}
+
 if (-not $SkipPlaywrightFilesystemChecks) {
     Write-Output "Checking local Playwright browser payload => $PlaywrightBrowsersPath"
     $manifestPath = Join-Path $PlaywrightBrowsersPath "playwright-browser-manifest.json"
@@ -266,6 +299,10 @@ Invoke-HealthEndpoint `
     -AllowedStatusCodes @(200) `
     -ExpectedStatus 'healthy' `
     -ValidateSummaryChecks | Out-Null
+
+if (-not $SkipInvalidLoginProbe) {
+    Invoke-InvalidLoginProbe
+}
 
 Write-Output 'Health verification passed.'
 exit 0

@@ -2,6 +2,7 @@
 Set-StrictMode -Version Latest
 
 $script:ReleasePromotionFailureInjection = $null
+$script:PackageArchiveFailureInjection = $null
 
 function Write-DeployStep {
     param([string]$Message)
@@ -16,7 +17,7 @@ function Write-DeployInfo {
 
 function Write-DeployError {
     param([string]$Message)
-    Write-Error $Message
+    Write-Error -Message $Message -ErrorAction Continue
 }
 
 function Write-DeployFailure {
@@ -601,8 +602,6 @@ function Test-RecentLogErrors {
 
 function Invoke-DeploymentFileRollback {
     param(
-        [string]$TaskName,
-        [int]$ApiPort,
         [string]$BackupApi,
         [string]$BackupWeb,
         [string]$ApiTarget,
@@ -620,30 +619,50 @@ function Invoke-DeploymentFileRollback {
         return $false
     }
 
-    Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-    Stop-ApiListenersOnPort -Port $ApiPort | Out-Null
-    Wait-PortReleased -Port $ApiPort -TimeoutSec 20 | Out-Null
+    if ((Test-DirectoryHasContent $BackupApi) -or (Test-DirectoryHasContent $BackupWeb)) {
+        if (-not (Test-Path -LiteralPath $ConfigSource)) {
+            throw "إعداد الإنتاج المعتمد غير موجود أثناء file rollback: $ConfigSource"
+        }
+    }
 
     if (Test-DirectoryHasContent $BackupApi) {
-        Invoke-RobocopySafe -Source $BackupApi -Destination $ApiTarget -TargetType Api
+        $apiPrevious = Swap-DirectoryAtomically `
+            -Source $BackupApi `
+            -Target $ApiTarget `
+            -ValidateStaging {
+                param($StagingPath)
+                if (-not (Test-Path -LiteralPath (Join-Path $StagingPath 'Uqeb.Api.dll'))) {
+                    throw 'نسخة API الاحتياطية لا تحتوي Uqeb.Api.dll.'
+                }
+            }
+        Remove-DirectoryIfExists -Path $apiPrevious
     }
     if (Test-DirectoryHasContent $BackupWeb) {
-        if (Test-DirectoryHasContent $WebTarget) {
-            Get-ChildItem -LiteralPath $WebTarget -Force | Remove-Item -Recurse -Force
-        }
-        Invoke-RobocopySafe -Source $BackupWeb -Destination $WebTarget -TargetType Web
+        $webPrevious = Swap-DirectoryAtomically `
+            -Source $BackupWeb `
+            -Target $WebTarget `
+            -ValidateStaging {
+                param($StagingPath)
+                if (-not (Test-Path -LiteralPath (Join-Path $StagingPath 'index.html'))) {
+                    throw 'نسخة Web الاحتياطية لا تحتوي index.html.'
+                }
+            }
+        Remove-DirectoryIfExists -Path $webPrevious
     }
-    if (Test-Path -LiteralPath $ConfigSource) {
+    if ((Test-DirectoryHasContent $BackupApi) -or (Test-DirectoryHasContent $BackupWeb)) {
         Copy-Item -LiteralPath $ConfigSource -Destination $ConfigTarget -Force
     }
+
     if ($PlaywrightBrowsersPath -and (Test-DirectoryHasContent $BackupBrowsers)) {
-        Restore-PreviousDirectory -Target $PlaywrightBrowsersPath -PreviousPath $BackupBrowsers | Out-Null
+        $browserPrevious = Swap-DirectoryAtomically `
+            -Source $BackupBrowsers `
+            -Target $PlaywrightBrowsersPath
+        Remove-DirectoryIfExists -Path $browserPrevious
     }
     if ($ReleaseManifestPath -and (Test-Path -LiteralPath $BackupReleaseManifest)) {
         Copy-Item -LiteralPath $BackupReleaseManifest -Destination $ReleaseManifestPath -Force
     }
 
-    Start-ScheduledTask -TaskName $TaskName
     return $true
 }
 
@@ -886,8 +905,18 @@ function Invoke-RestartCurrentReleaseService {
         [string]$HealthScriptPath = '',
         [string]$PlaywrightBrowsersPath = '',
         [string]$ExpectedBrowserExecutableSha256 = '',
-        [switch]$SkipPlaywrightProcessSmokeTest
+        [switch]$SkipPlaywrightProcessSmokeTest,
+        [switch]$RequireHealthVerification
     )
+
+    if ($RequireHealthVerification) {
+        if ([string]::IsNullOrWhiteSpace($ApiBaseUrl)) {
+            throw 'ApiBaseUrl is required for rollback health verification.'
+        }
+        if ([string]::IsNullOrWhiteSpace($HealthScriptPath) -or -not (Test-Path -LiteralPath $HealthScriptPath)) {
+            throw "Health verification script is required but missing: $HealthScriptPath"
+        }
+    }
 
     Start-ScheduledTask -TaskName $TaskName
     if (-not (Test-PortListener -Port $ApiPort -TimeoutSec 45)) {
@@ -1920,7 +1949,8 @@ function Invoke-ReleaseRollbackFromState {
         [string]$HealthScriptPath = '',
         [string]$PlaywrightBrowsersPath = '',
         [string]$ExpectedBrowserExecutableSha256 = '',
-        [switch]$SkipPlaywrightProcessSmokeTest
+        [switch]$SkipPlaywrightProcessSmokeTest,
+        [switch]$RequireHealthVerification
     )
 
     $state = Read-RollbackState -InstallRoot $InstallRoot
@@ -1981,7 +2011,8 @@ function Invoke-ReleaseRollbackFromState {
         -HealthScriptPath $HealthScriptPath `
         -PlaywrightBrowsersPath $PlaywrightBrowsersPath `
         -ExpectedBrowserExecutableSha256 $ExpectedBrowserExecutableSha256 `
-        -SkipPlaywrightProcessSmokeTest:$SkipPlaywrightProcessSmokeTest
+        -SkipPlaywrightProcessSmokeTest:$SkipPlaywrightProcessSmokeTest `
+        -RequireHealthVerification:$RequireHealthVerification
 
     Write-RollbackState -InstallRoot $InstallRoot -State $restoredState
     return $true
@@ -2120,7 +2151,7 @@ function Get-AppliedMigrationIds {
     }
 }
 
-function Test-RequiredMigrationApplied {
+function Test-RequiredMigrationPresent {
     param(
         [string]$ConnectionString,
         [string]$RequiredMigrationId
@@ -2150,8 +2181,88 @@ function Test-RequiredMigrationApplied {
         }
     }
 
-    if (-not $found) {
-        throw "لا يمكن تخطي migrations: قاعدة الإنتاج لا تحتوي migration المطلوبة $RequiredMigrationId."
+    return $found
+}
+
+function Test-RequiredMigrationApplied {
+    param(
+        [string]$ConnectionString,
+        [string]$RequiredMigrationId
+    )
+
+    if (-not (Test-RequiredMigrationPresent `
+        -ConnectionString $ConnectionString `
+        -RequiredMigrationId $RequiredMigrationId)) {
+        throw "قاعدة الإنتاج لا تحتوي migration المطلوبة $RequiredMigrationId."
+    }
+}
+
+function Move-DeploymentPackageToArchive {
+    param(
+        [Parameter(Mandatory = $true)][string]$ZipPath,
+        [Parameter(Mandatory = $true)][string]$Sha256Path,
+        [Parameter(Mandatory = $true)][string]$ArchiveDirectory
+    )
+
+    if (-not (Test-Path -LiteralPath $ZipPath)) {
+        throw "ملف ZIP المراد أرشفته غير موجود: $ZipPath"
+    }
+    if (-not (Test-Path -LiteralPath $Sha256Path)) {
+        throw "ملف SHA256 المراد أرشفته غير موجود: $Sha256Path"
+    }
+
+    Ensure-Directory $ArchiveDirectory
+    $zipTarget = Join-Path $ArchiveDirectory (Split-Path -Leaf $ZipPath)
+    $shaTarget = Join-Path $ArchiveDirectory (Split-Path -Leaf $Sha256Path)
+    $zipTargetExists = Test-Path -LiteralPath $zipTarget
+    $shaTargetExists = Test-Path -LiteralPath $shaTarget
+
+    if ($zipTargetExists -or $shaTargetExists) {
+        if (-not ($zipTargetExists -and $shaTargetExists)) {
+            throw 'تعارض أرشفة الحزمة: يوجد جزء واحد فقط من زوج ZIP/SHA256 في deployed.'
+        }
+
+        $sourceZipHash = Get-FileSha256Hex -Path $ZipPath
+        $targetZipHash = Get-FileSha256Hex -Path $zipTarget
+        $sourceSidecarHash = Get-FileSha256Hex -Path $Sha256Path
+        $targetSidecarHash = Get-FileSha256Hex -Path $shaTarget
+        if ($sourceZipHash -ne $targetZipHash -or $sourceSidecarHash -ne $targetSidecarHash) {
+            throw 'تعارض أرشفة الحزمة: يوجد artifact بالاسم نفسه وبمحتوى مختلف.'
+        }
+
+        Remove-Item -LiteralPath $ZipPath -Force
+        Remove-Item -LiteralPath $Sha256Path -Force
+        return [pscustomobject]@{
+            Status = 'already_archived'
+            ZipPath = $zipTarget
+            Sha256Path = $shaTarget
+        }
+    }
+
+    Move-Item -LiteralPath $ZipPath -Destination $zipTarget
+    try {
+        if ($script:PackageArchiveFailureInjection -eq 'before_sha_move') {
+            throw 'simulated SHA move failure'
+        }
+        Move-Item -LiteralPath $Sha256Path -Destination $shaTarget
+    }
+    catch {
+        $archiveError = $_
+        try {
+            if ((Test-Path -LiteralPath $zipTarget) -and -not (Test-Path -LiteralPath $ZipPath)) {
+                Move-Item -LiteralPath $zipTarget -Destination $ZipPath
+            }
+        }
+        catch {
+            throw "فشل نقل SHA256 وفشل التراجع عن نقل ZIP. Archive: $($archiveError.Exception.Message) Restore: $($_.Exception.Message)"
+        }
+        throw $archiveError
+    }
+
+    return [pscustomobject]@{
+        Status = 'archived'
+        ZipPath = $zipTarget
+        Sha256Path = $shaTarget
     }
 }
 
