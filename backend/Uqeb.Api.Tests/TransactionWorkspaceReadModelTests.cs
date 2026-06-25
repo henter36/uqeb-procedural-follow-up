@@ -19,6 +19,8 @@ public class TransactionWorkspaceReadModelTests
     private sealed class TestCacheInvalidation : ICacheInvalidationService
     {
         public string DashboardSummaryKey => "dashboard";
+        public string BuildDashboardSummaryKey() => DashboardSummaryKey;
+        public string BuildDashboardFullKey() => "dashboard:full";
         public TimeSpan DashboardCacheDuration => TimeSpan.FromMinutes(1);
         public TimeSpan ReportsPageSummaryCacheDuration => TimeSpan.FromMinutes(1);
         public TimeSpan ReferenceDataCacheDuration => TimeSpan.FromMinutes(1);

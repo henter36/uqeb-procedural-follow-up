@@ -141,6 +141,7 @@ builder.Services.AddAuthorization(options =>
 
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<ICacheInvalidationService, CacheInvalidationService>();
+builder.Services.AddSingleton<IMemoryCacheCoordinator, MemoryCacheCoordinator>();
 builder.Services.AddResponseCompression(options =>
 {
     options.EnableForHttps = true;

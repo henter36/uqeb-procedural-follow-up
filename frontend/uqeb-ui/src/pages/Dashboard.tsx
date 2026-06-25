@@ -1,29 +1,17 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { dashboardApi } from '../api/services';
+import { reportsApi } from '../api/services';
 import type { DashboardSummary, TransactionListItem } from '../api/types';
 import { statusLabels } from '../utils/labels';
 import DateDisplay from '../components/DateDisplay';
 import DepartmentBadges from '../components/DepartmentBadges';
 import {
-  PageHeader, StatCard, Alert, StatsSkeleton, TableSkeleton, EmptyState, LoadingInline,
+  PageHeader, StatCard, StatsSkeleton, EmptyState, ErrorState,
 } from '../components/ui';
 import StatusBadge from '../components/ui/StatusBadge';
 
-const SECTION_UNAVAILABLE = 'لا توجد بيانات متاحة';
-
-type ActionRequiredView = 'loading' | 'empty' | 'table';
-
-function resolveActionRequiredView(
-  detailsLoading: boolean,
-  actionRequired: TransactionListItem[] | undefined,
-): ActionRequiredView {
-  if (detailsLoading && actionRequired === undefined) {
-    return 'loading';
-  }
-  if (actionRequired?.length === 0) {
-    return 'empty';
-  }
+function resolveActionRequiredView(actionRequired: TransactionListItem[] | undefined): 'empty' | 'table' {
+  if (actionRequired?.length === 0) return 'empty';
   return 'table';
 }
 
@@ -31,16 +19,13 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [detailsLoading, setDetailsLoading] = useState(false);
-  const [detailsError, setDetailsError] = useState<string | null>(null);
-  const [detailsLoaded, setDetailsLoaded] = useState(false);
-  const detailsStartedRef = useRef(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
     let active = true;
 
-    dashboardApi.summary()
+    reportsApi.dashboard({ signal: controller.signal })
       .then((res) => {
         if (!active || controller.signal.aborted) return;
         setData(res.data);
@@ -48,6 +33,7 @@ export default function DashboardPage() {
       .catch(() => {
         if (!active || controller.signal.aborted) return;
         setError('تعذر تحميل بيانات اللوحة');
+        setData(null);
       })
       .finally(() => {
         if (!active || controller.signal.aborted) return;
@@ -58,61 +44,7 @@ export default function DashboardPage() {
       active = false;
       controller.abort();
     };
-  }, []);
-
-  const loadDetails = useCallback(async (signal?: AbortSignal) => {
-    setDetailsLoading(true);
-    setDetailsError(null);
-
-    const [actionRequired, topOverdue, topIncoming, byCategory, byStatus] = await Promise.allSettled([
-      dashboardApi.actionRequired(),
-      dashboardApi.topOverdueDepartments(),
-      dashboardApi.topIncomingParties(),
-      dashboardApi.categoryDistribution(),
-      dashboardApi.statusDistribution(),
-    ]);
-
-    if (signal?.aborted) return;
-
-    const errors: string[] = [];
-    const next: Partial<DashboardSummary> = {};
-
-    if (actionRequired.status === 'fulfilled') next.actionRequired = actionRequired.value.data ?? [];
-    else errors.push('المعاملات التي تحتاج إجراء');
-
-    if (topOverdue.status === 'fulfilled') next.topOverdueDepartments = topOverdue.value.data ?? [];
-    else errors.push('الإدارات المتأخرة');
-
-    if (topIncoming.status === 'fulfilled') next.topIncomingParties = topIncoming.value.data ?? [];
-    else errors.push('الجهات الوارد منها');
-
-    if (byCategory.status === 'fulfilled') next.byCategory = byCategory.value.data ?? [];
-    else errors.push('توزيع التصنيفات');
-
-    if (byStatus.status === 'fulfilled') next.byStatus = byStatus.value.data ?? [];
-    else errors.push('توزيع الحالات');
-
-    if (signal?.aborted) return;
-
-    setData((prev) => ({ ...(prev ?? {}), ...next } as DashboardSummary));
-    setDetailsLoaded(true);
-    if (errors.length > 0) {
-      setDetailsError(`تعذر تحميل: ${errors.join('، ')}`);
-    }
-    setDetailsLoading(false);
-  }, []);
-
-  useEffect(() => {
-    if (loading || error || !data || detailsStartedRef.current) return;
-
-    detailsStartedRef.current = true;
-    const controller = new AbortController();
-    loadDetails(controller.signal);
-
-    return () => {
-      controller.abort();
-    };
-  }, [loading, error, data, loadDetails]);
+  }, [reloadKey]);
 
   const cardItems = [
     { label: 'معاملات مفتوحة', value: data?.totalOpen ?? 0, color: 'blue', link: '/reports?tab=open' },
@@ -126,25 +58,53 @@ export default function DashboardPage() {
   ];
 
   const renderSectionRows = <T,>(
-    loaded: boolean,
-    items: T[],
+    items: T[] | undefined,
     emptyLabel: string,
     colSpan: number,
     renderItem: (item: T, index: number) => ReactNode,
   ): ReactNode => {
-    if (detailsLoading && !loaded) {
-      return <tr><td colSpan={colSpan} className="text-center"><LoadingInline /></td></tr>;
-    }
-    if (!loaded) {
-      return <tr><td colSpan={colSpan} className="text-center">{SECTION_UNAVAILABLE}</td></tr>;
-    }
-    if (items.length === 0) {
+    const rows = items ?? [];
+    if (rows.length === 0) {
       return <tr><td colSpan={colSpan} className="text-center">{emptyLabel}</td></tr>;
     }
-    return items.map(renderItem);
+    return rows.map(renderItem);
   };
 
-  const actionRequiredView = resolveActionRequiredView(detailsLoading, data?.actionRequired);
+  if (loading) {
+    return (
+      <div>
+        <PageHeader title="لوحة المتابعة" subtitle="نظرة تشغيلية على المعاملات والإجراءات المطلوبة" />
+        <StatsSkeleton count={8} />
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div>
+        <PageHeader title="لوحة المتابعة" subtitle="نظرة تشغيلية على المعاملات والإجراءات المطلوبة" />
+        <ErrorState
+          title="تعذر تحميل اللوحة"
+          description={error ?? 'تعذر تحميل بيانات اللوحة'}
+          action={(
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                setLoading(true);
+                setError(null);
+                setReloadKey((value) => value + 1);
+              }}
+            >
+              إعادة المحاولة
+            </button>
+          )}
+        />
+      </div>
+    );
+  }
+
+  const actionRequiredView = resolveActionRequiredView(data.actionRequired);
 
   return (
     <div>
@@ -153,35 +113,17 @@ export default function DashboardPage() {
         subtitle="نظرة تشغيلية على المعاملات والإجراءات المطلوبة"
       />
 
-      {error && <Alert variant="error">{error}</Alert>}
-
-      {loading ? (
-        <StatsSkeleton count={8} />
-      ) : (
-        <div className="stats-grid">
-          {cardItems.map((c) => (
-            <StatCard
-              key={c.label}
-              label={c.label}
-              value={`${c.value}${c.suffix ?? ''}`}
-              color={c.color}
-              link={c.link}
-            />
-          ))}
-        </div>
-      )}
-
-      {(detailsLoading || detailsError) && (
-        <div className="mt-4 details-banner-row">
-          {detailsLoading && <Alert variant="info"><LoadingInline label="جاري تحميل تفاصيل اللوحة..." /></Alert>}
-          {detailsError && <Alert variant="warning">{detailsError}</Alert>}
-          {detailsLoaded && !detailsLoading && (
-            <button type="button" className="btn btn-secondary btn-sm" onClick={() => loadDetails()}>
-              إعادة تحميل التفاصيل
-            </button>
-          )}
-        </div>
-      )}
+      <div className="stats-grid">
+        {cardItems.map((c) => (
+          <StatCard
+            key={c.label}
+            label={c.label}
+            value={`${c.value}${c.suffix ?? ''}`}
+            color={c.color}
+            link={c.link}
+          />
+        ))}
+      </div>
 
       <div className="dashboard-grid mt-4">
         <div className="card">
@@ -191,8 +133,7 @@ export default function DashboardPage() {
               <thead><tr><th>الإدارة</th><th>المتأخر</th></tr></thead>
               <tbody>
                 {renderSectionRows(
-                  data?.topOverdueDepartments !== undefined,
-                  data?.topOverdueDepartments ?? [],
+                  data.topOverdueDepartments,
                   'لا يوجد',
                   2,
                   (d) => (
@@ -214,8 +155,7 @@ export default function DashboardPage() {
               <thead><tr><th>الجهة</th><th>العدد</th></tr></thead>
               <tbody>
                 {renderSectionRows(
-                  data?.topIncomingParties !== undefined,
-                  data?.topIncomingParties ?? [],
+                  data.topIncomingParties,
                   'لا يوجد',
                   2,
                   (p, i) => (
@@ -234,8 +174,7 @@ export default function DashboardPage() {
               <thead><tr><th>التصنيف</th><th>العدد</th></tr></thead>
               <tbody>
                 {renderSectionRows(
-                  data?.byCategory !== undefined,
-                  data?.byCategory ?? [],
+                  data.byCategory,
                   'لا يوجد',
                   2,
                   (c, i) => (
@@ -254,8 +193,7 @@ export default function DashboardPage() {
               <thead><tr><th>الحالة</th><th>العدد</th></tr></thead>
               <tbody>
                 {renderSectionRows(
-                  data?.byStatus !== undefined,
-                  data?.byStatus ?? [],
+                  data.byStatus,
                   'لا يوجد',
                   2,
                   (s, i) => (
@@ -270,9 +208,6 @@ export default function DashboardPage() {
 
       <div className="card mt-4">
         <h3>آخر المعاملات التي تحتاج إجراء</h3>
-        {actionRequiredView === 'loading' && (
-          <TableSkeleton rows={4} cols={6} />
-        )}
         {actionRequiredView === 'empty' && (
           <EmptyState title="لا توجد معاملات تحتاج إجراء" icon="✅" />
         )}
@@ -291,8 +226,7 @@ export default function DashboardPage() {
               </thead>
               <tbody>
                 {renderSectionRows(
-                  data?.actionRequired !== undefined,
-                  data?.actionRequired ?? [],
+                  data.actionRequired,
                   'لا توجد',
                   6,
                   (t) => (

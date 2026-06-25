@@ -11,6 +11,8 @@ public interface ICacheInvalidationService
     TimeSpan ReportsPageSummaryCacheDuration { get; }
     TimeSpan ReferenceDataCacheDuration { get; }
 
+    string BuildDashboardSummaryKey();
+    string BuildDashboardFullKey();
     string BuildReportsPageSummaryKey(ReportFilterRequest? filter);
     string BuildDepartmentsKey(bool activeOnly);
     string BuildCategoriesKey(bool activeOnly);
@@ -22,7 +24,7 @@ public interface ICacheInvalidationService
 
 public class CacheInvalidationService : ICacheInvalidationService
 {
-    public const string DashboardKey = "dashboard:summary";
+    public const string LegacyDashboardSummaryKey = "dashboard:summary";
 
     private readonly IMemoryCache _cache;
     private int _reportsVersion;
@@ -30,13 +32,19 @@ public class CacheInvalidationService : ICacheInvalidationService
 
     public CacheInvalidationService(IMemoryCache cache) => _cache = cache;
 
-    public string DashboardSummaryKey => DashboardKey;
+    public string DashboardSummaryKey => BuildDashboardSummaryKey();
 
     public TimeSpan DashboardCacheDuration => TimeSpan.FromSeconds(60);
 
     public TimeSpan ReportsPageSummaryCacheDuration => TimeSpan.FromSeconds(45);
 
     public TimeSpan ReferenceDataCacheDuration => TimeSpan.FromMinutes(10);
+
+    public string BuildDashboardSummaryKey() =>
+        $"dashboard:summary:v{Volatile.Read(ref _reportsVersion)}";
+
+    public string BuildDashboardFullKey() =>
+        $"dashboard:full:v{Volatile.Read(ref _reportsVersion)}";
 
     public string BuildReportsPageSummaryKey(ReportFilterRequest? filter) =>
         $"reports:page-summary:v{Volatile.Read(ref _reportsVersion)}:{ReportFilterCacheKey.Build(filter)}";
@@ -52,7 +60,7 @@ public class CacheInvalidationService : ICacheInvalidationService
 
     public void InvalidateOnTransactionChange()
     {
-        _cache.Remove(DashboardKey);
+        _cache.Remove(LegacyDashboardSummaryKey);
         Interlocked.Increment(ref _reportsVersion);
         Interlocked.Increment(ref _referenceVersion);
     }
