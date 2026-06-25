@@ -69,7 +69,7 @@ Code and automated gates are ready for **user-operated** production deployment a
    ```
 5. Confirm installer output shows DB backup path, migration success, and `database=pass` from health check.
 6. Verify `C:\Uqeb\run-api.cmd` contains `http://10.0.177.17:5000`.
-7. Login from LAN client; confirm API requests target `http://10.0.177.17:5000/api`.
+7. Log in from LAN client; confirm API requests target `http://10.0.177.17:5000/api`.
 8. Optional: run `GET /api/security/audit-integrity-report` after deploy to baseline historical audit gaps (read-only).
 
 ### Post-deploy rollback reminder
