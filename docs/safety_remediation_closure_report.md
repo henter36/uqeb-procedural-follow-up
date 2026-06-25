@@ -12,7 +12,7 @@
 | [#37](https://github.com/henter36/uqeb-procedural-follow-up/pull/37) | `fix/production-offline-deployment-safety` | pending | Offline install contract, bind address, rollback phases, junction safety, streaming BAK hash |
 | [#38](https://github.com/henter36/uqeb-procedural-follow-up/pull/38) | `fix/transaction-audit-integrity` | pending | Audit linkage backfill, diagnostic report, dead code removal |
 | [#39](https://github.com/henter36/uqeb-procedural-follow-up/pull/39) | `fix/observability-and-test-reliability` | pending | Metric bucketing, stage outcomes, benchmark assertions |
-| [#40](https://github.com/henter36/uqeb-procedural-follow-up/pull/40) | `fix/sonar-maintainability-cleanup` | pending | Deployment test alignment, nullability cleanup |
+| [#40](https://github.com/henter36/uqeb-procedural-follow-up/pull/40) | `fix/sonar-maintainability-cleanup` | pending | Deployment test alignment, nullability cleanup, closure report |
 
 Merge order: **#37 → #38 → #39 → #40** (sequential review).
 
