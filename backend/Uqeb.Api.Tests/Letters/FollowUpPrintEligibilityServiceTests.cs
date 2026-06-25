@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.FollowUpPrint;
 using Uqeb.Api.Models.Entities;
@@ -25,13 +26,14 @@ public class FollowUpPrintEligibilityServiceTests
         AppDbContext db,
         int transactionId,
         DateTime referenceDate,
-        DateTime? lastPrintRequestedAt = null)
+        DateTime? lastPrintRequestedAt = null,
+        string? incomingNumber = null)
     {
         db.Transactions.Add(new Transaction
         {
             Id = transactionId,
             InternalTrackingNumber = $"INT-{transactionId}",
-            IncomingNumber = $"IN-{transactionId}",
+            IncomingNumber = incomingNumber ?? $"IN-{transactionId}",
             IncomingDate = referenceDate.AddDays(-30),
             Subject = $"معاملة {transactionId}",
             Status = TransactionStatus.InProgress,
@@ -142,6 +144,46 @@ public class FollowUpPrintEligibilityServiceTests
     }
 
     [Fact]
+    public async Task GetEligibleAsync_PaginatesInDatabase()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(GetEligibleAsync_PaginatesInDatabase));
+        var service = CreateService(db, Today);
+
+        await SeedEligibleTransactionAsync(db, 1, Today.AddDays(-20), incomingNumber: "IN-C");
+        await SeedEligibleTransactionAsync(db, 2, Today.AddDays(-30), incomingNumber: "IN-A");
+        await SeedEligibleTransactionAsync(db, 3, Today.AddDays(-25), incomingNumber: "IN-B");
+
+        var page1 = await service.GetEligibleAsync(
+            new FollowUpPrintFilterRequest
+            {
+                DaysSinceLastFollowUp = 10,
+                ExcludeRecentlyPrinted = false,
+                Page = 1,
+                PageSize = 2,
+            },
+            new TestCurrentUser(1));
+
+        var page2 = await service.GetEligibleAsync(
+            new FollowUpPrintFilterRequest
+            {
+                DaysSinceLastFollowUp = 10,
+                ExcludeRecentlyPrinted = false,
+                Page = 2,
+                PageSize = 2,
+            },
+            new TestCurrentUser(1));
+
+        Assert.Equal(3, page1.TotalCount);
+        Assert.Equal(2, page1.Items.Count);
+        Assert.Equal("IN-A", page1.Items[0].IncomingNumber);
+        Assert.Equal("IN-B", page1.Items[1].IncomingNumber);
+
+        Assert.Equal(3, page2.TotalCount);
+        Assert.Single(page2.Items);
+        Assert.Equal("IN-C", page2.Items[0].IncomingNumber);
+    }
+
+    [Fact]
     public async Task PreviewAsync_CountsRecentlyPrintedExclusionsSeparately()
     {
         await using var db = LettersTestInfrastructure.CreateDb(nameof(PreviewAsync_CountsRecentlyPrintedExclusionsSeparately));
@@ -163,6 +205,87 @@ public class FollowUpPrintEligibilityServiceTests
         Assert.Equal(2, preview.MatchedCount);
         Assert.Equal(1, preview.EligibleTransactionCount);
         Assert.Equal(1, preview.RecentlyPrintedExcludedCount);
+    }
+
+    [Fact]
+    public async Task PreviewAsync_CountsNotDueYetSeparately()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(PreviewAsync_CountsNotDueYetSeparately));
+        var service = CreateService(db, Today);
+
+        await SeedEligibleTransactionAsync(db, 1, Today.AddDays(-5));
+        await SeedEligibleTransactionAsync(db, 2, Today.AddDays(-15));
+
+        var preview = await service.PreviewAsync(
+            new FollowUpPrintFilterRequest
+            {
+                DaysSinceLastFollowUp = 10,
+                ExcludeRecentlyPrinted = false,
+            },
+            batchSize: 25,
+            new TestCurrentUser(1));
+
+        Assert.Equal(2, preview.MatchedCount);
+        Assert.Equal(1, preview.NotDueYetCount);
+        Assert.Equal(1, preview.EligibleTransactionCount);
+    }
+
+    [Fact]
+    public async Task PreviewAsync_CountsNoTargetUsingBulkResolution()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(PreviewAsync_CountsNoTargetUsingBulkResolution));
+        var renderService = new PerTransactionRenderService(
+            new Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>>
+            {
+                [1] = [new FollowUpLetterTargetEntity("جهة", 1, null)],
+                [2] = [],
+            });
+        var service = CreateService(db, Today, renderService);
+
+        await SeedEligibleTransactionAsync(db, 1, Today.AddDays(-15));
+        await SeedEligibleTransactionAsync(db, 2, Today.AddDays(-15));
+
+        var preview = await service.PreviewAsync(
+            new FollowUpPrintFilterRequest
+            {
+                DaysSinceLastFollowUp = 10,
+                ExcludeRecentlyPrinted = false,
+            },
+            batchSize: 25,
+            new TestCurrentUser(1));
+
+        Assert.Equal(2, preview.MatchedCount);
+        Assert.Equal(1, preview.EligibleTransactionCount);
+        Assert.Equal(1, preview.NoTargetCount);
+        Assert.Equal(1, preview.EstimatedLetterCount);
+    }
+
+    [Fact]
+    public async Task BuildEligibleCandidatesWithTargetsAsync_UsesBulkResolution()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(BuildEligibleCandidatesWithTargetsAsync_UsesBulkResolution));
+        var renderService = new PerTransactionRenderService(
+            new Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>>
+            {
+                [1] = [new FollowUpLetterTargetEntity("جهة 1", 1, null)],
+                [2] = [],
+            });
+        var service = CreateService(db, Today, renderService);
+
+        await SeedEligibleTransactionAsync(db, 1, Today.AddDays(-15));
+        await SeedEligibleTransactionAsync(db, 2, Today.AddDays(-15));
+
+        var candidates = await service.BuildEligibleCandidatesWithTargetsAsync(
+            new FollowUpPrintFilterRequest
+            {
+                DaysSinceLastFollowUp = 10,
+                ExcludeRecentlyPrinted = false,
+            },
+            new TestCurrentUser(1));
+
+        Assert.Single(candidates);
+        Assert.Equal(1, candidates[0].TransactionId);
+        Assert.Equal("جهة 1", candidates[0].Targets[0].Name);
     }
 
     [Fact]
@@ -196,5 +319,30 @@ public class FollowUpPrintEligibilityServiceTests
 
         Assert.Single(payloads);
         Assert.Equal(3, payloads[0].FollowUpSequence);
+    }
+
+    private sealed class PerTransactionRenderService : StubRenderService
+    {
+        private readonly Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>> _targetsByTransaction;
+
+        public PerTransactionRenderService(Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>> targetsByTransaction)
+            : base(new FollowUpLetterTargetEntity("unused", 1, null))
+        {
+            _targetsByTransaction = targetsByTransaction;
+        }
+
+        public override Task<Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>>> ResolveTargetEntitiesBulkAsync(
+            IReadOnlyList<int> transactionIds,
+            CancellationToken cancellationToken = default)
+        {
+            var result = transactionIds
+                .Distinct()
+                .ToDictionary(
+                    id => id,
+                    id => _targetsByTransaction.TryGetValue(id, out var targets)
+                        ? targets
+                        : (IReadOnlyList<FollowUpLetterTargetEntity>)[]);
+            return Task.FromResult(result);
+        }
     }
 }

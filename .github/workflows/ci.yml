@@ -168,9 +168,10 @@ jobs:
       - run: dotnet restore backend/Uqeb.Api/Uqeb.Api.csproj
       - run: dotnet restore backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj
       - run: dotnet build backend/Uqeb.Api/Uqeb.Api.csproj -c Release --no-restore
-      - run: dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName~TransactionPersistenceSqlServerIntegrationTests"
+      - run: dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName~TransactionPersistenceSqlServerIntegrationTests|FullyQualifiedName~FollowUpPrintJobResumeSqlServerTests|FullyQualifiedName~FollowUpPrintIdempotencySqlServerTests|FullyQualifiedName~FollowUpPrintConcurrencySqlServerTests|FullyQualifiedName~FollowUpPrintMigrationSqlServerTests|FullyQualifiedName~FollowUpPrintAuthorizationSqlServerTests|FullyQualifiedName~FollowUpPrintEligibilityBenchmarkSqlServerTests"
         env:
           REQUIRE_TRANSACTION_SQLSERVER_TESTS: "1"
+          REQUIRE_FOLLOWUP_PRINT_SQLSERVER_TESTS: "1"
 
   zizmor:
     runs-on: ubuntu-latest

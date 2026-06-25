@@ -61,49 +61,22 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
         }
     }
 
-    private async Task ProcessOnceAsync(CancellationToken cancellationToken)
+    internal async Task ProcessOnceAsync(CancellationToken cancellationToken)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var notifications = scope.ServiceProvider.GetRequiredService<IUserNotificationService>();
         var audit = scope.ServiceProvider.GetRequiredService<IAuditService>();
 
-        var now = DateTime.UtcNow;
-        var leaseOwner = Environment.MachineName + ":" + Guid.NewGuid().ToString("N");
-        var leaseUntil = now.AddSeconds(_options.JobLeaseSeconds);
-
-        var jobId = await db.FollowUpPrintJobs.AsNoTracking()
-            .Where(j =>
-                ClaimableStatuses.Contains(j.Status) &&
-                (j.LeaseExpiresAt == null || j.LeaseExpiresAt < now))
-            .OrderBy(j => j.CreatedAt)
-            .Select(j => j.Id)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (jobId == 0)
+        var claim = await TryClaimNextJobAsync(db, cancellationToken);
+        if (claim == null)
             return;
 
-        var claimed = await db.FollowUpPrintJobs
-            .Where(j =>
-                j.Id == jobId &&
-                ClaimableStatuses.Contains(j.Status) &&
-                (j.LeaseExpiresAt == null || j.LeaseExpiresAt < now))
-            .ExecuteUpdateAsync(
-                s => s
-                    .SetProperty(j => j.Status, FollowUpPrintJobStatus.Claimed)
-                    .SetProperty(j => j.LeaseOwner, leaseOwner)
-                    .SetProperty(j => j.LeaseExpiresAt, leaseUntil)
-                    .SetProperty(j => j.StartedAt, j => j.StartedAt ?? now),
-                cancellationToken);
-
-        if (claimed == 0)
-            return;
-
-        var job = await db.FollowUpPrintJobs.FirstAsync(j => j.Id == jobId, cancellationToken);
+        var (job, leaseOwner, isLeaseRecovery) = claim.Value;
 
         try
         {
-            await ProcessJobAsync(db, notifications, audit, job, leaseOwner, cancellationToken);
+            await ProcessJobAsync(db, notifications, audit, job, leaseOwner, isLeaseRecovery, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -126,18 +99,65 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
         }
     }
 
+    internal async Task<(FollowUpPrintJob Job, string LeaseOwner, bool IsLeaseRecovery)?> TryClaimNextJobAsync(
+        AppDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        var leaseOwner = Environment.MachineName + ":" + Guid.NewGuid().ToString("N");
+        var leaseUntil = now.AddSeconds(_options.JobLeaseSeconds);
+
+        var candidate = await db.FollowUpPrintJobs.AsNoTracking()
+            .Where(j =>
+                ClaimableStatuses.Contains(j.Status) &&
+                (j.LeaseExpiresAt == null || j.LeaseExpiresAt < now))
+            .OrderBy(j => j.CreatedAt)
+            .Select(j => new { j.Id, j.StartedAt, j.Status })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (candidate == null)
+            return null;
+
+        var isLeaseRecovery = candidate.StartedAt.HasValue &&
+                              candidate.Status == FollowUpPrintJobStatus.Processing;
+
+        var claimed = await db.FollowUpPrintJobs
+            .Where(j =>
+                j.Id == candidate.Id &&
+                ClaimableStatuses.Contains(j.Status) &&
+                (j.LeaseExpiresAt == null || j.LeaseExpiresAt < now))
+            .ExecuteUpdateAsync(
+                s => s
+                    .SetProperty(j => j.Status, FollowUpPrintJobStatus.Claimed)
+                    .SetProperty(j => j.LeaseOwner, leaseOwner)
+                    .SetProperty(j => j.LeaseExpiresAt, leaseUntil)
+                    .SetProperty(j => j.StartedAt, j => j.StartedAt ?? now),
+                cancellationToken);
+
+        if (claimed == 0)
+            return null;
+
+        var job = await db.FollowUpPrintJobs.FirstAsync(j => j.Id == candidate.Id, cancellationToken);
+        return (job, leaseOwner, isLeaseRecovery);
+    }
+
     private async Task ProcessJobAsync(
         AppDbContext db,
         IUserNotificationService notifications,
         IAuditService audit,
         FollowUpPrintJob job,
         string leaseOwner,
+        bool isLeaseRecovery,
         CancellationToken cancellationToken)
     {
         job.Status = FollowUpPrintJobStatus.Processing;
         await RenewLeaseIfOwnerAsync(db, job.Id, leaseOwner, cancellationToken);
         await db.Entry(job).ReloadAsync(cancellationToken);
-        await FollowUpPrintAuditWriter.LogJobStartedAsync(audit, job.RequestedById, job.Id);
+
+        if (isLeaseRecovery)
+            await FollowUpPrintAuditWriter.LogJobLeaseRecoveredAsync(audit, job.RequestedById, job.Id);
+        else
+            await FollowUpPrintAuditWriter.LogJobStartedAsync(audit, job.RequestedById, job.Id);
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -172,6 +192,33 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
                  p.PartId == null,
             cancellationToken);
 
+        await FinalizeJobProcessingAsync(db, job, leaseOwner, pendingCount, unhandledFailures, cancellationToken);
+
+        if (job.Status == FollowUpPrintJobStatus.ReadyToPrint)
+        {
+            await FollowUpPrintAuditWriter.LogJobReadyAsync(audit, job.RequestedById, job.Id, $"parts={job.ReadyParts}");
+            await notifications.CreateAsync(
+                job.RequestedById,
+                NotificationTypeJobReady,
+                "مهمة طباعة التعقيب جاهزة",
+                $"أصبحت مهمة الطباعة رقم {job.Id} جاهزة ({job.ReadyParts} جزء/أجزاء).",
+                $"/follow-up-print/jobs/{job.Id}",
+                cancellationToken);
+        }
+        else if (job.Status == FollowUpPrintJobStatus.Failed && job.FailedAt.HasValue)
+        {
+            await FollowUpPrintAuditWriter.LogJobFailedAsync(audit, job.RequestedById, job.Id, job.FailureReason);
+        }
+    }
+
+    private async Task FinalizeJobProcessingAsync(
+        AppDbContext db,
+        FollowUpPrintJob job,
+        string leaseOwner,
+        int pendingCount,
+        int unhandledFailures,
+        CancellationToken cancellationToken)
+    {
         if (pendingCount == 0 && unhandledFailures == 0)
         {
             job.Status = job.ReadyParts > 0 ? FollowUpPrintJobStatus.ReadyToPrint : FollowUpPrintJobStatus.Failed;
@@ -199,18 +246,6 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
         job.LeaseOwner = null;
         job.LeaseExpiresAt = null;
         await db.SaveChangesAsync(cancellationToken);
-
-        if (job.Status == FollowUpPrintJobStatus.ReadyToPrint)
-        {
-            await FollowUpPrintAuditWriter.LogJobReadyAsync(audit, job.RequestedById, job.Id, $"parts={job.ReadyParts}");
-            await notifications.CreateAsync(
-                job.RequestedById,
-                NotificationTypeJobReady,
-                "مهمة طباعة التعقيب جاهزة",
-                $"أصبحت مهمة الطباعة رقم {job.Id} جاهزة ({job.ReadyParts} جزء/أجزاء).",
-                $"/follow-up-print/jobs/{job.Id}",
-                cancellationToken);
-        }
     }
 
     private async Task ProcessBatchAsync(

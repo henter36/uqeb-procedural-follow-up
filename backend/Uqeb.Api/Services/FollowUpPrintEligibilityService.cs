@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Uqeb.Api.Configuration;
@@ -76,27 +75,36 @@ public sealed class FollowUpPrintEligibilityService : IFollowUpPrintEligibilityS
         ValidateFilter(filter);
         var snapshot = ToSnapshot(filter);
         var today = _timeZone.TodayDisplayDate;
-        var candidates = await LoadCandidatesAsync(snapshot, currentUser, cancellationToken);
+        var dueCutoffDate = today.AddDays(-filter.DaysSinceLastFollowUp);
         var exclusionCutoff = today.AddDays(-filter.PrintedLetterExclusionDays);
+        var exclusionThresholdUtc = ComputeExclusionThresholdUtc(exclusionCutoff);
 
-        var eligible = candidates
-            .Select(row => MapEligible(row, today, filter.DaysSinceLastFollowUp, snapshot.ExcludeRecentlyPrinted, exclusionCutoff, _timeZone))
-            .Where(x => x != null)
-            .Cast<EligibleTransactionDto>()
-            .OrderByDescending(x => x.DaysSinceReference)
-            .ThenBy(x => x.IncomingNumber)
-            .ToList();
+        var projected = ProjectCandidates(BuildFilteredTransactionsQuery(snapshot, currentUser));
+        var eligibleQuery = ApplyDueAndPrintFilters(
+            projected,
+            dueCutoffDate,
+            snapshot.ExcludeRecentlyPrinted,
+            exclusionThresholdUtc);
 
         var page = Math.Max(filter.Page, 1);
         var pageSize = Math.Clamp(filter.PageSize, 1, _options.AbsoluteMaxBatchPrintSize);
-        var items = eligible.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+
+        var totalCount = await eligibleQuery.CountAsync(cancellationToken);
+        var rows = await eligibleQuery
+            .OrderBy(x => x.ReferenceDate)
+            .ThenBy(x => x.IncomingNumber)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
 
         return new PagedEligibleTransactionsDto
         {
-            TotalCount = eligible.Count,
+            TotalCount = totalCount,
             Page = page,
             PageSize = pageSize,
-            Items = items,
+            Items = rows
+                .Select(row => MapEligible(row, today, snapshot.ExcludeRecentlyPrinted, exclusionCutoff, _timeZone))
+                .ToList(),
         };
     }
 
@@ -109,37 +117,48 @@ public sealed class FollowUpPrintEligibilityService : IFollowUpPrintEligibilityS
         ValidateFilter(filter);
         var snapshot = ToSnapshot(filter);
         var today = _timeZone.TodayDisplayDate;
-        var candidates = await LoadCandidatesAsync(snapshot, currentUser, cancellationToken);
+        var dueCutoffDate = today.AddDays(-filter.DaysSinceLastFollowUp);
         var exclusionCutoff = today.AddDays(-filter.PrintedLetterExclusionDays);
+        var exclusionThresholdUtc = ComputeExclusionThresholdUtc(exclusionCutoff);
         var effectiveBatchSize = Math.Clamp(
             batchSize <= 0 ? _options.DefaultBatchPrintSize : batchSize,
             1,
             _options.AbsoluteMaxBatchPrintSize);
 
-        var notDueYetCount = 0;
-        var recentlyPrintedExcludedCount = 0;
+        var projected = ProjectCandidates(BuildFilteredTransactionsQuery(snapshot, currentUser));
+
+        var matchedCount = await projected.CountAsync(cancellationToken);
+        var notDueYetCount = await projected
+            .Where(x => x.ReferenceDate.Date > dueCutoffDate)
+            .CountAsync(cancellationToken);
+
+        var dueQuery = projected.Where(x => x.ReferenceDate.Date <= dueCutoffDate);
+
+        var recentlyPrintedExcludedCount = snapshot.ExcludeRecentlyPrinted
+            ? await dueQuery
+                .Where(x => x.LastPrintRequestedAt.HasValue && x.LastPrintRequestedAt >= exclusionThresholdUtc)
+                .CountAsync(cancellationToken)
+            : 0;
+
+        var dueNotExcludedIds = await ApplyDueAndPrintFilters(
+                dueQuery,
+                dueCutoffDate,
+                snapshot.ExcludeRecentlyPrinted,
+                exclusionThresholdUtc)
+            .Select(x => x.TransactionId)
+            .ToListAsync(cancellationToken);
+
+        var targetsByTransaction = await _renderService.ResolveTargetEntitiesBulkAsync(
+            dueNotExcludedIds,
+            cancellationToken);
+
         var noTargetCount = 0;
         var eligibleTransactionCount = 0;
         var estimatedLetterCount = 0;
 
-        foreach (var candidate in candidates)
+        foreach (var transactionId in dueNotExcludedIds)
         {
-            if (GetDaysSinceReference(candidate, today) < filter.DaysSinceLastFollowUp)
-            {
-                notDueYetCount++;
-                continue;
-            }
-
-            if (filter.ExcludeRecentlyPrinted &&
-                candidate.LastPrintRequestedAt.HasValue &&
-                _timeZone.ToDisplayTime(candidate.LastPrintRequestedAt.Value).Date >= exclusionCutoff.Date)
-            {
-                recentlyPrintedExcludedCount++;
-                continue;
-            }
-
-            var targets = await _renderService.ResolveTargetEntitiesAsync(candidate.TransactionId, cancellationToken: cancellationToken);
-            if (targets.Count == 0)
+            if (!targetsByTransaction.TryGetValue(transactionId, out var targets) || targets.Count == 0)
             {
                 noTargetCount++;
                 continue;
@@ -151,7 +170,7 @@ public sealed class FollowUpPrintEligibilityService : IFollowUpPrintEligibilityS
 
         return new FollowUpPrintEligibilityPreviewDto
         {
-            MatchedCount = candidates.Count,
+            MatchedCount = matchedCount,
             EligibleTransactionCount = eligibleTransactionCount,
             RecentlyPrintedExcludedCount = recentlyPrintedExcludedCount,
             NotDueYetCount = notDueYetCount,
@@ -171,28 +190,20 @@ public sealed class FollowUpPrintEligibilityService : IFollowUpPrintEligibilityS
         ValidateFilter(filter);
         var snapshot = ToSnapshot(filter);
         var today = _timeZone.TodayDisplayDate;
-        var candidates = await LoadCandidatesAsync(snapshot, currentUser, cancellationToken);
+        var dueCutoffDate = today.AddDays(-filter.DaysSinceLastFollowUp);
         var exclusionCutoff = today.AddDays(-filter.PrintedLetterExclusionDays);
-        var result = new List<EligibleCandidateWithTargets>();
+        var exclusionThresholdUtc = ComputeExclusionThresholdUtc(exclusionCutoff);
 
-        foreach (var candidate in candidates)
-        {
-            if (!IsEligibleCandidate(candidate, today, filter.DaysSinceLastFollowUp, snapshot.ExcludeRecentlyPrinted, exclusionCutoff, _timeZone))
-                continue;
+        var eligibleRows = await ApplyDueAndPrintFilters(
+                ProjectCandidates(BuildFilteredTransactionsQuery(snapshot, currentUser)),
+                dueCutoffDate,
+                snapshot.ExcludeRecentlyPrinted,
+                exclusionThresholdUtc)
+            .OrderBy(x => x.ReferenceDate)
+            .ThenBy(x => x.IncomingNumber)
+            .ToListAsync(cancellationToken);
 
-            var targets = await _renderService.ResolveTargetEntitiesAsync(candidate.TransactionId, cancellationToken: cancellationToken);
-            if (targets.Count == 0)
-                continue;
-
-            result.Add(new EligibleCandidateWithTargets
-            {
-                TransactionId = candidate.TransactionId,
-                FollowUpCount = candidate.FollowUpCount,
-                Targets = targets,
-            });
-        }
-
-        return result;
+        return await BuildCandidatesWithTargetsAsync(eligibleRows, cancellationToken);
     }
 
     public async Task<IReadOnlyList<FollowUpPrintJobLetterPayload>> BuildLetterPayloadsAsync(
@@ -201,27 +212,36 @@ public sealed class FollowUpPrintEligibilityService : IFollowUpPrintEligibilityS
         CancellationToken cancellationToken = default)
     {
         var today = _timeZone.TodayDisplayDate;
-        var candidates = await LoadCandidatesAsync(filter, null, cancellationToken);
+        var dueCutoffDate = today.AddDays(-filter.DaysSinceLastFollowUp);
         var exclusionCutoff = today.AddDays(-filter.PrintedLetterExclusionDays);
-        var eligibleCandidates = candidates
-            .Where(c => IsEligibleCandidate(c, today, filter.DaysSinceLastFollowUp, filter.ExcludeRecentlyPrinted, exclusionCutoff, _timeZone))
-            .ToList();
+        var exclusionThresholdUtc = ComputeExclusionThresholdUtc(exclusionCutoff);
+
+        var eligibleQuery = ApplyDueAndPrintFilters(
+            ProjectCandidates(BuildFilteredTransactionsQuery(filter, null)),
+            dueCutoffDate,
+            filter.ExcludeRecentlyPrinted,
+            exclusionThresholdUtc);
 
         if (filter.TransactionIds is { Count: > 0 })
         {
             var allowed = filter.TransactionIds.ToHashSet();
-            eligibleCandidates = eligibleCandidates.Where(c => allowed.Contains(c.TransactionId)).ToList();
+            eligibleQuery = eligibleQuery.Where(x => allowed.Contains(x.TransactionId));
         }
 
-        return await BuildPayloadsFromCandidatesAsync(
-            maxCount.HasValue ? eligibleCandidates.Take(maxCount.Value).ToList() : eligibleCandidates,
-            cancellationToken);
+        eligibleQuery = eligibleQuery
+            .OrderBy(x => x.ReferenceDate)
+            .ThenBy(x => x.IncomingNumber);
+
+        if (maxCount.HasValue)
+            eligibleQuery = eligibleQuery.Take(maxCount.Value);
+
+        var eligibleRows = await eligibleQuery.ToListAsync(cancellationToken);
+        return await BuildPayloadsFromCandidatesAsync(eligibleRows, cancellationToken);
     }
 
-    private async Task<List<CandidateRow>> LoadCandidatesAsync(
+    private IQueryable<Transaction> BuildFilteredTransactionsQuery(
         FollowUpPrintFilterSnapshot filter,
-        ICurrentUserService? currentUser,
-        CancellationToken cancellationToken)
+        ICurrentUserService? currentUser)
     {
         var query = _db.Transactions.AsNoTracking()
             .Where(t => !ExcludedStatuses.Contains(t.Status) && !t.IsArchived);
@@ -252,63 +272,89 @@ public sealed class FollowUpPrintEligibilityService : IFollowUpPrintEligibilityS
             query = query.Where(t => t.Assignments.Any(a => a.DepartmentId == departmentId));
         }
 
-        var transactions = await query
-            .Select(t => new
-            {
-                t.Id,
-                t.IncomingNumber,
-                t.Subject,
-                t.IncomingDate,
-                FollowUpCount = t.FollowUps.Count,
-                LastFollowUpDate = t.FollowUps
+        return query;
+    }
+
+    private IQueryable<CandidateRow> ProjectCandidates(IQueryable<Transaction> query) =>
+        query.Select(t => new CandidateRow
+        {
+            TransactionId = t.Id,
+            IncomingNumber = t.IncomingNumber,
+            Subject = t.Subject,
+            IncomingDate = t.IncomingDate,
+            FollowUpCount = t.FollowUps.Count,
+            ReferenceDate =
+                t.FollowUps
                     .OrderByDescending(f => f.FollowUpDate)
                     .Select(f => (DateTime?)f.FollowUpDate)
-                    .FirstOrDefault(),
-                LastOpenAssignmentDate = t.Assignments
+                    .FirstOrDefault()
+                ?? t.Assignments
                     .Where(a => a.Status == AssignmentStatus.Active)
                     .OrderByDescending(a => a.AssignedDate)
                     .Select(a => (DateTime?)a.AssignedDate)
-                    .FirstOrDefault(),
-            })
-            .ToListAsync(cancellationToken);
+                    .FirstOrDefault()
+                ?? t.IncomingDate,
+            LastPrintRequestedAt = _db.FollowUpLetterPrintRecords
+                .Where(r => r.TransactionId == t.Id && !r.IsCancelled && r.RegisteredFollowUpId == null)
+                .Select(r => (DateTime?)r.PrintRequestedAt)
+                .Max(),
+        });
 
-        var transactionIds = transactions.Select(t => t.Id).ToList();
-        var recentPrints = await _db.FollowUpLetterPrintRecords.AsNoTracking()
-            .Where(r => transactionIds.Contains(r.TransactionId) && !r.IsCancelled && r.RegisteredFollowUpId == null)
-            .GroupBy(r => r.TransactionId)
-            .Select(g => new
-            {
-                TransactionId = g.Key,
-                LastPrintRequestedAt = g.Max(x => x.PrintRequestedAt),
-            })
-            .ToDictionaryAsync(x => x.TransactionId, cancellationToken);
+    private static IQueryable<CandidateRow> ApplyDueAndPrintFilters(
+        IQueryable<CandidateRow> query,
+        DateTime dueCutoffDate,
+        bool excludeRecentlyPrinted,
+        DateTime exclusionThresholdUtc) =>
+        query
+            .Where(x => x.ReferenceDate.Date <= dueCutoffDate)
+            .Where(x =>
+                !excludeRecentlyPrinted ||
+                !x.LastPrintRequestedAt.HasValue ||
+                x.LastPrintRequestedAt < exclusionThresholdUtc);
 
-        return transactions.Select(t =>
+    private async Task<IReadOnlyList<EligibleCandidateWithTargets>> BuildCandidatesWithTargetsAsync(
+        IReadOnlyList<CandidateRow> candidates,
+        CancellationToken cancellationToken)
+    {
+        if (candidates.Count == 0)
+            return [];
+
+        var targetsByTransaction = await _renderService.ResolveTargetEntitiesBulkAsync(
+            candidates.Select(c => c.TransactionId).ToList(),
+            cancellationToken);
+
+        var result = new List<EligibleCandidateWithTargets>();
+        foreach (var candidate in candidates)
         {
-            recentPrints.TryGetValue(t.Id, out var printInfo);
-            return new CandidateRow
+            if (!targetsByTransaction.TryGetValue(candidate.TransactionId, out var targets) || targets.Count == 0)
+                continue;
+
+            result.Add(new EligibleCandidateWithTargets
             {
-                TransactionId = t.Id,
-                IncomingNumber = t.IncomingNumber,
-                Subject = t.Subject,
-                IncomingDate = t.IncomingDate,
-                FollowUpCount = t.FollowUpCount,
-                LastFollowUpDate = t.LastFollowUpDate,
-                LastOpenAssignmentDate = t.LastOpenAssignmentDate,
-                LastPrintRequestedAt = printInfo?.LastPrintRequestedAt,
-            };
-        }).ToList();
+                TransactionId = candidate.TransactionId,
+                FollowUpCount = candidate.FollowUpCount,
+                Targets = targets,
+            });
+        }
+
+        return result;
     }
 
     private async Task<IReadOnlyList<FollowUpPrintJobLetterPayload>> BuildPayloadsFromCandidatesAsync(
         IReadOnlyList<CandidateRow> candidates,
         CancellationToken cancellationToken)
     {
+        if (candidates.Count == 0)
+            return [];
+
+        var targetsByTransaction = await _renderService.ResolveTargetEntitiesBulkAsync(
+            candidates.Select(c => c.TransactionId).ToList(),
+            cancellationToken);
+
         var payloads = new List<FollowUpPrintJobLetterPayload>();
         foreach (var candidate in candidates)
         {
-            var targets = await _renderService.ResolveTargetEntitiesAsync(candidate.TransactionId, cancellationToken: cancellationToken);
-            if (targets.Count == 0)
+            if (!targetsByTransaction.TryGetValue(candidate.TransactionId, out var targets) || targets.Count == 0)
                 continue;
 
             var sequence = FollowUpSequenceCalculator.CalculateExpectedSequence(candidate.FollowUpCount);
@@ -328,18 +374,14 @@ public sealed class FollowUpPrintEligibilityService : IFollowUpPrintEligibilityS
         return payloads;
     }
 
-    private static EligibleTransactionDto? MapEligible(
+    private static EligibleTransactionDto MapEligible(
         CandidateRow row,
         DateTime today,
-        int daysSinceLastFollowUp,
         bool excludeRecentlyPrinted,
         DateTime exclusionCutoff,
         IFollowUpLetterTimeZone timeZone)
     {
-        if (!IsEligibleCandidate(row, today, daysSinceLastFollowUp, excludeRecentlyPrinted, exclusionCutoff, timeZone))
-            return null;
-
-        var referenceDate = GetReferenceDate(row);
+        var referenceDate = row.ReferenceDate;
         return new EligibleTransactionDto
         {
             TransactionId = row.TransactionId,
@@ -356,37 +398,10 @@ public sealed class FollowUpPrintEligibilityService : IFollowUpPrintEligibilityS
         };
     }
 
-    private static bool IsEligibleCandidate(
-        CandidateRow row,
-        DateTime today,
-        int daysSinceLastFollowUp,
-        bool excludeRecentlyPrinted,
-        DateTime exclusionCutoff,
-        IFollowUpLetterTimeZone timeZone)
+    private DateTime ComputeExclusionThresholdUtc(DateTime exclusionCutoffDisplayDate)
     {
-        if (GetDaysSinceReference(row, today) < daysSinceLastFollowUp)
-            return false;
-
-        if (excludeRecentlyPrinted &&
-            row.LastPrintRequestedAt.HasValue &&
-            timeZone.ToDisplayTime(row.LastPrintRequestedAt.Value).Date >= exclusionCutoff.Date)
-            return false;
-
-        return true;
-    }
-
-    private static int GetDaysSinceReference(CandidateRow row, DateTime today) =>
-        (today - GetReferenceDate(row).Date).Days;
-
-    private static DateTime GetReferenceDate(CandidateRow row)
-    {
-        if (row.LastFollowUpDate.HasValue)
-            return row.LastFollowUpDate.Value;
-
-        if (row.LastOpenAssignmentDate.HasValue)
-            return row.LastOpenAssignmentDate.Value;
-
-        return row.IncomingDate;
+        var localStart = DateTime.SpecifyKind(exclusionCutoffDisplayDate.Date, DateTimeKind.Unspecified);
+        return TimeZoneInfo.ConvertTimeToUtc(localStart, _timeZone.TimeZone);
     }
 
     private static FollowUpPrintFilterSnapshot ToSnapshot(FollowUpPrintFilterRequest filter) => new()
@@ -417,9 +432,7 @@ public sealed class FollowUpPrintEligibilityService : IFollowUpPrintEligibilityS
         public string Subject { get; init; } = string.Empty;
         public DateTime IncomingDate { get; init; }
         public int FollowUpCount { get; init; }
-        public DateTime? LastFollowUpDate { get; init; }
-        public DateTime? LastOpenAssignmentDate { get; init; }
+        public DateTime ReferenceDate { get; init; }
         public DateTime? LastPrintRequestedAt { get; init; }
-
     }
 }

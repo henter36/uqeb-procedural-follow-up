@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Uqeb.Api.Configuration;
 
@@ -13,9 +14,9 @@ public interface IFollowUpLetterTimeZone
 
 public sealed class FollowUpLetterTimeZone : IFollowUpLetterTimeZone
 {
-    public FollowUpLetterTimeZone(IOptions<FollowUpLettersOptions> options)
+    public FollowUpLetterTimeZone(IOptions<FollowUpLettersOptions> options, ILogger<FollowUpLetterTimeZone> logger)
     {
-        TimeZone = ResolveTimeZone(options.Value.DisplayTimeZoneId);
+        TimeZone = ResolveTimeZone(options.Value.DisplayTimeZoneId, logger);
     }
 
     public TimeZoneInfo TimeZone { get; }
@@ -35,22 +36,44 @@ public sealed class FollowUpLetterTimeZone : IFollowUpLetterTimeZone
 
     public DateTime TodayDisplayDate => ToDisplayTime(DateTime.UtcNow).Date;
 
-    internal static TimeZoneInfo ResolveTimeZone(string? timeZoneId)
+    internal static TimeZoneInfo ResolveTimeZone(string? timeZoneId, ILogger logger)
     {
         if (!string.IsNullOrWhiteSpace(timeZoneId))
         {
-            try
-            {
-                return TimeZoneInfo.FindSystemTimeZoneById(timeZoneId.Trim());
-            }
-            catch (TimeZoneNotFoundException)
-            {
-            }
-            catch (InvalidTimeZoneException)
-            {
-            }
+            var configuredId = timeZoneId.Trim();
+            if (TryFindTimeZone(configuredId, logger, "Configured display timezone {TimeZoneId} was not found.", configuredId, out var configured))
+                return configured;
         }
 
+        if (TryFindTimeZone("Asia/Riyadh", logger, "Asia/Riyadh timezone alias was not found.", "Asia/Riyadh", out var riyadh))
+            return riyadh;
+
+        logger.LogWarning("Falling back to Arab Standard Time for follow-up letter display timezone.");
         return TimeZoneInfo.FindSystemTimeZoneById("Arab Standard Time");
+    }
+
+    private static bool TryFindTimeZone(
+        string id,
+        ILogger logger,
+        string notFoundMessage,
+        object? logArg,
+        out TimeZoneInfo timeZone)
+    {
+        try
+        {
+            timeZone = TimeZoneInfo.FindSystemTimeZoneById(id);
+            return true;
+        }
+        catch (TimeZoneNotFoundException ex)
+        {
+            logger.LogWarning(ex, notFoundMessage, logArg ?? id);
+        }
+        catch (InvalidTimeZoneException ex)
+        {
+            logger.LogWarning(ex, "Invalid timezone id {TimeZoneId}.", id);
+        }
+
+        timeZone = null!;
+        return false;
     }
 }

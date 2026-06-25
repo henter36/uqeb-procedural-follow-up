@@ -65,143 +65,42 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
             _options.AbsoluteMaxBatchPrintSize);
 
         var requestHash = FollowUpPrintRequestHash.Compute(request, batchSize);
-        var idempotencyKey = request.IdempotencyKey?.Trim();
-
-        if (!string.IsNullOrWhiteSpace(idempotencyKey))
-        {
-            var existingKey = await _db.FollowUpPrintIdempotencyKeys.AsNoTracking()
-                .FirstOrDefaultAsync(
-                    k => k.UserId == currentUser.UserId &&
-                         k.Key == idempotencyKey &&
-                         k.Operation == "create-job",
-                    cancellationToken);
-
-            if (existingKey != null)
-            {
-                if (!string.Equals(existingKey.RequestHash, requestHash, StringComparison.OrdinalIgnoreCase))
-                    throw new FollowUpPrintConflictException("مفتاح idempotency مستخدم لطلب مختلف.");
-
-                if (existingKey.ResultId is int existingJobId)
-                {
-                    var existingJob = await GetJobAsync(existingJobId, currentUser, cancellationToken);
-                    if (existingJob != null)
-                        return existingJob;
-                }
-            }
-        }
+        var existingJob = await TryResolveExistingIdempotentJobAsync(
+            request,
+            currentUser,
+            requestHash,
+            cancellationToken);
+        if (existingJob != null)
+            return existingJob;
 
         var preview = await PreviewJobAsync(request, currentUser, cancellationToken);
         if (preview.EligibleTransactionCount == 0 || preview.EstimatedLetterCount == 0)
             throw new InvalidOperationException("لا توجد معاملات مستحقة للتعقيب ضمن الفلاتر المحددة.");
 
-        var template = request.TemplateId.HasValue
-            ? await _db.LetterTemplates.AsNoTracking().FirstOrDefaultAsync(t => t.Id == request.TemplateId.Value && t.IsActive, cancellationToken)
-            : await _renderService.GetOrCreateDefaultTemplateAsync(cancellationToken);
-
-        if (template == null)
-            throw new InvalidOperationException("قالب الخطاب غير موجود أو غير نشط.");
-
+        var template = await ResolveActiveTemplateAsync(request.TemplateId, cancellationToken);
         var snapshot = BuildSnapshot(request.Filter);
         var eligibleCandidates = await _eligibility.BuildEligibleCandidatesWithTargetsAsync(request.Filter, currentUser, cancellationToken);
 
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
 
-        var job = new FollowUpPrintJob
-        {
-            RequestedById = currentUser.UserId,
-            Status = FollowUpPrintJobStatus.Queued,
-            FilterSnapshotJson = JsonSerializer.Serialize(snapshot, JsonOptions),
-            TemplateId = template.Id,
-            ResponseDeadlineDays = request.ResponseDeadlineDays,
-            ExcludeRecentlyPrinted = request.Filter.ExcludeRecentlyPrinted,
-            PrintedLetterExclusionDays = request.Filter.PrintedLetterExclusionDays,
-            DaysSinceLastFollowUp = request.Filter.DaysSinceLastFollowUp,
-            BatchSize = batchSize,
-            NextPayloadOrdinal = 0,
-            TotalTransactions = preview.EligibleTransactionCount,
-            TotalLetters = preview.EstimatedLetterCount,
-            CreatedAt = DateTime.UtcNow,
-        };
+        var job = await CreateQueuedJobEntityAsync(
+            request,
+            currentUser,
+            template,
+            snapshot,
+            batchSize,
+            preview,
+            cancellationToken);
 
-        _db.FollowUpPrintJobs.Add(job);
-        await _db.SaveChangesAsync(cancellationToken);
+        var ordinal = await AddPayloadsForCandidatesAsync(
+            job,
+            eligibleCandidates,
+            template,
+            currentUser,
+            request.ResponseDeadlineDays,
+            cancellationToken);
 
-        var ordinal = 0;
-        foreach (var candidate in eligibleCandidates)
-        {
-            var sequence = FollowUpSequenceCalculator.CalculateExpectedSequence(candidate.FollowUpCount);
-            foreach (var target in candidate.Targets)
-            {
-                ordinal++;
-                var document = await _renderService.BuildDocumentAsync(
-                    candidate.TransactionId,
-                    target,
-                    currentUser,
-                    template.Id,
-                    followUpSequenceOverride: sequence,
-                    responseDeadlineDays: request.ResponseDeadlineDays,
-                    cancellationToken: cancellationToken);
-
-                var payload = new FollowUpPrintJobPayload
-                {
-                    JobId = job.Id,
-                    PayloadOrdinal = ordinal,
-                    TransactionId = candidate.TransactionId,
-                    TargetDepartmentId = target.DepartmentId,
-                    TargetEntityId = target.ExternalPartyId,
-                    TargetEntityName = target.Name,
-                    FollowUpSequence = sequence,
-                    ResponseDeadlineDays = request.ResponseDeadlineDays,
-                };
-
-                if (document == null)
-                {
-                    payload.Status = FollowUpPrintJobPayloadStatus.Failed;
-                    payload.FailureReason = "تعذر بناء مستند الخطاب.";
-                    payload.SnapshotJson = "{}";
-                }
-                else
-                {
-                    payload.Status = FollowUpPrintJobPayloadStatus.Pending;
-                    payload.SnapshotJson = JsonSerializer.Serialize(document, JsonOptions);
-                }
-
-                _db.FollowUpPrintJobPayloads.Add(payload);
-            }
-        }
-
-        job.NextPayloadOrdinal = ordinal;
-        await _db.SaveChangesAsync(cancellationToken);
-
-        if (!string.IsNullOrWhiteSpace(idempotencyKey))
-        {
-            var keyEntity = await _db.FollowUpPrintIdempotencyKeys
-                .FirstOrDefaultAsync(
-                    k => k.UserId == currentUser.UserId &&
-                         k.Key == idempotencyKey &&
-                         k.Operation == "create-job",
-                    cancellationToken);
-
-            if (keyEntity == null)
-            {
-                keyEntity = new FollowUpPrintIdempotencyKey
-                {
-                    UserId = currentUser.UserId,
-                    Key = idempotencyKey,
-                    Operation = "create-job",
-                    RequestHash = requestHash,
-                    CreatedAt = DateTime.UtcNow,
-                };
-                _db.FollowUpPrintIdempotencyKeys.Add(keyEntity);
-            }
-            else
-            {
-                keyEntity.RequestHash = requestHash;
-            }
-
-            keyEntity.ResultId = job.Id;
-            await _db.SaveChangesAsync(cancellationToken);
-        }
+        await PersistIdempotencyKeyAsync(request, currentUser, requestHash, job.Id, cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
         await FollowUpPrintAuditWriter.LogJobQueuedAsync(_audit, currentUser.UserId, job.Id, $"letters={ordinal};batchSize={batchSize}");
@@ -304,6 +203,7 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         }
 
         await _db.SaveChangesAsync(cancellationToken);
+        await FollowUpPrintAuditWriter.LogJobRetryRequestedAsync(_audit, currentUser.UserId, jobId, $"retryCount={job.RetryCount}");
         return await GetJobAsync(jobId, currentUser, cancellationToken);
     }
 
@@ -454,6 +354,10 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
 
         await transaction.CommitAsync(cancellationToken);
         await FollowUpPrintAuditWriter.LogPartPrintRequestedAsync(_audit, currentUser.UserId, part.Id, jobId, $"records={records.Count}");
+
+        if (part.Job.Status == FollowUpPrintJobStatus.Completed)
+            await FollowUpPrintAuditWriter.LogJobCompletedAsync(_audit, currentUser.UserId, jobId, $"printedParts={part.Job.PrintedParts}");
+
         return records.Select(MapRecord).ToList();
     }
 
@@ -508,25 +412,209 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
 
     private async Task EnsureConcurrentJobLimitsAsync(ICurrentUserService currentUser, CancellationToken cancellationToken)
     {
-        var activeStatuses = new[]
+        var processingStatuses = new[]
         {
             FollowUpPrintJobStatus.Queued,
             FollowUpPrintJobStatus.Claimed,
             FollowUpPrintJobStatus.Processing,
+        };
+
+        var globalProcessing = await _db.FollowUpPrintJobs.CountAsync(
+            j => processingStatuses.Contains(j.Status),
+            cancellationToken);
+        if (globalProcessing >= _options.MaxConcurrentPrintJobs)
+            throw new InvalidOperationException("تم بلوغ الحد الأقصى لمهام الطباعة المتزامنة. حاول لاحقًا.");
+
+        var userProcessing = await _db.FollowUpPrintJobs.CountAsync(
+            j => j.RequestedById == currentUser.UserId && processingStatuses.Contains(j.Status),
+            cancellationToken);
+
+        if (userProcessing >= _options.MaxConcurrentJobsPerUser)
+            throw new InvalidOperationException("لديك مهمة طباعة نشطة بالفعل.");
+
+        var unprintedStatuses = new[]
+        {
             FollowUpPrintJobStatus.ReadyToPrint,
             FollowUpPrintJobStatus.PartiallyPrinted,
         };
 
-        var globalActive = await _db.FollowUpPrintJobs.CountAsync(j => activeStatuses.Contains(j.Status), cancellationToken);
-        if (globalActive >= _options.MaxConcurrentPrintJobs)
-            throw new InvalidOperationException("تم بلوغ الحد الأقصى لمهام الطباعة المتزامنة. حاول لاحقًا.");
-
-        var userActive = await _db.FollowUpPrintJobs.CountAsync(
-            j => j.RequestedById == currentUser.UserId && activeStatuses.Contains(j.Status),
+        var outstandingUnprinted = await _db.FollowUpPrintJobs.CountAsync(
+            j => j.RequestedById == currentUser.UserId && unprintedStatuses.Contains(j.Status),
             cancellationToken);
 
-        if (userActive >= _options.MaxConcurrentJobsPerUser)
-            throw new InvalidOperationException("لديك مهمة طباعة نشطة بالفعل.");
+        if (outstandingUnprinted >= _options.MaxOutstandingUnprintedJobs)
+            throw new InvalidOperationException("لديك مهام طباعة جاهزة غير مطبوعة تتجاوز الحد المسموح.");
+    }
+
+    private async Task<FollowUpPrintJobDto?> TryResolveExistingIdempotentJobAsync(
+        CreateFollowUpPrintJobRequest request,
+        ICurrentUserService currentUser,
+        string requestHash,
+        CancellationToken cancellationToken)
+    {
+        var idempotencyKey = request.IdempotencyKey?.Trim();
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+            return null;
+
+        var existingKey = await _db.FollowUpPrintIdempotencyKeys.AsNoTracking()
+            .FirstOrDefaultAsync(
+                k => k.UserId == currentUser.UserId &&
+                     k.Key == idempotencyKey &&
+                     k.Operation == "create-job",
+                cancellationToken);
+
+        if (existingKey == null)
+            return null;
+
+        if (!string.Equals(existingKey.RequestHash, requestHash, StringComparison.OrdinalIgnoreCase))
+            throw new FollowUpPrintConflictException("مفتاح idempotency مستخدم لطلب مختلف.");
+
+        if (existingKey.ResultId is not int existingJobId)
+            return null;
+
+        return await GetJobAsync(existingJobId, currentUser, cancellationToken);
+    }
+
+    private async Task<LetterTemplate> ResolveActiveTemplateAsync(int? templateId, CancellationToken cancellationToken)
+    {
+        var template = templateId.HasValue
+            ? await _db.LetterTemplates.AsNoTracking().FirstOrDefaultAsync(t => t.Id == templateId.Value && t.IsActive, cancellationToken)
+            : await _renderService.GetOrCreateDefaultTemplateAsync(cancellationToken);
+
+        if (template == null)
+            throw new InvalidOperationException("قالب الخطاب غير موجود أو غير نشط.");
+
+        return template;
+    }
+
+    private async Task<FollowUpPrintJob> CreateQueuedJobEntityAsync(
+        CreateFollowUpPrintJobRequest request,
+        ICurrentUserService currentUser,
+        LetterTemplate template,
+        FollowUpPrintFilterSnapshot snapshot,
+        int batchSize,
+        FollowUpPrintEligibilityPreviewDto preview,
+        CancellationToken cancellationToken)
+    {
+        var job = new FollowUpPrintJob
+        {
+            RequestedById = currentUser.UserId,
+            Status = FollowUpPrintJobStatus.Queued,
+            FilterSnapshotJson = JsonSerializer.Serialize(snapshot, JsonOptions),
+            TemplateId = template.Id,
+            ResponseDeadlineDays = request.ResponseDeadlineDays,
+            ExcludeRecentlyPrinted = request.Filter.ExcludeRecentlyPrinted,
+            PrintedLetterExclusionDays = request.Filter.PrintedLetterExclusionDays,
+            DaysSinceLastFollowUp = request.Filter.DaysSinceLastFollowUp,
+            BatchSize = batchSize,
+            NextPayloadOrdinal = 0,
+            TotalTransactions = preview.EligibleTransactionCount,
+            TotalLetters = preview.EstimatedLetterCount,
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        _db.FollowUpPrintJobs.Add(job);
+        await _db.SaveChangesAsync(cancellationToken);
+        return job;
+    }
+
+    private async Task<int> AddPayloadsForCandidatesAsync(
+        FollowUpPrintJob job,
+        IReadOnlyList<EligibleCandidateWithTargets> eligibleCandidates,
+        LetterTemplate template,
+        ICurrentUserService currentUser,
+        int? responseDeadlineDays,
+        CancellationToken cancellationToken)
+    {
+        var ordinal = 0;
+        foreach (var candidate in eligibleCandidates)
+        {
+            var sequence = FollowUpSequenceCalculator.CalculateExpectedSequence(candidate.FollowUpCount);
+            foreach (var target in candidate.Targets)
+            {
+                ordinal++;
+                var document = await _renderService.BuildDocumentAsync(new FollowUpLetterBuildRequest
+                {
+                    TransactionId = candidate.TransactionId,
+                    Target = target,
+                    CurrentUser = currentUser,
+                    TemplateId = template.Id,
+                    FollowUpSequenceOverride = sequence,
+                    ResponseDeadlineDays = responseDeadlineDays,
+                    CancellationToken = cancellationToken,
+                });
+
+                var payload = new FollowUpPrintJobPayload
+                {
+                    JobId = job.Id,
+                    PayloadOrdinal = ordinal,
+                    TransactionId = candidate.TransactionId,
+                    TargetDepartmentId = target.DepartmentId,
+                    TargetEntityId = target.ExternalPartyId,
+                    TargetEntityName = target.Name,
+                    FollowUpSequence = sequence,
+                    ResponseDeadlineDays = responseDeadlineDays,
+                };
+
+                if (document == null)
+                {
+                    payload.Status = FollowUpPrintJobPayloadStatus.Failed;
+                    payload.FailureReason = "تعذر بناء مستند الخطاب.";
+                    payload.SnapshotJson = "{}";
+                }
+                else
+                {
+                    document.LogoPath = null;
+                    payload.Status = FollowUpPrintJobPayloadStatus.Pending;
+                    payload.SnapshotJson = JsonSerializer.Serialize(document, JsonOptions);
+                }
+
+                _db.FollowUpPrintJobPayloads.Add(payload);
+            }
+        }
+
+        job.NextPayloadOrdinal = ordinal;
+        await _db.SaveChangesAsync(cancellationToken);
+        return ordinal;
+    }
+
+    private async Task PersistIdempotencyKeyAsync(
+        CreateFollowUpPrintJobRequest request,
+        ICurrentUserService currentUser,
+        string requestHash,
+        int jobId,
+        CancellationToken cancellationToken)
+    {
+        var idempotencyKey = request.IdempotencyKey?.Trim();
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+            return;
+
+        var keyEntity = await _db.FollowUpPrintIdempotencyKeys
+            .FirstOrDefaultAsync(
+                k => k.UserId == currentUser.UserId &&
+                     k.Key == idempotencyKey &&
+                     k.Operation == "create-job",
+                cancellationToken);
+
+        if (keyEntity == null)
+        {
+            keyEntity = new FollowUpPrintIdempotencyKey
+            {
+                UserId = currentUser.UserId,
+                Key = idempotencyKey,
+                Operation = "create-job",
+                RequestHash = requestHash,
+                CreatedAt = DateTime.UtcNow,
+            };
+            _db.FollowUpPrintIdempotencyKeys.Add(keyEntity);
+        }
+        else
+        {
+            keyEntity.RequestHash = requestHash;
+        }
+
+        keyEntity.ResultId = jobId;
+        await _db.SaveChangesAsync(cancellationToken);
     }
 
     private static FollowUpPrintFilterSnapshot BuildSnapshot(FollowUpPrintFilterRequest filter) => new()

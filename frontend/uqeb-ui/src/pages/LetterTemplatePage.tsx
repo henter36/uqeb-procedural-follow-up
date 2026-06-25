@@ -44,10 +44,9 @@ export default function LetterTemplatePage() {
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
       if (!isDirty) return;
       event.preventDefault();
-      event.returnValue = '';
     };
-    window.addEventListener('beforeunload', onBeforeUnload);
-    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+    globalThis.addEventListener('beforeunload', onBeforeUnload);
+    return () => globalThis.removeEventListener('beforeunload', onBeforeUnload);
   }, [isDirty]);
 
   const loadTemplates = useCallback(async () => {
@@ -97,7 +96,7 @@ export default function LetterTemplatePage() {
   }, []);
 
   const selectTemplate = (template: LetterTemplate) => {
-    if (isDirty && !window.confirm('لديك تغييرات غير محفوظة. هل تريد تجاهلها؟')) {
+    if (isDirty && !globalThis.confirm('لديك تغييرات غير محفوظة. هل تريد تجاهلها؟')) {
       return;
     }
     setSelectedId(template.id);
@@ -115,7 +114,7 @@ export default function LetterTemplatePage() {
   };
 
   const startNewTemplate = () => {
-    if (isDirty && !window.confirm('لديك تغييرات غير محفوظة. هل تريد تجاهلها؟')) {
+    if (isDirty && !globalThis.confirm('لديك تغييرات غير محفوظة. هل تريد تجاهلها؟')) {
       return;
     }
     setSelectedId('new');
@@ -146,7 +145,7 @@ export default function LetterTemplatePage() {
           isActive: editor.isActive,
           templateType: editor.templateType,
         });
-        const items = await loadTemplates();
+        await loadTemplates();
         setSelectedId(res.data.id);
         const nextEditor: EditorState = {
           name: res.data.name,
@@ -158,7 +157,6 @@ export default function LetterTemplatePage() {
         setEditor(nextEditor);
         setSavedSnapshot(snapshotEditor(nextEditor));
         setMessage('تم إنشاء القالب بنجاح.');
-        void items;
       } else if (typeof selectedId === 'number') {
         const res = await letterTemplatesApi.update(selectedId, {
           name: editor.name.trim(),
@@ -219,7 +217,7 @@ export default function LetterTemplatePage() {
 
   const handleDelete = async () => {
     if (typeof selectedId !== 'number') return;
-    if (!window.confirm('هل أنت متأكد من حذف هذا القالب؟')) return;
+    if (!globalThis.confirm('هل أنت متأكد من حذف هذا القالب؟')) return;
     setSaving(true);
     setError('');
     try {
@@ -370,20 +368,20 @@ export default function LetterTemplatePage() {
               </div>
 
               <div className="form-actions">
-                <button type="button" className="btn btn-primary" disabled={saving || !isDirty} onClick={() => { void handleSave(); }}>
+                <button type="button" className="btn btn-primary" disabled={saving || !isDirty} onClick={() => { handleSave().catch(() => undefined); }}>
                   {saving ? 'جاري الحفظ...' : 'حفظ'}
                 </button>
                 {typeof selectedId === 'number' && (
                   <>
-                    <button type="button" className="btn btn-secondary" disabled={saving} onClick={() => { void handleCopy(); }}>
+                    <button type="button" className="btn btn-secondary" disabled={saving} onClick={() => { handleCopy().catch(() => undefined); }}>
                       نسخ
                     </button>
                     {selectedTemplate && !selectedTemplate.isDefault && (
-                      <button type="button" className="btn btn-secondary" disabled={saving} onClick={() => { void handleSetDefault(); }}>
+                      <button type="button" className="btn btn-secondary" disabled={saving} onClick={() => { handleSetDefault().catch(() => undefined); }}>
                         تعيين كافتراضي
                       </button>
                     )}
-                    <button type="button" className="btn btn-outline" disabled={saving} onClick={() => { void handleDelete(); }}>
+                    <button type="button" className="btn btn-outline" disabled={saving} onClick={() => { handleDelete().catch(() => undefined); }}>
                       حذف
                     </button>
                   </>

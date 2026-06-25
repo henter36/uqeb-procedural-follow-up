@@ -2,6 +2,7 @@ using System.Globalization;
 using Uqeb.Api.Helpers;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
+using Uqeb.Api.Configuration;
 using Uqeb.Api.Models.Letters;
 
 namespace Uqeb.Api.Services;
@@ -35,6 +36,11 @@ public interface IFollowUpLetterDocumentBuilder
 
 public sealed class FollowUpLetterDocumentBuilder : IFollowUpLetterDocumentBuilder
 {
+    private readonly IFollowUpLetterTimeZone _timeZone;
+
+    public FollowUpLetterDocumentBuilder(IFollowUpLetterTimeZone timeZone) =>
+        _timeZone = timeZone;
+
     public FollowUpLetterDocumentModel Build(FollowUpLetterDocumentBuildRequest request)
     {
         var transaction = request.Transaction;
@@ -55,10 +61,12 @@ public sealed class FollowUpLetterDocumentBuilder : IFollowUpLetterDocumentBuild
             .ThenByDescending(a => a.Id)
             .FirstOrDefault();
 
-        var incomingLocal = transaction.IncomingDate;
-        var assignmentLocal = openAssignment?.AssignedDate;
-        var followUpLocal = lastFollowUp?.FollowUpDate;
-        var dueLocal = openAssignment?.DueDate ?? transaction.ResponseDueDate;
+        var incomingLocal = FollowUpLetterDateSemantics.ToBusinessDisplayDate(transaction.IncomingDate, _timeZone);
+        var assignmentLocal = FollowUpLetterDateSemantics.ToBusinessDisplayDate(openAssignment?.AssignedDate, _timeZone);
+        var followUpLocal = FollowUpLetterDateSemantics.ToBusinessDisplayDate(lastFollowUp?.FollowUpDate, _timeZone);
+        var dueLocal = FollowUpLetterDateSemantics.ToBusinessDisplayDate(
+            openAssignment?.DueDate ?? transaction.ResponseDueDate,
+            _timeZone);
 
         int? daysOverdue = null;
         if (dueLocal.HasValue && dueLocal.Value.Date < today.Date)
@@ -101,7 +109,7 @@ public sealed class FollowUpLetterDocumentBuilder : IFollowUpLetterDocumentBuild
         {
             TransactionId = transaction.Id,
             TemplateId = request.Template.Id,
-            LogoPath = request.LogoPath,
+            LogoPath = OrganizationBrandingPaths.LogoApiUrl,
             LetterNumber = transaction.IncomingNumber,
             GregorianDate = HijriDateFormatter.FormatGregorianArabic(today),
             HijriDate = HijriDateFormatter.Format(today) ?? string.Empty,

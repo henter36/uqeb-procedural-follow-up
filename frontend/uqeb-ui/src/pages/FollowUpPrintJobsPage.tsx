@@ -42,6 +42,59 @@ export default function FollowUpPrintJobsPage() {
 
   useDeferredEffect(loadJobs, [loadJobs]);
 
+  const renderJobsContent = () => {
+    if (loading) {
+      return <LoadingInline label="جاري تحميل المهام..." />;
+    }
+    if (jobs.length === 0) {
+      return <EmptyState title="لا توجد مهام طباعة" description="أنشئ مهمة من صفحة المعاملات المستحقة." />;
+    }
+    return (
+      <>
+        <div className="table-wrapper table-wrapper-spaced">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>رقم المهمة</th>
+                <th>الحالة</th>
+                <th>المعاملات</th>
+                <th>الخطابات</th>
+                <th>الأجزاء</th>
+                <th>تاريخ الإنشاء</th>
+                <th>عرض</th>
+              </tr>
+            </thead>
+            <tbody>
+              {jobs.map((job) => (
+                <tr key={job.id}>
+                  <td>{job.id}</td>
+                  <td>
+                    <span className={`badge ${followUpPrintJobStatusBadgeClass(job.status)}`}>
+                      {followUpPrintJobStatusLabels[job.status]}
+                    </span>
+                  </td>
+                  <td>{job.totalTransactions}</td>
+                  <td>{job.readyLetters}/{job.totalLetters}</td>
+                  <td>{job.printedParts}/{job.totalParts}</td>
+                  <td><DateDisplay date={job.createdAt} /></td>
+                  <td><Link to={`/follow-up-print/jobs/${job.id}`} className="btn btn-sm btn-outline">تفاصيل</Link></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <Pagination
+          page={page}
+          pageSize={pageSize}
+          total={totalCount}
+          itemCount={jobs.length}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+        />
+      </>
+    );
+  };
+
   return (
     <div dir="rtl">
       <PageHeader
@@ -58,54 +111,7 @@ export default function FollowUpPrintJobsPage() {
       {error && <Alert variant="error">{error}</Alert>}
 
       <div className="card">
-        {loading ? (
-          <LoadingInline label="جاري تحميل المهام..." />
-        ) : jobs.length === 0 ? (
-          <EmptyState title="لا توجد مهام طباعة" description="أنشئ مهمة من صفحة المعاملات المستحقة." />
-        ) : (
-          <>
-            <div className="table-wrapper table-wrapper-spaced">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>رقم المهمة</th>
-                    <th>الحالة</th>
-                    <th>المعاملات</th>
-                    <th>الخطابات</th>
-                    <th>الأجزاء</th>
-                    <th>تاريخ الإنشاء</th>
-                    <th>عرض</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {jobs.map((job) => (
-                    <tr key={job.id}>
-                      <td>{job.id}</td>
-                      <td>
-                        <span className={`badge ${followUpPrintJobStatusBadgeClass(job.status)}`}>
-                          {followUpPrintJobStatusLabels[job.status]}
-                        </span>
-                      </td>
-                      <td>{job.totalTransactions}</td>
-                      <td>{job.readyLetters}/{job.totalLetters}</td>
-                      <td>{job.printedParts}/{job.totalParts}</td>
-                      <td><DateDisplay date={job.createdAt} /></td>
-                      <td><Link to={`/follow-up-print/jobs/${job.id}`} className="btn btn-sm btn-outline">تفاصيل</Link></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <Pagination
-              page={page}
-              pageSize={pageSize}
-              total={totalCount}
-              itemCount={jobs.length}
-              onPageChange={setPage}
-              onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
-            />
-          </>
-        )}
+        {renderJobsContent()}
       </div>
     </div>
   );

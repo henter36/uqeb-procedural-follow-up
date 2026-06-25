@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using Uqeb.Api.Configuration;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.LetterTemplates;
 using Uqeb.Api.Helpers;
@@ -27,11 +29,16 @@ public sealed class LetterTemplateAdminService : ILetterTemplateAdminService
 {
     private readonly AppDbContext _db;
     private readonly IAuditService _audit;
+    private readonly FollowUpLettersOptions _options;
 
-    public LetterTemplateAdminService(AppDbContext db, IAuditService audit)
+    public LetterTemplateAdminService(
+        AppDbContext db,
+        IAuditService audit,
+        IOptions<FollowUpLettersOptions> options)
     {
         _db = db;
         _audit = audit;
+        _options = options.Value;
     }
 
     public async Task<List<LetterTemplateDto>> ListAsync(LetterTemplateListRequest request, CancellationToken cancellationToken = default)
@@ -127,6 +134,8 @@ public sealed class LetterTemplateAdminService : ILetterTemplateAdminService
     {
         var source = await _db.LetterTemplates.AsNoTracking().FirstOrDefaultAsync(t => t.Id == id, cancellationToken)
             ?? throw new InvalidOperationException("القالب غير موجود.");
+
+        ValidateTemplateContent(source.Content);
 
         var copyName = $"{source.Name} (نسخة)";
         var code = await GenerateUniqueCodeAsync(copyName, cancellationToken);
@@ -349,10 +358,13 @@ public sealed class LetterTemplateAdminService : ILetterTemplateAdminService
         return name.Trim();
     }
 
-    private static void ValidateTemplateContent(string content)
+    private void ValidateTemplateContent(string content)
     {
         if (string.IsNullOrWhiteSpace(content))
             throw new InvalidOperationException("محتوى القالب مطلوب");
+
+        if (content.Length > _options.MaxTemplateContentLength)
+            throw new InvalidOperationException($"محتوى القالب يتجاوز الحد الأقصى ({_options.MaxTemplateContentLength} حرف).");
     }
 
     private static readonly System.Linq.Expressions.Expression<Func<LetterTemplate, LetterTemplateDto>> MapExpr = t => new LetterTemplateDto

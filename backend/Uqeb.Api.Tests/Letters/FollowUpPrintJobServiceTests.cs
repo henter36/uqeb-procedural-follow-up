@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Uqeb.Api.Configuration;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.FollowUpPrint;
 using Uqeb.Api.Models.Entities;
@@ -14,21 +15,22 @@ public class FollowUpPrintJobServiceTests
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
-    private static FollowUpPrintJobService CreateService(
+    internal static FollowUpPrintJobService CreateService(
         AppDbContext db,
         FollowUpPrintEligibilityService eligibility,
         StubRenderService renderService,
         IFollowUpPrintAccessService? access = null,
-        IAuditService? audit = null) =>
+        IAuditService? audit = null,
+        FollowUpLettersOptions? options = null) =>
         new(
             db,
             eligibility,
             renderService,
             access ?? new FollowUpPrintAccessService(db),
             audit ?? new NoOpAuditService(),
-            LettersTestInfrastructure.CreateOptions());
+            LettersTestInfrastructure.CreateOptions(options));
 
-    private static async Task<(FollowUpPrintJob Job, FollowUpPrintJobPart Part)> SeedReadyPartAsync(AppDbContext db)
+    internal static async Task<(FollowUpPrintJob Job, FollowUpPrintJobPart Part)> SeedReadyPartAsync(AppDbContext db)
     {
         await LettersTestInfrastructure.SeedUserAsync(db);
         var template = await LettersTestInfrastructure.SeedTemplateAsync(db);
@@ -103,6 +105,138 @@ public class FollowUpPrintJobServiceTests
         await db.SaveChangesAsync();
 
         return (job, part);
+    }
+
+    [Fact]
+    public async Task CreateJobAsync_AllowsNewJob_WhenExistingJobIsReadyToPrint()
+    {
+        var today = new DateTime(2025, 6, 25);
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(CreateJobAsync_AllowsNewJob_WhenExistingJobIsReadyToPrint));
+        await LettersTestInfrastructure.SeedUserAsync(db);
+        await LettersTestInfrastructure.SeedTemplateAsync(db);
+
+        db.FollowUpPrintJobs.Add(new FollowUpPrintJob
+        {
+            RequestedById = 1,
+            Status = FollowUpPrintJobStatus.ReadyToPrint,
+            FilterSnapshotJson = "{}",
+            TemplateId = 1,
+            BatchSize = 25,
+            TotalTransactions = 1,
+            TotalLetters = 1,
+            CreatedAt = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        db.Transactions.Add(new Transaction
+        {
+            Id = 10,
+            InternalTrackingNumber = "INT-10",
+            IncomingNumber = "IN-10",
+            IncomingDate = today.AddDays(-40),
+            Subject = "معاملة",
+            Status = TransactionStatus.InProgress,
+            Priority = Priority.Normal,
+            CreatedAt = DateTime.UtcNow,
+        });
+        db.FollowUps.Add(new FollowUp
+        {
+            TransactionId = 10,
+            FollowUpDate = today.AddDays(-15),
+            CreatedById = 1,
+            CreatedAt = today.AddDays(-15),
+        });
+        await db.SaveChangesAsync();
+
+        var render = new StubRenderService(new FollowUpLetterTargetEntity("جهة", 1, null));
+        var options = new FollowUpLettersOptions
+        {
+            MaxConcurrentPrintJobs = 1,
+            MaxConcurrentJobsPerUser = 1,
+        };
+        var eligibility = new FollowUpPrintEligibilityService(
+            db,
+            render,
+            new FixedTimeZone(today),
+            LettersTestInfrastructure.CreateOptions(options));
+        var service = CreateService(db, eligibility, render, options: options);
+
+        var job = await service.CreateJobAsync(
+            new CreateFollowUpPrintJobRequest
+            {
+                Filter = new FollowUpPrintFilterRequest
+                {
+                    DaysSinceLastFollowUp = 10,
+                    ExcludeRecentlyPrinted = false,
+                },
+            },
+            new TestCurrentUser(1));
+
+        Assert.True(job.Id > 0);
+        Assert.Equal(FollowUpPrintJobStatus.Queued, job.Status);
+    }
+
+    [Fact]
+    public async Task CreateJobAsync_BlocksNewProcessingJob_WhenUserHasQueuedJob()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(CreateJobAsync_BlocksNewProcessingJob_WhenUserHasQueuedJob));
+        await LettersTestInfrastructure.SeedUserAsync(db);
+        await LettersTestInfrastructure.SeedTemplateAsync(db);
+
+        db.FollowUpPrintJobs.Add(new FollowUpPrintJob
+        {
+            RequestedById = 1,
+            Status = FollowUpPrintJobStatus.Queued,
+            FilterSnapshotJson = "{}",
+            TemplateId = 1,
+            BatchSize = 25,
+            TotalTransactions = 1,
+            TotalLetters = 1,
+            CreatedAt = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var today = new DateTime(2025, 6, 25);
+        db.Transactions.Add(new Transaction
+        {
+            Id = 11,
+            InternalTrackingNumber = "INT-11",
+            IncomingNumber = "IN-11",
+            IncomingDate = today.AddDays(-40),
+            Subject = "معاملة",
+            Status = TransactionStatus.InProgress,
+            Priority = Priority.Normal,
+            CreatedAt = DateTime.UtcNow,
+        });
+        db.FollowUps.Add(new FollowUp
+        {
+            TransactionId = 11,
+            FollowUpDate = today.AddDays(-15),
+            CreatedById = 1,
+            CreatedAt = today.AddDays(-15),
+        });
+        await db.SaveChangesAsync();
+
+        var render = new StubRenderService(new FollowUpLetterTargetEntity("جهة", 1, null));
+        var options = new FollowUpLettersOptions { MaxConcurrentJobsPerUser = 1 };
+        var eligibility = new FollowUpPrintEligibilityService(
+            db,
+            render,
+            new FixedTimeZone(today),
+            LettersTestInfrastructure.CreateOptions(options));
+        var service = CreateService(db, eligibility, render, options: options);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateJobAsync(
+                new CreateFollowUpPrintJobRequest
+                {
+                    Filter = new FollowUpPrintFilterRequest
+                    {
+                        DaysSinceLastFollowUp = 10,
+                        ExcludeRecentlyPrinted = false,
+                    },
+                },
+                new TestCurrentUser(1)));
     }
 
     [Fact]
@@ -230,18 +364,10 @@ public class FollowUpPrintJobServiceTests
     {
         public int BuildDocumentCalls { get; private set; }
 
-        public override Task<FollowUpLetterDocumentModel?> BuildDocumentAsync(
-            int transactionId,
-            FollowUpLetterTargetEntity target,
-            ICurrentUserService currentUser,
-            int? templateId = null,
-            string? bodyOverride = null,
-            int? followUpSequenceOverride = null,
-            int? responseDeadlineDays = null,
-            CancellationToken cancellationToken = default)
+        public override Task<FollowUpLetterDocumentModel?> BuildDocumentAsync(FollowUpLetterBuildRequest request)
         {
             BuildDocumentCalls++;
-            return base.BuildDocumentAsync(transactionId, target, currentUser, templateId, bodyOverride, followUpSequenceOverride, responseDeadlineDays, cancellationToken);
+            return base.BuildDocumentAsync(request);
         }
     }
 }

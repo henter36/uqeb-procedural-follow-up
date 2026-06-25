@@ -28,7 +28,7 @@ export function usePendingPrintSummary(enabled = true) {
         return;
       }
       await fetchSummary(active);
-    })();
+    })().catch(() => undefined);
 
     if (!enabled || !canClose) {
       return () => {
@@ -36,13 +36,13 @@ export function usePendingPrintSummary(enabled = true) {
       };
     }
 
-    const timer = window.setInterval(() => {
-      void fetchSummary(active);
+    const timer = globalThis.setInterval(() => {
+      fetchSummary(active).catch(() => undefined);
     }, POLL_INTERVAL_MS);
 
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      globalThis.clearInterval(timer);
     };
   }, [canClose, enabled, fetchSummary]);
 

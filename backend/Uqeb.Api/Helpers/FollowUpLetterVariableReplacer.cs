@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text.RegularExpressions;
 using Uqeb.Api.Models.Letters;
 
 namespace Uqeb.Api.Helpers;
@@ -15,7 +14,7 @@ public static class FollowUpLetterVariableReplacer
             content = content.Replace(token, pair.Value ?? string.Empty, StringComparison.Ordinal);
         }
 
-        content = Regex.Replace(content, @"\{([A-Za-z0-9_]+)\}", string.Empty);
+        content = FollowUpLetterPlaceholderRegex.RemoveRemaining(content);
         return LetterTemplateRenderer.CleanupEmptyReferencePatterns(content);
     }
 

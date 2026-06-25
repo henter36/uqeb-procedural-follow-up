@@ -94,6 +94,50 @@ internal class NoOpAuditService : IAuditService
     public Task LogAsync(int userId, AuditAction action, string? entityName, int? entityId, int? transactionId, string? oldValue, string? newValue) => Task.CompletedTask;
 }
 
+internal sealed class CapturingAuditService : IAuditService
+{
+    public List<CapturedAuditEntry> Entries { get; } = [];
+
+    public AuditLog TrackLog(
+        int userId,
+        AuditAction action,
+        string? entityName,
+        int? entityId,
+        int? transactionId,
+        string? oldValue,
+        string? newValue)
+    {
+        Entries.Add(new CapturedAuditEntry(userId, action, entityName, entityId, transactionId, oldValue, newValue));
+        return new AuditLog();
+    }
+
+    public Task LogAsync(
+        int userId,
+        AuditAction action,
+        string? entityName,
+        int? entityId,
+        int? transactionId,
+        string? oldValue,
+        string? newValue)
+    {
+        Entries.Add(new CapturedAuditEntry(userId, action, entityName, entityId, transactionId, oldValue, newValue));
+        return Task.CompletedTask;
+    }
+
+    public CapturedAuditEntry? LastEntry => Entries.Count > 0 ? Entries[^1] : null;
+
+    public bool Contains(AuditAction action) => Entries.Any(e => e.Action == action);
+}
+
+internal sealed record CapturedAuditEntry(
+    int UserId,
+    AuditAction Action,
+    string? EntityName,
+    int? EntityId,
+    int? TransactionId,
+    string? OldValue,
+    string? NewValue);
+
 internal class StubRenderService(params FollowUpLetterTargetEntity[] targets) : IFollowUpLetterRenderService
 {
     private readonly IReadOnlyList<FollowUpLetterTargetEntity> _targets =
@@ -105,6 +149,16 @@ internal class StubRenderService(params FollowUpLetterTargetEntity[] targets) : 
         CancellationToken cancellationToken = default) =>
         Task.FromResult(_targets);
 
+    public virtual Task<Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>>> ResolveTargetEntitiesBulkAsync(
+        IReadOnlyList<int> transactionIds,
+        CancellationToken cancellationToken = default)
+    {
+        var result = transactionIds
+            .Distinct()
+            .ToDictionary(id => id, _ => (IReadOnlyList<FollowUpLetterTargetEntity>)_targets);
+        return Task.FromResult(result);
+    }
+
     public Task<FollowUpLetterPreviewDto?> RenderFollowUpLetterAsync(
         int transactionId,
         string? targetEntity,
@@ -115,15 +169,7 @@ internal class StubRenderService(params FollowUpLetterTargetEntity[] targets) : 
         CancellationToken cancellationToken = default) =>
         Task.FromResult<FollowUpLetterPreviewDto?>(new FollowUpLetterPreviewDto());
 
-    public virtual Task<FollowUpLetterDocumentModel?> BuildDocumentAsync(
-        int transactionId,
-        FollowUpLetterTargetEntity target,
-        ICurrentUserService currentUser,
-        int? templateId = null,
-        string? bodyOverride = null,
-        int? followUpSequenceOverride = null,
-        int? responseDeadlineDays = null,
-        CancellationToken cancellationToken = default) =>
+    public virtual Task<FollowUpLetterDocumentModel?> BuildDocumentAsync(FollowUpLetterBuildRequest request) =>
         Task.FromResult<FollowUpLetterDocumentModel?>(new FollowUpLetterDocumentModel());
 
     public Task<byte[]?> GeneratePdfAsync(

@@ -21,6 +21,8 @@ public class FollowUpLettersOptions
     public int MaxEstimatedPagesPerPart { get; set; } = 100;
     public int MaxConcurrentPrintJobs { get; set; } = 2;
     public int MaxConcurrentJobsPerUser { get; set; } = 1;
+    public int MaxOutstandingUnprintedJobs { get; set; } = 10;
+    public int MaxTemplateContentLength { get; set; } = 50_000;
     public int JobLeaseSeconds { get; set; } = 120;
     public int JobRetryCount { get; set; } = 3;
     public int JobExpirationHours { get; set; } = 24;
@@ -39,5 +41,11 @@ public class FollowUpLettersOptions
 
         if (DefaultBatchPrintSize > MaxBatchPrintSize || MaxBatchPrintSize > AbsoluteMaxBatchPrintSize)
             throw new InvalidOperationException("Batch print size hierarchy is invalid.");
+
+        if (MaxTemplateContentLength <= 0)
+            throw new InvalidOperationException("MaxTemplateContentLength must be positive.");
+
+        if (MaxOutstandingUnprintedJobs <= 0)
+            throw new InvalidOperationException("MaxOutstandingUnprintedJobs must be positive.");
     }
 }

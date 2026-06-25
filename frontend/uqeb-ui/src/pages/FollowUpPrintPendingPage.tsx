@@ -62,7 +62,7 @@ export default function FollowUpPrintPendingPage() {
   };
 
   const handleCancel = async (record: FollowUpLetterPrintRecord) => {
-    const reason = window.prompt('سبب الإلغاء:');
+    const reason = globalThis.prompt('سبب الإلغاء:');
     if (!reason?.trim()) return;
     setActingId(record.id);
     setError('');
@@ -92,7 +92,7 @@ export default function FollowUpPrintPendingPage() {
   };
 
   const handleLinkFollowUp = async (record: FollowUpLetterPrintRecord) => {
-    const followUpIdRaw = window.prompt('رقم التعقيب المسجل:');
+    const followUpIdRaw = globalThis.prompt('رقم التعقيب المسجل:');
     const followUpId = Number(followUpIdRaw);
     if (!Number.isFinite(followUpId) || followUpId <= 0) return;
     setActingId(record.id);
@@ -106,6 +106,87 @@ export default function FollowUpPrintPendingPage() {
     } finally {
       setActingId(null);
     }
+  };
+
+  const renderRecordsContent = () => {
+    if (loading) {
+      return <LoadingInline label="جاري التحميل..." />;
+    }
+    if (records.length === 0) {
+      return <EmptyState title="لا توجد سجلات معلقة" description="جميع الخطابات المطبوعة مسجلة." />;
+    }
+    return (
+      <>
+        <div className="table-wrapper table-wrapper-spaced">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>رقم الوارد</th>
+                <th>الموضوع</th>
+                <th>الجهة</th>
+                <th>ترتيب التعقيب</th>
+                <th>تاريخ الطلب</th>
+                <th>إجراءات</th>
+              </tr>
+            </thead>
+            <tbody>
+              {records.map((record) => (
+                <tr key={record.id}>
+                  <td>{record.incomingNumber}</td>
+                  <td>{record.subject}</td>
+                  <td>{record.targetEntityNameSnapshot ?? '—'}</td>
+                  <td>{record.followUpSequence}</td>
+                  <td><DateDisplay date={record.printRequestedAt} /></td>
+                  <td className="btn-group">
+                    <Link to={`/transactions/${record.transactionId}`} className="btn btn-sm btn-outline">المعاملة</Link>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-primary"
+                      disabled={actingId === record.id}
+                      onClick={() => { handleConfirm(record).catch(() => undefined); }}
+                    >
+                      تأكيد
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-secondary"
+                      disabled={actingId === record.id}
+                      onClick={() => { handleLinkFollowUp(record).catch(() => undefined); }}
+                    >
+                      ربط تعقيب
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline"
+                      disabled={actingId === record.id}
+                      onClick={() => { handleReprint(record).catch(() => undefined); }}
+                    >
+                      إعادة طباعة
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline"
+                      disabled={actingId === record.id}
+                      onClick={() => { handleCancel(record).catch(() => undefined); }}
+                    >
+                      إلغاء
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <Pagination
+          page={page}
+          pageSize={pageSize}
+          total={summaryTotal}
+          itemCount={records.length}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+        />
+      </>
+    );
   };
 
   return (
@@ -129,82 +210,7 @@ export default function FollowUpPrintPendingPage() {
       </div>
 
       <div className="card">
-        {loading ? (
-          <LoadingInline label="جاري التحميل..." />
-        ) : records.length === 0 ? (
-          <EmptyState title="لا توجد سجلات معلقة" description="جميع الخطابات المطبوعة مسجلة." />
-        ) : (
-          <>
-            <div className="table-wrapper table-wrapper-spaced">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>رقم الوارد</th>
-                    <th>الموضوع</th>
-                    <th>الجهة</th>
-                    <th>ترتيب التعقيب</th>
-                    <th>تاريخ الطلب</th>
-                    <th>إجراءات</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {records.map((record) => (
-                    <tr key={record.id}>
-                      <td>{record.incomingNumber}</td>
-                      <td>{record.subject}</td>
-                      <td>{record.targetEntityNameSnapshot ?? '—'}</td>
-                      <td>{record.followUpSequence}</td>
-                      <td><DateDisplay date={record.printRequestedAt} /></td>
-                      <td className="btn-group">
-                        <Link to={`/transactions/${record.transactionId}`} className="btn btn-sm btn-outline">المعاملة</Link>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-primary"
-                          disabled={actingId === record.id}
-                          onClick={() => { void handleConfirm(record); }}
-                        >
-                          تأكيد
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-secondary"
-                          disabled={actingId === record.id}
-                          onClick={() => { void handleLinkFollowUp(record); }}
-                        >
-                          ربط تعقيب
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline"
-                          disabled={actingId === record.id}
-                          onClick={() => { void handleReprint(record); }}
-                        >
-                          إعادة طباعة
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline"
-                          disabled={actingId === record.id}
-                          onClick={() => { void handleCancel(record); }}
-                        >
-                          إلغاء
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <Pagination
-              page={page}
-              pageSize={pageSize}
-              total={summaryTotal}
-              itemCount={records.length}
-              onPageChange={setPage}
-              onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
-            />
-          </>
-        )}
+        {renderRecordsContent()}
       </div>
     </div>
   );

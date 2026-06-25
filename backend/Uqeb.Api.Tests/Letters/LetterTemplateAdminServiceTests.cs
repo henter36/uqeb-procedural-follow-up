@@ -1,3 +1,5 @@
+using Uqeb.Api.Configuration;
+using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.LetterTemplates;
 using Uqeb.Api.Helpers;
 using Uqeb.Api.Models.Entities;
@@ -9,11 +11,16 @@ namespace Uqeb.Api.Tests.Letters;
 
 public class LetterTemplateAdminServiceTests
 {
+    private static LetterTemplateAdminService CreateService(
+        AppDbContext db,
+        FollowUpLettersOptions? options = null) =>
+        new(db, new NoOpAuditService(), LettersTestInfrastructure.CreateOptions(options));
+
     [Fact]
     public async Task CreateAsync_PersistsTemplateWithGeneratedCode()
     {
         await using var db = LettersTestInfrastructure.CreateDb(nameof(CreateAsync_PersistsTemplateWithGeneratedCode));
-        var service = new LetterTemplateAdminService(db, new NoOpAuditService());
+        var service = CreateService(db);
 
         var created = await service.CreateAsync(new CreateLetterTemplateRequest
         {
@@ -32,7 +39,7 @@ public class LetterTemplateAdminServiceTests
     [Fact]
     public void ValidateContent_FlagsUnknownVariables()
     {
-        var service = new LetterTemplateAdminService(LettersTestInfrastructure.CreateDb(nameof(ValidateContent_FlagsUnknownVariables)), new NoOpAuditService());
+        var service = CreateService(LettersTestInfrastructure.CreateDb(nameof(ValidateContent_FlagsUnknownVariables)));
 
         var result = service.ValidateContent("مرحبًا {Subject} و{BadVariable}");
 
@@ -44,7 +51,7 @@ public class LetterTemplateAdminServiceTests
     public async Task SetDefaultAsync_ClearsPreviousDefaultForSameType()
     {
         await using var db = LettersTestInfrastructure.CreateDb(nameof(SetDefaultAsync_ClearsPreviousDefaultForSameType));
-        var service = new LetterTemplateAdminService(db, new NoOpAuditService());
+        var service = CreateService(db);
 
         var first = await service.CreateAsync(new CreateLetterTemplateRequest
         {
@@ -75,7 +82,7 @@ public class LetterTemplateAdminServiceTests
     public async Task SetActiveAsync_RejectsDeactivatingDefaultTemplate()
     {
         await using var db = LettersTestInfrastructure.CreateDb(nameof(SetActiveAsync_RejectsDeactivatingDefaultTemplate));
-        var service = new LetterTemplateAdminService(db, new NoOpAuditService());
+        var service = CreateService(db);
 
         var template = await service.CreateAsync(new CreateLetterTemplateRequest
         {
@@ -93,7 +100,7 @@ public class LetterTemplateAdminServiceTests
     public async Task CopyAsync_CreatesIndependentDuplicate()
     {
         await using var db = LettersTestInfrastructure.CreateDb(nameof(CopyAsync_CreatesIndependentDuplicate));
-        var service = new LetterTemplateAdminService(db, new NoOpAuditService());
+        var service = CreateService(db);
 
         var source = await service.CreateAsync(new CreateLetterTemplateRequest
         {
@@ -116,7 +123,7 @@ public class LetterTemplateAdminServiceTests
     public async Task UpdateDefaultFollowUpTemplateAsync_UpdatesExistingDefaultContent()
     {
         await using var db = LettersTestInfrastructure.CreateDb(nameof(UpdateDefaultFollowUpTemplateAsync_UpdatesExistingDefaultContent));
-        var service = new LetterTemplateAdminService(db, new NoOpAuditService());
+        var service = CreateService(db);
 
         await service.CreateAsync(new CreateLetterTemplateRequest
         {
@@ -134,10 +141,25 @@ public class LetterTemplateAdminServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_RejectsContentExceedingMaxLength()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(CreateAsync_RejectsContentExceedingMaxLength));
+        var service = CreateService(db, new FollowUpLettersOptions { MaxTemplateContentLength = 10 });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateAsync(new CreateLetterTemplateRequest
+            {
+                Name = "طويل",
+                Content = new string('أ', 11),
+                TemplateType = LetterTemplateType.FollowUp,
+            }, actorUserId: 1));
+    }
+
+    [Fact]
     public async Task ReorderAsync_UpdatesSortOrder()
     {
         await using var db = LettersTestInfrastructure.CreateDb(nameof(ReorderAsync_UpdatesSortOrder));
-        var service = new LetterTemplateAdminService(db, new NoOpAuditService());
+        var service = CreateService(db);
 
         var first = await service.CreateAsync(new CreateLetterTemplateRequest
         {

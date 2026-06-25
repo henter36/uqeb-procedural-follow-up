@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace Uqeb.Api.Helpers;
 
 public sealed record FollowUpLetterVariableDefinition(
@@ -47,7 +49,16 @@ public static class FollowUpLetterVariableRegistry
     {
         if (string.IsNullOrWhiteSpace(content)) return [];
 
-        var matches = System.Text.RegularExpressions.Regex.Matches(content, @"\{([A-Za-z0-9_]+)\}");
+        MatchCollection matches;
+        try
+        {
+            matches = FollowUpLetterPlaceholderRegex.MatchAll(content);
+        }
+        catch (RegexMatchTimeoutException ex)
+        {
+            throw new InvalidOperationException("انتهت مهلة التحقق من متغيرات القالب.", ex);
+        }
+
         return matches
             .Select(m => m.Groups[1].Value)
             .Where(name => !KnownNames.Contains(name))

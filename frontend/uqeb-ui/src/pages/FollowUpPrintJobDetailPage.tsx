@@ -55,16 +55,16 @@ export default function FollowUpPrintJobDetailPage() {
 
   useEffect(() => {
     if (!Number.isFinite(jobId)) return undefined;
-    const timer = window.setInterval(() => {
-      void followUpPrintApi.getJob(jobId)
+    const timer = globalThis.setInterval(() => {
+      followUpPrintApi.getJob(jobId)
         .then((res) => setJob(res.data))
         .catch(() => undefined);
     }, 5000);
-    return () => window.clearInterval(timer);
+    return () => globalThis.clearInterval(timer);
   }, [jobId]);
 
   const handleCancel = async () => {
-    if (!window.confirm('هل أنت متأكد من إلغاء مهمة الطباعة؟')) return;
+    if (!globalThis.confirm('هل أنت متأكد من إلغاء مهمة الطباعة؟')) return;
     setActing(true);
     setError('');
     try {
@@ -139,12 +139,12 @@ export default function FollowUpPrintJobDetailPage() {
         {job.failureReason && <Alert variant="error">{job.failureReason}</Alert>}
         <div className="form-actions mt-4">
           {canCancel && (
-            <button type="button" className="btn btn-outline" disabled={acting} onClick={() => { void handleCancel(); }}>
+            <button type="button" className="btn btn-outline" disabled={acting} onClick={() => { handleCancel().catch(() => undefined); }}>
               إلغاء المهمة
             </button>
           )}
           {canRetry && (
-            <button type="button" className="btn btn-secondary" disabled={acting} onClick={() => { void handleRetry(); }}>
+            <button type="button" className="btn btn-secondary" disabled={acting} onClick={() => { handleRetry().catch(() => undefined); }}>
               إعادة المحاولة
             </button>
           )}

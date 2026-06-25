@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using Uqeb.Api.Configuration;
 using Uqeb.Api.Models.Letters;
 
 namespace Uqeb.Api.Helpers;
@@ -25,9 +26,7 @@ public static class FollowUpLetterPrintViewRenderer
 
     private static string RenderDocument(FollowUpLetterDocumentModel document)
     {
-        var logo = string.IsNullOrWhiteSpace(document.LogoPath)
-            ? string.Empty
-            : $"<img class=\"logo\" src=\"{WebUtility.HtmlEncode(document.LogoPath)}\" alt=\"\" />";
+        var logo = $"<img class=\"logo\" src=\"{OrganizationBrandingPaths.LogoApiUrl}\" alt=\"\" />";
 
         var lines = WebUtility.HtmlEncode(document.Body)
             .Replace("\r\n", "\n", StringComparison.Ordinal)

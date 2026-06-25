@@ -22,14 +22,7 @@ public interface IFollowUpLetterRenderService
         CancellationToken cancellationToken = default);
 
     Task<FollowUpLetterDocumentModel?> BuildDocumentAsync(
-        int transactionId,
-        FollowUpLetterTargetEntity target,
-        ICurrentUserService currentUser,
-        int? templateId = null,
-        string? bodyOverride = null,
-        int? followUpSequenceOverride = null,
-        int? responseDeadlineDays = null,
-        CancellationToken cancellationToken = default);
+        FollowUpLetterBuildRequest request);
 
     Task<byte[]?> GeneratePdfAsync(
         int transactionId,
@@ -50,6 +43,10 @@ public interface IFollowUpLetterRenderService
     Task<IReadOnlyList<FollowUpLetterTargetEntity>> ResolveTargetEntitiesAsync(
         int transactionId,
         string? targetEntityHint = null,
+        CancellationToken cancellationToken = default);
+
+    Task<Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>>> ResolveTargetEntitiesBulkAsync(
+        IReadOnlyList<int> transactionIds,
         CancellationToken cancellationToken = default);
 
     Task<bool> CanAccessTransactionAsync(int transactionId, ICurrentUserService currentUser, CancellationToken cancellationToken = default);
@@ -105,14 +102,16 @@ public sealed class FollowUpLetterRenderService : IFollowUpLetterRenderService
             return null;
 
         var selectedTarget = targets[0];
-        var document = await BuildDocumentAsync(
-            transactionId,
-            selectedTarget,
-            currentUser,
-            templateId,
-            optionalEditedContent,
-            responseDeadlineDays: responseDeadlineDays,
-            cancellationToken: cancellationToken);
+        var document = await BuildDocumentAsync(new FollowUpLetterBuildRequest
+        {
+            TransactionId = transactionId,
+            Target = selectedTarget,
+            CurrentUser = currentUser,
+            TemplateId = templateId,
+            BodyOverride = optionalEditedContent,
+            ResponseDeadlineDays = responseDeadlineDays,
+            CancellationToken = cancellationToken,
+        });
 
         if (document == null)
             return null;
@@ -124,45 +123,37 @@ public sealed class FollowUpLetterRenderService : IFollowUpLetterRenderService
         };
     }
 
-    public async Task<FollowUpLetterDocumentModel?> BuildDocumentAsync(
-        int transactionId,
-        FollowUpLetterTargetEntity target,
-        ICurrentUserService currentUser,
-        int? templateId = null,
-        string? bodyOverride = null,
-        int? followUpSequenceOverride = null,
-        int? responseDeadlineDays = null,
-        CancellationToken cancellationToken = default)
+    public async Task<FollowUpLetterDocumentModel?> BuildDocumentAsync(FollowUpLetterBuildRequest request)
     {
-        if (!await CanAccessTransactionAsync(transactionId, currentUser, cancellationToken))
+        if (!await CanAccessTransactionAsync(request.TransactionId, request.CurrentUser, request.CancellationToken))
             return null;
 
-        var bundle = await LoadTransactionBundleAsync(transactionId, cancellationToken);
+        var bundle = await LoadTransactionBundleAsync(request.TransactionId, request.CancellationToken);
         if (bundle == null)
             return null;
 
-        var template = templateId.HasValue
-            ? await _db.LetterTemplates.AsNoTracking().FirstOrDefaultAsync(t => t.Id == templateId.Value, cancellationToken)
-            : await GetDefaultTemplateReadOnlyAsync(cancellationToken);
+        var template = request.TemplateId.HasValue
+            ? await _db.LetterTemplates.AsNoTracking().FirstOrDefaultAsync(t => t.Id == request.TemplateId.Value, request.CancellationToken)
+            : await GetDefaultTemplateReadOnlyAsync(request.CancellationToken);
 
         if (template == null)
             return null;
 
-        var allTargets = await ResolveTargetEntitiesAsync(transactionId, cancellationToken: cancellationToken);
-        var senderDepartment = await ResolveSenderDepartmentAsync(currentUser, cancellationToken);
-        var preparedBy = await ResolvePreparedByAsync(currentUser, cancellationToken);
+        var allTargets = await ResolveTargetEntitiesAsync(request.TransactionId, cancellationToken: request.CancellationToken);
+        var senderDepartment = await ResolveSenderDepartmentAsync(request.CurrentUser, request.CancellationToken);
+        var preparedBy = await ResolvePreparedByAsync(request.CurrentUser, request.CancellationToken);
 
         return _documentBuilder.Build(new FollowUpLetterDocumentBuildRequest
         {
             Transaction = bundle.Transaction,
             Template = template,
-            Target = target,
+            Target = request.Target,
             Assignments = bundle.Assignments,
             FollowUps = bundle.FollowUps,
             AllTargets = allTargets,
-            BodyOverride = bodyOverride,
-            FollowUpSequenceOverride = followUpSequenceOverride,
-            ResponseDeadlineDays = responseDeadlineDays,
+            BodyOverride = request.BodyOverride,
+            FollowUpSequenceOverride = request.FollowUpSequenceOverride,
+            ResponseDeadlineDays = request.ResponseDeadlineDays,
             PreparedBy = preparedBy,
             SenderDepartment = senderDepartment,
             LogoPath = _branding.LogoPath,
@@ -182,13 +173,15 @@ public sealed class FollowUpLetterRenderService : IFollowUpLetterRenderService
         if (targets.Count == 0)
             return null;
 
-        var document = await BuildDocumentAsync(
-            transactionId,
-            targets[0],
-            currentUser,
-            templateId,
-            optionalEditedContent,
-            cancellationToken: cancellationToken);
+        var document = await BuildDocumentAsync(new FollowUpLetterBuildRequest
+        {
+            TransactionId = transactionId,
+            Target = targets[0],
+            CurrentUser = currentUser,
+            TemplateId = templateId,
+            BodyOverride = optionalEditedContent,
+            CancellationToken = cancellationToken,
+        });
 
         return document == null ? null : _pdfExporter.GeneratePdf(document);
     }
@@ -205,13 +198,15 @@ public sealed class FollowUpLetterRenderService : IFollowUpLetterRenderService
         if (targets.Count == 0)
             return null;
 
-        var document = await BuildDocumentAsync(
-            transactionId,
-            targets[0],
-            currentUser,
-            templateId,
-            optionalEditedContent,
-            cancellationToken: cancellationToken);
+        var document = await BuildDocumentAsync(new FollowUpLetterBuildRequest
+        {
+            TransactionId = transactionId,
+            Target = targets[0],
+            CurrentUser = currentUser,
+            TemplateId = templateId,
+            BodyOverride = optionalEditedContent,
+            CancellationToken = cancellationToken,
+        });
 
         return document == null ? null : FollowUpLetterPrintViewRenderer.Render([document]);
     }
@@ -269,6 +264,100 @@ public sealed class FollowUpLetterRenderService : IFollowUpLetterRenderService
         return string.IsNullOrWhiteSpace(fallbackName)
             ? []
             : [new FollowUpLetterTargetEntity(fallbackName)];
+    }
+
+    public async Task<Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>>> ResolveTargetEntitiesBulkAsync(
+        IReadOnlyList<int> transactionIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (transactionIds.Count == 0)
+            return [];
+
+        var distinctIds = transactionIds.Distinct().ToList();
+        var result = new Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>>();
+
+        var outgoingDepartments = await _db.TransactionOutgoingDepartments.AsNoTracking()
+            .Where(x => distinctIds.Contains(x.TransactionId))
+            .OrderBy(x => x.TransactionId)
+            .ThenBy(x => x.Id)
+            .Select(x => new
+            {
+                x.TransactionId,
+                Target = new FollowUpLetterTargetEntity(x.Department.Name, x.DepartmentId, null),
+            })
+            .ToListAsync(cancellationToken);
+
+        foreach (var group in outgoingDepartments.GroupBy(x => x.TransactionId))
+            result[group.Key] = group.Select(x => x.Target).ToList();
+
+        var remainingIds = distinctIds.Where(id => !result.ContainsKey(id)).ToList();
+        if (remainingIds.Count > 0)
+        {
+            var outgoingParties = await _db.TransactionOutgoingParties.AsNoTracking()
+                .Where(x => remainingIds.Contains(x.TransactionId))
+                .OrderBy(x => x.TransactionId)
+                .ThenBy(x => x.Id)
+                .Select(x => new
+                {
+                    x.TransactionId,
+                    Target = new FollowUpLetterTargetEntity(x.ExternalParty.Name, null, x.ExternalPartyId),
+                })
+                .ToListAsync(cancellationToken);
+
+            foreach (var group in outgoingParties.GroupBy(x => x.TransactionId))
+                result[group.Key] = group.Select(x => x.Target).ToList();
+
+            remainingIds = remainingIds.Where(id => !result.ContainsKey(id)).ToList();
+        }
+
+        if (remainingIds.Count > 0)
+        {
+            var assignmentDepartments = await _db.Assignments.AsNoTracking()
+                .Where(a => remainingIds.Contains(a.TransactionId) && a.Status == AssignmentStatus.Active)
+                .OrderBy(a => a.TransactionId)
+                .ThenBy(a => a.CreatedAt)
+                .Select(a => new
+                {
+                    a.TransactionId,
+                    Target = new FollowUpLetterTargetEntity(a.Department.Name, a.DepartmentId, null),
+                })
+                .ToListAsync(cancellationToken);
+
+            foreach (var group in assignmentDepartments.GroupBy(x => x.TransactionId))
+                result[group.Key] = group.Select(x => x.Target).ToList();
+
+            remainingIds = remainingIds.Where(id => !result.ContainsKey(id)).ToList();
+        }
+
+        if (remainingIds.Count > 0)
+        {
+            var fallbackTransactions = await _db.Transactions.AsNoTracking()
+                .Include(t => t.IncomingFromParty)
+                .Include(t => t.IncomingFromDepartment)
+                .Where(t => remainingIds.Contains(t.Id))
+                .ToListAsync(cancellationToken);
+
+            foreach (var transaction in fallbackTransactions)
+            {
+                var fallbackName = transaction.IncomingSourceType switch
+                {
+                    IncomingSourceType.Internal => transaction.IncomingFromDepartment?.Name ?? transaction.IncomingFrom ?? string.Empty,
+                    IncomingSourceType.External => transaction.IncomingFromParty?.Name ?? transaction.IncomingFrom ?? string.Empty,
+                    _ => transaction.IncomingFrom ?? string.Empty,
+                };
+
+                if (!string.IsNullOrWhiteSpace(fallbackName))
+                    result[transaction.Id] = [new FollowUpLetterTargetEntity(fallbackName)];
+            }
+        }
+
+        foreach (var transactionId in distinctIds)
+        {
+            if (!result.ContainsKey(transactionId))
+                result[transactionId] = [];
+        }
+
+        return result;
     }
 
     public Task<bool> CanAccessTransactionAsync(

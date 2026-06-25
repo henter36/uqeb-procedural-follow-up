@@ -33,4 +33,6 @@ public enum AuditAction
     FollowUpLetterReprinted = 29,
     FollowUpLetterPrintCancelled = 30,
     FollowUpPrintLinkedToRegisteredFollowUp = 31,
+    FollowUpPrintJobLeaseRecovered = 32,
+    FollowUpPrintJobRetryRequested = 33,
 }

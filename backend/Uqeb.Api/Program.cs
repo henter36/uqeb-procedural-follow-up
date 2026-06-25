@@ -107,6 +107,7 @@ builder.Services.AddScoped<IExternalPartyService, ExternalPartyService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddScoped<ILetterTemplateService, LetterTemplateService>();
 builder.Services.AddScoped<ILetterTemplateAdminService, LetterTemplateAdminService>();
+builder.Services.AddSingleton<IOrganizationBrandLogoProvider, OrganizationBrandLogoProvider>();
 builder.Services.AddScoped<IFollowUpLetterTimeZone, FollowUpLetterTimeZone>();
 builder.Services.AddScoped<IFollowUpLetterDocumentBuilder, FollowUpLetterDocumentBuilder>();
 builder.Services.AddScoped<IFollowUpLetterRenderService, FollowUpLetterRenderService>();

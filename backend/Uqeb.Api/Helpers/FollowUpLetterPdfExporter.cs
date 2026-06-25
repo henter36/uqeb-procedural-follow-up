@@ -1,11 +1,8 @@
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
-using Uqeb.Api.Configuration;
 using Uqeb.Api.Models.Letters;
+using Uqeb.Api.Services;
 
 namespace Uqeb.Api.Helpers;
 
@@ -17,29 +14,22 @@ public interface IFollowUpLetterPdfExporter
 public sealed class FollowUpLetterPdfExporter : IFollowUpLetterPdfExporter
 {
     private const string FontFamily = "Tahoma";
-    private readonly OrganizationBrandingOptions _branding;
-    private readonly IWebHostEnvironment _environment;
-    private readonly ILogger<FollowUpLetterPdfExporter> _logger;
+    private readonly IOrganizationBrandLogoProvider _logoProvider;
 
     static FollowUpLetterPdfExporter()
     {
         QuestPDF.Settings.License = LicenseType.Community;
     }
 
-    public FollowUpLetterPdfExporter(
-        IOptions<OrganizationBrandingOptions> branding,
-        IWebHostEnvironment environment,
-        ILogger<FollowUpLetterPdfExporter> logger)
+    public FollowUpLetterPdfExporter(IOrganizationBrandLogoProvider logoProvider)
     {
-        _branding = branding.Value;
-        _environment = environment;
-        _logger = logger;
+        _logoProvider = logoProvider;
     }
 
     public byte[] GeneratePdf(FollowUpLetterDocumentModel document)
     {
-        var logoBytes = TryLoadLogoBytes(document.LogoPath);
-        var lines = document.Body.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        var logoBytes = ResolveLogoBytes(document.LogoPath);
+        var bodyLines = SplitBodyLines(document.Body);
 
         return Document.Create(doc =>
         {
@@ -49,63 +39,9 @@ public sealed class FollowUpLetterPdfExporter : IFollowUpLetterPdfExporter
                 page.Margin(40);
                 page.ContentFromRightToLeft();
                 page.DefaultTextStyle(x => x.FontFamily(FontFamily).FontSize(12));
-
-                page.Header().Column(header =>
-                {
-                    header.Spacing(6);
-                    header.Item().Row(row =>
-                    {
-                        row.RelativeItem().Column(col =>
-                        {
-                            col.Item().AlignRight().Text(document.Title).FontSize(18).Bold();
-                            col.Item().AlignRight().Text($"التاريخ: {document.GregorianDate}").FontSize(10);
-                            col.Item().AlignRight().Text($"التاريخ الهجري: {document.HijriDate}").FontSize(10);
-                            col.Item().AlignRight().Text($"رقم الخطاب: {document.LetterNumber}").FontSize(10);
-                        });
-
-                        if (logoBytes != null)
-                        {
-                            row.ConstantItem(120).AlignLeft().Image(logoBytes).FitArea();
-                        }
-                    });
-
-                    header.Item().PaddingTop(8).AlignRight().Text($"إلى: {document.Recipient}").SemiBold();
-                    header.Item().AlignRight().Text($"الموضوع: {document.Subject}").SemiBold();
-                    header.Item().AlignRight().Text(document.FollowUpSequenceText).FontSize(10);
-                    header.Item().PaddingTop(8);
-                });
-
-                page.Content().Column(col =>
-                {
-                    col.Spacing(4);
-                    foreach (var line in lines)
-                    {
-                        if (string.IsNullOrWhiteSpace(line))
-                            col.Item().Height(8);
-                        else
-                            col.Item().AlignRight().Text(line);
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(document.SenderDepartment))
-                    {
-                        col.Item().PaddingTop(24).AlignRight().Text(document.SenderDepartment);
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(document.Footer))
-                    {
-                        col.Item().AlignRight().Text(document.Footer).FontSize(10);
-                    }
-
-                    col.Item().PaddingTop(48).Height(72).Border(1).BorderColor(Colors.Grey.Lighten2);
-                });
-
-                page.Footer().AlignCenter().Text(text =>
-                {
-                    text.Span("صفحة ");
-                    text.CurrentPageNumber();
-                    text.Span(" / ");
-                    text.TotalPages();
-                });
+                page.Header().Element(header => RenderHeader(header, document, logoBytes));
+                page.Content().Element(content => RenderBody(content, document, bodyLines));
+                page.Footer().Element(RenderFooter);
             });
         }).GeneratePdf();
     }
@@ -119,6 +55,8 @@ public sealed class FollowUpLetterPdfExporter : IFollowUpLetterPdfExporter
             HijriDate = HijriDateFormatter.Format(today) ?? string.Empty,
             Title = "خطاب تعقيب",
         };
+
+        var bodyLines = SplitBodyLines(body);
 
         return Document.Create(doc =>
         {
@@ -134,48 +72,80 @@ public sealed class FollowUpLetterPdfExporter : IFollowUpLetterPdfExporter
                     col.Item().AlignRight().Text(document.Title).FontSize(18).Bold();
                     col.Item().AlignRight().Text($"التاريخ: {document.GregorianDate}").FontSize(10);
                     col.Item().PaddingTop(16);
-                    foreach (var line in body.Replace("\r\n", "\n").Split('\n'))
-                    {
-                        if (string.IsNullOrWhiteSpace(line))
-                            col.Item().Height(8);
-                        else
-                            col.Item().AlignRight().Text(line);
-                    }
+                    RenderBodyLines(col, bodyLines);
                 });
             });
         }).GeneratePdf();
     }
 
-    private byte[]? TryLoadLogoBytes(string? explicitLogoPath)
+    private byte[]? ResolveLogoBytes(string? explicitLogoPath) =>
+        _logoProvider.TryGetLogoBytes(explicitLogoPath);
+
+    private static string[] SplitBodyLines(string body) =>
+        body.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+
+    private static void RenderHeader(IContainer container, FollowUpLetterDocumentModel document, byte[]? logoBytes)
     {
-        var candidates = new List<string>();
-        if (!string.IsNullOrWhiteSpace(explicitLogoPath))
-            candidates.Add(explicitLogoPath);
-        if (!string.IsNullOrWhiteSpace(_branding.LogoPath))
-            candidates.Add(_branding.LogoPath);
-
-        foreach (var candidate in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
+        container.Column(header =>
         {
-            var path = Path.IsPathRooted(candidate)
-                ? candidate
-                : Path.Combine(_environment.ContentRootPath, candidate.Replace('/', Path.DirectorySeparatorChar));
-
-            if (!File.Exists(path))
-                continue;
-
-            try
+            header.Spacing(6);
+            header.Item().Row(row =>
             {
-                return File.ReadAllBytes(path);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "تعذر تحميل شعار المؤسسة من {LogoPath}", path);
-            }
+                row.RelativeItem().Column(col =>
+                {
+                    col.Item().AlignRight().Text(document.Title).FontSize(18).Bold();
+                    col.Item().AlignRight().Text($"التاريخ: {document.GregorianDate}").FontSize(10);
+                    col.Item().AlignRight().Text($"التاريخ الهجري: {document.HijriDate}").FontSize(10);
+                    col.Item().AlignRight().Text($"رقم الخطاب: {document.LetterNumber}").FontSize(10);
+                });
+
+                if (logoBytes != null)
+                    row.ConstantItem(120).AlignLeft().Image(logoBytes).FitArea();
+            });
+
+            header.Item().PaddingTop(8).AlignRight().Text($"إلى: {document.Recipient}").SemiBold();
+            header.Item().AlignRight().Text($"الموضوع: {document.Subject}").SemiBold();
+            header.Item().AlignRight().Text(document.FollowUpSequenceText).FontSize(10);
+            header.Item().PaddingTop(8);
+        });
+    }
+
+    private static void RenderBody(IContainer container, FollowUpLetterDocumentModel document, string[] bodyLines)
+    {
+        container.Column(col =>
+        {
+            col.Spacing(4);
+            RenderBodyLines(col, bodyLines);
+
+            if (!string.IsNullOrWhiteSpace(document.SenderDepartment))
+                col.Item().PaddingTop(24).AlignRight().Text(document.SenderDepartment);
+
+            if (!string.IsNullOrWhiteSpace(document.Footer))
+                col.Item().AlignRight().Text(document.Footer).FontSize(10);
+
+            col.Item().PaddingTop(48).Height(72).Border(1).BorderColor(Colors.Grey.Lighten2);
+        });
+    }
+
+    private static void RenderBodyLines(ColumnDescriptor col, string[] bodyLines)
+    {
+        foreach (var line in bodyLines)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+                col.Item().Height(8);
+            else
+                col.Item().AlignRight().Text(line);
         }
+    }
 
-        if (candidates.Count > 0)
-            _logger.LogWarning("لم يتم العثور على شعار المؤسسة في المسارات المحددة.");
-
-        return null;
+    private static void RenderFooter(IContainer container)
+    {
+        container.AlignCenter().Text(text =>
+        {
+            text.Span("صفحة ");
+            text.CurrentPageNumber();
+            text.Span(" / ");
+            text.TotalPages();
+        });
     }
 }

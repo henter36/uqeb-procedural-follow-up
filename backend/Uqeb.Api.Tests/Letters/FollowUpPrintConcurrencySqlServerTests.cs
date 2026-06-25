@@ -2,23 +2,20 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Uqeb.Api.Data;
-using Uqeb.Api.DTOs.FollowUpPrint;
-using Uqeb.Api.Exceptions;
 using Uqeb.Api.HostedServices;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Models.Letters;
-using Uqeb.Api.Services;
 using Xunit;
 
 namespace Uqeb.Api.Tests.Letters;
 
-public class FollowUpPrintJobResumeSqlServerTests : FollowUpPrintSqlServerTestBase
+public class FollowUpPrintConcurrencySqlServerTests : FollowUpPrintSqlServerTestBase
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     [Fact]
-    public async Task ProcessorResume_DoesNotDuplicatePayloadAssignments()
+    public async Task TwoWorkersClaimSameJob_DoNotCreateDuplicateParts()
     {
         if (!ShouldRunSqlServerTest())
             return;
@@ -31,24 +28,13 @@ public class FollowUpPrintJobResumeSqlServerTests : FollowUpPrintSqlServerTestBa
 
             var user = new User
             {
-                Username = $"print-user-{Guid.NewGuid():N}",
+                Username = $"worker-user-{Guid.NewGuid():N}",
                 PasswordHash = "hash",
-                FullName = "Print User",
+                FullName = "Worker",
                 Role = UserRole.Admin,
                 IsActive = true,
             };
             db.Users.Add(user);
-
-            var template = new LetterTemplate
-            {
-                Code = $"follow_up_{Guid.NewGuid():N}",
-                Name = "Follow Up",
-                TemplateType = LetterTemplateType.FollowUp,
-                Content = FollowUpLetterRenderService.DefaultFollowUpContent,
-                IsActive = true,
-                IsDefault = true,
-            };
-            db.LetterTemplates.Add(template);
             await db.SaveChangesAsync();
 
             var job = new FollowUpPrintJob
@@ -56,49 +42,50 @@ public class FollowUpPrintJobResumeSqlServerTests : FollowUpPrintSqlServerTestBa
                 RequestedById = user.Id,
                 Status = FollowUpPrintJobStatus.Queued,
                 FilterSnapshotJson = "{}",
-                TemplateId = template.Id,
-                BatchSize = 2,
-                TotalTransactions = 3,
-                TotalLetters = 3,
+                TemplateId = 1,
+                BatchSize = 5,
+                TotalTransactions = 4,
+                TotalLetters = 4,
                 CreatedAt = DateTime.UtcNow,
             };
             db.FollowUpPrintJobs.Add(job);
             await db.SaveChangesAsync();
 
-            for (var i = 1; i <= 3; i++)
+            for (var i = 1; i <= 4; i++)
             {
-                var snapshot = JsonSerializer.Serialize(
-                    new FollowUpLetterDocumentModel { TransactionId = i, Recipient = "جهة", Body = "test" },
-                    JsonOptions);
-
                 db.FollowUpPrintJobPayloads.Add(new FollowUpPrintJobPayload
                 {
                     JobId = job.Id,
                     PayloadOrdinal = i,
                     TransactionId = i,
                     TargetDepartmentId = 1,
-                    TargetEntityId = i,
                     TargetEntityName = $"جهة {i}",
                     FollowUpSequence = 1,
-                    SnapshotJson = snapshot,
+                    SnapshotJson = JsonSerializer.Serialize(
+                        new FollowUpLetterDocumentModel { TransactionId = i, Recipient = "جهة", Body = "test" },
+                        JsonOptions),
                     Status = FollowUpPrintJobPayloadStatus.Pending,
                 });
             }
 
             await db.SaveChangesAsync();
 
-            var processor = scope.ServiceProvider.GetRequiredService<FollowUpPrintJobProcessorHostedService>();
-            await processor.ProcessOnceAsync(CancellationToken.None);
-            await processor.ProcessOnceAsync(CancellationToken.None);
+            var workerTasks = Enumerable.Range(0, 2)
+                .Select(_ => Task.Run(async () =>
+                {
+                    await using var workerScope = context.Provider.CreateAsyncScope();
+                    var processor = workerScope.ServiceProvider.GetRequiredService<FollowUpPrintJobProcessorHostedService>();
+                    await processor.ProcessOnceAsync(CancellationToken.None);
+                }))
+                .ToArray();
 
-            var assignedCount = await db.FollowUpPrintJobPayloads.CountAsync(p => p.JobId == job.Id && p.PartId != null);
+            await Task.WhenAll(workerTasks);
+
             var partCount = await db.FollowUpPrintJobParts.CountAsync(p => p.JobId == job.Id);
+            var assignedPayloads = await db.FollowUpPrintJobPayloads.CountAsync(p => p.JobId == job.Id && p.PartId != null);
 
-            Assert.Equal(3, assignedCount);
-            Assert.Equal(2, partCount);
-            Assert.All(
-                await db.FollowUpPrintJobPayloads.Where(p => p.JobId == job.Id).ToListAsync(),
-                p => Assert.NotNull(p.PartId));
+            Assert.Equal(1, partCount);
+            Assert.Equal(4, assignedPayloads);
         }
         finally
         {

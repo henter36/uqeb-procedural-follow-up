@@ -5,6 +5,7 @@ import type {
   Category, Department, EligibleTransaction, FollowUpPrintEligibilityPreview, LetterTemplate,
 } from '../api/types';
 import { getApiErrorMessage } from '../utils/apiHelpers';
+import { createIdempotencyKey } from '../utils/createIdempotencyKey';
 import DateDisplay from '../components/DateDisplay';
 import {
   Alert, EmptyState, LoadingInline, PageHeader, Pagination,
@@ -107,6 +108,55 @@ export default function FollowUpPrintEligiblePage() {
     setFilters((prev) => ({ ...prev, page: 1 }));
   };
 
+  const renderTransactionsContent = () => {
+    if (loading) {
+      return <LoadingInline label="جاري تحميل المعاملات..." />;
+    }
+    if (items.length === 0) {
+      return <EmptyState title="لا توجد معاملات مستحقة" description="جرّب تعديل معايير البحث." />;
+    }
+    return (
+      <>
+        <div className="table-wrapper table-wrapper-spaced">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>رقم الوارد</th>
+                <th>الموضوع</th>
+                <th>تاريخ الوارد</th>
+                <th>أيام منذ المرجع</th>
+                <th>ترتيب التعقيب</th>
+                <th>الجهة</th>
+                <th>عرض</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.transactionId}>
+                  <td>{item.incomingNumber}</td>
+                  <td>{item.subject}</td>
+                  <td><DateDisplay date={item.incomingDate} /></td>
+                  <td>{item.daysSinceReference}</td>
+                  <td>{item.expectedFollowUpSequence}</td>
+                  <td>{item.primaryTargetEntity ?? '—'}</td>
+                  <td><Link to={`/transactions/${item.transactionId}`} className="btn btn-sm btn-outline">عرض</Link></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <Pagination
+          page={filters.page}
+          pageSize={filters.pageSize}
+          total={totalCount}
+          itemCount={items.length}
+          onPageChange={(page) => setFilters((prev) => ({ ...prev, page }))}
+          onPageSizeChange={(pageSize) => setFilters((prev) => ({ ...prev, pageSize, page: 1 }))}
+        />
+      </>
+    );
+  };
+
   const handleCreateJob = async () => {
     if (!preview || preview.eligibleTransactionCount === 0) {
       setError('لا توجد معاملات مستحقة للطباعة ضمن الفلاتر الحالية.');
@@ -120,7 +170,7 @@ export default function FollowUpPrintEligiblePage() {
         filter: buildFilter(),
         templateId: templateId ? Number(templateId) : undefined,
         responseDeadlineDays: responseDeadlineDays ? Number(responseDeadlineDays) : undefined,
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: createIdempotencyKey(),
       });
       setMessage(`تم إنشاء مهمة الطباعة رقم ${res.data.id}.`);
     } catch (err: unknown) {
@@ -239,7 +289,12 @@ export default function FollowUpPrintEligiblePage() {
             </div>
           </div>
           <div className="form-actions">
-            <button type="button" className="btn btn-primary" disabled={creating || preview.eligibleTransactionCount === 0} onClick={() => { void handleCreateJob(); }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={creating || preview.eligibleTransactionCount === 0}
+              onClick={() => { handleCreateJob().catch(() => undefined); }}
+            >
               {creating ? 'جاري الإنشاء...' : 'إنشاء مهمة طباعة'}
             </button>
           </div>
@@ -247,50 +302,7 @@ export default function FollowUpPrintEligiblePage() {
       )}
 
       <div className="card mt-4">
-        {loading ? (
-          <LoadingInline label="جاري تحميل المعاملات..." />
-        ) : items.length === 0 ? (
-          <EmptyState title="لا توجد معاملات مستحقة" description="جرّب تعديل معايير البحث." />
-        ) : (
-          <>
-            <div className="table-wrapper table-wrapper-spaced">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>رقم الوارد</th>
-                    <th>الموضوع</th>
-                    <th>تاريخ الوارد</th>
-                    <th>أيام منذ المرجع</th>
-                    <th>ترتيب التعقيب</th>
-                    <th>الجهة</th>
-                    <th>عرض</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((item) => (
-                    <tr key={item.transactionId}>
-                      <td>{item.incomingNumber}</td>
-                      <td>{item.subject}</td>
-                      <td><DateDisplay date={item.incomingDate} /></td>
-                      <td>{item.daysSinceReference}</td>
-                      <td>{item.expectedFollowUpSequence}</td>
-                      <td>{item.primaryTargetEntity ?? '—'}</td>
-                      <td><Link to={`/transactions/${item.transactionId}`} className="btn btn-sm btn-outline">عرض</Link></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <Pagination
-              page={filters.page}
-              pageSize={filters.pageSize}
-              total={totalCount}
-              itemCount={items.length}
-              onPageChange={(page) => setFilters((prev) => ({ ...prev, page }))}
-              onPageSizeChange={(pageSize) => setFilters((prev) => ({ ...prev, pageSize, page: 1 }))}
-            />
-          </>
-        )}
+        {renderTransactionsContent()}
       </div>
     </div>
   );

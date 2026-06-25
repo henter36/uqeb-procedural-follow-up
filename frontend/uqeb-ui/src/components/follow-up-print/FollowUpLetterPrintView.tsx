@@ -14,17 +14,17 @@ export default function FollowUpLetterPrintView({
   onPrint,
 }: FollowUpLetterPrintViewProps) {
   const handlePrint = useCallback(() => {
-    window.print();
+    globalThis.print();
     onPrint?.();
   }, [onPrint]);
 
   useEffect(() => {
     if (!autoPrint) return undefined;
-    const timer = window.setTimeout(() => {
-      window.print();
+    const timer = globalThis.setTimeout(() => {
+      globalThis.print();
       onPrint?.();
     }, 400);
-    return () => window.clearTimeout(timer);
+    return () => globalThis.clearTimeout(timer);
   }, [autoPrint, html, onPrint]);
 
   return (

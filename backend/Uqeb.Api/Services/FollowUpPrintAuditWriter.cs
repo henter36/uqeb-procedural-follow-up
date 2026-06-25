@@ -10,6 +10,8 @@ public static class FollowUpPrintAuditEvents
     public const string JobCompleted = "follow_up_print.job_completed";
     public const string JobFailed = "follow_up_print.job_failed";
     public const string JobCancelled = "follow_up_print.job_cancelled";
+    public const string JobLeaseRecovered = "follow_up_print.job_lease_recovered";
+    public const string JobRetryRequested = "follow_up_print.job_retry_requested";
     public const string PartPrintRequested = "follow_up_print.part_print_requested";
     public const string PrintConfirmed = "follow_up_print.print_confirmed";
     public const string PrintCancelled = "follow_up_print.print_cancelled";
@@ -41,6 +43,12 @@ public static class FollowUpPrintAuditWriter
 
     public static Task LogJobCancelledAsync(IAuditService audit, int userId, int jobId, string? detail = null) =>
         audit.LogAsync(userId, AuditAction.FollowUpPrintJobCancelled, JobResourceType, jobId, null, null, Format(JobResourceType, jobId, FollowUpPrintAuditEvents.JobCancelled, detail));
+
+    public static Task LogJobLeaseRecoveredAsync(IAuditService audit, int userId, int jobId, string? detail = null) =>
+        audit.LogAsync(userId, AuditAction.FollowUpPrintJobLeaseRecovered, JobResourceType, jobId, null, null, Format(JobResourceType, jobId, FollowUpPrintAuditEvents.JobLeaseRecovered, detail));
+
+    public static Task LogJobRetryRequestedAsync(IAuditService audit, int userId, int jobId, string? detail = null) =>
+        audit.LogAsync(userId, AuditAction.FollowUpPrintJobRetryRequested, JobResourceType, jobId, null, null, Format(JobResourceType, jobId, FollowUpPrintAuditEvents.JobRetryRequested, detail));
 
     public static Task LogPartPrintRequestedAsync(IAuditService audit, int userId, int partId, int jobId, string? detail = null) =>
         audit.LogAsync(userId, AuditAction.FollowUpLetterPrintRequested, PartResourceType, partId, null, null, Format(PartResourceType, partId, FollowUpPrintAuditEvents.PartPrintRequested, detail, jobId));
