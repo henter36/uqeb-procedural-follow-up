@@ -106,11 +106,19 @@ $staging = "C:\Uqeb\staging\<TIMESTAMP>"
 |--------|--------|--------|
 | 1 | التطوير | `.\scripts\build-production-package.ps1` |
 | 2 | — | انقل `Uqeb-*.zip` و`Uqeb-*.sha256.txt` إلى `C:\Uqeb\incoming` |
-| 3 | الإنتاج | `C:\UqebTools\install-production-package.ps1 -PackagePath ... -ApplyDatabaseMigration` عند اعتماد migration |
+| 3 | الإنتاج | `C:\UqebTools\install-production-package.ps1 -PackagePath ...` |
 
 إعداد أولي لمرة واحدة على الإنتاج: `.\scripts\setup-production-tools.ps1`
 
 > **لا يمكن تنفيذ نشر إنتاج أو migrations دون نسخة قاعدة بيانات مكتملة ومتحقق منها. لا يوجد خيار تجاوز لهذه الخطوة.**
+
+الأمر الرسمي:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File "C:\UqebTools\install-production-package.ps1" `
+  -PackagePath $package.FullName
+```
 
 #### نسخة قاعدة البيانات الإلزامية
 
@@ -119,9 +127,9 @@ $staging = "C:\Uqeb\staging\<TIMESTAMP>"
 1. `BACKUP DATABASE ... WITH CHECKSUM` إلى `C:\Uqeb\backup\db\<Database>-before-<timestamp>.bak`
 2. `RESTORE VERIFYONLY ... WITH CHECKSUM`
 3. التحقق من الحجم وSHA256 واسم القاعدة
-4. عند عدم تمرير `-ApplyDatabaseMigration`: التحقق أن migration المطلوبة مطبقة مسبقًا، وإيقاف النشر إن لم تكن مطبقة
+4. قراءة `manifest.minimumDatabaseMigration` والتحقق من `__EFMigrationsHistory`
 5. إيقاف API والتأكد من تحرير المنفذ
-6. عند وجود التفويض الصريح: تطبيق `database\migrations-idempotent.sql` والتحقق من آخر migration
+6. إذا كانت migration مفقودة: تطبيق `database\migrations-idempotent.sql` تلقائيًا والتحقق منها مجددًا؛ وإذا كانت مطبقة يتجاوز التنفيذ بأمان
 7. ترقية الملفات، ثم كتابة بيانات النسخة في تقرير النشر و`release-manifest.json`
 
 عند فشل النسخة الاحتياطية أو التحقق القبلي: يتوقف النشر دون إيقاف API أو استبدال ملفات. عند فشل مرحلة لاحقة: يُعرض أمر `RESTORE DATABASE` اليدوي دون استعادة تلقائية.
@@ -156,7 +164,7 @@ scripts/deploy-production.ps1
 | الاعتماد على `sqlcmd` | `apply-migrations.ps1` يستخدم `System.Data.SqlClient` |
 | نسخ `appsettings` من التطوير | الإعداد في `C:\Uqeb\config` فقط |
 | `localhost` في بناء الواجهة للشبكة | البناء يستخدم `10.0.177.17:5000/api` |
-| إعلان النجاح لمجرد بدء المهمة | انتظر المنفذ + login probe `401` + السجل |
+| إعلان النجاح لمجرد بدء المهمة | انتظر المنفذ + `/health/live` + `/health/ready` + `/health` + السجل |
 | فحص الشبكة فقط دون migrations | تحقق من migration المطلوبة وسجل التشغيل |
 | `robocopy /MIR` على API | استخدم النسخ بدون `/MIR` |
 | طباعة كلمات المرور أو JWT | السكربتات تعرض Server/Database فقط |
@@ -392,30 +400,14 @@ Get-Content "C:\Uqeb\logs\api-runtime.log" -Tail 150
 على خادم API:
 
 ```powershell
-$body = @{
-    username = "__deployment_probe__"
-    password = "__deployment_probe__"
-} | ConvertTo-Json
-
-try {
-    Invoke-WebRequest `
-        -UseBasicParsing `
-        -Uri "http://localhost:5000/api/auth/login" `
-        -Method Post `
-        -ContentType "application/json" `
-        -Body $body
-    throw "طلب الدخول الوهمي أعاد نجاحًا غير متوقع."
-}
-catch {
-    if (!$_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 401) {
-        throw
-    }
-}
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File "C:\UqebTools\verify-deployment-health.ps1" `
+  -ApiBaseUrl "http://10.0.177.17:5000"
 ```
 
-المطلوب: اتصال ناجح بالـAPI واستجابة `401`. لا تعتمد بوابة النشر الحالية على `/health`.
+المطلوب: نجاح `/health/live` و`/health/ready` و`/health`، ونجاح `database` و`playwrightChromium` و`reportNumberSequence` و`institutionalReporting`. ينفذ السكربت أيضًا invalid-login probe ببيانات وهمية ويتوقع `401`.
 
-> نجاح login probe لا يثبت أن جميع الأعمدة المطلوبة موجودة؛ يجب أيضًا تنفيذ تسجيل دخول فعلي وفتح شاشة تعتمد على العلاقات والبيانات المرجعية.
+> login probe اختبار إضافي ولا يستبدل health contract. بعد نجاح البوابة نفّذ تسجيل دخول فعلي وافتح شاشة تعتمد على العلاقات والبيانات المرجعية.
 
 ---
 
@@ -541,7 +533,9 @@ Get-Content "C:\Uqeb\logs\api-runtime.log" -Tail 300 |
 
 - [ ] `UqebApi` تعمل.
 - [ ] المنفذ `5000` في حالة Listen.
-- [ ] طلب الدخول الوهمي يعيد `401`.
+- [ ] `/health/live` و`/health/ready` و`/health` تنجح.
+- [ ] `/health` يعيد `database=pass` وبقية checks ناجحة.
+- [ ] طلب الدخول الوهمي الإضافي يعيد `401`.
 - [ ] تسجيل الدخول الصحيح يعيد 200.
 - [ ] تسجيل الدخول الخاطئ يعيد 401، وليس 500.
 - [ ] فتح الواجهة من جهاز على الشبكة.

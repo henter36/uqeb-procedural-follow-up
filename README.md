@@ -189,10 +189,10 @@ Frontend:
 # جهاز التطوير (يتطلب الإنترنت لتنزيل Chromium المتوافق مع Microsoft.Playwright)
 .\scripts\build-production-package.ps1
 
-# جهاز الإنتاج (بعد نقل ZIP + SHA256 إلى C:\Uqeb\incoming — offline)
-C:\UqebTools\install-production-package.ps1 `
-  -PackagePath C:\Uqeb\incoming\Uqeb-<version>.zip `
-  -ApplyDatabaseMigration
+# جهاز الإنتاج (بعد اختيار $package ونقل ZIP + SHA256 إلى C:\Uqeb\incoming — offline)
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File "C:\UqebTools\install-production-package.ps1" `
+  -PackagePath $package.FullName
 ```
 
 الحزمة الرسمية تتضمن `browsers\` (Chromium) و`api\playwright.ps1`. على الإنتاج:
@@ -201,13 +201,13 @@ C:\UqebTools\install-production-package.ps1 `
 - `PLAYWRIGHT_BROWSERS_PATH` يُضبط عبر `C:\Uqeb\run-api.cmd` الذي تستدعيه مهمة `UqebApi`
 - لا تشغّل `playwright install` يدويًا على الإنتاج عند استخدام الحزمة الرسمية
 - PDF يتطلب Chromium؛ HTML وXLSX وDOCX لا تعتمد عليه
-- التحقق التشغيلي المعتمد: طلب دخول وهمي إلى `/api/auth/login` يعيد `401`، ثم تسجيل دخول فعلي من جهاز الإنتاج وجهاز عميل.
+- التحقق التشغيلي المعتمد: `/health/live` ثم `/health/ready` ثم `/health` مع `database=pass` وبقية checks، ثم طلب دخول وهمي اختياري يعيد `401`.
 
 إعداد أولي: `.\scripts\setup-production-tools.ps1` على جهاز الإنتاج.
 
-> **لا يمكن تنفيذ نشر إنتاج أو migrations دون نسخة قاعدة بيانات مكتملة ومتحقق منها. لا يوجد خيار تجاوز لهذه الخطوة.** النسخ الاحتياطي إلزامي دائمًا، أما migrations فتتطلب تفويضًا صريحًا بالمعامل `-ApplyDatabaseMigration`.
+> **لا يمكن تنفيذ نشر إنتاج أو migrations دون نسخة قاعدة بيانات مكتملة ومتحقق منها. لا يوجد خيار تجاوز لهذه الخطوة.** المثبت يفحص `manifest.minimumDatabaseMigration`: يتجاوز التنفيذ إذا كانت مطبقة، ويطبق الحزمة idempotently تلقائيًا إذا كانت مفقودة.
 
-قبل إيقاف API، يُنشأ تلقائيًا نسخ احتياطي كامل في `C:\Uqeb\backup\db\` مع `WITH CHECKSUM` و`RESTORE VERIFYONLY`. عند تمرير `-ApplyDatabaseMigration` يُوقف API أولًا، ثم تُطبَّق migrations من الحزمة.
+قبل إيقاف API، يُنشأ تلقائيًا نسخ احتياطي كامل في `C:\Uqeb\backup\db\` مع `WITH CHECKSUM` و`RESTORE VERIFYONLY`. إذا كانت migration المطلوبة مفقودة، يوقف المثبت API ثم يطبقها ويتحقق من `__EFMigrationsHistory` قبل promotion.
 
 ---
 
