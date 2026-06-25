@@ -14,9 +14,41 @@ namespace Uqeb.Api.Tests.Reporting.Performance;
 
 public class InstitutionalReportAnalysisPipelineBenchmarkTests
 {
+    private static readonly DateTime PeriodFrom = new(2026, 1, 1);
+    private static readonly DateTime PeriodTo = new(2026, 6, 15);
+    private static readonly string[] ExpectedStages =
+    [
+        "kpis",
+        "critical_cases",
+        "departments",
+        "external_parties",
+        "categories",
+        "priorities",
+        "bottlenecks",
+        "data_quality",
+        "completeness_rate",
+        "findings",
+        "recommendations",
+        "time_series",
+        "executive_insights",
+        "methodology"
+    ];
+
     private readonly ITestOutputHelper _output;
 
     public InstitutionalReportAnalysisPipelineBenchmarkTests(ITestOutputHelper output) => _output = output;
+
+    [Fact]
+    public void AnalysisPipeline_DoesNotWriteArtifacts_WhenBenchmarkDisabled()
+    {
+        var artifactPath = GetArtifactPath(100);
+        if (File.Exists(artifactPath))
+            File.Delete(artifactPath);
+
+        RunBenchmarkScenario(100, writeArtifact: false);
+
+        Assert.False(File.Exists(artifactPath));
+    }
 
     [Theory]
     [InlineData(100)]
@@ -29,9 +61,41 @@ public class InstitutionalReportAnalysisPipelineBenchmarkTests
             return;
         }
 
+        var capture = RunBenchmarkScenario(snapshotCount, writeArtifact: true);
+        var artifactPath = GetArtifactPath(snapshotCount);
+        Assert.True(File.Exists(artifactPath));
+
+        using var document = JsonDocument.Parse(File.ReadAllText(artifactPath));
+        var root = document.RootElement;
+        Assert.Equal("reporting-analysis-pipeline", root.GetProperty("scenarioId").GetString());
+        Assert.Equal(snapshotCount, root.GetProperty("snapshotCount").GetInt32());
+        Assert.True(root.GetProperty("totalMilliseconds").GetDouble() >= 0);
+        Assert.Equal(PeriodFrom, root.GetProperty("periodFrom").GetDateTime());
+        Assert.Equal(PeriodTo, root.GetProperty("periodTo").GetDateTime());
+
+        var stages = root.GetProperty("stages");
+        foreach (var expectedStage in ExpectedStages)
+        {
+            Assert.True(stages.TryGetProperty(expectedStage, out _), $"Missing stage artifact: {expectedStage}");
+            Assert.True(stages.GetProperty(expectedStage).GetDouble() >= 0);
+        }
+
+        Assert.Equal(ExpectedStages.Length, stages.EnumerateObject().Count());
+        Assert.True(capture.LastTotalSucceeded);
+        Assert.All(capture.StageOutcomes.Values, outcome => Assert.Equal("success", outcome));
+        _output.WriteLine($"Wrote analysis pipeline benchmark artifact: {artifactPath}");
+    }
+
+    private CapturingReportingAnalysisInstrumentation RunBenchmarkScenario(int snapshotCount, bool writeArtifact)
+    {
         var capture = new CapturingReportingAnalysisInstrumentation();
         var snapshots = CreateSnapshots(snapshotCount);
-        var metrics = InstitutionalReportMetricsCalculator.Calculate(snapshots, new DateTime(2026, 6, 15));
+        Assert.All(snapshots, snapshot =>
+        {
+            Assert.InRange(snapshot.IncomingDate, PeriodFrom, PeriodTo);
+        });
+
+        var metrics = InstitutionalReportMetricsCalculator.Calculate(snapshots, PeriodTo);
 
         _ = InstitutionalReportAnalysisService.Build(
             new InstitutionalReportAnalysisService.InstitutionalReportAnalysisInput
@@ -47,15 +111,15 @@ public class InstitutionalReportAnalysisPipelineBenchmarkTests
                     ],
                     Filters = new ReportFiltersDto
                     {
-                        DateFrom = new DateTime(2026, 1, 1),
-                        DateTo = new DateTime(2026, 6, 15)
+                        DateFrom = PeriodFrom,
+                        DateTo = PeriodTo
                     }
                 },
                 Metadata = new ReportMetadataDto
                 {
-                    GeneratedAt = new DateTime(2026, 6, 15),
-                    PeriodFrom = new DateTime(2026, 1, 1),
-                    PeriodTo = new DateTime(2026, 6, 15),
+                    GeneratedAt = PeriodTo,
+                    PeriodFrom = PeriodFrom,
+                    PeriodTo = PeriodTo,
                     Title = "Analysis pipeline benchmark",
                     ReportNumber = "REP-BENCH"
                 },
@@ -70,19 +134,30 @@ public class InstitutionalReportAnalysisPipelineBenchmarkTests
             },
             capture);
 
-        var artifact = new
+        if (writeArtifact && IsBenchmarkEnabled())
         {
-            scenarioId = "reporting-analysis-pipeline",
-            snapshotCount,
-            totalMilliseconds = capture.LastTotalMilliseconds,
-            stages = capture.StageMilliseconds
-        };
+            var artifact = new
+            {
+                scenarioId = "reporting-analysis-pipeline",
+                snapshotCount,
+                periodFrom = PeriodFrom,
+                periodTo = PeriodTo,
+                totalMilliseconds = capture.LastTotalMilliseconds,
+                stages = capture.StageMilliseconds
+            };
 
+            var root = PerformanceBaselineCatalog.ResolveFromRoot(PerformanceBaselineCatalog.ArtifactsRelativeDirectory);
+            Directory.CreateDirectory(root);
+            File.WriteAllText(GetArtifactPath(snapshotCount), JsonSerializer.Serialize(artifact, new JsonSerializerOptions { WriteIndented = true }));
+        }
+
+        return capture;
+    }
+
+    private static string GetArtifactPath(int snapshotCount)
+    {
         var root = PerformanceBaselineCatalog.ResolveFromRoot(PerformanceBaselineCatalog.ArtifactsRelativeDirectory);
-        Directory.CreateDirectory(root);
-        var path = Path.Combine(root, $"analysis-pipeline-{snapshotCount}.json");
-        File.WriteAllText(path, JsonSerializer.Serialize(artifact, new JsonSerializerOptions { WriteIndented = true }));
-        _output.WriteLine($"Wrote analysis pipeline benchmark artifact: {path}");
+        return Path.Combine(root, $"analysis-pipeline-{snapshotCount}.json");
     }
 
     private static bool IsBenchmarkEnabled() =>
@@ -98,7 +173,7 @@ public class InstitutionalReportAnalysisPipelineBenchmarkTests
                 TransactionId = i + 1,
                 TrackingNumber = $"INT-{i + 1:D6}",
                 IncomingNumber = $"IN-{i + 1:D6}",
-                IncomingDate = new DateTime(2026, 6, 1).AddDays(i % 30),
+                IncomingDate = PeriodFrom.AddDays(i % 30),
                 Subject = $"Benchmark {i + 1}",
                 IncomingParty = "Benchmark party",
                 CategoryName = "Benchmark",
@@ -121,12 +196,20 @@ public class InstitutionalReportAnalysisPipelineBenchmarkTests
     private sealed class CapturingReportingAnalysisInstrumentation : IReportingAnalysisInstrumentation
     {
         public Dictionary<string, double> StageMilliseconds { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, string> StageOutcomes { get; } = new(StringComparer.Ordinal);
         public double LastTotalMilliseconds { get; private set; }
+        public bool LastTotalSucceeded { get; private set; }
 
-        public void RecordStage(string stage, double milliseconds, string reportType, int snapshotCount) =>
+        public void RecordStage(string stage, double milliseconds, string reportType, int snapshotCount, bool succeeded = true)
+        {
             StageMilliseconds[stage] = milliseconds;
+            StageOutcomes[stage] = succeeded ? "success" : "failed";
+        }
 
-        public void RecordTotal(double milliseconds, string reportType, int snapshotCount) =>
+        public void RecordTotal(double milliseconds, string reportType, int snapshotCount, bool succeeded = true)
+        {
             LastTotalMilliseconds = milliseconds;
+            LastTotalSucceeded = succeeded;
+        }
     }
 }

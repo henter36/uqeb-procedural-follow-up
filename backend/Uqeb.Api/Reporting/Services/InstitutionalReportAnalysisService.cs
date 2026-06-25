@@ -74,7 +74,10 @@ internal static class InstitutionalReportAnalysisService
         var referenceDate = ReportingTemporalCalculator.ResolveReferenceDate(metadata);
         var reportType = request.ReportType.ToString();
         var snapshotCount = currentSnapshots.Count;
+        var succeeded = false;
 
+        try
+        {
         var kpis = MeasureStage(
             instrumentation,
             "kpis",
@@ -213,9 +216,18 @@ internal static class InstitutionalReportAnalysisService
                     comparisonMode))
         };
 
-        totalStopwatch.Stop();
-        instrumentation?.RecordTotal(totalStopwatch.Elapsed.TotalMilliseconds, reportType, snapshotCount);
+        succeeded = true;
         return result;
+        }
+        finally
+        {
+            totalStopwatch.Stop();
+            instrumentation?.RecordTotal(
+                totalStopwatch.Elapsed.TotalMilliseconds,
+                reportType,
+                snapshotCount,
+                succeeded);
+        }
     }
 
     private static T MeasureStage<T>(
@@ -229,14 +241,22 @@ internal static class InstitutionalReportAnalysisService
             return work();
 
         var stopwatch = Stopwatch.StartNew();
+        var succeeded = false;
         try
         {
-            return work();
+            var result = work();
+            succeeded = true;
+            return result;
         }
         finally
         {
             stopwatch.Stop();
-            instrumentation.RecordStage(stage, stopwatch.Elapsed.TotalMilliseconds, reportType, snapshotCount);
+            instrumentation.RecordStage(
+                stage,
+                stopwatch.Elapsed.TotalMilliseconds,
+                reportType,
+                snapshotCount,
+                succeeded);
         }
     }
 

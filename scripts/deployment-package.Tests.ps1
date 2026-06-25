@@ -1,11 +1,38 @@
 #Requires -Version 5.1
 
 BeforeAll {
-    $script:RepoScriptsRoot = $PSScriptRoot
-    . (Join-Path $PSScriptRoot 'tests\DeploymentTestHelpers.ps1')
+    function Resolve-DeploymentScriptsRoot {
+        $candidate = $PSScriptRoot
+        $commonPath = Join-Path $candidate 'deployment\Common.ps1'
+        if (-not (Test-Path -LiteralPath $commonPath -PathType Leaf)) {
+            throw "Helper script missing: Common.ps1 could not be found at $commonPath"
+        }
+
+        return $candidate
+    }
+
+    $script:RepoScriptsRoot = Resolve-DeploymentScriptsRoot
+
+    $script:DeploymentHelpersPath = Join-Path `
+        $script:RepoScriptsRoot `
+        'tests\DeploymentTestHelpers.ps1'
+
+    if (-not (Test-Path -LiteralPath $script:DeploymentHelpersPath -PathType Leaf)) {
+        throw "Helper script missing: DeploymentTestHelpers.ps1 could not be found at $script:DeploymentHelpersPath"
+    }
+
+    . $script:DeploymentHelpersPath
+
+    if (-not (Get-Command -Name 'Initialize-DeploymentTestSession' -ErrorAction SilentlyContinue)) {
+        throw "Required function 'Initialize-DeploymentTestSession' is not defined after dot-sourcing DeploymentTestHelpers.ps1."
+    }
+
     $script:CommonPath = Join-Path $script:RepoScriptsRoot 'deployment\Common.ps1'
     $script:InstallScript = Join-Path $script:RepoScriptsRoot 'install-production-package.ps1'
     . $script:CommonPath
+    if (-not (Get-Command -Name 'Invoke-SqlDeploymentCommand' -ErrorAction SilentlyContinue)) {
+        throw "Required function 'Invoke-SqlDeploymentCommand' is not defined after dot-sourcing Common.ps1."
+    }
     $script:DeploymentTest = Initialize-DeploymentTestSession -ScriptsRoot $script:RepoScriptsRoot
     $script:ApplyScript = Join-Path $script:RepoScriptsRoot 'apply-migrations.ps1'
 
