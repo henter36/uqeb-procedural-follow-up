@@ -351,7 +351,7 @@ try {
     $deploymentResult = "نجح"
 }
 catch {
-    Write-DeployError ("فشل النشر: " + $_.Exception.Message)
+    Write-DeployFailure ("فشل النشر: " + $_.Exception.Message)
 
     if ($databaseBackupPath -and $sqlInfo) {
         if (-not $manualRestoreCommand) {
@@ -416,7 +416,7 @@ catch {
                 -SkipPlaywrightProcessSmokeTest
         }
         catch {
-            Write-DeployError ("تعذر إعادة تشغيل API بعد فشل الترقية: " + $_.Exception.Message)
+            Write-DeployFailure ("تعذر إعادة تشغيل API بعد فشل الترقية: " + $_.Exception.Message)
         }
     }
     elseif ($scheduledTaskStopped) {
@@ -432,7 +432,7 @@ catch {
                 -SkipPlaywrightProcessSmokeTest
         }
         catch {
-            Write-DeployError ("تعذر إعادة تشغيل API بعد الفشل: " + $_.Exception.Message)
+            Write-DeployFailure ("تعذر إعادة تشغيل API بعد الفشل: " + $_.Exception.Message)
         }
     }
     else {

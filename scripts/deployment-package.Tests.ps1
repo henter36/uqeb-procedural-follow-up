@@ -1,119 +1,17 @@
 #Requires -Version 5.1
 
 BeforeAll {
-    $script:CommonPath = Join-Path $PSScriptRoot 'deployment\Common.ps1'
-    $script:InstallScript = Join-Path $PSScriptRoot 'install-production-package.ps1'
-    $script:ApplyScript = Join-Path $PSScriptRoot 'apply-migrations.ps1'
+    $script:RepoScriptsRoot = $PSScriptRoot
+    . (Join-Path $PSScriptRoot 'tests\DeploymentTestHelpers.ps1')
+    $script:CommonPath = Join-Path $script:RepoScriptsRoot 'deployment\Common.ps1'
+    $script:InstallScript = Join-Path $script:RepoScriptsRoot 'install-production-package.ps1'
     . $script:CommonPath
+    $script:DeploymentTest = Initialize-DeploymentTestSession -ScriptsRoot $script:RepoScriptsRoot
+    $script:ApplyScript = Join-Path $script:RepoScriptsRoot 'apply-migrations.ps1'
 
     function New-TempDirectory {
-        $path = Join-Path ([System.IO.Path]::GetTempPath()) ("uqeb-deploy-test-" + [guid]::NewGuid().ToString())
-        New-Item -ItemType Directory -Path $path -Force | Out-Null
-        return $path
-    }
-
-    function New-TestPackage {
-        param(
-            [string]$Root,
-            [string]$Version = 'test-001'
-        )
-
-        $api = Join-Path $Root 'api'
-        $web = Join-Path $Root 'web'
-        $database = Join-Path $Root 'database'
-        $scripts = Join-Path $Root 'scripts'
-        $browsers = Join-Path $Root 'browsers'
-        $deployment = Join-Path $scripts 'deployment'
-        Ensure-Directory $api
-        Ensure-Directory $web
-        Ensure-Directory $database
-        Ensure-Directory $browsers
-        Ensure-Directory $deployment
-
-        Set-Content (Join-Path $api 'Uqeb.Api.dll') 'dll' -Encoding ASCII
-        Set-Content (Join-Path $api 'playwright.ps1') 'exit 0' -Encoding ASCII
-        Set-Content (Join-Path $web 'index.html') '<html></html>' -Encoding ASCII
-        Set-Content (Join-Path $database 'migrations-idempotent.sql') 'SELECT 1;' -Encoding ASCII
-        'exit 0' | Set-Content (Join-Path $scripts 'apply-migrations.ps1') -Encoding ASCII
-        'exit 0' | Set-Content (Join-Path $scripts 'verify-deployment-health.ps1') -Encoding ASCII
-        Copy-Item $script:CommonPath (Join-Path $deployment 'Common.ps1') -Force
-
-        $executableDir = Join-Path $browsers 'chromium-1\chrome-win64'
-        Ensure-Directory $executableDir
-        $executablePath = Join-Path $executableDir 'chrome.exe'
-        Set-Content -LiteralPath $executablePath -Value 'fake-chromium' -Encoding ASCII
-
-        $playwrightScriptPath = Join-Path $api 'playwright.ps1'
-        $browserManifest = New-PlaywrightBrowserManifest `
-            -BrowsersRoot $browsers `
-            -PlaywrightScriptPath $playwrightScriptPath
-        $browserManifest | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $browsers 'playwright-browser-manifest.json') -Encoding UTF8
-
-        $files = [ordered]@{}
-        foreach ($relative in @(
-            'api/Uqeb.Api.dll',
-            'api/playwright.ps1',
-            'web/index.html',
-            'database/migrations-idempotent.sql',
-            'browsers/playwright-browser-manifest.json',
-            ('browsers/' + ($browserManifest.executableRelativePath -replace '\\', '/'))
-        )) {
-            $full = Join-Path $Root ($relative -replace '/', '\')
-            $files[($relative -replace '\\', '/')] = Get-FileSha256Hex -Path $full
-        }
-
-        $manifest = [ordered]@{
-            applicationName = 'Uqeb'
-            version = $Version
-            buildTimestampUtc = (Get-Date).ToUniversalTime().ToString('o')
-            commitSha = 'testsha'
-            minimumDatabaseMigration = '20260622062754_AddReferenceDataNormalizedNames'
-            playwright = [ordered]@{
-                required = $true
-                browser = 'chromium'
-                browserPayloadIncluded = $true
-                browserRoot = 'browsers'
-                browserExecutableRelativePath = $browserManifest.executableRelativePath
-                browserExecutableSha256 = $browserManifest.browserExecutableSha256
-                playwrightScriptSha256 = $browserManifest.playwrightScriptSha256
-            }
-            files = $files
-        }
-        $manifest | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $Root 'manifest.json') -Encoding UTF8
-    }
-
-    function Invoke-TestInstallScript {
-        param(
-            [Parameter(Mandatory = $true)]
-            [psobject]$Environment,
-            [hashtable]$AdditionalParameters = @{}
-        )
-
-        $params = @{
-            PackagePath = $Environment.ZipPath
-            InstallRoot = $Environment.InstallRoot
-            ToolsRoot = $Environment.ToolsRoot
-            ApiPath = $Environment.ApiPath
-            WebPath = $Environment.WebPath
-            ConfigPath = $Environment.ConfigPath
-            PlaywrightBrowsersPath = $Environment.PlaywrightBrowsersPath
-        }
-        foreach ($key in $AdditionalParameters.Keys) {
-            $params[$key] = $AdditionalParameters[$key]
-        }
-
-        & $script:InstallScript @params
-    }
-
-    function New-ZipFromDirectory {
-        param(
-            [string]$Source,
-            [string]$ZipPath
-        )
-
-        if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        [System.IO.Compression.ZipFile]::CreateFromDirectory($Source, $ZipPath)
+        param([string]$Prefix = 'uqeb-deploy-test-')
+        return New-DeploymentTestTempDirectory -Prefix $Prefix
     }
 
     function New-TestRestoreHeaderTable {
@@ -178,48 +76,6 @@ BeforeAll {
         return New-Object System.Data.SqlClient.SqlConnectionStringBuilder $ConnectionString
     }
 
-    function New-InstallTestEnvironment {
-        param(
-            [scriptblock]$PackageMutator,
-            [string]$PackageMigrationContent = 'exit 0'
-        )
-
-        $root = New-TempDirectory
-        $installRoot = Join-Path $root 'install'
-        $tools = Join-Path $root 'tools'
-        $incoming = Join-Path $installRoot 'incoming'
-        Ensure-Directory $incoming
-        Ensure-Directory $tools
-        Ensure-Directory (Join-Path $tools 'deployment')
-        Copy-Item $script:CommonPath (Join-Path $tools 'deployment\Common.ps1') -Force
-
-        $pkgRoot = New-TempDirectory
-        New-TestPackage -Root $pkgRoot
-        if ($PackageMutator) {
-            & $PackageMutator $pkgRoot
-        }
-        $PackageMigrationContent | Set-Content (Join-Path $pkgRoot 'scripts\apply-migrations.ps1') -Encoding ASCII
-
-        $zip = Join-Path $incoming 'Uqeb-test.zip'
-        New-ZipFromDirectory -Source $pkgRoot -ZipPath $zip
-        $hash = Get-FileSha256Hex -Path $zip
-        Set-Content (Join-Path $incoming 'Uqeb-test.sha256.txt') "$hash  Uqeb-test.zip" -Encoding ASCII
-
-        $configPath = Join-Path $installRoot 'config\appsettings.Production.json'
-        Ensure-Directory (Join-Path $installRoot 'config')
-        New-TestProductionSettingsJson | Set-Content $configPath -Encoding UTF8
-
-        return [pscustomobject]@{
-            InstallRoot = $installRoot
-            ToolsRoot = $tools
-            ZipPath = $zip
-            ConfigPath = $configPath
-            ApiPath = Join-Path $installRoot 'publish\api'
-            WebPath = Join-Path $installRoot 'publish\web'
-            PlaywrightBrowsersPath = Join-Path $installRoot 'tools\ms-playwright'
-        }
-    }
-
     function Write-TestReleaseManifestWithBackup {
         param(
             [string]$InstallRoot,
@@ -248,13 +104,6 @@ BeforeAll {
         }
 
         return ,@($files)
-    }
-
-    function New-TestProductionSettingsJson {
-        return (@{
-            ConnectionStrings = @{ DefaultConnection = 'Server=.;Database=UqebDb;Integrated Security=True' }
-            Jwt = @{ Key = '12345678901234567890123456789012' }
-        } | ConvertTo-Json -Compress)
     }
 
     if (-not (Get-Command robocopy -ErrorAction SilentlyContinue)) {
@@ -310,7 +159,7 @@ Describe 'SHA256 package validation' {
 Describe 'Package content validation' {
     It 'rejects incomplete package missing manifest entries' {
         $root = New-TempDirectory
-        New-TestPackage -Root $root
+        New-TestPackage -Root $root -CommonPath $script:CommonPath
         Remove-Item (Join-Path $root 'api\Uqeb.Api.dll') -Force
         $manifest = Get-Content (Join-Path $root 'manifest.json') -Raw | ConvertFrom-Json
 
@@ -709,75 +558,7 @@ Describe 'Invoke-DeploymentFileRollback' {
 
 Describe 'install-production-package.ps1 scenarios' {
     BeforeEach {
-        if (-not (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue)) {
-            function script:Get-ScheduledTask {
-                param([string]$TaskName)
-                return [pscustomobject]@{ TaskName = $TaskName }
-            }
-        }
-        if (-not (Get-Command Stop-ScheduledTask -ErrorAction SilentlyContinue)) {
-            function script:Stop-ScheduledTask { param([string]$TaskName) }
-        }
-        if (-not (Get-Command Start-ScheduledTask -ErrorAction SilentlyContinue)) {
-            function script:Start-ScheduledTask { param([string]$TaskName) }
-        }
-        if (-not (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue)) {
-            function script:Get-NetTCPConnection { return @() }
-        }
-
-        Mock Test-IsAdministrator { $true }
-        Mock Get-ScheduledTask { return [pscustomobject]@{ TaskName = 'UqebApi' } }
-        Mock Stop-ScheduledTask {}
-        Mock Start-ScheduledTask {}
-        Mock Stop-ApiListenersOnPort {}
-        Mock Wait-PortReleased { $true }
-        Mock Test-PortListener { $true }
-        Mock Stop-Process {}
-        Mock Get-NetTCPConnection { return @() }
-        Mock Test-RecentLogErrors { return @() }
-        Mock Copy-ApplicationPayload {}
-        Mock Install-StagedReleaseToProduction {
-            param(
-                [string]$InstallRoot,
-                [string]$Version
-            )
-
-            return [pscustomobject]@{
-                Paths = [pscustomobject]@{
-                    ReleaseRoot = Join-Path $InstallRoot ("releases\" + $Version)
-                    CurrentApi = Join-Path $InstallRoot 'current\api'
-                    CurrentWeb = Join-Path $InstallRoot 'current\web'
-                }
-                ConfigTarget = Join-Path $InstallRoot 'current\api\appsettings.Production.json'
-                PreviousRelease = ''
-            }
-        }
-        Mock Test-RequiredMigrationApplied {}
-        Mock Invoke-DatabaseBackupRetentionPolicy { return @() }
-        Mock Get-SqlConnectionInfoFromSettings {
-            return [pscustomobject]@{
-                Server = '.'
-                Database = 'UqebDb'
-                ConnectionString = 'Server=.;Database=UqebDb;Integrated Security=True;TrustServerCertificate=True'
-            }
-        }
-        Mock Invoke-ProductionDatabaseBackup {
-            $backupFile = Join-Path $TestDrive ("UqebDb-before-mock.bak")
-            Set-Content -LiteralPath $backupFile -Value ('x' * 64) -Encoding ASCII
-            return [pscustomobject]@{
-                Path = $backupFile
-                SizeBytes = (Get-Item -LiteralPath $backupFile).Length
-                CreatedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
-                Sha256 = ('a' * 64)
-                DatabaseName = 'UqebDb'
-            }
-        }
-        Mock Install-PlaywrightBrowserToProduction { return '' }
-        Mock Test-PlaywrightBrowserPayload {
-            $executablePath = Join-Path $TestDrive ('chrome-' + [guid]::NewGuid().ToString('N') + '.exe')
-            Set-Content -LiteralPath $executablePath -Value 'fake-chromium' -Encoding ASCII
-            return [pscustomobject]@{ FullPath = $executablePath }
-        }
+        Register-StandardDeploymentInstallMocks -IncludePromotionMock
     }
 
     It 'does not expose SkipDatabaseBackup parameter' {
@@ -824,33 +605,33 @@ Describe 'install-production-package.ps1 scenarios' {
     }
 
     It 'rejects folder path instead of ZIP' {
-        $env = New-InstallTestEnvironment
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
         $folder = New-TempDirectory
-        { Invoke-TestInstallScript -Environment $env -AdditionalParameters @{ PackagePath = $folder } } | Should -Throw '*ZIP*'
+        { Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env -AdditionalParameters @{ PackagePath = $folder } } | Should -Throw '*ZIP*'
     }
 
     It 'stops on migration failure during default install path' {
-        $env = New-InstallTestEnvironment -PackageMigrationContent 'throw "migration failed"'
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath -PackageMigrationContent 'throw "migration failed"'
         'throw "migration failed"' | Set-Content (Join-Path $env.ToolsRoot 'apply-migrations.ps1') -Encoding ASCII
 
-        { Invoke-TestInstallScript -Environment $env } |
+        { Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env } |
             Should -Throw
         Assert-MockCalled Install-StagedReleaseToProduction -Times 0 -Exactly
     }
 
     It 'fails deployment when health verification fails' {
-        $env = New-InstallTestEnvironment
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
         'throw "health failed"' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
-        { Invoke-TestInstallScript -Environment $env } |
+        { Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env } |
             Should -Throw
     }
 
     It 'succeeds on full mocked deployment path and applies migrations by default' {
-        $env = New-InstallTestEnvironment
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
         'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
-        { Invoke-TestInstallScript -Environment $env } | Should -Not -Throw
+        { Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env } | Should -Not -Throw
         Assert-MockCalled Invoke-ProductionDatabaseBackup -Times 1 -Exactly
         Assert-MockCalled Install-StagedReleaseToProduction -Times 1 -Exactly
     }
@@ -863,20 +644,20 @@ Describe 'install-production-package.ps1 scenarios' {
     }
 
     It 'still runs database backup and migrations when SkipFileBackup is set' {
-        $env = New-InstallTestEnvironment
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
         'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
-        { Invoke-TestInstallScript -Environment $env -AdditionalParameters @{ SkipFileBackup = $true } } |
+        { Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env -AdditionalParameters @{ SkipFileBackup = $true } } |
             Should -Not -Throw
         Assert-MockCalled Invoke-ProductionDatabaseBackup -Times 1 -Exactly
     }
 
     It 'does not declare success when API port never opens' {
         Mock Test-PortListener { $false }
-        $env = New-InstallTestEnvironment
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
         'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'apply-migrations.ps1') -Encoding ASCII
 
-        { Invoke-TestInstallScript -Environment $env } |
+        { Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env } |
             Should -Throw '*API*'
     }
 
@@ -885,9 +666,9 @@ Describe 'install-production-package.ps1 scenarios' {
         $global:deployOrder = @()
         Mock Stop-ScheduledTask { $global:deployOrder += 'stop-api' }
 
-        $env = New-InstallTestEnvironment
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
 
-        { Invoke-TestInstallScript -Environment $env } |
+        { Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env } |
             Should -Throw
 
         $global:deployOrder | Should -Not -Contain 'stop-api'
@@ -910,10 +691,10 @@ Describe 'install-production-package.ps1 scenarios' {
         }
         Mock Stop-ScheduledTask { $global:deployOrder += 'stop-api' }
 
-        $env = New-InstallTestEnvironment
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
         'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
-        Invoke-TestInstallScript -Environment $env | Out-Null
+        Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env | Out-Null
 
         $global:deployOrder[0] | Should -Be 'db-backup'
         ($global:deployOrder.IndexOf('db-backup') -lt $global:deployOrder.IndexOf('stop-api')) | Should -BeTrue
@@ -933,12 +714,12 @@ Describe 'install-production-package.ps1 scenarios' {
             }
         }
 
-        $env = New-InstallTestEnvironment
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
         'throw "health failed"' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
         $output = @()
         try {
-            Invoke-TestInstallScript -Environment $env *>&1 |
+            Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env *>&1 |
                 ForEach-Object { $output += $_.ToString() }
         }
         catch {
@@ -951,17 +732,17 @@ Describe 'install-production-package.ps1 scenarios' {
     It 'succeeds when stale LASTEXITCODE is set before optional migration' {
         $global:LASTEXITCODE = 1
 
-        $env = New-InstallTestEnvironment
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
         'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
-        { Invoke-TestInstallScript -Environment $env -AdditionalParameters @{ ApiPort = 5001 } } | Should -Not -Throw
+        { Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env -AdditionalParameters @{ ApiPort = 5001 } } | Should -Not -Throw
     }
 
     It 'does not move package to deployed when deployment fails' {
-        $env = New-InstallTestEnvironment
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
         'throw "health failed"' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
-        { Invoke-TestInstallScript -Environment $env } | Should -Throw
+        { Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env } | Should -Throw
         Test-Path (Join-Path $env.InstallRoot 'incoming\deployed\Uqeb-test.zip') | Should -BeFalse
         Test-Path $env.ZipPath | Should -BeTrue
     }
@@ -974,10 +755,10 @@ Describe 'install-production-package.ps1 scenarios' {
             Set-Content -LiteralPath $RunScriptPath -Value "set ASPNETCORE_URLS=http://${ApiBindAddress}:5000" -Encoding ASCII
         }
 
-        $env = New-InstallTestEnvironment
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
         'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
-        Invoke-TestInstallScript -Environment $env | Out-Null
+        Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env | Out-Null
         Assert-MockCalled Write-ApiRunScript -ParameterFilter { $ApiBindAddress -eq '10.0.177.17' } -Times 1 -Exactly
     }
 
@@ -998,6 +779,86 @@ Describe 'install-production-package.ps1 scenarios' {
         { Assert-ValidApiBindAddress -ApiBindAddress 'http://10.0.177.17' } | Should -Throw
         { Assert-ValidApiBindAddress -ApiBindAddress '0.0.0.0:5000' } | Should -Throw
         { Assert-ValidApiBindAddress -ApiBindAddress '10.0.177.17' } | Should -Not -Throw
+    }
+
+    It 'Write-DeployFailure does not terminate catch cleanup under Stop preference' {
+        $ErrorActionPreference = 'Stop'
+        $output = @(Write-DeployFailure 'visible failure message')
+        ($output -join [Environment]::NewLine) | Should -Match '\[خطأ\].*visible failure message'
+
+        $continued = $false
+        try {
+            throw 'simulate failure'
+        }
+        catch {
+            Write-DeployFailure $_.Exception.Message
+            $continued = $true
+        }
+
+        $continued | Should -BeTrue
+    }
+
+    It 'continues catch with service restart and final report after stop-before-promotion failure' {
+        Register-StandardDeploymentInstallMocks -IncludePromotionMock -IncludeHealthMocks
+        Mock Wait-PortReleased { $false }
+
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
+        'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
+
+        $result = Get-InstallScriptOutput {
+            Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env -AdditionalParameters @{ SkipFileBackup = $true }
+        }
+
+        $result.Text | Should -Match '\[خطأ\]'
+        $result.Text | Should -Match 'تقرير النشر النهائي'
+        Assert-MockCalled Invoke-RestartCurrentReleaseService -Times 1 -Exactly
+    }
+
+    It 'continues catch with release rollback and final report after health failure' {
+        Register-StandardDeploymentInstallMocks -IncludePromotionMock -IncludeHealthMocks
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
+        'throw "health failed"' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
+
+        $result = Get-InstallScriptOutput {
+            Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env
+        }
+
+        $result.Text | Should -Match '\[خطأ\]'
+        $result.Text | Should -Match 'تقرير النشر النهائي'
+        Assert-MockCalled Invoke-ReleaseRollbackFromState -Times 1 -Exactly -ParameterFilter {
+            $ConfigPath -eq $env.ConfigPath
+        }
+    }
+
+    It 'continues catch with restart attempt and final report after promotion failure' {
+        Register-StandardDeploymentInstallMocks -IncludePromotionMock -IncludeHealthMocks
+        Mock Install-StagedReleaseToProduction { throw 'promotion failed during install' }
+
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
+        'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
+
+        $result = Get-InstallScriptOutput {
+            Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env
+        }
+
+        $result.Text | Should -Match '\[خطأ\].*promotion failed'
+        $result.Text | Should -Match 'تقرير النشر النهائي'
+        Assert-MockCalled Invoke-RestartCurrentReleaseService -Times 1 -Exactly
+    }
+
+    It 'uses approved ConfigPath during release rollback with SkipFileBackup' {
+        Register-StandardDeploymentInstallMocks -IncludePromotionMock -IncludeHealthMocks
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
+        'throw "health failed"' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
+
+        {
+            Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env -AdditionalParameters @{ SkipFileBackup = $true }
+        } | Should -Throw
+
+        Assert-MockCalled Invoke-ReleaseRollbackFromState -Times 1 -Exactly -ParameterFilter {
+            $ConfigPath -eq $env.ConfigPath
+        }
+        $env.ConfigPath | Should -Be (Join-Path $env.InstallRoot 'config\appsettings.Production.json')
     }
 }
 
@@ -1425,99 +1286,39 @@ Describe 'Publish directory junction safety' {
         Test-Path -LiteralPath $link | Should -BeFalse
         Test-Path -LiteralPath $wrongTarget | Should -BeTrue
     }
+
+    It 'removes broken junction entry without deleting unrelated targets on Windows' -Skip:(-not $IsWindows) {
+        $installRoot = New-TempDirectory
+        $target = Join-Path $installRoot 'current\api (مسار Junction)'
+        $survivor = Join-Path $installRoot 'current\api-survivor (backup)'
+        $link = Join-Path $installRoot 'publish\api'
+        Ensure-Directory $target
+        Ensure-Directory $survivor
+        Set-Content (Join-Path $target 'marker.txt') 'target-keep' -Encoding ASCII
+        Set-Content (Join-Path $survivor 'marker.txt') 'survivor-keep' -Encoding ASCII
+
+        Set-PublishDirectoryJunction -LinkPath $link -TargetPath $target -InstallRoot $installRoot
+        Remove-Item -LiteralPath $target -Recurse -Force
+
+        Test-LinkEntryExists -LinkPath $link | Should -BeTrue
+        Test-Path -LiteralPath $survivor | Should -BeTrue
+
+        Remove-ReparsePointSafe -Path $link
+
+        Test-LinkEntryExists -LinkPath $link | Should -BeFalse
+        Test-Path -LiteralPath $survivor | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $survivor 'marker.txt') | Should -BeTrue
+
+        Set-PublishDirectoryJunction -LinkPath $link -TargetPath $survivor -InstallRoot $installRoot
+        Test-LinkEntryExists -LinkPath $link | Should -BeTrue
+        (Get-Content -LiteralPath (Join-Path $survivor 'marker.txt') -Raw).Trim() | Should -Be 'survivor-keep'
+    }
 }
 
 Describe 'Release promotion safety' {
-    BeforeAll {
-        function script:Initialize-PromotionFixture {
-            param(
-                [string]$Root,
-                [string]$Version,
-                [string]$ApiMarker,
-                [string]$WebMarker = $ApiMarker,
-                [string]$ExtraApiFile = ''
-            )
-
-            $staging = Join-Path $Root ("staging-$Version")
-            $api = Join-Path $staging 'api'
-            $web = Join-Path $staging 'web'
-            Ensure-Directory $api
-            Ensure-Directory $web
-            Set-Content -LiteralPath (Join-Path $api 'Uqeb.Api.dll') -Value $ApiMarker -Encoding ASCII
-            Set-Content -LiteralPath (Join-Path $web 'index.html') -Value "<html>$WebMarker</html>" -Encoding ASCII
-            if ($ExtraApiFile) {
-                Set-Content -LiteralPath (Join-Path $api $ExtraApiFile) -Value 'stale' -Encoding ASCII
-            }
-
-            return $staging
-        }
-
-        function script:New-AuthoritativeConfig {
-            param(
-                [string]$InstallRoot,
-                [string]$Marker = 'default-config'
-            )
-
-            $configPath = Join-Path $InstallRoot 'config\appsettings.Production.json'
-            Ensure-Directory (Split-Path -Parent $configPath)
-            (@{
-                ConnectionStrings = @{ DefaultConnection = 'Server=.;Database=UqebDb;Integrated Security=True;TrustServerCertificate=True' }
-                ConfigMarker = $Marker
-            } | ConvertTo-Json -Compress) | Set-Content -LiteralPath $configPath -Encoding UTF8
-            return $configPath
-        }
-
-        function script:Invoke-TestReleasePromotion {
-            param(
-                [string]$InstallRoot,
-                [string]$StagingPath,
-                [string]$Version,
-                [string]$ConfigPath
-            )
-
-            Install-StagedReleaseToProduction `
-                -StagingPath $StagingPath `
-                -InstallRoot $InstallRoot `
-                -Version $Version `
-                -ConfigPath $ConfigPath `
-                -PackagePath 'Uqeb-test.zip' `
-                -PackageCommit 'testsha' | Out-Null
-        }
-
-        function script:Get-CurrentApiMarker {
-            param([string]$InstallRoot)
-
-            return (Get-Content -LiteralPath (Join-Path $InstallRoot 'current\api\Uqeb.Api.dll') -Raw).Trim()
-        }
-
-        function script:Get-CurrentWebMarker {
-            param([string]$InstallRoot)
-
-            $html = Get-Content -LiteralPath (Join-Path $InstallRoot 'current\web\index.html') -Raw
-            if ($html -match '<html>(.*)</html>') {
-                return $Matches[1]
-            }
-
-            return $html.Trim()
-        }
-    }
-
     BeforeEach {
         $script:ReleasePromotionFailureInjection = $null
-
-        if (-not $IsWindows) {
-            Mock Invoke-RobocopySafe {
-                param(
-                    [string]$Source,
-                    [string]$Destination
-                )
-
-                Ensure-Directory $Destination
-                Get-ChildItem -LiteralPath $Source -Force | ForEach-Object {
-                    Copy-Item -LiteralPath $_.FullName -Destination $Destination -Recurse -Force
-                }
-            }
-        }
+        Mock-RobocopyAsCopyOnNonWindows
     }
 
     AfterEach {
@@ -1527,7 +1328,7 @@ Describe 'Release promotion safety' {
     It 'rejects path traversal in release version' {
         $installRoot = New-TempDirectory
         $staging = Initialize-PromotionFixture -Root $installRoot -Version 'bad' -ApiMarker 'x'
-        $configPath = New-AuthoritativeConfig -InstallRoot $installRoot
+        $configPath = New-AuthoritativeProductionConfig -InstallRoot $installRoot
 
         {
             Install-StagedReleaseToProduction `
@@ -1542,7 +1343,7 @@ Describe 'Release promotion safety' {
 
     It 'rejects installing an immutable release version twice' {
         $installRoot = New-TempDirectory
-        $configPath = New-AuthoritativeConfig -InstallRoot $installRoot
+        $configPath = New-AuthoritativeProductionConfig -InstallRoot $installRoot
         $v1Staging = Initialize-PromotionFixture -Root $installRoot -Version '20260101-120000' -ApiMarker 'v1'
         Invoke-TestReleasePromotion -InstallRoot $installRoot -StagingPath $v1Staging -Version '20260101-120000' -ConfigPath $configPath
 
@@ -1553,7 +1354,7 @@ Describe 'Release promotion safety' {
 
     It 'does not leave stale API files in immutable release or current' {
         $installRoot = New-TempDirectory
-        $configPath = New-AuthoritativeConfig -InstallRoot $installRoot
+        $configPath = New-AuthoritativeProductionConfig -InstallRoot $installRoot
         $v1Staging = Initialize-PromotionFixture `
             -Root $installRoot `
             -Version '20260101-120000' `
@@ -1576,7 +1377,7 @@ Describe 'Release promotion safety' {
         Mock Wait-PortReleased { $true }
 
         $installRoot = New-TempDirectory
-        $configPath = New-AuthoritativeConfig -InstallRoot $installRoot -Marker 'authoritative-config'
+        $configPath = New-AuthoritativeProductionConfig -InstallRoot $installRoot -ConfigMarker 'authoritative-config'
         $configHash = Get-FileSha256Hex -Path $configPath
 
         $v1Staging = Initialize-PromotionFixture -Root $installRoot -Version '20260101-120000' -ApiMarker 'v1'
@@ -1611,7 +1412,7 @@ Describe 'Release promotion safety' {
         param($Point, $Label)
 
         $installRoot = New-TempDirectory
-        $configPath = New-AuthoritativeConfig -InstallRoot $installRoot
+        $configPath = New-AuthoritativeProductionConfig -InstallRoot $installRoot
         $v1Staging = Initialize-PromotionFixture -Root $installRoot -Version '20260101-120000' -ApiMarker 'v1-marker'
         Invoke-TestReleasePromotion -InstallRoot $installRoot -StagingPath $v1Staging -Version '20260101-120000' -ConfigPath $configPath
 
@@ -1633,73 +1434,20 @@ Describe 'Release promotion safety' {
 }
 
 Describe 'install-production-package rollback and service recovery' {
-    BeforeAll {
-        if (-not (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue)) {
-            function script:Get-ScheduledTask {
-                param([string]$TaskName)
-                return [pscustomobject]@{ TaskName = $TaskName }
-            }
-        }
-        if (-not (Get-Command Stop-ScheduledTask -ErrorAction SilentlyContinue)) {
-            function script:Stop-ScheduledTask { param([string]$TaskName) }
-        }
-        if (-not (Get-Command Start-ScheduledTask -ErrorAction SilentlyContinue)) {
-            function script:Start-ScheduledTask { param([string]$TaskName) }
-        }
-    }
-
     BeforeEach {
-        Mock Test-IsAdministrator { $true }
-        Mock Get-ScheduledTask { return [pscustomobject]@{ TaskName = 'UqebApi' } }
-        Mock Stop-ScheduledTask {}
-        Mock Start-ScheduledTask {}
-        Mock Stop-ApiListenersOnPort {}
-        Mock Test-PortListener { $true }
-        Mock Test-RecentLogErrors { return @() }
-        Mock Invoke-ProductionDatabaseBackup {
-            return [pscustomobject]@{
-                Path = 'C:\Uqeb\backup\db\UqebDb-before-test.bak'
-                SizeBytes = 1024
-                CreatedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
-                Sha256 = ('a' * 64)
-            }
-        }
-        Mock Invoke-DatabaseBackupRetentionPolicy { return @() }
-        Mock Install-PlaywrightBrowserToProduction { return '' }
-        Mock Test-PlaywrightBrowserPayload {
-            param([string]$BrowsersRoot)
-
-            $executable = Join-Path $BrowsersRoot 'chromium-proof\chrome.exe'
-            Ensure-Directory (Split-Path -Parent $executable)
-            Set-Content -LiteralPath $executable -Value 'fake-chromium' -Encoding ASCII
-            return [pscustomobject]@{ FullPath = $executable }
-        }
-        Mock Test-PlaywrightPackagePreflight {
-            return [pscustomobject]@{
-                ExecutableRelativePath = 'chromium-proof\chrome.exe'
-            }
-        }
-        Mock Test-PackageManifestHashes {}
-
-        if (-not $IsWindows) {
-            Mock Invoke-RobocopySafe {
-                param(
-                    [string]$Source,
-                    [string]$Destination
-                )
-
-                Ensure-Directory $Destination
-                Get-ChildItem -LiteralPath $Source -Force | ForEach-Object {
-                    Copy-Item -LiteralPath $_.FullName -Destination $Destination -Recurse -Force
-                }
-            }
-        }
+        Register-StandardDeploymentInstallMocks
     }
 
     It 'uses ConfigPath for Invoke-ReleaseRollbackFromState' {
         $content = Get-Content $script:InstallScript -Raw
         $match = [regex]::Match($content, 'Invoke-ReleaseRollbackFromState[\s\S]*?-ConfigPath\s+\$ConfigPath')
         $match.Success | Should -BeTrue
+    }
+
+    It 'uses Write-DeployFailure in installer catch paths' {
+        $content = Get-Content $script:InstallScript -Raw
+        $content | Should -Match 'Write-DeployFailure'
+        $content | Should -Not -Match 'catch\s*\{[\s\S]*Write-DeployError'
     }
 
     It 'Invoke-RestartCurrentReleaseService starts scheduled task and verifies port listener' {

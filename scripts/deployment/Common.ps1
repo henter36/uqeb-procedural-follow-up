@@ -19,6 +19,11 @@ function Write-DeployError {
     Write-Error $Message
 }
 
+function Write-DeployFailure {
+    param([string]$Message)
+    Write-Output ("[خطأ] " + $Message)
+}
+
 function Test-IsAdministrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal($identity)
@@ -1672,12 +1677,18 @@ function Write-RollbackState {
 function Remove-ReparsePointSafe {
     param([string]$Path)
 
-    if (-not (Test-Path -LiteralPath $Path)) {
+    if ([string]::IsNullOrWhiteSpace($Path)) {
         return
     }
 
-    $item = Get-Item -LiteralPath $Path -Force
-    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+    $item = Get-ReparsePointEntry -Path $Path
+    if (-not $item) {
+        return
+    }
+
+    $isReparsePoint = ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
+    $isSymbolicLink = $item.LinkType -eq 'SymbolicLink' -or $item.LinkType -eq 'Junction'
+    if ($isReparsePoint -or $isSymbolicLink) {
         if ($item.PSIsContainer) {
             [System.IO.Directory]::Delete($Path, $false)
         }
@@ -1688,6 +1699,39 @@ function Remove-ReparsePointSafe {
     }
 
     Remove-Item -LiteralPath $Path -Recurse -Force
+}
+
+function Get-ReparsePointEntry {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path
+    )
+
+    try {
+        return Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    }
+    catch {
+        $parentPath = Split-Path -Parent $Path
+        $leafName = Split-Path -Leaf $Path
+        if ([string]::IsNullOrWhiteSpace($parentPath) -or [string]::IsNullOrWhiteSpace($leafName)) {
+            return $null
+        }
+
+        if (-not (Test-Path -LiteralPath $parentPath)) {
+            return $null
+        }
+
+        return Get-ChildItem -LiteralPath $parentPath -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -eq $leafName } |
+            Select-Object -First 1
+    }
+}
+
+function Test-LinkEntryExists {
+    param(
+        [Parameter(Mandatory = $true)][string]$LinkPath
+    )
+
+    return $null -ne (Get-ReparsePointEntry -Path $LinkPath)
 }
 
 function Set-PublishDirectoryJunction {
