@@ -12,8 +12,13 @@ namespace Uqeb.Api.Controllers;
 public class SecurityController : ControllerBase
 {
     private readonly ISecurityAuditService _security;
+    private readonly IAuditIntegrityDiagnosticService _auditIntegrity;
 
-    public SecurityController(ISecurityAuditService security) => _security = security;
+    public SecurityController(ISecurityAuditService security, IAuditIntegrityDiagnosticService auditIntegrity)
+    {
+        _security = security;
+        _auditIntegrity = auditIntegrity;
+    }
 
     [HttpGet("login-attempts")]
     public async Task<IActionResult> GetLoginAttempts([FromQuery] LoginAttemptFilterRequest filter) =>
@@ -26,6 +31,10 @@ public class SecurityController : ControllerBase
     [HttpPost("alerts/{id}/read")]
     public async Task<IActionResult> MarkAlertAsRead(int id) =>
         await _security.MarkAlertAsReadAsync(id) ? Ok() : NotFound();
+
+    [HttpGet("audit-integrity-report")]
+    public async Task<IActionResult> GetAuditIntegrityReport(CancellationToken cancellationToken) =>
+        Ok(await _auditIntegrity.GetHistoricalReportAsync(cancellationToken));
 
     [HttpPost("alerts/mark-all-read")]
     public async Task<IActionResult> MarkAllAlertsAsRead()

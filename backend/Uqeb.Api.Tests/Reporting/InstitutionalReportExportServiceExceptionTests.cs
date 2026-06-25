@@ -1,3 +1,4 @@
+using Uqeb.Api.Models.Entities;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -298,14 +299,14 @@ public class InstitutionalReportExportServiceExceptionTests
 
     private sealed class NoOpAuditService : IAuditService
     {
-        public void TrackLog(
+        public AuditLog TrackLog(
             int userId,
             AuditAction action,
             string? entityName,
             int? entityId,
             int? transactionId,
             string? oldValue,
-            string? newValue) { }
+            string? newValue) => new AuditLog();
 
         public Task LogAsync(
             int userId,

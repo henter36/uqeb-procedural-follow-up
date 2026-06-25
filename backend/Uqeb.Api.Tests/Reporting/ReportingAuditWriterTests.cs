@@ -1,3 +1,4 @@
+using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
@@ -77,7 +78,7 @@ public class ReportingAuditWriterTests
         public string? EntityName { get; private set; }
         public string? NewValue { get; private set; }
 
-        public void TrackLog(
+        public AuditLog TrackLog(
             int userId,
             AuditAction action,
             string? entityName,
@@ -88,6 +89,7 @@ public class ReportingAuditWriterTests
         {
             EntityName = entityName;
             NewValue = newValue;
+            return new AuditLog();
         }
 
         public Task LogAsync(

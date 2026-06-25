@@ -191,6 +191,23 @@ public class TransactionPersistenceAtomicityTests
     }
 
     [Fact]
+    public async Task CreateAsync_with_outgoing_departments_links_all_audits_to_transaction_and_entities()
+    {
+        var (service, db, _, _) = await CreateServiceAsync(nameof(CreateAsync_with_outgoing_departments_links_all_audits_to_transaction_and_entities));
+
+        var created = await service.CreateAsync(BuildCreateRequest(10, 11), userId: 1);
+        var audits = await db.AuditLogs.Where(a => a.TransactionId == created!.Id).ToListAsync();
+
+        Assert.NotEmpty(audits);
+        Assert.All(audits, audit => Assert.Equal(created.Id, audit.TransactionId));
+
+        var assignmentAudits = audits.Where(a => a.EntityName == "Assignment").ToList();
+        Assert.NotEmpty(assignmentAudits);
+        Assert.All(assignmentAudits, audit => Assert.NotNull(audit.EntityId));
+        Assert.All(assignmentAudits, audit => Assert.True(audit.EntityId > 0));
+    }
+
+    [Fact]
     public async Task UpdateAsync_field_change_tracks_audit_without_intermediate_save()
     {
         var (service, db, counter, _) = await CreateServiceAsync(nameof(UpdateAsync_field_change_tracks_audit_without_intermediate_save));

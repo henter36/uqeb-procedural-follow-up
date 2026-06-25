@@ -481,11 +481,14 @@ public class TransactionService : ITransactionService
                 _db.Transactions.Add(transaction);
 
                 await SyncOutgoingDepartmentsAsync(transaction, request.OutgoingDepartmentIds ?? new List<int>(), userId);
+                var pendingAudits = DetachPendingAuditLogs();
 
                 try
                 {
                     await _db.SaveChangesAsync();
-                    BackfillAuditTransactionIds(transaction.Id);
+                    BackfillAuditLogsForTransaction(transaction, pendingAudits);
+                    foreach (var pendingAudit in pendingAudits)
+                        _db.AuditLogs.Add(pendingAudit);
                     break;
                 }
                 catch (DbUpdateException ex) when (SqlExceptionHelper.IsDuplicateKey(ex, "IX_Transactions_IncomingNumber"))
@@ -938,6 +941,7 @@ public class TransactionService : ITransactionService
         await CommitWorkflowMutationAsync(
             () =>
             {
+                t.Assignments.Add(assignment);
                 _db.Assignments.Add(assignment);
                 t.Status = TransactionStatus.Assigned;
                 ApplyTransactionReplyStatus(t);
@@ -1257,15 +1261,62 @@ public class TransactionService : ITransactionService
         }
     }
 
-    private void BackfillAuditTransactionIds(int transactionId)
+    private List<AuditLog> DetachPendingAuditLogs()
     {
-        foreach (var entry in _db.ChangeTracker.Entries<AuditLog>()
-                     .Where(e => e.State == EntityState.Added && e.Entity.TransactionId == null))
+        var pending = _db.ChangeTracker.Entries<AuditLog>()
+            .Where(e => e.State == EntityState.Added)
+            .Select(e => e.Entity)
+            .ToList();
+
+        foreach (var entry in _db.ChangeTracker.Entries<AuditLog>().Where(e => e.State == EntityState.Added).ToList())
+            entry.State = EntityState.Detached;
+
+        return pending;
+    }
+
+    private static void BackfillAuditLogsForTransaction(Transaction transaction, IReadOnlyList<AuditLog> audits)
+    {
+        foreach (var audit in audits)
         {
-            entry.Entity.TransactionId = transactionId;
-            if (entry.Entity.EntityName is "TransactionOutgoingDepartments")
-                entry.Entity.EntityId = transactionId;
+            if (audit.TransactionId == null)
+                audit.TransactionId = transaction.Id;
+
+            if (audit.EntityName == "TransactionOutgoingDepartments" && audit.EntityId == null)
+                audit.EntityId = transaction.Id;
+
+            if (audit.EntityName == "Assignment" && audit.EntityId == null)
+            {
+                var departmentId = TryReadDepartmentIdFromAuditPayload(audit.NewValue);
+                if (departmentId.HasValue)
+                {
+                    var assignment = transaction.Assignments.FirstOrDefault(a => a.DepartmentId == departmentId.Value);
+                    if (assignment?.Id > 0)
+                        audit.EntityId = assignment.Id;
+                }
+            }
         }
+    }
+
+    private static int? TryReadDepartmentIdFromAuditPayload(string? payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+            return null;
+
+        try
+        {
+            using var document = JsonDocument.Parse(payload);
+            if (document.RootElement.TryGetProperty("departmentId", out var departmentIdProperty)
+                && departmentIdProperty.TryGetInt32(out var departmentId))
+            {
+                return departmentId;
+            }
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        return null;
     }
 
     private void ResetCreatePersistenceState(Transaction transaction)
@@ -1365,38 +1416,6 @@ public class TransactionService : ITransactionService
         return true;
     }
 
-    private static TransactionListDto MapToListDto(Transaction t, DateTime now)
-    {
-        var dto = new TransactionListDto
-        {
-            Id = t.Id,
-            InternalTrackingNumber = t.InternalTrackingNumber,
-            IncomingNumber = t.IncomingNumber,
-            IncomingDate = t.IncomingDate,
-            Subject = t.Subject,
-            IncomingFrom = ResolveIncomingFromName(t),
-            IncomingSourceType = t.IncomingSourceType.ToString(),
-            OutgoingNumber = t.OutgoingNumber,
-            OutgoingDate = t.OutgoingDate,
-            OutgoingDepartmentNames = t.OutgoingDepartments.Select(o => o.Department.Name).ToList(),
-            OutgoingPartyNames = t.OutgoingDepartments.Select(o => o.Department.Name).ToList(),
-            Status = t.Status.ToString(),
-            Priority = t.Priority.ToString(),
-            CategoryName = t.CategoryEntity?.Name ?? t.Category,
-            RequiresResponse = t.RequiresResponse,
-            ResponseCompleted = t.ResponseCompleted,
-            ResponseDueDate = t.ResponseDueDate,
-            IsResponseOverdue = TransactionTemporalCalculator.IsResponseOverdue(t, now),
-            HasPendingAssignments = t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied && a.Status == AssignmentStatus.Active),
-            IsOverdue = TransactionTemporalCalculator.IsOverdue(t, now),
-            IsArchived = t.IsArchived,
-            CreatedByName = t.CreatedBy?.FullName ?? "",
-            CreatedAt = t.CreatedAt
-        };
-        TransactionTimelineHelper.ApplyForTransaction(dto, t, now);
-        return dto;
-    }
-
     private sealed record AssignmentSummaryRow(
         string DepartmentName,
         ReplyStatus ReplyStatus,
@@ -1466,81 +1485,6 @@ public class TransactionService : ITransactionService
             Assignments = new(),
             Attachments = new(),
             AuditLogs = new()
-        };
-        TransactionTimelineHelper.ApplyForTransaction(dto, t, now);
-        return dto;
-    }
-
-    private static TransactionDetailDto MapToDetailDto(Transaction t)
-    {
-        var now = DateTime.UtcNow;
-        var dto = new TransactionDetailDto
-        {
-            Id = t.Id,
-            InternalTrackingNumber = t.InternalTrackingNumber,
-            IncomingNumber = t.IncomingNumber,
-            IncomingDate = t.IncomingDate,
-            Subject = t.Subject,
-            IncomingFrom = ResolveIncomingFromName(t),
-            IncomingSourceType = t.IncomingSourceType.ToString(),
-            IncomingFromPartyId = t.IncomingFromPartyId,
-            IncomingFromDepartmentId = t.IncomingFromDepartmentId,
-            OutgoingNumber = t.OutgoingNumber,
-            OutgoingDate = t.OutgoingDate,
-            OutgoingTo = t.OutgoingTo,
-            Status = t.Status.ToString(),
-            Priority = t.Priority.ToString(),
-            CategoryId = t.CategoryId,
-            CategoryName = t.CategoryEntity?.Name ?? t.Category,
-            Category = t.Category,
-            RequiresResponse = t.RequiresResponse,
-            ResponseCompleted = t.ResponseCompleted,
-            ResponseType = t.ResponseType.ToString(),
-            ResponseDueDays = t.ResponseDueDays,
-            ResponseDueDate = t.ResponseDueDate,
-            ResponseCompletedDate = t.ResponseCompletedDate,
-            ResponseSummary = t.ResponseSummary,
-            Notes = t.Notes,
-            IsResponseOverdue = TransactionTemporalCalculator.IsResponseOverdue(t, now),
-            HasPendingAssignments = t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied && a.Status == AssignmentStatus.Active),
-            IsOverdue = TransactionTemporalCalculator.IsOverdue(t, now),
-            IsArchived = t.IsArchived,
-            CreatedByName = t.CreatedBy?.FullName ?? "",
-            CreatedAt = t.CreatedAt,
-            UpdatedAt = t.UpdatedAt,
-            OutgoingDepartments = t.OutgoingDepartments.Select(o => new OutgoingDepartmentDto
-            {
-                Id = o.Id,
-                DepartmentId = o.DepartmentId,
-                DepartmentName = o.Department.Name
-            }).ToList(),
-            OutgoingDepartmentNames = t.OutgoingDepartments.Select(o => o.Department.Name).ToList(),
-            OutgoingPartyNames = t.OutgoingDepartments.Select(o => o.Department.Name).ToList(),
-            RepliedDepartmentNames = t.Assignments.Where(a => a.ReplyStatus == ReplyStatus.Replied).Select(a => a.Department.Name).ToList(),
-            PendingDepartmentNames = t.Assignments.Where(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied && a.Status == AssignmentStatus.Active).Select(a => a.Department.Name).ToList(),
-            FollowUps = t.FollowUps.OrderByDescending(f => f.CreatedAt).Select(f => MapFollowUp(f)).ToList(),
-            Assignments = t.Assignments.Select(a => MapAssignment(a, a.Department?.Name ?? "", a.CreatedBy?.FullName ?? "")).ToList(),
-            Attachments = t.Attachments.Select(a => new AttachmentDto
-            {
-                Id = a.Id,
-                AttachmentType = a.AttachmentType,
-                OriginalFileName = a.OriginalFileName,
-                ContentType = a.ContentType,
-                FileSize = a.FileSize,
-                UploadedByName = a.UploadedBy?.FullName ?? "",
-                UploadedAt = a.UploadedAt
-            }).ToList(),
-            AuditLogs = t.AuditLogs.OrderByDescending(a => a.CreatedAt).Select(a => new AuditLogDto
-            {
-                Id = a.Id,
-                Action = a.Action.ToString(),
-                EntityName = a.EntityName,
-                EntityId = a.EntityId,
-                OldValue = a.OldValue,
-                NewValue = a.NewValue,
-                UserName = a.User?.FullName ?? "",
-                CreatedAt = a.CreatedAt
-            }).ToList()
         };
         TransactionTimelineHelper.ApplyForTransaction(dto, t, now);
         return dto;

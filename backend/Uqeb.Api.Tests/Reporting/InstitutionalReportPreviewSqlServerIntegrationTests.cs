@@ -361,7 +361,7 @@ public class InstitutionalReportPreviewSqlServerIntegrationTests
 
     private sealed class NoOpAuditService : IAuditService
     {
-        public void TrackLog(int userId, AuditAction action, string? entityName, int? entityId, int? transactionId, string? oldValue, string? newValue) { }
+        public AuditLog TrackLog(int userId, AuditAction action, string? entityName, int? entityId, int? transactionId, string? oldValue, string? newValue) => new AuditLog();
 
         public Task LogAsync(int userId, AuditAction action, string? entityName, int? entityId, int? transactionId, string? oldValue, string? newValue) =>
             Task.CompletedTask;
