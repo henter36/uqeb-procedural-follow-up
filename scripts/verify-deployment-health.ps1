@@ -15,7 +15,8 @@
     [string]$ExpectedBrowserExecutableSha256 = "",
     [string]$ToolsRoot = "C:\UqebTools",
     [switch]$SkipPlaywrightProcessSmokeTest,
-    [switch]$SkipPlaywrightFilesystemChecks
+    [switch]$SkipPlaywrightFilesystemChecks,
+    [switch]$SkipInvalidLoginProbe
 )
 
 $ErrorActionPreference = "Stop"
@@ -224,6 +225,89 @@ function Invoke-HealthEndpoint {
     }
 }
 
+function Get-HttpStatusCodeFromException {
+    param($Exception)
+
+    if ($Exception.PSObject.Properties.Name -contains 'Response' -and $Exception.Response) {
+        return [int]$Exception.Response.StatusCode
+    }
+
+    return $null
+}
+
+function Invoke-InvalidLoginProbeAttempt {
+    param(
+        [string]$Uri,
+        [string]$Body,
+        [int]$TimeoutSec
+    )
+
+    try {
+        $response = Invoke-WebRequest `
+            -UseBasicParsing `
+            -Uri $Uri `
+            -Method Post `
+            -ContentType 'application/json' `
+            -Body $Body `
+            -TimeoutSec $TimeoutSec
+
+        $statusCode = [int]$response.StatusCode
+    }
+    catch {
+        $statusCode = Get-HttpStatusCodeFromException -Exception $_.Exception
+        if ($null -ne $statusCode) {
+            if ($statusCode -eq 401) {
+                return [pscustomobject]@{ Succeeded = $true; Failure = $null }
+            }
+
+            return [pscustomobject]@{
+                Succeeded = $false
+                Failure = "unexpected status $statusCode"
+            }
+        }
+
+        return [pscustomobject]@{
+            Succeeded = $false
+            Failure = $_.Exception.Message
+        }
+    }
+
+    if ($statusCode -eq 401) {
+        return [pscustomobject]@{ Succeeded = $true; Failure = $null }
+    }
+
+    return [pscustomobject]@{
+        Succeeded = $false
+        Failure = "unexpected status $statusCode"
+    }
+}
+
+function Invoke-InvalidLoginProbe {
+    $uri = Get-HealthUri -BaseUrl $ApiBaseUrl -Path '/api/auth/login'
+    $body = @{
+        username = '__deployment_probe__'
+        password = '__deployment_probe__'
+    } | ConvertTo-Json
+
+    Write-Output "Checking invalid-login probe => $uri"
+    $lastFailure = $null
+
+    for ($attempt = 1; $attempt -le $RetryCount; $attempt++) {
+        $result = Invoke-InvalidLoginProbeAttempt -Uri $uri -Body $body -TimeoutSec $TimeoutSec
+        if ($result.Succeeded) {
+            return
+        }
+
+        $lastFailure = $result.Failure
+        if ($attempt -lt $RetryCount) {
+            Write-Output "Retry $attempt/$RetryCount for invalid-login probe after failure: $lastFailure"
+            Start-Sleep -Seconds $RetryDelaySec
+        }
+    }
+
+    throw "invalid-login probe failed after $RetryCount attempts at $uri. Last failure: $lastFailure"
+}
+
 if (-not $SkipPlaywrightFilesystemChecks) {
     Write-Output "Checking local Playwright browser payload => $PlaywrightBrowsersPath"
     $manifestPath = Join-Path $PlaywrightBrowsersPath "playwright-browser-manifest.json"
@@ -266,6 +350,10 @@ Invoke-HealthEndpoint `
     -AllowedStatusCodes @(200) `
     -ExpectedStatus 'healthy' `
     -ValidateSummaryChecks | Out-Null
+
+if (-not $SkipInvalidLoginProbe) {
+    Invoke-InvalidLoginProbe
+}
 
 Write-Output 'Health verification passed.'
 exit 0

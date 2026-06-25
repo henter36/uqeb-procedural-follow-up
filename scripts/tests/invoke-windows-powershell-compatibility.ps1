@@ -8,6 +8,9 @@ $commonPath = Join-Path $PSScriptRoot '..\deployment\Common.ps1'
 if (-not (Get-Command Get-RelativePathFromDirectory -ErrorAction SilentlyContinue)) {
     throw 'Get-RelativePathFromDirectory is not available after dot-sourcing Common.ps1.'
 }
+if (-not (Test-IsWindowsPlatform)) {
+    throw 'Test-IsWindowsPlatform did not identify Windows PowerShell 5.1 correctly.'
+}
 
 $root = Join-Path $env:TEMP ("uqeb-relative-root-" + [Guid]::NewGuid().ToString('N'))
 $file = Join-Path $root 'chromium-1\chrome-win64\chrome.exe'
@@ -31,6 +34,22 @@ try {
         -FullPath $rootFile
     if ($rootResult -ne 'chrome.exe') {
         throw "Unexpected root file relative path: $rootResult"
+    }
+
+    $junctionTarget = Join-Path $root 'current\api'
+    $junctionPath = Join-Path $root 'publish\api'
+    New-Item -ItemType Directory -Path $junctionTarget -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $junctionTarget 'marker.txt') -Value 'keep' -Encoding ASCII
+    Set-PublishDirectoryJunction `
+        -LinkPath $junctionPath `
+        -TargetPath $junctionTarget `
+        -InstallRoot $root
+    Remove-ReparsePointSafe -Path $junctionPath
+    if (Test-LinkEntryExists -LinkPath $junctionPath) {
+        throw 'Junction removal failed under Windows PowerShell 5.1.'
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $junctionTarget 'marker.txt'))) {
+        throw 'Junction removal deleted the target under Windows PowerShell 5.1.'
     }
 
     $siblingRoot = Join-Path $env:TEMP ("uqeb-relative-sibling-" + [Guid]::NewGuid().ToString('N'))

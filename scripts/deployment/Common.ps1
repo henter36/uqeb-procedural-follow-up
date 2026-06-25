@@ -1,6 +1,9 @@
 ﻿#Requires -Version 5.1
 Set-StrictMode -Version Latest
 
+$script:ReleasePromotionFailureInjection = $null
+$script:PackageArchiveFailureInjection = $null
+
 function Write-DeployStep {
     param([string]$Message)
     Write-Output ""
@@ -14,7 +17,12 @@ function Write-DeployInfo {
 
 function Write-DeployError {
     param([string]$Message)
-    Write-Error $Message
+    Write-Error -Message $Message -ErrorAction Continue
+}
+
+function Write-DeployFailure {
+    param([string]$Message)
+    Write-Output ("[خطأ] " + $Message)
 }
 
 function Test-IsAdministrator {
@@ -592,10 +600,99 @@ function Test-RecentLogErrors {
         -UseFileWriteTimeFallback $useFileWriteTimeFallback
 }
 
+function Assert-ApiRollbackStaging {
+    param([string]$StagingPath)
+
+    if (-not (Test-Path -LiteralPath (Join-Path $StagingPath 'Uqeb.Api.dll'))) {
+        throw 'نسخة API الاحتياطية لا تحتوي Uqeb.Api.dll.'
+    }
+}
+
+function Assert-WebRollbackStaging {
+    param([string]$StagingPath)
+
+    if (-not (Test-Path -LiteralPath (Join-Path $StagingPath 'index.html'))) {
+        throw 'نسخة Web الاحتياطية لا تحتوي index.html.'
+    }
+}
+
+function Assert-RollbackConfigurationAvailable {
+    param(
+        [string]$ConfigSource,
+        [bool]$HasApplicationBackup
+    )
+
+    if ($HasApplicationBackup -and -not (Test-Path -LiteralPath $ConfigSource)) {
+        throw "إعداد الإنتاج المعتمد غير موجود أثناء file rollback: $ConfigSource"
+    }
+}
+
+function Restore-DeploymentDirectoryAtomically {
+    param(
+        [string]$Source,
+        [string]$Target,
+        [scriptblock]$ValidateStaging = $null
+    )
+
+    $previous = Swap-DirectoryAtomically `
+        -Source $Source `
+        -Target $Target `
+        -ValidateStaging $ValidateStaging
+    Remove-DirectoryIfExists -Path $previous
+}
+
+function Restore-ApiDirectoryFromBackup {
+    param(
+        [string]$BackupApi,
+        [string]$ApiTarget
+    )
+
+    Restore-DeploymentDirectoryAtomically `
+        -Source $BackupApi `
+        -Target $ApiTarget `
+        -ValidateStaging {
+            param($StagingPath)
+            Assert-ApiRollbackStaging -StagingPath $StagingPath
+        }
+}
+
+function Restore-WebDirectoryFromBackup {
+    param(
+        [string]$BackupWeb,
+        [string]$WebTarget
+    )
+
+    Restore-DeploymentDirectoryAtomically `
+        -Source $BackupWeb `
+        -Target $WebTarget `
+        -ValidateStaging {
+            param($StagingPath)
+            Assert-WebRollbackStaging -StagingPath $StagingPath
+        }
+}
+
+function Restore-BrowserDirectoryFromBackup {
+    param(
+        [string]$BackupBrowsers,
+        [string]$PlaywrightBrowsersPath
+    )
+
+    Restore-DeploymentDirectoryAtomically `
+        -Source $BackupBrowsers `
+        -Target $PlaywrightBrowsersPath
+}
+
+function Restore-ReleaseManifestFromBackup {
+    param(
+        [string]$BackupReleaseManifest,
+        [string]$ReleaseManifestPath
+    )
+
+    Copy-Item -LiteralPath $BackupReleaseManifest -Destination $ReleaseManifestPath -Force
+}
+
 function Invoke-DeploymentFileRollback {
     param(
-        [string]$TaskName,
-        [int]$ApiPort,
         [string]$BackupApi,
         [string]$BackupWeb,
         [string]$ApiTarget,
@@ -608,35 +705,41 @@ function Invoke-DeploymentFileRollback {
         [string]$BackupReleaseManifest = ""
     )
 
-    if (-not (Test-DirectoryHasContent $BackupApi) -and -not (Test-DirectoryHasContent $BackupWeb) -and -not (Test-DirectoryHasContent $BackupBrowsers)) {
+    $hasApiBackup = Test-DirectoryHasContent $BackupApi
+    $hasWebBackup = Test-DirectoryHasContent $BackupWeb
+    $hasBrowserBackup = Test-DirectoryHasContent $BackupBrowsers
+    $hasApplicationBackup = $hasApiBackup -or $hasWebBackup
+
+    if (-not $hasApiBackup -and -not $hasWebBackup -and -not $hasBrowserBackup) {
         Write-DeployInfo "لا توجد نسخة ملفات سابقة لاسترجاعها."
         return $false
     }
 
-    Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-    Stop-ApiListenersOnPort -Port $ApiPort | Out-Null
-    Wait-PortReleased -Port $ApiPort -TimeoutSec 20 | Out-Null
+    Assert-RollbackConfigurationAvailable `
+        -ConfigSource $ConfigSource `
+        -HasApplicationBackup $hasApplicationBackup
 
-    if (Test-DirectoryHasContent $BackupApi) {
-        Invoke-RobocopySafe -Source $BackupApi -Destination $ApiTarget -TargetType Api
+    if ($hasApiBackup) {
+        Restore-ApiDirectoryFromBackup -BackupApi $BackupApi -ApiTarget $ApiTarget
     }
-    if (Test-DirectoryHasContent $BackupWeb) {
-        if (Test-DirectoryHasContent $WebTarget) {
-            Get-ChildItem -LiteralPath $WebTarget -Force | Remove-Item -Recurse -Force
-        }
-        Invoke-RobocopySafe -Source $BackupWeb -Destination $WebTarget -TargetType Web
+    if ($hasWebBackup) {
+        Restore-WebDirectoryFromBackup -BackupWeb $BackupWeb -WebTarget $WebTarget
     }
-    if (Test-Path -LiteralPath $ConfigSource) {
+    if ($hasApplicationBackup) {
         Copy-Item -LiteralPath $ConfigSource -Destination $ConfigTarget -Force
     }
-    if ($PlaywrightBrowsersPath -and (Test-DirectoryHasContent $BackupBrowsers)) {
-        Restore-PreviousDirectory -Target $PlaywrightBrowsersPath -PreviousPath $BackupBrowsers | Out-Null
+
+    if ($PlaywrightBrowsersPath -and $hasBrowserBackup) {
+        Restore-BrowserDirectoryFromBackup `
+            -BackupBrowsers $BackupBrowsers `
+            -PlaywrightBrowsersPath $PlaywrightBrowsersPath
     }
     if ($ReleaseManifestPath -and (Test-Path -LiteralPath $BackupReleaseManifest)) {
-        Copy-Item -LiteralPath $BackupReleaseManifest -Destination $ReleaseManifestPath -Force
+        Restore-ReleaseManifestFromBackup `
+            -BackupReleaseManifest $BackupReleaseManifest `
+            -ReleaseManifestPath $ReleaseManifestPath
     }
 
-    Start-ScheduledTask -TaskName $TaskName
     return $true
 }
 
@@ -677,6 +780,10 @@ function Assert-DatabaseBackupNotBypassed {
     }
 }
 
+function Test-IsWindowsPlatform {
+    return $env:OS -eq 'Windows_NT'
+}
+
 function Assert-ValidApiBindAddress {
     param(
         [Parameter(Mandatory = $true)]
@@ -699,6 +806,10 @@ function Assert-ValidApiBindAddress {
     if ($parsed.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork) {
         throw "ApiBindAddress يجب أن يكون IPv4 فقط: $ApiBindAddress"
     }
+
+    if ([System.Net.IPAddress]::IsLoopback($parsed)) {
+        throw "ApiBindAddress لا يجوز أن يكون عنوان loopback: $ApiBindAddress"
+    }
 }
 
 function Assert-JunctionTargetUnderInstallRoot {
@@ -707,15 +818,201 @@ function Assert-JunctionTargetUnderInstallRoot {
         [Parameter(Mandatory = $true)][string]$TargetPath
     )
 
-    $rootFull = [System.IO.Path]::GetFullPath($InstallRoot)
-    if (-not $rootFull.EndsWith([System.IO.Path]::DirectorySeparatorChar)) {
-        $rootFull += [System.IO.Path]::DirectorySeparatorChar
-    }
-
-    $targetFull = [System.IO.Path]::GetFullPath($TargetPath)
-    if (-not $targetFull.StartsWith($rootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+    $rootFull = Get-NormalizedFullPath -Path $InstallRoot
+    $targetFull = Get-NormalizedFullPath -Path $TargetPath
+    if (-not $targetFull.StartsWith($rootFull + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "مسار الهدف للرابط الرمزي يجب أن يكون ضمن InstallRoot: $TargetPath"
     }
+}
+
+function Get-NormalizedFullPath {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path
+    )
+
+    return [System.IO.Path]::GetFullPath($Path).TrimEnd('\', '/')
+}
+
+function Assert-ValidReleaseVersion {
+    param(
+        [Parameter(Mandatory = $true)][string]$Version
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Version)) {
+        throw 'Release version is empty.'
+    }
+
+    if ($Version -match '[\\/:*?"<>|]' -or $Version -match '\.\.') {
+        throw "Release version is invalid: $Version"
+    }
+
+    if ($Version.StartsWith('.') -or $Version.EndsWith('.')) {
+        throw "Release version is invalid: $Version"
+    }
+}
+
+function Test-ReleaseArtifacts {
+    param(
+        [Parameter(Mandatory = $true)][string]$ReleaseRoot
+    )
+
+    $required = @(
+        (Join-Path $ReleaseRoot 'api\Uqeb.Api.dll'),
+        (Join-Path $ReleaseRoot 'web\index.html')
+    )
+
+    foreach ($requiredPath in $required) {
+        if (-not (Test-Path -LiteralPath $requiredPath)) {
+            throw "Release artifact missing: $requiredPath"
+        }
+    }
+}
+
+function Publish-ImmutableReleaseFromStaging {
+    param(
+        [Parameter(Mandatory = $true)][string]$StagingPath,
+        [Parameter(Mandatory = $true)][string]$ReleasesRoot,
+        [Parameter(Mandatory = $true)][string]$Version
+    )
+
+    Assert-ValidReleaseVersion -Version $Version
+
+    $releaseRoot = Join-Path $ReleasesRoot $Version
+    if (Test-Path -LiteralPath $releaseRoot) {
+        throw "Release version already exists and is immutable: $Version"
+    }
+
+    $stagingReleaseRoot = Join-Path $ReleasesRoot (".staging-$Version-" + [Guid]::NewGuid().ToString('N'))
+    Ensure-Directory (Split-Path -Parent $stagingReleaseRoot)
+
+    try {
+        Copy-ReleaseArtifactsFromStaging -StagingPath $StagingPath -ReleaseRoot $stagingReleaseRoot
+        Test-ReleaseArtifacts -ReleaseRoot $stagingReleaseRoot
+        Move-Item -LiteralPath $stagingReleaseRoot -Destination $releaseRoot -Force
+        return $releaseRoot
+    }
+    catch {
+        Remove-DirectoryIfExists -Path $stagingReleaseRoot
+        throw
+    }
+}
+
+function Invoke-PromotionFailureInjection {
+    param(
+        [Parameter(Mandatory = $true)][string]$Point
+    )
+
+    if ($script:ReleasePromotionFailureInjection -and $script:ReleasePromotionFailureInjection -eq $Point) {
+        throw "Release promotion failure injection at $Point"
+    }
+}
+
+function Invoke-PromotionPhaseRollback {
+    param(
+        [Parameter(Mandatory = $true)][hashtable]$State,
+        [Parameter(Mandatory = $true)][string]$InstallRoot,
+        [Parameter(Mandatory = $true)][object]$Paths
+    )
+
+    if ($State.LinksSynced) {
+        try {
+            Sync-PublishCompatibilityLinks -InstallRoot $InstallRoot
+        }
+        catch {
+            Write-DeployInfo ("تعذر إعادة مزامنة روابط publish أثناء rollback: " + $_.Exception.Message)
+        }
+    }
+
+    if ($State.WebSwapped -and $State.WebPrevious) {
+        Restore-PreviousDirectory -Target $Paths.CurrentWeb -PreviousPath $State.WebPrevious | Out-Null
+    }
+
+    if ($State.ApiSwapped -and $State.ApiPrevious) {
+        Restore-PreviousDirectory -Target $Paths.CurrentApi -PreviousPath $State.ApiPrevious | Out-Null
+    }
+
+    Remove-DirectoryIfExists -Path $State.ApiPrevious
+    Remove-DirectoryIfExists -Path $State.WebPrevious
+}
+
+function Get-JunctionTargetPath {
+    param(
+        [Parameter(Mandatory = $true)][string]$LinkPath
+    )
+
+    $item = Get-Item -LiteralPath $LinkPath -Force
+    $isReparsePoint = ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
+    $isSymbolicLink = $item.LinkType -eq 'SymbolicLink' -or $item.LinkType -eq 'Junction'
+    if (-not $isReparsePoint -and -not $isSymbolicLink) {
+        throw "Path is not a reparse point or symbolic link: $LinkPath"
+    }
+
+    $target = $item.Target
+    if ($target -is [System.Array]) {
+        return [string]$target[0]
+    }
+
+    return [string]$target
+}
+
+function Assert-JunctionPointsToTarget {
+    param(
+        [Parameter(Mandatory = $true)][string]$LinkPath,
+        [Parameter(Mandatory = $true)][string]$ExpectedTargetPath,
+        [string]$InstallRoot
+    )
+
+    $normalizedExpected = Get-NormalizedFullPath -Path $ExpectedTargetPath
+    if (-not [string]::IsNullOrWhiteSpace($InstallRoot)) {
+        Assert-JunctionTargetUnderInstallRoot -InstallRoot $InstallRoot -TargetPath $normalizedExpected
+    }
+
+    $normalizedActual = Get-NormalizedFullPath -Path (Get-JunctionTargetPath -LinkPath $LinkPath)
+    if ($normalizedActual -ne $normalizedExpected) {
+        Remove-ReparsePointSafe -Path $LinkPath
+        throw "Junction target mismatch. Expected $normalizedExpected but found $normalizedActual."
+    }
+}
+
+function Invoke-RestartCurrentReleaseService {
+    param(
+        [Parameter(Mandatory = $true)][string]$TaskName,
+        [Parameter(Mandatory = $true)][int]$ApiPort,
+        [string]$ApiBaseUrl = '',
+        [string]$HealthScriptPath = '',
+        [string]$PlaywrightBrowsersPath = '',
+        [string]$ExpectedBrowserExecutableSha256 = '',
+        [switch]$SkipPlaywrightProcessSmokeTest,
+        [switch]$RequireHealthVerification
+    )
+
+    if ($RequireHealthVerification) {
+        if ([string]::IsNullOrWhiteSpace($ApiBaseUrl)) {
+            throw 'ApiBaseUrl is required for rollback health verification.'
+        }
+        if ([string]::IsNullOrWhiteSpace($HealthScriptPath) -or -not (Test-Path -LiteralPath $HealthScriptPath)) {
+            throw "Health verification script is required but missing: $HealthScriptPath"
+        }
+    }
+
+    Start-ScheduledTask -TaskName $TaskName
+    if (-not (Test-PortListener -Port $ApiPort -TimeoutSec 45)) {
+        throw "API did not restart on port $ApiPort."
+    }
+
+    if ([string]::IsNullOrWhiteSpace($HealthScriptPath) -or -not (Test-Path -LiteralPath $HealthScriptPath)) {
+        return
+    }
+
+    if ([string]::IsNullOrWhiteSpace($ApiBaseUrl)) {
+        return
+    }
+
+    & $HealthScriptPath `
+        -ApiBaseUrl $ApiBaseUrl `
+        -PlaywrightBrowsersPath $PlaywrightBrowsersPath `
+        -ExpectedBrowserExecutableSha256 $ExpectedBrowserExecutableSha256 `
+        -SkipPlaywrightProcessSmokeTest:$SkipPlaywrightProcessSmokeTest
 }
 
 function Get-SqlBracketedIdentifier {
@@ -1494,12 +1791,18 @@ function Write-RollbackState {
 function Remove-ReparsePointSafe {
     param([string]$Path)
 
-    if (-not (Test-Path -LiteralPath $Path)) {
+    if ([string]::IsNullOrWhiteSpace($Path)) {
         return
     }
 
-    $item = Get-Item -LiteralPath $Path -Force
-    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+    $item = Get-ReparsePointEntry -Path $Path
+    if (-not $item) {
+        return
+    }
+
+    $isReparsePoint = ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
+    $isSymbolicLink = $item.LinkType -eq 'SymbolicLink' -or $item.LinkType -eq 'Junction'
+    if ($isReparsePoint -or $isSymbolicLink) {
         if ($item.PSIsContainer) {
             [System.IO.Directory]::Delete($Path, $false)
         }
@@ -1510,6 +1813,39 @@ function Remove-ReparsePointSafe {
     }
 
     Remove-Item -LiteralPath $Path -Recurse -Force
+}
+
+function Get-ReparsePointEntry {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path
+    )
+
+    try {
+        return Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    }
+    catch {
+        $parentPath = Split-Path -Parent $Path
+        $leafName = Split-Path -Leaf $Path
+        if ([string]::IsNullOrWhiteSpace($parentPath) -or [string]::IsNullOrWhiteSpace($leafName)) {
+            return $null
+        }
+
+        if (-not (Test-Path -LiteralPath $parentPath)) {
+            return $null
+        }
+
+        return Get-ChildItem -LiteralPath $parentPath -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -eq $leafName } |
+            Select-Object -First 1
+    }
+}
+
+function Test-LinkEntryExists {
+    param(
+        [Parameter(Mandatory = $true)][string]$LinkPath
+    )
+
+    return $null -ne (Get-ReparsePointEntry -Path $LinkPath)
 }
 
 function Set-PublishDirectoryJunction {
@@ -1527,11 +1863,14 @@ function Set-PublishDirectoryJunction {
     Ensure-Directory $TargetPath
     Remove-ReparsePointSafe -Path $LinkPath
 
-    New-Item -ItemType Junction -Path $LinkPath -Target $TargetPath -Force | Out-Null
-    $created = Get-Item -LiteralPath $LinkPath -Force
-    if (($created.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) {
-        throw "تعذر إنشاء الرابط الرمزي من $LinkPath إلى $TargetPath"
+    if (Test-IsWindowsPlatform) {
+        New-Item -ItemType Junction -Path $LinkPath -Target $TargetPath -Force | Out-Null
     }
+    else {
+        New-Item -ItemType SymbolicLink -Path $LinkPath -Target $TargetPath -Force | Out-Null
+    }
+
+    Assert-JunctionPointsToTarget -LinkPath $LinkPath -ExpectedTargetPath $TargetPath -InstallRoot $InstallRoot
 }
 
 function Sync-PublishCompatibilityLinks {
@@ -1596,42 +1935,83 @@ function Install-StagedReleaseToProduction {
     )
 
     Initialize-ReleaseLayout -InstallRoot $InstallRoot
+    Assert-ValidReleaseVersion -Version $Version
     $paths = Get-ReleaseLayoutPaths -InstallRoot $InstallRoot -Version $Version
     $previousState = Read-RollbackState -InstallRoot $InstallRoot
     $previousVersion = if ($previousState) { [string]$previousState.currentRelease } else { '' }
 
-    Ensure-Directory $paths.ReleaseRoot
-    Copy-ReleaseArtifactsFromStaging -StagingPath $StagingPath -ReleaseRoot $paths.ReleaseRoot
-
-    Swap-DirectoryAtomically -Source $paths.ReleaseApi -Target $paths.CurrentApi | Out-Null
-    Swap-DirectoryAtomically -Source $paths.ReleaseWeb -Target $paths.CurrentWeb | Out-Null
-
-    $configTarget = Join-Path $paths.CurrentApi 'appsettings.Production.json'
-    if (-not (Test-Path -LiteralPath $ConfigPath)) {
-        throw "إعداد الإنتاج المعتمد غير موجود: $ConfigPath"
+    if (Test-Path -LiteralPath $paths.ReleaseRoot) {
+        throw "Release version already exists and is immutable: $Version"
     }
 
-    Copy-Item -LiteralPath $ConfigPath -Destination $configTarget -Force
-    Sync-PublishCompatibilityLinks -InstallRoot $InstallRoot
+    Publish-ImmutableReleaseFromStaging `
+        -StagingPath $StagingPath `
+        -ReleasesRoot $paths.ReleasesRoot `
+        -Version $Version | Out-Null
 
-    $rollbackState = [ordered]@{
-        updatedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
-        currentRelease = $Version
-        previousRelease = $previousVersion
-        package = [System.IO.Path]::GetFileName($PackagePath)
-        commitSha = $PackageCommit
-        releaseRoot = $paths.ReleaseRoot
-        currentApi = $paths.CurrentApi
-        currentWeb = $paths.CurrentWeb
-        publishApi = $paths.PublishApi
-        publishWeb = $paths.PublishWeb
+    $promotionState = @{
+        ApiPrevious = $null
+        WebPrevious = $null
+        ApiSwapped = $false
+        WebSwapped = $false
+        ConfigCopied = $false
+        LinksSynced = $false
+        RollbackStateWritten = $false
     }
-    Write-RollbackState -InstallRoot $InstallRoot -State $rollbackState
 
-    return [pscustomobject]@{
-        Paths = $paths
-        PreviousRelease = $previousVersion
-        ConfigTarget = $configTarget
+    try {
+        $promotionState.ApiPrevious = Swap-DirectoryAtomically -Source $paths.ReleaseApi -Target $paths.CurrentApi
+        $promotionState.ApiSwapped = $true
+        Invoke-PromotionFailureInjection -Point 'after_api_swap'
+
+        $promotionState.WebPrevious = Swap-DirectoryAtomically -Source $paths.ReleaseWeb -Target $paths.CurrentWeb
+        $promotionState.WebSwapped = $true
+        Invoke-PromotionFailureInjection -Point 'after_web_swap'
+
+        $configTarget = Join-Path $paths.CurrentApi 'appsettings.Production.json'
+        if (-not (Test-Path -LiteralPath $ConfigPath)) {
+            throw "إعداد الإنتاج المعتمد غير موجود: $ConfigPath"
+        }
+
+        Copy-Item -LiteralPath $ConfigPath -Destination $configTarget -Force
+        $promotionState.ConfigCopied = $true
+        Invoke-PromotionFailureInjection -Point 'after_config_copy'
+
+        Sync-PublishCompatibilityLinks -InstallRoot $InstallRoot
+        $promotionState.LinksSynced = $true
+        Invoke-PromotionFailureInjection -Point 'after_publish_links'
+
+        Invoke-PromotionFailureInjection -Point 'before_rollback_state'
+
+        $rollbackState = [ordered]@{
+            updatedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+            currentRelease = $Version
+            previousRelease = $previousVersion
+            package = [System.IO.Path]::GetFileName($PackagePath)
+            commitSha = $PackageCommit
+            releaseRoot = $paths.ReleaseRoot
+            currentApi = $paths.CurrentApi
+            currentWeb = $paths.CurrentWeb
+            publishApi = $paths.PublishApi
+            publishWeb = $paths.PublishWeb
+        }
+        Write-RollbackState -InstallRoot $InstallRoot -State $rollbackState
+        $promotionState.RollbackStateWritten = $true
+
+        Remove-DirectoryIfExists -Path $promotionState.ApiPrevious
+        Remove-DirectoryIfExists -Path $promotionState.WebPrevious
+
+        return [pscustomobject]@{
+            Paths = $paths
+            PreviousRelease = $previousVersion
+            ConfigTarget = $configTarget
+            PromotionStarted = $true
+            PromotionCompleted = $true
+        }
+    }
+    catch {
+        Invoke-PromotionPhaseRollback -State $promotionState -InstallRoot $InstallRoot -Paths $paths
+        throw
     }
 }
 
@@ -1641,7 +2021,13 @@ function Invoke-ReleaseRollbackFromState {
         [Parameter(Mandatory = $true)][string]$TaskName,
         [Parameter(Mandatory = $true)][int]$ApiPort,
         [string]$ConfigPath = '',
-        [string]$ReleaseManifestPath = ''
+        [string]$ReleaseManifestPath = '',
+        [string]$ApiBaseUrl = '',
+        [string]$HealthScriptPath = '',
+        [string]$PlaywrightBrowsersPath = '',
+        [string]$ExpectedBrowserExecutableSha256 = '',
+        [switch]$SkipPlaywrightProcessSmokeTest,
+        [switch]$RequireHealthVerification
     )
 
     $state = Read-RollbackState -InstallRoot $InstallRoot
@@ -1695,9 +2081,17 @@ function Invoke-ReleaseRollbackFromState {
         publishWeb = $paths.PublishWeb
         rollbackOf = [string]$state.currentRelease
     }
-    Write-RollbackState -InstallRoot $InstallRoot -State $restoredState
+    Invoke-RestartCurrentReleaseService `
+        -TaskName $TaskName `
+        -ApiPort $ApiPort `
+        -ApiBaseUrl $ApiBaseUrl `
+        -HealthScriptPath $HealthScriptPath `
+        -PlaywrightBrowsersPath $PlaywrightBrowsersPath `
+        -ExpectedBrowserExecutableSha256 $ExpectedBrowserExecutableSha256 `
+        -SkipPlaywrightProcessSmokeTest:$SkipPlaywrightProcessSmokeTest `
+        -RequireHealthVerification:$RequireHealthVerification
 
-    Start-ScheduledTask -TaskName $TaskName
+    Write-RollbackState -InstallRoot $InstallRoot -State $restoredState
     return $true
 }
 
@@ -1834,7 +2228,7 @@ function Get-AppliedMigrationIds {
     }
 }
 
-function Test-RequiredMigrationApplied {
+function Test-RequiredMigrationPresent {
     param(
         [string]$ConnectionString,
         [string]$RequiredMigrationId
@@ -1864,9 +2258,184 @@ function Test-RequiredMigrationApplied {
         }
     }
 
-    if (-not $found) {
-        throw "لا يمكن تخطي migrations: قاعدة الإنتاج لا تحتوي migration المطلوبة $RequiredMigrationId."
+    return $found
+}
+
+function Test-RequiredMigrationApplied {
+    param(
+        [string]$ConnectionString,
+        [string]$RequiredMigrationId
+    )
+
+    if (-not (Test-RequiredMigrationPresent `
+        -ConnectionString $ConnectionString `
+        -RequiredMigrationId $RequiredMigrationId)) {
+        throw "قاعدة الإنتاج لا تحتوي migration المطلوبة $RequiredMigrationId."
     }
+}
+
+function Assert-DeploymentArchiveSources {
+    param(
+        [string]$ZipPath,
+        [string]$Sha256Path
+    )
+
+    if (-not (Test-Path -LiteralPath $ZipPath)) {
+        throw "ملف ZIP المراد أرشفته غير موجود: $ZipPath"
+    }
+    if (-not (Test-Path -LiteralPath $Sha256Path)) {
+        throw "ملف SHA256 المراد أرشفته غير موجود: $Sha256Path"
+    }
+}
+
+function Get-DeploymentArchiveTargets {
+    param(
+        [string]$ZipPath,
+        [string]$Sha256Path,
+        [string]$ArchiveDirectory
+    )
+
+    Ensure-Directory $ArchiveDirectory
+    return [pscustomobject]@{
+        ZipTarget = Join-Path $ArchiveDirectory (Split-Path -Leaf $ZipPath)
+        ShaTarget = Join-Path $ArchiveDirectory (Split-Path -Leaf $Sha256Path)
+    }
+}
+
+function Assert-ArchiveArtifactsMatch {
+    param(
+        [string]$ZipPath,
+        [string]$Sha256Path,
+        [string]$ZipTarget,
+        [string]$ShaTarget
+    )
+
+    $sourceZipHash = Get-FileSha256Hex -Path $ZipPath
+    $targetZipHash = Get-FileSha256Hex -Path $ZipTarget
+    $sourceSidecarHash = Get-FileSha256Hex -Path $Sha256Path
+    $targetSidecarHash = Get-FileSha256Hex -Path $ShaTarget
+    if ($sourceZipHash -ne $targetZipHash -or $sourceSidecarHash -ne $targetSidecarHash) {
+        throw 'تعارض أرشفة الحزمة: يوجد artifact بالاسم نفسه وبمحتوى مختلف.'
+    }
+}
+
+function New-DeploymentArchiveResult {
+    param(
+        [string]$Status,
+        [string]$ZipPath,
+        [string]$Sha256Path
+    )
+
+    return [pscustomobject]@{
+        Status = $Status
+        ZipPath = $ZipPath
+        Sha256Path = $Sha256Path
+    }
+}
+
+function Resolve-ExistingDeploymentArchivePair {
+    param(
+        [string]$ZipPath,
+        [string]$Sha256Path,
+        [string]$ZipTarget,
+        [string]$ShaTarget
+    )
+
+    $zipTargetExists = Test-Path -LiteralPath $ZipTarget
+    $shaTargetExists = Test-Path -LiteralPath $ShaTarget
+    if (-not $zipTargetExists -and -not $shaTargetExists) {
+        return $null
+    }
+
+    if (-not ($zipTargetExists -and $shaTargetExists)) {
+        throw 'تعارض أرشفة الحزمة: يوجد جزء واحد فقط من زوج ZIP/SHA256 في deployed.'
+    }
+
+    Assert-ArchiveArtifactsMatch `
+        -ZipPath $ZipPath `
+        -Sha256Path $Sha256Path `
+        -ZipTarget $ZipTarget `
+        -ShaTarget $ShaTarget
+
+    Remove-Item -LiteralPath $ZipPath -Force
+    Remove-Item -LiteralPath $Sha256Path -Force
+    return New-DeploymentArchiveResult `
+        -Status 'already_archived' `
+        -ZipPath $ZipTarget `
+        -Sha256Path $ShaTarget
+}
+
+function Restore-ZipAfterArchiveFailure {
+    param(
+        [string]$ZipPath,
+        [string]$ZipTarget
+    )
+
+    if ((Test-Path -LiteralPath $ZipTarget) -and -not (Test-Path -LiteralPath $ZipPath)) {
+        Move-Item -LiteralPath $ZipTarget -Destination $ZipPath
+    }
+}
+
+function Move-DeploymentArchivePair {
+    param(
+        [string]$ZipPath,
+        [string]$Sha256Path,
+        [string]$ZipTarget,
+        [string]$ShaTarget
+    )
+
+    Move-Item -LiteralPath $ZipPath -Destination $zipTarget
+    try {
+        if ($script:PackageArchiveFailureInjection -eq 'before_sha_move') {
+            throw 'simulated SHA move failure'
+        }
+        Move-Item -LiteralPath $Sha256Path -Destination $shaTarget
+    }
+    catch {
+        $archiveError = $_
+        try {
+            Restore-ZipAfterArchiveFailure -ZipPath $ZipPath -ZipTarget $ZipTarget
+        }
+        catch {
+            throw "فشل نقل SHA256 وفشل التراجع عن نقل ZIP. Archive: $($archiveError.Exception.Message) Restore: $($_.Exception.Message)"
+        }
+        throw $archiveError
+    }
+}
+
+function Move-DeploymentPackageToArchive {
+    param(
+        [Parameter(Mandatory = $true)][string]$ZipPath,
+        [Parameter(Mandatory = $true)][string]$Sha256Path,
+        [Parameter(Mandatory = $true)][string]$ArchiveDirectory
+    )
+
+    Assert-DeploymentArchiveSources -ZipPath $ZipPath -Sha256Path $Sha256Path
+
+    $targets = Get-DeploymentArchiveTargets `
+        -ZipPath $ZipPath `
+        -Sha256Path $Sha256Path `
+        -ArchiveDirectory $ArchiveDirectory
+
+    $existingResult = Resolve-ExistingDeploymentArchivePair `
+        -ZipPath $ZipPath `
+        -Sha256Path $Sha256Path `
+        -ZipTarget $targets.ZipTarget `
+        -ShaTarget $targets.ShaTarget
+    if ($null -ne $existingResult) {
+        return $existingResult
+    }
+
+    Move-DeploymentArchivePair `
+        -ZipPath $ZipPath `
+        -Sha256Path $Sha256Path `
+        -ZipTarget $targets.ZipTarget `
+        -ShaTarget $targets.ShaTarget
+
+    return New-DeploymentArchiveResult `
+        -Status 'archived' `
+        -ZipPath $targets.ZipTarget `
+        -Sha256Path $targets.ShaTarget
 }
 
 function Get-SafeArchiveDestinationRoot {

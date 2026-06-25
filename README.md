@@ -190,7 +190,17 @@ Frontend:
 .\scripts\build-production-package.ps1
 
 # جهاز الإنتاج (بعد نقل ZIP + SHA256 إلى C:\Uqeb\incoming — offline)
-C:\UqebTools\install-production-package.ps1 -PackagePath C:\Uqeb\incoming\Uqeb-<version>.zip
+$package = Get-ChildItem "C:\Uqeb\incoming\Uqeb-*.zip" |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+
+if (-not $package) {
+    throw "لم يتم العثور على حزمة Uqeb في C:\Uqeb\incoming."
+}
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File "C:\UqebTools\install-production-package.ps1" `
+  -PackagePath $package.FullName
 ```
 
 الحزمة الرسمية تتضمن `browsers\` (Chromium) و`api\playwright.ps1`. على الإنتاج:
@@ -199,13 +209,13 @@ C:\UqebTools\install-production-package.ps1 -PackagePath C:\Uqeb\incoming\Uqeb-<
 - `PLAYWRIGHT_BROWSERS_PATH` يُضبط عبر `C:\Uqeb\run-api.cmd` الذي تستدعيه مهمة `UqebApi`
 - لا تشغّل `playwright install` يدويًا على الإنتاج عند استخدام الحزمة الرسمية
 - PDF يتطلب Chromium؛ HTML وXLSX وDOCX لا تعتمد عليه
-- التحقق: `verify-deployment-health.ps1` و`/health/ready` (بدون تخصيص رقم تقرير)
+- التحقق التشغيلي المعتمد: `/health/live` ثم `/health/ready` ثم `/health` مع `database=pass` وبقية checks، ثم طلب دخول وهمي اختياري يعيد `401`.
 
 إعداد أولي: `.\scripts\setup-production-tools.ps1` على جهاز الإنتاج.
 
-> **لا يمكن تنفيذ نشر إنتاج أو migrations دون نسخة قاعدة بيانات مكتملة ومتحقق منها. لا يوجد خيار تجاوز لهذه الخطوة.** `install-production-package.ps1` ينفّذ النسخ الاحتياطي وتطبيق migrations افتراضيًا دون معاملات إضافية.
+> **لا يمكن تنفيذ نشر إنتاج أو migrations دون نسخة قاعدة بيانات مكتملة ومتحقق منها. لا يوجد خيار تجاوز لهذه الخطوة.** المثبت يفحص `manifest.minimumDatabaseMigration`: يتجاوز التنفيذ إذا كانت مطبقة، ويطبق الحزمة idempotently تلقائيًا إذا كانت مفقودة.
 
-قبل إيقاف API، يُنشأ تلقائيًا نسخ احتياطي كامل في `C:\Uqeb\backup\db\` مع `WITH CHECKSUM` و`RESTORE VERIFYONLY`، ثم تُطبَّق migrations من الحزمة.
+قبل إيقاف API، يُنشأ تلقائيًا نسخ احتياطي كامل في `C:\Uqeb\backup\db\` مع `WITH CHECKSUM` و`RESTORE VERIFYONLY`. إذا كانت migration المطلوبة مفقودة، يوقف المثبت API ثم يطبقها ويتحقق من `__EFMigrationsHistory` قبل promotion.
 
 ---
 

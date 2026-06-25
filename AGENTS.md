@@ -36,18 +36,34 @@ docs/PRODUCTION_DEPLOYMENT_TROUBLESHOOTING.md
 ## قواعد إلزامية
 
 1. لا تنشر ملفات المصدر أو `node_modules` إلى الإنتاج.
-2. لا تشغّل migrations على الإنتاج إلا بتفويض صريح ونسخة احتياطية كاملة لقاعدة البيانات.
+2. لا تشغّل migrations على الإنتاج خارج `install-production-package.ps1`. المثبت يقرر تلقائيًا من `manifest.minimumDatabaseMigration` بعد نسخة احتياطية كاملة ومتحقق منها.
 3. لا تستبدل إعدادات الإنتاج بملفات إعدادات جهاز التطوير.
 4. لا تحذف المرفقات أو السجلات أو البيانات التشغيلية أثناء النشر.
 5. خذ نسخة احتياطية من API والواجهة وإعدادات الإنتاج قبل أي استبدال.
 6. لا تستخدم `npm audit fix` ضمن مسار تجهيز الإصدار؛ تعالج الاعتماديات في تغيير مستقل.
 7. لا تعتمد على رسالة «بيانات الدخول غير صحيحة» لتشخيص الشبكة؛ افحص Request URL وStatus Code وConsole.
-8. لا تعتمد على `/health` حتى يضاف endpoint فعليًا إلى الكود.
+8. بوابة القبول الرسمية هي `/health/live` ثم `/health/ready` ثم `/health` مع نجاح فحوص قاعدة البيانات وPlaywright والتقارير.
 9. لا يجوز أن يحتوي بناء Frontend للإنتاج على `localhost:5000` أو `127.0.0.1:5000`.
 10. تُحقن `VITE_API_BASE_URL` وقت البناء؛ تعديلها بعد البناء لا يغير الملفات المنشورة.
 11. قيم Robocopy من 0 إلى 7 نجاح أو اختلافات غير قاتلة؛ 8 فأعلى فشل.
 12. لا تستخدم `/MIR` على مجلد API. يمكن استخدامه على مجلد الواجهة الثابت فقط.
 13. لا تنفذ أي حذف إنتاجي أو تصفير معاملات دون نسخة قاعدة بيانات قابلة للتحقق وتأكيد صريح.
+
+أمر التثبيت الرسمي المبسط:
+
+```powershell
+$package = Get-ChildItem "C:\Uqeb\incoming\Uqeb-*.zip" |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+
+if (-not $package) {
+    throw "لم يتم العثور على حزمة Uqeb في C:\Uqeb\incoming."
+}
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File "C:\UqebTools\install-production-package.ps1" `
+  -PackagePath $package.FullName
+```
 
 ---
 
@@ -454,7 +470,15 @@ if ($listener.LocalAddress -notcontains "0.0.0.0" -and $listener.LocalAddress -n
 }
 ```
 
-لا تعتمد على `/health` في الوضع الحالي. استخدم طلب دخول وهميًا، والنتيجة الصحيحة هي `401`:
+شغّل بوابة الصحة الرسمية:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+    -File "C:\UqebTools\verify-deployment-health.ps1" `
+    -ApiBaseUrl "http://10.0.177.17:5000"
+```
+
+يجب أن تنجح `/health/live` و`/health/ready` و`/health`، وأن يعيد الملخص `database=pass` مع نجاح فحوص Playwright وتسلسل أرقام التقارير والتقارير المؤسسية. بعد ذلك يمكن استخدام طلب دخول وهمي كـsmoke test إضافي، والنتيجة الصحيحة هي `401`:
 
 ```powershell
 $body = @{
