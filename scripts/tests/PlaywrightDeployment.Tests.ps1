@@ -317,7 +317,7 @@ exit 1
 
 Describe 'Get-RelativePathFromDirectory' {
     BeforeAll {
-        $script:IsWindowsPlatform = ($IsWindows -or $env:OS -eq 'Windows_NT')
+        $script:IsWindowsPlatform = [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT
 
         function script:New-RelativePathTestRoot {
             $base = if ([string]::IsNullOrWhiteSpace($env:TEMP)) { '/tmp' } else { $env:TEMP }
@@ -700,9 +700,12 @@ Describe 'install-production-package.ps1 playwright policy' {
         $match.Success | Should -BeTrue
     }
 
-    It 'runs migrations by default before stopping API service' {
+    It 'runs explicitly authorized migrations after stopping API service' {
         $content = Get-Content (Join-Path (Split-Path $PSScriptRoot -Parent) 'install-production-package.ps1') -Raw
-        $match = [regex]::Match($content, 'apply-migrations[\s\S]*Stop-ScheduledTask')
+        $match = [regex]::Match(
+            $content,
+            'Stop-ScheduledTask\s+-TaskName[\s\S]+?if\s*\(\$ApplyDatabaseMigration\)[\s\S]+?&\s+\$migrationScript\b'
+        )
         $match.Success | Should -BeTrue
     }
 

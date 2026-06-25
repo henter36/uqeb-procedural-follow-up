@@ -684,6 +684,10 @@ function Assert-DatabaseBackupNotBypassed {
     }
 }
 
+function Test-IsWindowsPlatform {
+    return $env:OS -eq 'Windows_NT'
+}
+
 function Assert-ValidApiBindAddress {
     param(
         [Parameter(Mandatory = $true)]
@@ -705,6 +709,10 @@ function Assert-ValidApiBindAddress {
 
     if ($parsed.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork) {
         throw "ApiBindAddress يجب أن يكون IPv4 فقط: $ApiBindAddress"
+    }
+
+    if ([System.Net.IPAddress]::IsLoopback($parsed)) {
+        throw "ApiBindAddress لا يجوز أن يكون عنوان loopback: $ApiBindAddress"
     }
 }
 
@@ -1749,7 +1757,7 @@ function Set-PublishDirectoryJunction {
     Ensure-Directory $TargetPath
     Remove-ReparsePointSafe -Path $LinkPath
 
-    if ($IsWindows) {
+    if (Test-IsWindowsPlatform) {
         New-Item -ItemType Junction -Path $LinkPath -Target $TargetPath -Force | Out-Null
     }
     else {
@@ -1907,7 +1915,12 @@ function Invoke-ReleaseRollbackFromState {
         [Parameter(Mandatory = $true)][string]$TaskName,
         [Parameter(Mandatory = $true)][int]$ApiPort,
         [string]$ConfigPath = '',
-        [string]$ReleaseManifestPath = ''
+        [string]$ReleaseManifestPath = '',
+        [string]$ApiBaseUrl = '',
+        [string]$HealthScriptPath = '',
+        [string]$PlaywrightBrowsersPath = '',
+        [string]$ExpectedBrowserExecutableSha256 = '',
+        [switch]$SkipPlaywrightProcessSmokeTest
     )
 
     $state = Read-RollbackState -InstallRoot $InstallRoot
@@ -1961,9 +1974,16 @@ function Invoke-ReleaseRollbackFromState {
         publishWeb = $paths.PublishWeb
         rollbackOf = [string]$state.currentRelease
     }
-    Write-RollbackState -InstallRoot $InstallRoot -State $restoredState
+    Invoke-RestartCurrentReleaseService `
+        -TaskName $TaskName `
+        -ApiPort $ApiPort `
+        -ApiBaseUrl $ApiBaseUrl `
+        -HealthScriptPath $HealthScriptPath `
+        -PlaywrightBrowsersPath $PlaywrightBrowsersPath `
+        -ExpectedBrowserExecutableSha256 $ExpectedBrowserExecutableSha256 `
+        -SkipPlaywrightProcessSmokeTest:$SkipPlaywrightProcessSmokeTest
 
-    Start-ScheduledTask -TaskName $TaskName
+    Write-RollbackState -InstallRoot $InstallRoot -State $restoredState
     return $true
 }
 

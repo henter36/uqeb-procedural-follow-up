@@ -41,10 +41,6 @@ if ([string]::IsNullOrWhiteSpace($ApiBaseUrl)) {
     $ApiBaseUrl = "http://${ApiBindAddress}:$ApiPort"
 }
 
-if ($ApplyDatabaseMigration) {
-    Write-Warning "معامل ApplyDatabaseMigration مهمل ولا يؤثر على السلوك؛ النسخ الاحتياطي وتطبيق migrations يتمان افتراضيًا."
-}
-
 $deploymentResult = "فشل"
 $backupPath = ""
 $databaseBackupPath = ""
@@ -166,22 +162,13 @@ try {
     Write-DeployInfo ("وقت إنشاء النسخة (UTC): " + $databaseBackupCreatedAtUtc)
     Write-DeployInfo ("تجزئة SHA256 للنسخة: " + $databaseBackupSha256)
 
-    Write-DeployStep "تطبيق migrations"
-    $migrationScript = Join-Path $stagingPath "scripts\apply-migrations.ps1"
-    if (-not (Test-Path -LiteralPath $migrationScript)) {
-        $migrationScript = Join-Path $ToolsRoot "apply-migrations.ps1"
+    if (-not $ApplyDatabaseMigration) {
+        Write-DeployStep "التحقق من أن migration المطلوبة مطبقة مسبقًا"
+        Test-RequiredMigrationApplied `
+            -ConnectionString $sqlInfo.ConnectionString `
+            -RequiredMigrationId ([string]$manifest.minimumDatabaseMigration)
+        $databaseStatus = "مطبقة مسبقًا"
     }
-    if (-not (Test-Path -LiteralPath $migrationScript)) {
-        throw "سكربت apply-migrations.ps1 غير موجود في الحزمة أو في C:\UqebTools."
-    }
-
-    & $migrationScript `
-        -SettingsPath $ConfigPath `
-        -MigrationFile (Join-Path $stagingPath "database\migrations-idempotent.sql") `
-        -ExpectedLatestMigration $manifest.minimumDatabaseMigration
-
-    $databaseStatus = "نجح"
-    $migrationsApplied = $true
 
     Write-DeployStep "إيقاف API"
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
@@ -227,8 +214,27 @@ try {
         }
     }
     else {
-        Write-DeployInfo "تم تخطي النسخة الاحتياطية للملفات (-SkipFileBackup). نسخة قاعدة البيانات وتطبيق migrations ما زالا إلزاميين."
+        Write-DeployInfo "تم تخطي النسخة الاحتياطية للملفات (-SkipFileBackup). نسخة قاعدة البيانات تبقى إلزامية."
         $backupPath = "(متخطى)"
+    }
+
+    if ($ApplyDatabaseMigration) {
+        Write-DeployStep "تطبيق migrations بتفويض صريح"
+        $migrationScript = Join-Path $stagingPath "scripts\apply-migrations.ps1"
+        if (-not (Test-Path -LiteralPath $migrationScript)) {
+            $migrationScript = Join-Path $ToolsRoot "apply-migrations.ps1"
+        }
+        if (-not (Test-Path -LiteralPath $migrationScript)) {
+            throw "سكربت apply-migrations.ps1 غير موجود في الحزمة أو في C:\UqebTools."
+        }
+
+        & $migrationScript `
+            -SettingsPath $ConfigPath `
+            -MigrationFile (Join-Path $stagingPath "database\migrations-idempotent.sql") `
+            -ExpectedLatestMigration $manifest.minimumDatabaseMigration
+
+        $databaseStatus = "نجح"
+        $migrationsApplied = $true
     }
 
     Write-DeployStep "ترقية الإصدار عبر releases/current"
@@ -366,15 +372,31 @@ catch {
     }
 
     if ($promotionCompleted) {
-        $releaseRollback = Invoke-ReleaseRollbackFromState `
-            -InstallRoot $InstallRoot `
-            -TaskName $TaskName `
-            -ApiPort $ApiPort `
-            -ConfigPath $ConfigPath `
-            -ReleaseManifestPath $releaseManifestPath
+        $rollbackHealthScript = Join-Path $ToolsRoot "verify-deployment-health.ps1"
+        if (-not (Test-Path -LiteralPath $rollbackHealthScript)) {
+            $rollbackHealthScript = Join-Path $stagingPath "scripts\verify-deployment-health.ps1"
+        }
+
+        $releaseRollback = $false
+        try {
+            $releaseRollback = Invoke-ReleaseRollbackFromState `
+                -InstallRoot $InstallRoot `
+                -TaskName $TaskName `
+                -ApiPort $ApiPort `
+                -ConfigPath $ConfigPath `
+                -ReleaseManifestPath $releaseManifestPath `
+                -ApiBaseUrl $ApiBaseUrl `
+                -HealthScriptPath $rollbackHealthScript `
+                -PlaywrightBrowsersPath $PlaywrightBrowsersPath `
+                -ExpectedBrowserExecutableSha256 ([string]$manifest.playwright.browserExecutableSha256) `
+                -SkipPlaywrightProcessSmokeTest
+        }
+        catch {
+            Write-DeployFailure ("فشل التحقق من الإصدار السابق بعد rollback: " + $_.Exception.Message)
+        }
         if ($releaseRollback) {
             $rollbackPerformed = $true
-            Write-DeployInfo "تم استرجاع الإصدار السابق من rollback-state.json."
+            Write-DeployInfo "تم استرجاع الإصدار السابق والتحقق من تشغيله بنجاح."
         }
 
         if (-not $rollbackPerformed -and -not $SkipFileBackup -and $backupPath -and $backupPath -ne "(متخطى)") {

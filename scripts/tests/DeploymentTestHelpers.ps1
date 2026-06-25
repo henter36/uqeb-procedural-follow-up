@@ -265,7 +265,7 @@ function Ensure-ScheduledTaskCommandStubs {
 }
 
 function Mock-RobocopyAsCopyOnNonWindows {
-    if ($IsWindows) {
+    if (Test-IsWindowsPlatform) {
         return
     }
 
@@ -300,6 +300,7 @@ function Register-StandardDeploymentInstallMocks {
     Mock Stop-Process {}
     Mock Get-NetTCPConnection { return @() }
     Mock Test-RecentLogErrors { return @() }
+    Mock Test-RequiredMigrationApplied {}
     Mock Copy-ApplicationPayload {}
     Mock Test-PackageManifestHashes {}
     Mock Invoke-DatabaseBackupRetentionPolicy { return @() }

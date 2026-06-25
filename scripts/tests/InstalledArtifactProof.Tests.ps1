@@ -51,7 +51,7 @@ Describe 'Windows installed-artifact promotion proof' {
         $promotion.ConfigTarget | Should -Be (Join-Path $InstallRoot 'current\api\appsettings.Production.json')
     }
 
-    It 'creates publish junctions to current on Windows' -Skip:(-not $IsWindows) {
+    It 'creates publish junctions to current on Windows' -Skip:([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
         $configPath = New-AuthoritativeProductionConfig -InstallRoot $InstallRoot
 
         Install-StagedReleaseToProduction `
@@ -77,7 +77,7 @@ Describe 'Windows offline installer artifact proof' {
         Register-StandardDeploymentInstallMocks
     }
 
-    It 'writes rollback-state and release manifest during mocked Windows install' -Skip:(-not $IsWindows) {
+    It 'writes rollback-state and release manifest during mocked Windows install' -Skip:([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
         $env = New-InstallTestEnvironment -CommonPath $script:CommonPath -PackageVersion 'proof-install'
         'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
@@ -86,7 +86,11 @@ Describe 'Windows offline installer artifact proof' {
         Test-Path -LiteralPath (Get-RollbackStatePath -InstallRoot $env.InstallRoot) | Should -BeTrue
         Test-Path -LiteralPath (Join-Path $env.InstallRoot 'releases\proof-install\api\Uqeb.Api.dll') | Should -BeTrue
         Test-Path -LiteralPath (Join-Path $env.InstallRoot 'publish\release-manifest.json') | Should -BeTrue
-        (Get-Content (Join-Path $env.InstallRoot 'publish\release-manifest.json') -Raw | ConvertFrom-Json).promotionModel |
-            Should -Be 'releases-current-v1'
+        $releaseManifest = Get-Content (Join-Path $env.InstallRoot 'publish\release-manifest.json') -Raw | ConvertFrom-Json
+        $releaseManifest.promotionModel | Should -Be 'releases-current-v1'
+        $releaseManifest.databaseBackup.path | Should -Not -BeNullOrEmpty
+        [long]$releaseManifest.databaseBackup.sizeBytes | Should -BeGreaterThan 0
+        [string]$releaseManifest.databaseBackup.createdAtUtc | Should -Not -BeNullOrEmpty
+        [string]$releaseManifest.databaseBackup.sha256 | Should -Match '^[A-Fa-f0-9]{64}$'
     }
 }

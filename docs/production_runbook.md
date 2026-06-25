@@ -106,7 +106,7 @@ $staging = "C:\Uqeb\staging\<TIMESTAMP>"
 |--------|--------|--------|
 | 1 | التطوير | `.\scripts\build-production-package.ps1` |
 | 2 | — | انقل `Uqeb-*.zip` و`Uqeb-*.sha256.txt` إلى `C:\Uqeb\incoming` |
-| 3 | الإنتاج | `C:\UqebTools\install-production-package.ps1 -PackagePath ...` |
+| 3 | الإنتاج | `C:\UqebTools\install-production-package.ps1 -PackagePath ... -ApplyDatabaseMigration` عند اعتماد migration |
 
 إعداد أولي لمرة واحدة على الإنتاج: `.\scripts\setup-production-tools.ps1`
 
@@ -119,11 +119,12 @@ $staging = "C:\Uqeb\staging\<TIMESTAMP>"
 1. `BACKUP DATABASE ... WITH CHECKSUM` إلى `C:\Uqeb\backup\db\<Database>-before-<timestamp>.bak`
 2. `RESTORE VERIFYONLY ... WITH CHECKSUM`
 3. التحقق من الحجم وSHA256 واسم القاعدة
-4. تطبيق `database\migrations-idempotent.sql` والتحقق من آخر migration
-5. تسجيل المسار والحجم والوقت في تقرير النشر و`release-manifest.json`
-6. إيقاف API ثم ترقية الملفات
+4. عند عدم تمرير `-ApplyDatabaseMigration`: التحقق أن migration المطلوبة مطبقة مسبقًا، وإيقاف النشر إن لم تكن مطبقة
+5. إيقاف API والتأكد من تحرير المنفذ
+6. عند وجود التفويض الصريح: تطبيق `database\migrations-idempotent.sql` والتحقق من آخر migration
+7. ترقية الملفات، ثم كتابة بيانات النسخة في تقرير النشر و`release-manifest.json`
 
-عند فشل أي خطوة: يتوقف النشر فورًا دون migrations أو استبدال ملفات. عند فشل مرحلة لاحقة: يُعرض أمر `RESTORE DATABASE` اليدوي دون استعادة تلقائية.
+عند فشل النسخة الاحتياطية أو التحقق القبلي: يتوقف النشر دون إيقاف API أو استبدال ملفات. عند فشل مرحلة لاحقة: يُعرض أمر `RESTORE DATABASE` اليدوي دون استعادة تلقائية.
 
 سياسة الاحتفاظ: آخر 10 نسخ ناجحة كحد أدنى؛ لا حذف النسخ المرتبطة بإصدار منشور.
 
@@ -155,8 +156,8 @@ scripts/deploy-production.ps1
 | الاعتماد على `sqlcmd` | `apply-migrations.ps1` يستخدم `System.Data.SqlClient` |
 | نسخ `appsettings` من التطوير | الإعداد في `C:\Uqeb\config` فقط |
 | `localhost` في بناء الواجهة للشبكة | البناء يستخدم `10.0.177.17:5000/api` |
-| إعلان النجاح لمجرد بدء المهمة | انتظر المنفذ + health + السجل |
-| health فقط دون migrations | تحقق من `database=pass` والسجل |
+| إعلان النجاح لمجرد بدء المهمة | انتظر المنفذ + login probe `401` + السجل |
+| فحص الشبكة فقط دون migrations | تحقق من migration المطلوبة وسجل التشغيل |
 | `robocopy /MIR` على API | استخدم النسخ بدون `/MIR` |
 | طباعة كلمات المرور أو JWT | السكربتات تعرض Server/Database فقط |
 | نشر دون نسخة قاعدة بيانات | النسخة الاحتياطية إلزامية قبل migrations — لا `-SkipDatabaseBackup` |
@@ -386,25 +387,35 @@ Get-Content "C:\Uqeb\logs\api-runtime.log" -Tail 150
 
 ---
 
-## 9. فحوص الصحة
+## 9. فحوص التشغيل المعتمدة
 
 على خادم API:
 
 ```powershell
-Invoke-WebRequest -UseBasicParsing "http://localhost:5000/health/live"
-Invoke-WebRequest -UseBasicParsing "http://localhost:5000/health/ready"
-Invoke-WebRequest -UseBasicParsing "http://localhost:5000/health"
+$body = @{
+    username = "__deployment_probe__"
+    password = "__deployment_probe__"
+} | ConvertTo-Json
+
+try {
+    Invoke-WebRequest `
+        -UseBasicParsing `
+        -Uri "http://localhost:5000/api/auth/login" `
+        -Method Post `
+        -ContentType "application/json" `
+        -Body $body
+    throw "طلب الدخول الوهمي أعاد نجاحًا غير متوقع."
+}
+catch {
+    if (!$_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 401) {
+        throw
+    }
+}
 ```
 
-المطلوب:
+المطلوب: اتصال ناجح بالـAPI واستجابة `401`. لا تعتمد بوابة النشر الحالية على `/health`.
 
-```text
-live   = 200
-ready  = 200
-health = 200، database = pass
-```
-
-> نجاح health/database لا يثبت أن جميع الأعمدة المطلوبة موجودة؛ يجب أيضًا تنفيذ smoke test لتسجيل الدخول وفتح شاشة تعتمد على العلاقات والبيانات المرجعية.
+> نجاح login probe لا يثبت أن جميع الأعمدة المطلوبة موجودة؛ يجب أيضًا تنفيذ تسجيل دخول فعلي وفتح شاشة تعتمد على العلاقات والبيانات المرجعية.
 
 ---
 
@@ -530,9 +541,7 @@ Get-Content "C:\Uqeb\logs\api-runtime.log" -Tail 300 |
 
 - [ ] `UqebApi` تعمل.
 - [ ] المنفذ `5000` في حالة Listen.
-- [ ] `/health/live` يعيد 200.
-- [ ] `/health/ready` يعيد 200.
-- [ ] `/health` يعيد database pass.
+- [ ] طلب الدخول الوهمي يعيد `401`.
 - [ ] تسجيل الدخول الصحيح يعيد 200.
 - [ ] تسجيل الدخول الخاطئ يعيد 401، وليس 500.
 - [ ] فتح الواجهة من جهاز على الشبكة.

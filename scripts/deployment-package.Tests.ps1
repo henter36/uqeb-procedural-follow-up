@@ -573,7 +573,7 @@ Describe 'install-production-package.ps1 scenarios' {
         $names | Should -Not -Contain 'SkipDatabaseBackup'
     }
 
-    It 'uses deprecated ApplyDatabaseMigration switch for backward compatibility' {
+    It 'requires ApplyDatabaseMigration for explicit migration authorization' {
         $errors = $null
         $ast = [System.Management.Automation.Language.Parser]::ParseFile(
             $script:InstallScript,
@@ -610,11 +610,11 @@ Describe 'install-production-package.ps1 scenarios' {
         { Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env -AdditionalParameters @{ PackagePath = $folder } } | Should -Throw '*ZIP*'
     }
 
-    It 'stops on migration failure during default install path' {
+    It 'stops on migration failure when migration is explicitly authorized' {
         $env = New-InstallTestEnvironment -CommonPath $script:CommonPath -PackageMigrationContent 'throw "migration failed"'
         'throw "migration failed"' | Set-Content (Join-Path $env.ToolsRoot 'apply-migrations.ps1') -Encoding ASCII
 
-        { Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env } |
+        { Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env -AdditionalParameters @{ ApplyDatabaseMigration = $true } } |
             Should -Throw
         Assert-MockCalled Install-StagedReleaseToProduction -Times 0 -Exactly
     }
@@ -627,23 +627,23 @@ Describe 'install-production-package.ps1 scenarios' {
             Should -Throw
     }
 
-    It 'succeeds on full mocked deployment path and applies migrations by default' {
+    It 'succeeds without applying migrations when required migration is already present' {
         $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
         'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
         { Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env } | Should -Not -Throw
         Assert-MockCalled Invoke-ProductionDatabaseBackup -Times 1 -Exactly
+        Assert-MockCalled Test-RequiredMigrationApplied -Times 1 -Exactly
         Assert-MockCalled Install-StagedReleaseToProduction -Times 1 -Exactly
     }
 
-    It 'documents deprecated ApplyDatabaseMigration switch as no-op warning' {
+    It 'does not treat ApplyDatabaseMigration as a deprecated no-op' {
         $content = Get-Content -LiteralPath $script:InstallScript -Raw
         $content | Should -Match 'ApplyDatabaseMigration'
-        $content | Should -Match 'Write-Warning'
-        $content | Should -Match 'مهمل'
+        $content | Should -Not -Match 'معامل ApplyDatabaseMigration مهمل'
     }
 
-    It 'still runs database backup and migrations when SkipFileBackup is set' {
+    It 'still runs database backup when SkipFileBackup is set' {
         $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
         'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
@@ -675,7 +675,7 @@ Describe 'install-production-package.ps1 scenarios' {
         Assert-MockCalled Install-StagedReleaseToProduction -Times 0 -Exactly
     }
 
-    It 'runs database backup and migrations before API stop by default' {
+    It 'runs database backup before API stop and authorized migration after API stop' {
         $global:deployOrder = @()
         Mock Invoke-ProductionDatabaseBackup {
             $global:deployOrder += 'db-backup'
@@ -691,14 +691,35 @@ Describe 'install-production-package.ps1 scenarios' {
         }
         Mock Stop-ScheduledTask { $global:deployOrder += 'stop-api' }
 
-        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
+        $env = New-InstallTestEnvironment `
+            -CommonPath $script:CommonPath `
+            -PackageMigrationContent '$global:deployOrder += "migration"'
         'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
-        Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env | Out-Null
+        Invoke-TestInstallScript `
+            -InstallScript $script:InstallScript `
+            -Environment $env `
+            -AdditionalParameters @{ ApplyDatabaseMigration = $true } | Out-Null
 
         $global:deployOrder[0] | Should -Be 'db-backup'
         ($global:deployOrder.IndexOf('db-backup') -lt $global:deployOrder.IndexOf('stop-api')) | Should -BeTrue
+        ($global:deployOrder.IndexOf('stop-api') -lt $global:deployOrder.IndexOf('migration')) | Should -BeTrue
         Test-Path (Join-Path $env.InstallRoot 'incoming\deployed\Uqeb-test.zip') | Should -BeTrue
+    }
+
+    It 'stops before service shutdown when migration is missing and authorization is absent' {
+        Mock Test-RequiredMigrationApplied { throw 'required migration missing' }
+        $global:deployOrder = @()
+        Mock Stop-ScheduledTask { $global:deployOrder += 'stop-api' }
+
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
+
+        { Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env } |
+            Should -Throw '*required migration missing*'
+
+        $global:deployOrder | Should -Not -Contain 'stop-api'
+        Assert-MockCalled Invoke-ProductionDatabaseBackup -Times 1 -Exactly
+        Assert-MockCalled Install-StagedReleaseToProduction -Times 0 -Exactly
     }
 
     It 'shows manual restore command when a later deployment step fails' {
@@ -778,6 +799,8 @@ Describe 'install-production-package.ps1 scenarios' {
     It 'rejects invalid ApiBindAddress values' {
         { Assert-ValidApiBindAddress -ApiBindAddress 'http://10.0.177.17' } | Should -Throw
         { Assert-ValidApiBindAddress -ApiBindAddress '0.0.0.0:5000' } | Should -Throw
+        { Assert-ValidApiBindAddress -ApiBindAddress '127.0.0.1' } | Should -Throw '*loopback*'
+        { Assert-ValidApiBindAddress -ApiBindAddress '0.0.0.0' } | Should -Not -Throw
         { Assert-ValidApiBindAddress -ApiBindAddress '10.0.177.17' } | Should -Not -Throw
     }
 
@@ -1234,7 +1257,7 @@ Describe 'apply-migrations.ps1 encoding' {
 }
 
 Describe 'Publish directory junction safety' {
-    It 'removes junction without deleting the target directory on Windows' -Skip:(-not $IsWindows) {
+    It 'removes junction without deleting the target directory on Windows' -Skip:([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
         $installRoot = New-TempDirectory
         $target = Join-Path $installRoot 'current\api (junction test)'
         $link = Join-Path $installRoot 'publish\api'
@@ -1258,7 +1281,7 @@ Describe 'Publish directory junction safety' {
             Should -Throw '*InstallRoot*'
     }
 
-    It 'verifies junction target matches expected path on Windows' -Skip:(-not $IsWindows) {
+    It 'verifies junction target matches expected path on Windows' -Skip:([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
         $installRoot = New-TempDirectory
         $target = Join-Path $installRoot 'current\api'
         $link = Join-Path $installRoot 'publish\api'
@@ -1271,7 +1294,7 @@ Describe 'Publish directory junction safety' {
             Should -Be (Get-NormalizedFullPath -Path $target)
     }
 
-    It 'removes junction and throws when target does not match on Windows' -Skip:(-not $IsWindows) {
+    It 'removes junction and throws when target does not match on Windows' -Skip:([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
         $installRoot = New-TempDirectory
         $expectedTarget = Join-Path $installRoot 'current\api'
         $wrongTarget = Join-Path $installRoot 'wrong\api'
@@ -1287,7 +1310,7 @@ Describe 'Publish directory junction safety' {
         Test-Path -LiteralPath $wrongTarget | Should -BeTrue
     }
 
-    It 'removes broken junction entry without deleting unrelated targets on Windows' -Skip:(-not $IsWindows) {
+    It 'removes broken junction entry without deleting unrelated targets on Windows' -Skip:([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
         $installRoot = New-TempDirectory
         $target = Join-Path $installRoot 'current\api (مسار Junction)'
         $survivor = Join-Path $installRoot 'current\api-survivor (backup)'
@@ -1375,6 +1398,7 @@ Describe 'Release promotion safety' {
         Mock Start-ScheduledTask {}
         Mock Stop-ApiListenersOnPort {}
         Mock Wait-PortReleased { $true }
+        Mock Test-PortListener { $true }
 
         $installRoot = New-TempDirectory
         $configPath = New-AuthoritativeProductionConfig -InstallRoot $installRoot -ConfigMarker 'authoritative-config'
@@ -1463,6 +1487,29 @@ Describe 'install-production-package rollback and service recovery' {
             -SkipPlaywrightProcessSmokeTest
 
         $global:UqebTestStartCalls | Should -Be 1
+    }
+
+    It 'does not report release rollback success when the restored API fails verification' {
+        Mock Start-ScheduledTask {}
+        Mock Stop-ScheduledTask {}
+        Mock Stop-ApiListenersOnPort {}
+        Mock Wait-PortReleased { $true }
+        Mock Test-PortListener { $false }
+
+        $installRoot = New-TempDirectory
+        $configPath = New-AuthoritativeProductionConfig -InstallRoot $installRoot
+        $v1Staging = Initialize-PromotionFixture -Root $installRoot -Version '20260101-120000' -ApiMarker 'v1'
+        Invoke-TestReleasePromotion -InstallRoot $installRoot -StagingPath $v1Staging -Version '20260101-120000' -ConfigPath $configPath
+        $v2Staging = Initialize-PromotionFixture -Root $installRoot -Version '20260102-120000' -ApiMarker 'v2'
+        Invoke-TestReleasePromotion -InstallRoot $installRoot -StagingPath $v2Staging -Version '20260102-120000' -ConfigPath $configPath
+
+        {
+            Invoke-ReleaseRollbackFromState `
+                -InstallRoot $installRoot `
+                -TaskName 'UqebApi' `
+                -ApiPort 5000 `
+                -ConfigPath $configPath
+        } | Should -Throw '*did not restart*'
     }
 
     It 'tracks service stop phases and restarts current release when stop started before promotion' {

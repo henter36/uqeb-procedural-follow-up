@@ -190,7 +190,9 @@ Frontend:
 .\scripts\build-production-package.ps1
 
 # جهاز الإنتاج (بعد نقل ZIP + SHA256 إلى C:\Uqeb\incoming — offline)
-C:\UqebTools\install-production-package.ps1 -PackagePath C:\Uqeb\incoming\Uqeb-<version>.zip
+C:\UqebTools\install-production-package.ps1 `
+  -PackagePath C:\Uqeb\incoming\Uqeb-<version>.zip `
+  -ApplyDatabaseMigration
 ```
 
 الحزمة الرسمية تتضمن `browsers\` (Chromium) و`api\playwright.ps1`. على الإنتاج:
@@ -199,13 +201,13 @@ C:\UqebTools\install-production-package.ps1 -PackagePath C:\Uqeb\incoming\Uqeb-<
 - `PLAYWRIGHT_BROWSERS_PATH` يُضبط عبر `C:\Uqeb\run-api.cmd` الذي تستدعيه مهمة `UqebApi`
 - لا تشغّل `playwright install` يدويًا على الإنتاج عند استخدام الحزمة الرسمية
 - PDF يتطلب Chromium؛ HTML وXLSX وDOCX لا تعتمد عليه
-- التحقق: `verify-deployment-health.ps1` و`/health/ready` (بدون تخصيص رقم تقرير)
+- التحقق التشغيلي المعتمد: طلب دخول وهمي إلى `/api/auth/login` يعيد `401`، ثم تسجيل دخول فعلي من جهاز الإنتاج وجهاز عميل.
 
 إعداد أولي: `.\scripts\setup-production-tools.ps1` على جهاز الإنتاج.
 
-> **لا يمكن تنفيذ نشر إنتاج أو migrations دون نسخة قاعدة بيانات مكتملة ومتحقق منها. لا يوجد خيار تجاوز لهذه الخطوة.** `install-production-package.ps1` ينفّذ النسخ الاحتياطي وتطبيق migrations افتراضيًا دون معاملات إضافية.
+> **لا يمكن تنفيذ نشر إنتاج أو migrations دون نسخة قاعدة بيانات مكتملة ومتحقق منها. لا يوجد خيار تجاوز لهذه الخطوة.** النسخ الاحتياطي إلزامي دائمًا، أما migrations فتتطلب تفويضًا صريحًا بالمعامل `-ApplyDatabaseMigration`.
 
-قبل إيقاف API، يُنشأ تلقائيًا نسخ احتياطي كامل في `C:\Uqeb\backup\db\` مع `WITH CHECKSUM` و`RESTORE VERIFYONLY`، ثم تُطبَّق migrations من الحزمة.
+قبل إيقاف API، يُنشأ تلقائيًا نسخ احتياطي كامل في `C:\Uqeb\backup\db\` مع `WITH CHECKSUM` و`RESTORE VERIFYONLY`. عند تمرير `-ApplyDatabaseMigration` يُوقف API أولًا، ثم تُطبَّق migrations من الحزمة.
 
 ---
 
