@@ -124,7 +124,14 @@ Describe 'Windows offline installer artifact proof' {
         Mock Wait-PortReleased { $true }
         Mock Test-PortListener { $true }
         Mock Test-RecentLogErrors { return @() }
-        Mock Test-RequiredMigrationApplied {}
+        Mock Invoke-ProductionDatabaseBackup {
+            return [pscustomobject]@{
+                Path = 'C:\Uqeb\backup\db\UqebDb-before-proof.bak'
+                SizeBytes = 1024
+                CreatedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+                Sha256 = ('a' * 64)
+            }
+        }
         Mock Invoke-DatabaseBackupRetentionPolicy { return @() }
         Mock Install-PlaywrightBrowserToProduction { return '' }
         Mock Test-PlaywrightBrowserPayload {
@@ -158,11 +165,13 @@ Describe 'Windows offline installer artifact proof' {
             Ensure-Directory (Join-Path $pkgRoot 'web')
             Ensure-Directory (Join-Path $pkgRoot 'database')
             Ensure-Directory (Join-Path $pkgRoot 'browsers')
+            Ensure-Directory (Join-Path $pkgRoot 'scripts')
             Set-Content (Join-Path $pkgRoot 'api\Uqeb.Api.dll') 'dll' -Encoding ASCII
             Set-Content (Join-Path $pkgRoot 'api\playwright.ps1') 'exit 0' -Encoding ASCII
             Set-Content (Join-Path $pkgRoot 'web\index.html') '<html></html>' -Encoding ASCII
             Set-Content (Join-Path $pkgRoot 'database\migrations-idempotent.sql') 'SELECT 1;' -Encoding ASCII
             Set-Content (Join-Path $pkgRoot 'browsers\playwright-browser-manifest.json') '{}' -Encoding ASCII
+            'exit 0' | Set-Content (Join-Path $pkgRoot 'scripts\apply-migrations.ps1') -Encoding ASCII
 
             $browserRoot = Join-Path $installRoot 'tools\ms-playwright'
             Ensure-Directory $browserRoot

@@ -700,9 +700,10 @@ Describe 'install-production-package.ps1 playwright policy' {
         $match.Success | Should -BeTrue
     }
 
-    It 'guards skip migration with required migration check' {
+    It 'runs migrations by default before stopping API service' {
         $content = Get-Content (Join-Path (Split-Path $PSScriptRoot -Parent) 'install-production-package.ps1') -Raw
-        $content | Should -Match 'Test-RequiredMigrationApplied'
+        $match = [regex]::Match($content, 'apply-migrations[\s\S]*Stop-ScheduledTask')
+        $match.Success | Should -BeTrue
     }
 
     It 'sets PLAYWRIGHT_BROWSERS_PATH via run-api wrapper' {

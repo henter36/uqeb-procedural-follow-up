@@ -1396,6 +1396,336 @@ Describe 'Publish directory junction safety' {
         { Set-PublishDirectoryJunction -LinkPath $link -TargetPath $outside -InstallRoot $installRoot } |
             Should -Throw '*InstallRoot*'
     }
+
+    It 'verifies junction target matches expected path on Windows' -Skip:(-not $IsWindows) {
+        $installRoot = New-TempDirectory
+        $target = Join-Path $installRoot 'current\api'
+        $link = Join-Path $installRoot 'publish\api'
+        Ensure-Directory $target
+        Set-Content (Join-Path $target 'marker.txt') 'junction-target' -Encoding ASCII
+
+        Set-PublishDirectoryJunction -LinkPath $link -TargetPath $target -InstallRoot $installRoot
+        { Assert-JunctionPointsToTarget -LinkPath $link -ExpectedTargetPath $target -InstallRoot $installRoot } | Should -Not -Throw
+        Get-NormalizedFullPath -Path (Get-JunctionTargetPath -LinkPath $link) |
+            Should -Be (Get-NormalizedFullPath -Path $target)
+    }
+
+    It 'removes junction and throws when target does not match on Windows' -Skip:(-not $IsWindows) {
+        $installRoot = New-TempDirectory
+        $expectedTarget = Join-Path $installRoot 'current\api'
+        $wrongTarget = Join-Path $installRoot 'wrong\api'
+        $link = Join-Path $installRoot 'publish\api'
+        Ensure-Directory $expectedTarget
+        Ensure-Directory $wrongTarget
+        Set-Content (Join-Path $wrongTarget 'marker.txt') 'wrong' -Encoding ASCII
+
+        New-Item -ItemType Junction -Path $link -Target $wrongTarget -Force | Out-Null
+        { Assert-JunctionPointsToTarget -LinkPath $link -ExpectedTargetPath $expectedTarget -InstallRoot $installRoot } |
+            Should -Throw '*mismatch*'
+        Test-Path -LiteralPath $link | Should -BeFalse
+        Test-Path -LiteralPath $wrongTarget | Should -BeTrue
+    }
+}
+
+Describe 'Release promotion safety' {
+    BeforeAll {
+        function script:Initialize-PromotionFixture {
+            param(
+                [string]$Root,
+                [string]$Version,
+                [string]$ApiMarker,
+                [string]$WebMarker = $ApiMarker,
+                [string]$ExtraApiFile = ''
+            )
+
+            $staging = Join-Path $Root ("staging-$Version")
+            $api = Join-Path $staging 'api'
+            $web = Join-Path $staging 'web'
+            Ensure-Directory $api
+            Ensure-Directory $web
+            Set-Content -LiteralPath (Join-Path $api 'Uqeb.Api.dll') -Value $ApiMarker -Encoding ASCII
+            Set-Content -LiteralPath (Join-Path $web 'index.html') -Value "<html>$WebMarker</html>" -Encoding ASCII
+            if ($ExtraApiFile) {
+                Set-Content -LiteralPath (Join-Path $api $ExtraApiFile) -Value 'stale' -Encoding ASCII
+            }
+
+            return $staging
+        }
+
+        function script:New-AuthoritativeConfig {
+            param(
+                [string]$InstallRoot,
+                [string]$Marker = 'default-config'
+            )
+
+            $configPath = Join-Path $InstallRoot 'config\appsettings.Production.json'
+            Ensure-Directory (Split-Path -Parent $configPath)
+            (@{
+                ConnectionStrings = @{ DefaultConnection = 'Server=.;Database=UqebDb;Integrated Security=True;TrustServerCertificate=True' }
+                ConfigMarker = $Marker
+            } | ConvertTo-Json -Compress) | Set-Content -LiteralPath $configPath -Encoding UTF8
+            return $configPath
+        }
+
+        function script:Invoke-TestReleasePromotion {
+            param(
+                [string]$InstallRoot,
+                [string]$StagingPath,
+                [string]$Version,
+                [string]$ConfigPath
+            )
+
+            Install-StagedReleaseToProduction `
+                -StagingPath $StagingPath `
+                -InstallRoot $InstallRoot `
+                -Version $Version `
+                -ConfigPath $ConfigPath `
+                -PackagePath 'Uqeb-test.zip' `
+                -PackageCommit 'testsha' | Out-Null
+        }
+
+        function script:Get-CurrentApiMarker {
+            param([string]$InstallRoot)
+
+            return (Get-Content -LiteralPath (Join-Path $InstallRoot 'current\api\Uqeb.Api.dll') -Raw).Trim()
+        }
+
+        function script:Get-CurrentWebMarker {
+            param([string]$InstallRoot)
+
+            $html = Get-Content -LiteralPath (Join-Path $InstallRoot 'current\web\index.html') -Raw
+            if ($html -match '<html>(.*)</html>') {
+                return $Matches[1]
+            }
+
+            return $html.Trim()
+        }
+    }
+
+    BeforeEach {
+        $script:ReleasePromotionFailureInjection = $null
+
+        if (-not $IsWindows) {
+            Mock Invoke-RobocopySafe {
+                param(
+                    [string]$Source,
+                    [string]$Destination
+                )
+
+                Ensure-Directory $Destination
+                Get-ChildItem -LiteralPath $Source -Force | ForEach-Object {
+                    Copy-Item -LiteralPath $_.FullName -Destination $Destination -Recurse -Force
+                }
+            }
+        }
+    }
+
+    AfterEach {
+        $script:ReleasePromotionFailureInjection = $null
+    }
+
+    It 'rejects path traversal in release version' {
+        $installRoot = New-TempDirectory
+        $staging = Initialize-PromotionFixture -Root $installRoot -Version 'bad' -ApiMarker 'x'
+        $configPath = New-AuthoritativeConfig -InstallRoot $installRoot
+
+        {
+            Install-StagedReleaseToProduction `
+                -StagingPath $staging `
+                -InstallRoot $installRoot `
+                -Version '..\evil' `
+                -ConfigPath $configPath `
+                -PackagePath 'Uqeb-test.zip' `
+                -PackageCommit 'testsha'
+        } | Should -Throw '*invalid*'
+    }
+
+    It 'rejects installing an immutable release version twice' {
+        $installRoot = New-TempDirectory
+        $configPath = New-AuthoritativeConfig -InstallRoot $installRoot
+        $v1Staging = Initialize-PromotionFixture -Root $installRoot -Version '20260101-120000' -ApiMarker 'v1'
+        Invoke-TestReleasePromotion -InstallRoot $installRoot -StagingPath $v1Staging -Version '20260101-120000' -ConfigPath $configPath
+
+        {
+            Invoke-TestReleasePromotion -InstallRoot $installRoot -StagingPath $v1Staging -Version '20260101-120000' -ConfigPath $configPath
+        } | Should -Throw '*already exists*'
+    }
+
+    It 'does not leave stale API files in immutable release or current' {
+        $installRoot = New-TempDirectory
+        $configPath = New-AuthoritativeConfig -InstallRoot $installRoot
+        $v1Staging = Initialize-PromotionFixture `
+            -Root $installRoot `
+            -Version '20260101-120000' `
+            -ApiMarker 'v1' `
+            -ExtraApiFile 'stale-old.dll'
+        Invoke-TestReleasePromotion -InstallRoot $installRoot -StagingPath $v1Staging -Version '20260101-120000' -ConfigPath $configPath
+
+        $v2Staging = Initialize-PromotionFixture -Root $installRoot -Version '20260102-120000' -ApiMarker 'v2'
+        Invoke-TestReleasePromotion -InstallRoot $installRoot -StagingPath $v2Staging -Version '20260102-120000' -ConfigPath $configPath
+
+        Test-Path -LiteralPath (Join-Path $installRoot 'releases\20260102-120000\api\stale-old.dll') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $installRoot 'current\api\stale-old.dll') | Should -BeFalse
+        Get-CurrentApiMarker -InstallRoot $installRoot | Should -Be 'v2'
+    }
+
+    It 'uses authoritative ConfigPath during release rollback' {
+        Mock Stop-ScheduledTask {}
+        Mock Start-ScheduledTask {}
+        Mock Stop-ApiListenersOnPort {}
+        Mock Wait-PortReleased { $true }
+
+        $installRoot = New-TempDirectory
+        $configPath = New-AuthoritativeConfig -InstallRoot $installRoot -Marker 'authoritative-config'
+        $configHash = Get-FileSha256Hex -Path $configPath
+
+        $v1Staging = Initialize-PromotionFixture -Root $installRoot -Version '20260101-120000' -ApiMarker 'v1'
+        Invoke-TestReleasePromotion -InstallRoot $installRoot -StagingPath $v1Staging -Version '20260101-120000' -ConfigPath $configPath
+
+        $v2Staging = Initialize-PromotionFixture -Root $installRoot -Version '20260102-120000' -ApiMarker 'v2'
+        Invoke-TestReleasePromotion -InstallRoot $installRoot -StagingPath $v2Staging -Version '20260102-120000' -ConfigPath $configPath
+
+        $rolledBack = Invoke-ReleaseRollbackFromState `
+            -InstallRoot $installRoot `
+            -TaskName 'UqebApi' `
+            -ApiPort 5000 `
+            -ConfigPath $configPath
+        $rolledBack | Should -BeTrue
+
+        $rolledBackConfig = Join-Path $installRoot 'current\api\appsettings.Production.json'
+        Get-FileSha256Hex -Path $rolledBackConfig | Should -Be $configHash
+        ([string](Get-Content -LiteralPath $rolledBackConfig -Raw | ConvertFrom-Json).ConfigMarker) |
+            Should -Be 'authoritative-config'
+
+        $state = Read-RollbackState -InstallRoot $installRoot
+        $state.currentRelease | Should -Be '20260101-120000'
+    }
+
+    It 'rolls back current to previous release on injected promotion failure' -TestCases @(
+        @{ Point = 'after_api_swap'; Label = 'after API swap and before Web' }
+        @{ Point = 'after_web_swap'; Label = 'after Web swap and before config' }
+        @{ Point = 'after_config_copy'; Label = 'after config and before publish links' }
+        @{ Point = 'after_publish_links'; Label = 'after publish links and before rollback state' }
+        @{ Point = 'before_rollback_state'; Label = 'before rollback state write' }
+    ) {
+        param($Point, $Label)
+
+        $installRoot = New-TempDirectory
+        $configPath = New-AuthoritativeConfig -InstallRoot $installRoot
+        $v1Staging = Initialize-PromotionFixture -Root $installRoot -Version '20260101-120000' -ApiMarker 'v1-marker'
+        Invoke-TestReleasePromotion -InstallRoot $installRoot -StagingPath $v1Staging -Version '20260101-120000' -ConfigPath $configPath
+
+        $v2Staging = Initialize-PromotionFixture -Root $installRoot -Version '20260102-120000' -ApiMarker 'v2-marker'
+        $script:ReleasePromotionFailureInjection = $Point
+
+        {
+            Invoke-TestReleasePromotion -InstallRoot $installRoot -StagingPath $v2Staging -Version '20260102-120000' -ConfigPath $configPath
+        } | Should -Throw '*injection*'
+
+        Get-CurrentApiMarker -InstallRoot $installRoot | Should -Be 'v1-marker'
+        Get-CurrentWebMarker -InstallRoot $installRoot | Should -Be 'v1-marker'
+
+        $state = Read-RollbackState -InstallRoot $installRoot
+        if ($null -ne $state) {
+            $state.currentRelease | Should -Be '20260101-120000'
+        }
+    }
+}
+
+Describe 'install-production-package rollback and service recovery' {
+    BeforeAll {
+        if (-not (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue)) {
+            function script:Get-ScheduledTask {
+                param([string]$TaskName)
+                return [pscustomobject]@{ TaskName = $TaskName }
+            }
+        }
+        if (-not (Get-Command Stop-ScheduledTask -ErrorAction SilentlyContinue)) {
+            function script:Stop-ScheduledTask { param([string]$TaskName) }
+        }
+        if (-not (Get-Command Start-ScheduledTask -ErrorAction SilentlyContinue)) {
+            function script:Start-ScheduledTask { param([string]$TaskName) }
+        }
+    }
+
+    BeforeEach {
+        Mock Test-IsAdministrator { $true }
+        Mock Get-ScheduledTask { return [pscustomobject]@{ TaskName = 'UqebApi' } }
+        Mock Stop-ScheduledTask {}
+        Mock Start-ScheduledTask {}
+        Mock Stop-ApiListenersOnPort {}
+        Mock Test-PortListener { $true }
+        Mock Test-RecentLogErrors { return @() }
+        Mock Invoke-ProductionDatabaseBackup {
+            return [pscustomobject]@{
+                Path = 'C:\Uqeb\backup\db\UqebDb-before-test.bak'
+                SizeBytes = 1024
+                CreatedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+                Sha256 = ('a' * 64)
+            }
+        }
+        Mock Invoke-DatabaseBackupRetentionPolicy { return @() }
+        Mock Install-PlaywrightBrowserToProduction { return '' }
+        Mock Test-PlaywrightBrowserPayload {
+            param([string]$BrowsersRoot)
+
+            $executable = Join-Path $BrowsersRoot 'chromium-proof\chrome.exe'
+            Ensure-Directory (Split-Path -Parent $executable)
+            Set-Content -LiteralPath $executable -Value 'fake-chromium' -Encoding ASCII
+            return [pscustomobject]@{ FullPath = $executable }
+        }
+        Mock Test-PlaywrightPackagePreflight {
+            return [pscustomobject]@{
+                ExecutableRelativePath = 'chromium-proof\chrome.exe'
+            }
+        }
+        Mock Test-PackageManifestHashes {}
+
+        if (-not $IsWindows) {
+            Mock Invoke-RobocopySafe {
+                param(
+                    [string]$Source,
+                    [string]$Destination
+                )
+
+                Ensure-Directory $Destination
+                Get-ChildItem -LiteralPath $Source -Force | ForEach-Object {
+                    Copy-Item -LiteralPath $_.FullName -Destination $Destination -Recurse -Force
+                }
+            }
+        }
+    }
+
+    It 'uses ConfigPath for Invoke-ReleaseRollbackFromState' {
+        $content = Get-Content $script:InstallScript -Raw
+        $match = [regex]::Match($content, 'Invoke-ReleaseRollbackFromState[\s\S]*?-ConfigPath\s+\$ConfigPath')
+        $match.Success | Should -BeTrue
+    }
+
+    It 'Invoke-RestartCurrentReleaseService starts scheduled task and verifies port listener' {
+        $global:UqebTestStartCalls = 0
+        Mock Start-ScheduledTask {
+            $global:UqebTestStartCalls++
+        }
+        Mock Test-PortListener { $true }
+
+        Invoke-RestartCurrentReleaseService `
+            -TaskName 'UqebApi' `
+            -ApiPort 5000 `
+            -SkipPlaywrightProcessSmokeTest
+
+        $global:UqebTestStartCalls | Should -Be 1
+    }
+
+    It 'tracks service stop phases and restarts current release when stop started before promotion' {
+        $content = Get-Content $script:InstallScript -Raw
+        $content | Should -Match '\$scheduledTaskStopped\s*=\s*\$true'
+        $content | Should -Match '\$listenersStopped\s*=\s*\$true'
+        $content | Should -Match '\$portReleased\s*=\s*\$true'
+        $content | Should -Match 'Wait-PortReleased'
+        $content | Should -Match 'elseif \(\$scheduledTaskStopped\)'
+        $content | Should -Match 'Invoke-RestartCurrentReleaseService'
+    }
 }
 
 Describe 'build-production-package.ps1 policy' {

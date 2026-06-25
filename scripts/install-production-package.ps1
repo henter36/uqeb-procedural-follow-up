@@ -73,7 +73,10 @@ $deployStartedAt = [DateTime]::UtcNow
 $packageValidated = $false
 $backupVerified = $false
 $migrationsApplied = $false
-$serviceStopped = $false
+$scheduledTaskStopped = $false
+$listenersStopped = $false
+$portReleased = $false
+$promotionStarted = $false
 $promotionCompleted = $false
 
 try {
@@ -182,11 +185,13 @@ try {
 
     Write-DeployStep "إيقاف API"
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    $scheduledTaskStopped = $true
     Stop-ApiListenersOnPort -Port $ApiPort
+    $listenersStopped = $true
     if (-not (Wait-PortReleased -Port $ApiPort -TimeoutSec 30)) {
         throw "المنفذ $ApiPort ما زال مستخدماً بعد إيقاف API."
     }
-    $serviceStopped = $true
+    $portReleased = $true
 
     $backupPath = Join-Path $backupRoot ("before-" + $stamp)
     $backupApi = Join-Path $backupPath "api"
@@ -227,6 +232,7 @@ try {
     }
 
     Write-DeployStep "ترقية الإصدار عبر releases/current"
+    $promotionStarted = $true
     $promotion = Install-StagedReleaseToProduction `
         -StagingPath $stagingPath `
         -InstallRoot $InstallRoot `
@@ -364,7 +370,7 @@ catch {
             -InstallRoot $InstallRoot `
             -TaskName $TaskName `
             -ApiPort $ApiPort `
-            -ConfigPath (Join-Path $backupPath "appsettings.Production.json") `
+            -ConfigPath $ConfigPath `
             -ReleaseManifestPath $releaseManifestPath
         if ($releaseRollback) {
             $rollbackPerformed = $true
@@ -380,7 +386,7 @@ catch {
                 -ApiTarget $currentApiPath `
                 -WebTarget (Join-Path $InstallRoot "current\web") `
                 -ConfigTarget $configTarget `
-                -ConfigSource (Join-Path $backupPath "appsettings.Production.json") `
+                -ConfigSource $ConfigPath `
                 -BackupBrowsers (Join-Path $backupPath "browsers") `
                 -PlaywrightBrowsersPath $PlaywrightBrowsersPath `
                 -ReleaseManifestPath $releaseManifestPath `
@@ -397,13 +403,33 @@ catch {
             }
         }
     }
-    elseif ($serviceStopped) {
-        Write-DeployInfo "فشل بعد إيقاف API وقبل اكتمال الترقية؛ إعادة تشغيل الإصدار الحالي دون rollback للملفات."
+    elseif ($promotionStarted -and -not $promotionCompleted) {
+        Write-DeployInfo "فشل أثناء الترقية؛ تم استرجاع current محليًا قبل إعادة تشغيل الخدمة."
         try {
-            Start-ScheduledTask -TaskName $TaskName
-            if (-not (Test-PortListener -Port $ApiPort -TimeoutSec 45)) {
-                Write-DeployError "تعذر إعادة تشغيل API بعد الفشل."
-            }
+            $healthScript = Join-Path $ToolsRoot "verify-deployment-health.ps1"
+            Invoke-RestartCurrentReleaseService `
+                -TaskName $TaskName `
+                -ApiPort $ApiPort `
+                -ApiBaseUrl $ApiBaseUrl `
+                -HealthScriptPath $healthScript `
+                -PlaywrightBrowsersPath $PlaywrightBrowsersPath `
+                -SkipPlaywrightProcessSmokeTest
+        }
+        catch {
+            Write-DeployError ("تعذر إعادة تشغيل API بعد فشل الترقية: " + $_.Exception.Message)
+        }
+    }
+    elseif ($scheduledTaskStopped) {
+        Write-DeployInfo "فشل بعد إيقاف API وقبل اكتمال الترقية؛ إعادة تشغيل الإصدار الحالي."
+        try {
+            $healthScript = Join-Path $ToolsRoot "verify-deployment-health.ps1"
+            Invoke-RestartCurrentReleaseService `
+                -TaskName $TaskName `
+                -ApiPort $ApiPort `
+                -ApiBaseUrl $ApiBaseUrl `
+                -HealthScriptPath $healthScript `
+                -PlaywrightBrowsersPath $PlaywrightBrowsersPath `
+                -SkipPlaywrightProcessSmokeTest
         }
         catch {
             Write-DeployError ("تعذر إعادة تشغيل API بعد الفشل: " + $_.Exception.Message)
