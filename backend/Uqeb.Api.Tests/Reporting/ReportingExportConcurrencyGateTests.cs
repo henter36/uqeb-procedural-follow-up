@@ -1,3 +1,4 @@
+using Uqeb.Api.Models.Entities;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -141,14 +142,14 @@ public class ReportingExportConcurrencyGateTests
 
     private sealed class NoOpAuditService : Uqeb.Api.Services.IAuditService
     {
-        public void TrackLog(
+        public AuditLog TrackLog(
             int userId,
             Uqeb.Api.Models.Enums.AuditAction action,
             string? entityName,
             int? entityId,
             int? transactionId,
             string? oldValue,
-            string? newValue) { }
+            string? newValue) => new AuditLog();
 
         public Task LogAsync(
             int userId,

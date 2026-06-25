@@ -62,20 +62,23 @@ public class TransactionPersistenceAtomicityTests
         public void InvalidateReferenceData() { }
     }
 
-    private static (AppDbContext Db, SaveChangesCounterInterceptor Counter) CreateDb(string name)
+    private static (AppDbContext Db, SaveChangesCounterInterceptor Counter) CreateDb(string name, params SaveChangesInterceptor[] extraInterceptors)
     {
         var counter = new SaveChangesCounterInterceptor();
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase(name)
             .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
-            .AddInterceptors(counter)
+            .AddInterceptors(new SaveChangesInterceptor[] { counter }.Concat(extraInterceptors).ToArray())
             .Options;
         return (new AppDbContext(options), counter);
     }
 
-    private static async Task<(TransactionService Service, AppDbContext Db, SaveChangesCounterInterceptor Counter, TestCacheInvalidation Cache)> CreateServiceAsync(string dbName)
+    private static async Task<(TransactionService Service, AppDbContext Db, SaveChangesCounterInterceptor Counter, TestCacheInvalidation Cache)> CreateServiceAsync(
+        string dbName,
+        ITrackingNumberService? trackingNumbers = null,
+        params SaveChangesInterceptor[] extraInterceptors)
     {
-        var (db, counter) = CreateDb(dbName);
+        var (db, counter) = CreateDb(dbName, extraInterceptors);
         var cache = new TestCacheInvalidation();
         var user = new User
         {
@@ -100,7 +103,7 @@ public class TransactionPersistenceAtomicityTests
         var service = new TransactionService(
             db,
             new AuditService(db),
-            new StubTrackingNumberService(),
+            trackingNumbers ?? new StubTrackingNumberService(),
             cache);
 
         return (service, db, counter, cache);
@@ -191,6 +194,23 @@ public class TransactionPersistenceAtomicityTests
     }
 
     [Fact]
+    public async Task CreateAsync_with_outgoing_departments_links_all_audits_to_transaction_and_entities()
+    {
+        var (service, db, _, _) = await CreateServiceAsync(nameof(CreateAsync_with_outgoing_departments_links_all_audits_to_transaction_and_entities));
+
+        var created = await service.CreateAsync(BuildCreateRequest(10, 11), userId: 1);
+        var audits = await db.AuditLogs.Where(a => a.TransactionId == created!.Id).ToListAsync();
+
+        Assert.NotEmpty(audits);
+        Assert.All(audits, audit => Assert.Equal(created.Id, audit.TransactionId));
+
+        var assignmentAudits = audits.Where(a => a.EntityName == "Assignment").ToList();
+        Assert.NotEmpty(assignmentAudits);
+        Assert.All(assignmentAudits, audit => Assert.NotNull(audit.EntityId));
+        Assert.All(assignmentAudits, audit => Assert.True(audit.EntityId > 0));
+    }
+
+    [Fact]
     public async Task UpdateAsync_field_change_tracks_audit_without_intermediate_save()
     {
         var (service, db, counter, _) = await CreateServiceAsync(nameof(UpdateAsync_field_change_tracks_audit_without_intermediate_save));
@@ -209,4 +229,29 @@ public class TransactionPersistenceAtomicityTests
         Assert.Contains(await db.AuditLogs.ToListAsync(), a =>
             a.Action == AuditAction.Update && a.OldValue == Priority.Normal.ToString() && a.NewValue == Priority.Urgent.ToString());
     }
+
+    [Fact]
+    public async Task CreateAsync_does_not_attach_unrelated_pending_audit_log()
+    {
+        var (service, db, _, _) = await CreateServiceAsync(nameof(CreateAsync_does_not_attach_unrelated_pending_audit_log));
+        var auditService = new AuditService(db);
+        var unrelated = auditService.TrackLog(
+            1,
+            AuditAction.Update,
+            "Department",
+            99,
+            transactionId: null,
+            oldValue: null,
+            newValue: """{"name":"other"}""");
+
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+
+        Assert.Null(unrelated.TransactionId);
+        Assert.Equal(99, unrelated.EntityId);
+        Assert.DoesNotContain(
+            await db.AuditLogs.Where(a => a.TransactionId == created!.Id).ToListAsync(),
+            audit => audit.EntityName == "Department" && audit.EntityId == 99);
+        Assert.True(await db.AuditLogs.AnyAsync(a => a.Action == AuditAction.Create && a.TransactionId == created.Id));
+    }
+
 }

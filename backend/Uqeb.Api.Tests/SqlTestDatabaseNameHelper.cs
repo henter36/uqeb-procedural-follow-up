@@ -6,7 +6,7 @@ namespace Uqeb.Api.Tests;
 internal static class SqlTestDatabaseNameHelper
 {
     private static readonly Regex AllowedNamePattern = new(
-        @"^Uqeb_RefDataTest_[A-Za-z0-9_]+$",
+        @"^Uqeb_(RefDataTest|TransactionRetry)_[A-Za-z0-9_]+$",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     public static string ValidateAndQuoteDatabaseName(SqlConnection connection, string databaseName)

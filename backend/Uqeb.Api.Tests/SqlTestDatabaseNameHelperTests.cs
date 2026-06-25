@@ -27,4 +27,15 @@ public class SqlTestDatabaseNameHelperTests
 
         Assert.Equal("[Uqeb_RefDataTest_ConcurrentDepartmentCreate_OnlyOneSucceeds_ab12cd34]", quoted);
     }
+
+    [Fact]
+    public void ValidateAndQuoteDatabaseName_QuotesTransactionRetryName()
+    {
+        using var connection = new SqlConnection();
+        var quoted = SqlTestDatabaseNameHelper.ValidateAndQuoteDatabaseName(
+            connection,
+            "Uqeb_TransactionRetry_ab12cd34ef56");
+
+        Assert.Equal("[Uqeb_TransactionRetry_ab12cd34ef56]", quoted);
+    }
 }

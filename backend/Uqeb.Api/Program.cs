@@ -96,6 +96,7 @@ builder.Services.AddScoped<IExternalPartyService, ExternalPartyService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddScoped<ILetterTemplateService, LetterTemplateService>();
 builder.Services.AddScoped<ISecurityAuditService, SecurityAuditService>();
+builder.Services.AddScoped<IAuditIntegrityDiagnosticService, AuditIntegrityDiagnosticService>();
 builder.Services.AddScoped<IHealthDatabaseProbe, DbContextHealthDatabaseProbe>();
 builder.Services.AddScoped<IDeploymentReportingHealthContributor, DeploymentReportingHealthContributor>();
 

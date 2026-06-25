@@ -10,9 +10,9 @@ public class AuditService : IAuditService
 
     public AuditService(AppDbContext db) => _db = db;
 
-    public void TrackLog(int userId, AuditAction action, string? entityName, int? entityId, int? transactionId, string? oldValue, string? newValue)
+    public AuditLog TrackLog(int userId, AuditAction action, string? entityName, int? entityId, int? transactionId, string? oldValue, string? newValue)
     {
-        _db.AuditLogs.Add(new AuditLog
+        var auditLog = new AuditLog
         {
             UserId = userId,
             Action = action,
@@ -22,7 +22,9 @@ public class AuditService : IAuditService
             OldValue = oldValue,
             NewValue = newValue,
             CreatedAt = DateTime.UtcNow
-        });
+        };
+        _db.AuditLogs.Add(auditLog);
+        return auditLog;
     }
 
     public async Task LogAsync(int userId, AuditAction action, string? entityName, int? entityId, int? transactionId, string? oldValue, string? newValue)
