@@ -124,51 +124,73 @@ public static class DefaultUsersProvisioner
         var changed = false;
         foreach (var requiredCode in requiredCodes)
         {
-            var code = requiredCode!;
-            var displayName = GetRequiredDepartmentDisplayName(code);
-            var expectedNameNormalized = ReferenceNameNormalizer.NormalizeKey(
-                ReferenceNameNormalizer.FormatDisplayName(displayName));
-
-            var byCode = snapshots.FirstOrDefault(department =>
-                !string.IsNullOrWhiteSpace(department.Code) &&
-                string.Equals(department.Code, code, StringComparison.OrdinalIgnoreCase));
-            if (byCode is not null)
-                continue;
-
-            var byName = snapshots.FirstOrDefault(department =>
-                department.NameNormalized == expectedNameNormalized);
-            if (byName is not null)
-            {
-                if (string.IsNullOrWhiteSpace(byName.Code))
-                {
-                    var department = await db.Departments.FindAsync([byName.Id], cancellationToken)
-                        ?? throw new InvalidOperationException(
-                            $"Default user provisioning failed: department id {byName.Id} was not found while assigning code '{code}'.");
-
-                    department.Code = code;
-                    snapshots = snapshots
-                        .Select(departmentSnapshot =>
-                            departmentSnapshot.Id == byName.Id
-                                ? departmentSnapshot with { Code = code }
-                                : departmentSnapshot)
-                        .ToList();
-                    AssertNoDuplicateDepartmentCodes(snapshots);
-                    changed = true;
-                    continue;
-                }
-
-                throw new InvalidOperationException(
-                    $"Default user provisioning failed: department id {byName.Id} (name key '{byName.NameNormalized}') has code '{byName.Code}' which conflicts with required code '{code}'.");
-            }
-
-            db.Departments.Add(CreateDepartment(displayName, code));
-            snapshots.Add(new DepartmentCodeSnapshot(0, code, expectedNameNormalized));
-            AssertNoDuplicateDepartmentCodes(snapshots);
-            changed = true;
+            changed |= await EnsureRequiredDepartmentAsync(
+                db,
+                snapshots,
+                requiredCode!,
+                cancellationToken);
         }
 
         if (changed)
             await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private static async Task<bool> EnsureRequiredDepartmentAsync(
+        AppDbContext db,
+        List<DepartmentCodeSnapshot> snapshots,
+        string code,
+        CancellationToken cancellationToken)
+    {
+        var displayName = GetRequiredDepartmentDisplayName(code);
+        var expectedNameNormalized = ReferenceNameNormalizer.NormalizeKey(
+            ReferenceNameNormalizer.FormatDisplayName(displayName));
+
+        var byCode = snapshots.FirstOrDefault(department =>
+            !string.IsNullOrWhiteSpace(department.Code) &&
+            string.Equals(department.Code, code, StringComparison.OrdinalIgnoreCase));
+        if (byCode is not null)
+            return false;
+
+        var byName = snapshots.FirstOrDefault(department =>
+            department.NameNormalized == expectedNameNormalized);
+        if (byName is not null)
+            return await UpdateRequiredDepartmentCodeAsync(db, snapshots, byName, code, cancellationToken);
+
+        db.Departments.Add(CreateDepartment(displayName, code));
+        snapshots.Add(new DepartmentCodeSnapshot(0, code, expectedNameNormalized));
+        AssertNoDuplicateDepartmentCodes(snapshots);
+        return true;
+    }
+
+    private static async Task<bool> UpdateRequiredDepartmentCodeAsync(
+        AppDbContext db,
+        List<DepartmentCodeSnapshot> snapshots,
+        DepartmentCodeSnapshot byName,
+        string code,
+        CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(byName.Code))
+        {
+            throw new InvalidOperationException(
+                $"Default user provisioning failed: department id {byName.Id} (name key '{byName.NameNormalized}') has code '{byName.Code}' which conflicts with required code '{code}'.");
+        }
+
+        var department = await db.Departments.FindAsync([byName.Id], cancellationToken)
+            ?? throw new InvalidOperationException(
+                $"Default user provisioning failed: department id {byName.Id} was not found while assigning code '{code}'.");
+
+        department.Code = code;
+
+        var snapshotIndex = snapshots.FindIndex(snapshot => snapshot.Id == byName.Id);
+        if (snapshotIndex < 0)
+        {
+            throw new InvalidOperationException(
+                $"Default user provisioning failed: snapshot for department id {byName.Id} was not found.");
+        }
+
+        snapshots[snapshotIndex] = byName with { Code = code };
+        AssertNoDuplicateDepartmentCodes(snapshots);
+        return true;
     }
 
     private static void AssertNoDuplicateDepartmentCodes(IReadOnlyList<DepartmentCodeSnapshot> departments)
