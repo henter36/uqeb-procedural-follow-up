@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { followUpPrintApi } from '../api/services';
 import type { FollowUpLetterPrintRecord } from '../api/types';
@@ -7,6 +7,7 @@ import DateDisplay from '../components/DateDisplay';
 import {
   Alert, EmptyState, LoadingInline, PageHeader, Pagination,
 } from '../components/ui';
+import { useDeferredEffect } from '../hooks/useDeferredEffect';
 
 export default function FollowUpPrintPendingPage() {
   const [records, setRecords] = useState<FollowUpLetterPrintRecord[]>([]);
@@ -18,25 +19,32 @@ export default function FollowUpPrintPendingPage() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
-  const loadRecords = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  const loadRecords = useCallback(async (active: () => boolean) => {
+    await Promise.resolve();
+    if (active()) {
+      setLoading(true);
+      setError('');
+    }
     try {
       const [summaryRes, recordsRes] = await Promise.all([
         followUpPrintApi.getPendingSummary(),
         followUpPrintApi.getPending({ page, pageSize }),
       ]);
+      if (!active()) return;
       setSummaryTotal(summaryRes.data.total);
       setRecords(recordsRes.data);
     } catch (err: unknown) {
+      if (!active()) return;
       setError(getApiErrorMessage(err));
     } finally {
-      setLoading(false);
+      if (active()) setLoading(false);
     }
   }, [page, pageSize]);
 
-  useEffect(() => {
-    void loadRecords();
+  useDeferredEffect(loadRecords, [loadRecords]);
+
+  const refreshRecords = useCallback(async () => {
+    await loadRecords(() => true);
   }, [loadRecords]);
 
   const handleConfirm = async (record: FollowUpLetterPrintRecord) => {
@@ -45,7 +53,7 @@ export default function FollowUpPrintPendingPage() {
     try {
       await followUpPrintApi.confirmRecord(record.id);
       setMessage(`تم تأكيد طباعة ${record.incomingNumber}.`);
-      await loadRecords();
+      await refreshRecords();
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
     } finally {
@@ -61,7 +69,7 @@ export default function FollowUpPrintPendingPage() {
     try {
       await followUpPrintApi.cancelRecord(record.id, reason.trim());
       setMessage(`تم إلغاء سجل ${record.incomingNumber}.`);
-      await loadRecords();
+      await refreshRecords();
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
     } finally {
@@ -75,7 +83,7 @@ export default function FollowUpPrintPendingPage() {
     try {
       await followUpPrintApi.reprintRecord(record.id);
       setMessage(`تم إنشاء إعادة طباعة لـ ${record.incomingNumber}.`);
-      await loadRecords();
+      await refreshRecords();
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
     } finally {
@@ -92,7 +100,7 @@ export default function FollowUpPrintPendingPage() {
     try {
       await followUpPrintApi.linkFollowUp(record.id, followUpId);
       setMessage(`تم ربط ${record.incomingNumber} بالتعقيب ${followUpId}.`);
-      await loadRecords();
+      await refreshRecords();
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
     } finally {

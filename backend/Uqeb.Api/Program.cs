@@ -111,6 +111,7 @@ builder.Services.AddScoped<IFollowUpLetterTimeZone, FollowUpLetterTimeZone>();
 builder.Services.AddScoped<IFollowUpLetterDocumentBuilder, FollowUpLetterDocumentBuilder>();
 builder.Services.AddScoped<IFollowUpLetterRenderService, FollowUpLetterRenderService>();
 builder.Services.AddScoped<IFollowUpPrintEligibilityService, FollowUpPrintEligibilityService>();
+builder.Services.AddScoped<IFollowUpPrintAccessService, FollowUpPrintAccessService>();
 builder.Services.AddScoped<IFollowUpPrintJobService, FollowUpPrintJobService>();
 builder.Services.AddScoped<IFollowUpLetterPrintRecordService, FollowUpLetterPrintRecordService>();
 builder.Services.AddScoped<IUserNotificationService, UserNotificationService>();

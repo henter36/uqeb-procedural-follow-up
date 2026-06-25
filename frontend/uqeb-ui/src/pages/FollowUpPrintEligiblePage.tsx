@@ -9,6 +9,7 @@ import DateDisplay from '../components/DateDisplay';
 import {
   Alert, EmptyState, LoadingInline, PageHeader, Pagination,
 } from '../components/ui';
+import { useDeferredEffect } from '../hooks/useDeferredEffect';
 
 const DEFAULT_FILTER = {
   daysSinceLastFollowUp: 10,
@@ -47,9 +48,12 @@ export default function FollowUpPrintEligiblePage() {
     pageSize: filters.pageSize,
   }), [filters]);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  const loadData = useCallback(async (active: () => boolean) => {
+    await Promise.resolve();
+    if (active()) {
+      setLoading(true);
+      setError('');
+    }
     try {
       const filter = buildFilter();
       const [eligibleRes, previewRes] = await Promise.all([
@@ -60,35 +64,43 @@ export default function FollowUpPrintEligiblePage() {
           responseDeadlineDays: responseDeadlineDays ? Number(responseDeadlineDays) : undefined,
         }),
       ]);
+      if (!active()) return;
       setItems(eligibleRes.data.items);
       setTotalCount(eligibleRes.data.totalCount);
       setPreview(previewRes.data);
     } catch (err: unknown) {
+      if (!active()) return;
       setError(getApiErrorMessage(err));
     } finally {
-      setLoading(false);
+      if (active()) setLoading(false);
     }
   }, [buildFilter, responseDeadlineDays, templateId]);
 
   useEffect(() => {
-    Promise.all([
-      letterTemplatesApi.list({ active: true }),
-      departmentsApi.getAll(),
-      categoriesApi.getAll(),
-    ])
-      .then(([templatesRes, departmentsRes, categoriesRes]) => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [templatesRes, departmentsRes, categoriesRes] = await Promise.all([
+          letterTemplatesApi.list({ active: true }),
+          departmentsApi.getAll(),
+          categoriesApi.getAll(),
+        ]);
+        if (cancelled) return;
         setTemplates(templatesRes.data);
         setDepartments(departmentsRes.data);
         setCategories(categoriesRes.data);
         const defaultTemplate = templatesRes.data.find((t) => t.isDefault) ?? templatesRes.data[0];
         if (defaultTemplate) setTemplateId(String(defaultTemplate.id));
-      })
-      .catch(() => setError('تعذر تحميل بيانات الصفحة'));
+      } catch {
+        if (!cancelled) setError('تعذر تحميل بيانات الصفحة');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  useEffect(() => {
-    void loadData();
-  }, [loadData]);
+  useDeferredEffect(loadData, [loadData]);
 
   const handleSearch = (event: FormEvent) => {
     event.preventDefault();
@@ -96,7 +108,7 @@ export default function FollowUpPrintEligiblePage() {
   };
 
   const handleCreateJob = async () => {
-    if (!preview || preview.eligibleCount === 0) {
+    if (!preview || preview.eligibleTransactionCount === 0) {
       setError('لا توجد معاملات مستحقة للطباعة ضمن الفلاتر الحالية.');
       return;
     }
@@ -203,7 +215,7 @@ export default function FollowUpPrintEligiblePage() {
         <div className="card mt-4 follow-up-print-summary">
           <div className="stats-grid">
             <div><strong>مطابقة:</strong> {preview.matchedCount}</div>
-            <div><strong>مستحقة:</strong> {preview.eligibleCount}</div>
+            <div><strong>مستحقة:</strong> {preview.eligibleTransactionCount}</div>
             <div><strong>مستبعدة (مطبوعة):</strong> {preview.recentlyPrintedExcludedCount}</div>
             <div><strong>خطابات متوقعة:</strong> {preview.estimatedLetterCount}</div>
             <div><strong>أجزاء متوقعة:</strong> {preview.estimatedPartCount}</div>
@@ -227,7 +239,7 @@ export default function FollowUpPrintEligiblePage() {
             </div>
           </div>
           <div className="form-actions">
-            <button type="button" className="btn btn-primary" disabled={creating || preview.eligibleCount === 0} onClick={() => { void handleCreateJob(); }}>
+            <button type="button" className="btn btn-primary" disabled={creating || preview.eligibleTransactionCount === 0} onClick={() => { void handleCreateJob(); }}>
               {creating ? 'جاري الإنشاء...' : 'إنشاء مهمة طباعة'}
             </button>
           </div>

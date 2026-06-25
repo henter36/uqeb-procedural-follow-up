@@ -8,25 +8,43 @@ export function usePendingPrintSummary(enabled = true) {
   const { canClose } = useAuth();
   const [pendingTotal, setPendingTotal] = useState(0);
 
-  const refresh = useCallback(async () => {
-    if (!enabled || !canClose) {
-      setPendingTotal(0);
-      return;
-    }
+  const fetchSummary = useCallback(async (active: () => boolean) => {
     try {
       const res = await followUpPrintApi.getPendingSummary();
-      setPendingTotal(res.data.total);
+      if (active()) setPendingTotal(res.data.total);
     } catch {
       // ignore polling errors
     }
-  }, [canClose, enabled]);
+  }, []);
 
   useEffect(() => {
-    void refresh();
-    if (!enabled || !canClose) return undefined;
-    const timer = window.setInterval(() => { void refresh(); }, POLL_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, [canClose, enabled, refresh]);
+    let cancelled = false;
+    const active = () => !cancelled;
 
-  return { pendingTotal, refresh };
+    (async () => {
+      if (!enabled || !canClose) {
+        await Promise.resolve();
+        if (active()) setPendingTotal(0);
+        return;
+      }
+      await fetchSummary(active);
+    })();
+
+    if (!enabled || !canClose) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const timer = window.setInterval(() => {
+      void fetchSummary(active);
+    }, POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [canClose, enabled, fetchSummary]);
+
+  return { pendingTotal };
 }

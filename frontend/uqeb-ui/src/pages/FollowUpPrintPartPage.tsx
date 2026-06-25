@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { followUpPrintApi } from '../api/services';
 import { getApiErrorMessage } from '../utils/apiHelpers';
 import FollowUpLetterPrintView from '../components/follow-up-print/FollowUpLetterPrintView';
 import { Alert, ErrorState, LoadingInline } from '../components/ui';
+import { useDeferredEffect } from '../hooks/useDeferredEffect';
 
 export default function FollowUpPrintPartPage() {
   const { jobId, partNumber } = useParams();
@@ -14,27 +15,33 @@ export default function FollowUpPrintPartPage() {
   const [error, setError] = useState('');
   const [marked, setMarked] = useState(false);
 
-  const loadPrintView = useCallback(async () => {
+  const loadPrintView = useCallback(async (active: () => boolean) => {
     if (!Number.isFinite(parsedJobId) || !Number.isFinite(parsedPartNumber)) {
-      setError('معرف الجزء غير صالح');
-      setLoading(false);
+      await Promise.resolve();
+      if (active()) {
+        setError('معرف الجزء غير صالح');
+        setLoading(false);
+      }
       return;
     }
-    setLoading(true);
-    setError('');
+    await Promise.resolve();
+    if (active()) {
+      setLoading(true);
+      setError('');
+    }
     try {
       const res = await followUpPrintApi.getPartPrintView(parsedJobId, parsedPartNumber);
+      if (!active()) return;
       setHtml(res.data);
     } catch (err: unknown) {
+      if (!active()) return;
       setError(getApiErrorMessage(err));
     } finally {
-      setLoading(false);
+      if (active()) setLoading(false);
     }
   }, [parsedJobId, parsedPartNumber]);
 
-  useEffect(() => {
-    void loadPrintView();
-  }, [loadPrintView]);
+  useDeferredEffect(loadPrintView, [loadPrintView]);
 
   const handlePrint = async () => {
     if (marked) return;
@@ -50,21 +57,19 @@ export default function FollowUpPrintPartPage() {
     return <LoadingInline label="جاري تحضير صفحة الطباعة..." />;
   }
 
-  if (error && !html) {
-    return (
-      <div dir="rtl" className="follow-up-print-part-page">
-        <ErrorState title="تعذر تحميل صفحة الطباعة" description={error} />
-        <Link to={`/follow-up-print/jobs/${parsedJobId}`} className="btn btn-outline">العودة للمهمة</Link>
-      </div>
-    );
+  if (error) {
+    return <ErrorState title="تعذر تحضير الطباعة" description={error} />;
   }
 
   return (
-    <div dir="rtl" className="follow-up-print-part-page">
-      {error && <Alert variant="error">{error}</Alert>}
+    <div dir="rtl">
+      <div className="no-print mb-3">
+        <Link to={`/follow-up-print/jobs/${parsedJobId}`} className="btn btn-outline">العودة للمهمة</Link>
+        {error && <Alert variant="error">{error}</Alert>}
+      </div>
       <FollowUpLetterPrintView
         html={html}
-        title={`طباعة الجزء ${parsedPartNumber} — مهمة ${parsedJobId}`}
+        autoPrint={false}
         onPrint={() => { void handlePrint(); }}
       />
     </div>

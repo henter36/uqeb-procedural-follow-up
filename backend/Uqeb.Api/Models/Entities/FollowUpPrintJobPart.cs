@@ -18,4 +18,5 @@ public class FollowUpPrintJobPart
     public byte[] RowVersion { get; set; } = Array.Empty<byte>();
 
     public FollowUpPrintJob Job { get; set; } = null!;
+    public ICollection<FollowUpPrintJobPayload> Payloads { get; set; } = new List<FollowUpPrintJobPayload>();
 }

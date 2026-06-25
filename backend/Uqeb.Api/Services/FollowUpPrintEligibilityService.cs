@@ -7,6 +7,7 @@ using Uqeb.Api.DTOs.FollowUpPrint;
 using Uqeb.Api.Helpers;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
+using Uqeb.Api.Models.Letters;
 
 namespace Uqeb.Api.Services;
 
@@ -27,6 +28,18 @@ public interface IFollowUpPrintEligibilityService
         FollowUpPrintFilterSnapshot filter,
         int? maxCount = null,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<EligibleCandidateWithTargets>> BuildEligibleCandidatesWithTargetsAsync(
+        FollowUpPrintFilterRequest filter,
+        ICurrentUserService currentUser,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed class EligibleCandidateWithTargets
+{
+    public int TransactionId { get; init; }
+    public int FollowUpCount { get; init; }
+    public IReadOnlyList<FollowUpLetterTargetEntity> Targets { get; init; } = [];
 }
 
 public sealed class FollowUpPrintEligibilityService : IFollowUpPrintEligibilityService
@@ -103,22 +116,83 @@ public sealed class FollowUpPrintEligibilityService : IFollowUpPrintEligibilityS
             1,
             _options.AbsoluteMaxBatchPrintSize);
 
-        var eligibleCandidates = candidates
-            .Where(c => IsEligibleCandidate(c, today, filter.DaysSinceLastFollowUp, snapshot.ExcludeRecentlyPrinted, exclusionCutoff, _timeZone))
-            .ToList();
+        var notDueYetCount = 0;
+        var recentlyPrintedExcludedCount = 0;
+        var noTargetCount = 0;
+        var eligibleTransactionCount = 0;
+        var estimatedLetterCount = 0;
 
-        var payloads = await BuildPayloadsFromCandidatesAsync(eligibleCandidates, cancellationToken);
+        foreach (var candidate in candidates)
+        {
+            if (GetDaysSinceReference(candidate, today) < filter.DaysSinceLastFollowUp)
+            {
+                notDueYetCount++;
+                continue;
+            }
+
+            if (filter.ExcludeRecentlyPrinted &&
+                candidate.LastPrintRequestedAt.HasValue &&
+                _timeZone.ToDisplayTime(candidate.LastPrintRequestedAt.Value).Date >= exclusionCutoff.Date)
+            {
+                recentlyPrintedExcludedCount++;
+                continue;
+            }
+
+            var targets = await _renderService.ResolveTargetEntitiesAsync(candidate.TransactionId, cancellationToken: cancellationToken);
+            if (targets.Count == 0)
+            {
+                noTargetCount++;
+                continue;
+            }
+
+            eligibleTransactionCount++;
+            estimatedLetterCount += targets.Count;
+        }
 
         return new FollowUpPrintEligibilityPreviewDto
         {
             MatchedCount = candidates.Count,
-            EligibleCount = eligibleCandidates.Count,
-            RecentlyPrintedExcludedCount = candidates.Count - eligibleCandidates.Count,
-            EstimatedLetterCount = payloads.Count,
-            EstimatedPartCount = payloads.Count == 0
+            EligibleTransactionCount = eligibleTransactionCount,
+            RecentlyPrintedExcludedCount = recentlyPrintedExcludedCount,
+            NotDueYetCount = notDueYetCount,
+            NoTargetCount = noTargetCount,
+            EstimatedLetterCount = estimatedLetterCount,
+            EstimatedPartCount = estimatedLetterCount == 0
                 ? 0
-                : (int)Math.Ceiling(payloads.Count / (double)effectiveBatchSize),
+                : (int)Math.Ceiling(estimatedLetterCount / (double)effectiveBatchSize),
         };
+    }
+
+    public async Task<IReadOnlyList<EligibleCandidateWithTargets>> BuildEligibleCandidatesWithTargetsAsync(
+        FollowUpPrintFilterRequest filter,
+        ICurrentUserService currentUser,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateFilter(filter);
+        var snapshot = ToSnapshot(filter);
+        var today = _timeZone.TodayDisplayDate;
+        var candidates = await LoadCandidatesAsync(snapshot, currentUser, cancellationToken);
+        var exclusionCutoff = today.AddDays(-filter.PrintedLetterExclusionDays);
+        var result = new List<EligibleCandidateWithTargets>();
+
+        foreach (var candidate in candidates)
+        {
+            if (!IsEligibleCandidate(candidate, today, filter.DaysSinceLastFollowUp, snapshot.ExcludeRecentlyPrinted, exclusionCutoff, _timeZone))
+                continue;
+
+            var targets = await _renderService.ResolveTargetEntitiesAsync(candidate.TransactionId, cancellationToken: cancellationToken);
+            if (targets.Count == 0)
+                continue;
+
+            result.Add(new EligibleCandidateWithTargets
+            {
+                TransactionId = candidate.TransactionId,
+                FollowUpCount = candidate.FollowUpCount,
+                Targets = targets,
+            });
+        }
+
+        return result;
     }
 
     public async Task<IReadOnlyList<FollowUpPrintJobLetterPayload>> BuildLetterPayloadsAsync(

@@ -61,8 +61,17 @@ export default function LetterTemplatePage() {
   }, []);
 
   useEffect(() => {
-    loadTemplates()
-      .then((items) => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [listRes, varsRes] = await Promise.all([
+          letterTemplatesApi.list(),
+          letterTemplatesApi.getVariables(),
+        ]);
+        if (cancelled) return;
+        const items = listRes.data;
+        setTemplates(items);
+        setVariables(varsRes.data);
         if (items.length > 0) {
           const initial = items.find((t) => t.isDefault) ?? items[0];
           setSelectedId(initial.id);
@@ -76,10 +85,16 @@ export default function LetterTemplatePage() {
           setEditor(nextEditor);
           setSavedSnapshot(snapshotEditor(nextEditor));
         }
-      })
-      .catch(() => setError('تعذر تحميل قوالب خطاب التعقيب'))
-      .finally(() => setLoading(false));
-  }, [loadTemplates]);
+      } catch {
+        if (!cancelled) setError('تعذر تحميل قوالب خطاب التعقيب');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const selectTemplate = (template: LetterTemplate) => {
     if (isDirty && !window.confirm('لديك تغييرات غير محفوظة. هل تريد تجاهلها؟')) {

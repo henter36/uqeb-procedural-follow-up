@@ -45,21 +45,23 @@ export default function FollowUpLetterFormPanel({
   const baselineRef = useRef<LetterBaseline>({ recipient: defaultRecipient, letterBody: '' });
   const baselineReadyRef = useRef(false);
 
-  const isDirty = baselineReadyRef.current
-    && (recipient !== baselineRef.current.recipient || letterBody !== baselineRef.current.letterBody);
-
-  const syncDirtyState = useCallback(() => {
-    if (!baselineReadyRef.current) {
-      onDirtyChange(false);
-      return;
-    }
-    const baseline = baselineRef.current;
-    onDirtyChange(recipient !== baseline.recipient || letterBody !== baseline.letterBody);
-  }, [letterBody, onDirtyChange, recipient]);
-
   useEffect(() => {
-    syncDirtyState();
-  }, [syncDirtyState]);
+    let cancelled = false;
+    void (async () => {
+      await Promise.resolve();
+      if (cancelled) return;
+      if (!baselineReadyRef.current) {
+        onDirtyChange(false);
+        return;
+      }
+      onDirtyChange(
+        recipient !== baselineRef.current.recipient || letterBody !== baselineRef.current.letterBody,
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [recipient, letterBody, onDirtyChange]);
 
   const regenerateFromTemplate = useCallback(async () => {
     setError('');
@@ -112,7 +114,9 @@ export default function FollowUpLetterFormPanel({
   }, [transactionId, defaultRecipient, onDirtyChange]);
 
   const handleRegenerateClick = () => {
-    if (isDirty && !window.confirm('سيتم استبدال التعديلات الحالية بنص جديد من القالب. هل تريد المتابعة؟')) {
+    const dirty = baselineReadyRef.current
+      && (recipient !== baselineRef.current.recipient || letterBody !== baselineRef.current.letterBody);
+    if (dirty && !window.confirm('سيتم استبدال التعديلات الحالية بنص جديد من القالب. هل تريد المتابعة؟')) {
       return;
     }
     void regenerateFromTemplate();

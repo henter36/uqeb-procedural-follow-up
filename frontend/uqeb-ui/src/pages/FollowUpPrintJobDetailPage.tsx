@@ -13,6 +13,7 @@ import DateDisplay from '../components/DateDisplay';
 import {
   Alert, ErrorState, LoadingInline, PageHeader,
 } from '../components/ui';
+import { useDeferredEffect } from '../hooks/useDeferredEffect';
 
 export default function FollowUpPrintJobDetailPage() {
   const { id } = useParams();
@@ -23,34 +24,44 @@ export default function FollowUpPrintJobDetailPage() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
-  const loadJob = useCallback(async () => {
+  const loadJob = useCallback(async (active: () => boolean) => {
     if (!Number.isFinite(jobId)) {
-      setError('معرف المهمة غير صالح');
-      setLoading(false);
+      await Promise.resolve();
+      if (active()) {
+        setError('معرف المهمة غير صالح');
+        setLoading(false);
+      }
       return;
     }
-    setLoading(true);
-    setError('');
+    await Promise.resolve();
+    if (active()) {
+      setLoading(true);
+      setError('');
+    }
     try {
       const res = await followUpPrintApi.getJob(jobId);
+      if (!active()) return;
       setJob(res.data);
     } catch (err: unknown) {
+      if (!active()) return;
       setError(getApiErrorMessage(err));
       setJob(null);
     } finally {
-      setLoading(false);
+      if (active()) setLoading(false);
     }
   }, [jobId]);
 
+  useDeferredEffect(loadJob, [loadJob]);
+
   useEffect(() => {
-    void loadJob();
+    if (!Number.isFinite(jobId)) return undefined;
     const timer = window.setInterval(() => {
       void followUpPrintApi.getJob(jobId)
         .then((res) => setJob(res.data))
         .catch(() => undefined);
     }, 5000);
     return () => window.clearInterval(timer);
-  }, [jobId, loadJob]);
+  }, [jobId]);
 
   const handleCancel = async () => {
     if (!window.confirm('هل أنت متأكد من إلغاء مهمة الطباعة؟')) return;

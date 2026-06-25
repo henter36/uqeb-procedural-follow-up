@@ -88,12 +88,18 @@ internal sealed class FixedTimeZone(DateTime todayDisplayDate) : IFollowUpLetter
     public DateTime? ToDisplayTime(DateTime? utc) => utc.HasValue ? ToDisplayTime(utc.Value) : null;
 }
 
-internal sealed class StubRenderService(params FollowUpLetterTargetEntity[] targets) : IFollowUpLetterRenderService
+internal class NoOpAuditService : IAuditService
+{
+    public AuditLog TrackLog(int userId, AuditAction action, string? entityName, int? entityId, int? transactionId, string? oldValue, string? newValue) => new();
+    public Task LogAsync(int userId, AuditAction action, string? entityName, int? entityId, int? transactionId, string? oldValue, string? newValue) => Task.CompletedTask;
+}
+
+internal class StubRenderService(params FollowUpLetterTargetEntity[] targets) : IFollowUpLetterRenderService
 {
     private readonly IReadOnlyList<FollowUpLetterTargetEntity> _targets =
         targets.Length > 0 ? targets : [new FollowUpLetterTargetEntity("جهة افتراضية", 1, null)];
 
-    public Task<IReadOnlyList<FollowUpLetterTargetEntity>> ResolveTargetEntitiesAsync(
+    public virtual Task<IReadOnlyList<FollowUpLetterTargetEntity>> ResolveTargetEntitiesAsync(
         int transactionId,
         string? targetEntityHint = null,
         CancellationToken cancellationToken = default) =>
@@ -109,7 +115,7 @@ internal sealed class StubRenderService(params FollowUpLetterTargetEntity[] targ
         CancellationToken cancellationToken = default) =>
         Task.FromResult<FollowUpLetterPreviewDto?>(new FollowUpLetterPreviewDto());
 
-    public Task<FollowUpLetterDocumentModel?> BuildDocumentAsync(
+    public virtual Task<FollowUpLetterDocumentModel?> BuildDocumentAsync(
         int transactionId,
         FollowUpLetterTargetEntity target,
         ICurrentUserService currentUser,

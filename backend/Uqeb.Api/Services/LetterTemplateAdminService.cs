@@ -26,8 +26,13 @@ public interface ILetterTemplateAdminService
 public sealed class LetterTemplateAdminService : ILetterTemplateAdminService
 {
     private readonly AppDbContext _db;
+    private readonly IAuditService _audit;
 
-    public LetterTemplateAdminService(AppDbContext db) => _db = db;
+    public LetterTemplateAdminService(AppDbContext db, IAuditService audit)
+    {
+        _db = db;
+        _audit = audit;
+    }
 
     public async Task<List<LetterTemplateDto>> ListAsync(LetterTemplateListRequest request, CancellationToken cancellationToken = default)
     {
@@ -90,6 +95,7 @@ public sealed class LetterTemplateAdminService : ILetterTemplateAdminService
 
         _db.LetterTemplates.Add(template);
         await _db.SaveChangesAsync(cancellationToken);
+        await FollowUpPrintAuditWriter.LogLetterTemplateCreatedAsync(_audit, actorUserId, template.Id, template.Code);
         return (await GetByIdAsync(template.Id, cancellationToken))!;
     }
 
@@ -113,6 +119,7 @@ public sealed class LetterTemplateAdminService : ILetterTemplateAdminService
         template.UpdatedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync(cancellationToken);
+        await FollowUpPrintAuditWriter.LogLetterTemplateUpdatedAsync(_audit, actorUserId, id);
         return await GetByIdAsync(id, cancellationToken);
     }
 
@@ -144,6 +151,7 @@ public sealed class LetterTemplateAdminService : ILetterTemplateAdminService
 
         _db.LetterTemplates.Add(copy);
         await _db.SaveChangesAsync(cancellationToken);
+        await FollowUpPrintAuditWriter.LogLetterTemplateCopiedAsync(_audit, actorUserId, copy.Id, $"sourceId={id}");
         return (await GetByIdAsync(copy.Id, cancellationToken))!;
     }
 
@@ -161,6 +169,7 @@ public sealed class LetterTemplateAdminService : ILetterTemplateAdminService
         template.UpdatedById = actorUserId;
         template.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(cancellationToken);
+        await FollowUpPrintAuditWriter.LogLetterTemplateDefaultChangedAsync(_audit, actorUserId, id);
         return await GetByIdAsync(id, cancellationToken);
     }
 
@@ -181,6 +190,10 @@ public sealed class LetterTemplateAdminService : ILetterTemplateAdminService
         template.UpdatedById = actorUserId;
         template.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(cancellationToken);
+        if (isActive)
+            await FollowUpPrintAuditWriter.LogLetterTemplateActivatedAsync(_audit, actorUserId, id);
+        else
+            await FollowUpPrintAuditWriter.LogLetterTemplateDeactivatedAsync(_audit, actorUserId, id);
         return await GetByIdAsync(id, cancellationToken);
     }
 
@@ -293,6 +306,7 @@ public sealed class LetterTemplateAdminService : ILetterTemplateAdminService
         template.UpdatedById = actorUserId;
         template.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(cancellationToken);
+        await FollowUpPrintAuditWriter.LogLetterTemplateUpdatedAsync(_audit, actorUserId, template.Id, "default_follow_up");
         return await GetByIdAsync(template.Id, cancellationToken);
     }
 

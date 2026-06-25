@@ -4,6 +4,7 @@ using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.FollowUpPrint;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
+using Uqeb.Api.Models.Letters;
 using Uqeb.Api.Services;
 using Xunit;
 
@@ -16,11 +17,15 @@ public class FollowUpPrintJobServiceTests
     private static FollowUpPrintJobService CreateService(
         AppDbContext db,
         FollowUpPrintEligibilityService eligibility,
-        StubRenderService renderService) =>
+        StubRenderService renderService,
+        IFollowUpPrintAccessService? access = null,
+        IAuditService? audit = null) =>
         new(
             db,
             eligibility,
             renderService,
+            access ?? new FollowUpPrintAccessService(db),
+            audit ?? new NoOpAuditService(),
             LettersTestInfrastructure.CreateOptions());
 
     private static async Task<(FollowUpPrintJob Job, FollowUpPrintJobPart Part)> SeedReadyPartAsync(AppDbContext db)
@@ -28,16 +33,26 @@ public class FollowUpPrintJobServiceTests
         await LettersTestInfrastructure.SeedUserAsync(db);
         var template = await LettersTestInfrastructure.SeedTemplateAsync(db);
 
-        var payloads = new List<FollowUpPrintJobLetterPayload>
+        var document = new FollowUpLetterDocumentModel { TransactionId = 1, Recipient = "جهة" };
+        var payloadEntity = new FollowUpPrintJobPayload
         {
-            new()
-            {
-                TransactionId = 1,
-                TargetDepartmentId = 1,
-                TargetEntityName = "جهة",
-                FollowUpSequence = 1,
-                ResponseDeadlineDays = 7,
-            },
+            TransactionId = 1,
+            TargetDepartmentId = 1,
+            TargetEntityName = "جهة",
+            FollowUpSequence = 1,
+            ResponseDeadlineDays = 7,
+            PayloadOrdinal = 1,
+            SnapshotJson = JsonSerializer.Serialize(document, JsonOptions),
+            Status = FollowUpPrintJobPayloadStatus.Assigned,
+        };
+
+        var letterPayload = new FollowUpPrintJobLetterPayload
+        {
+            TransactionId = 1,
+            TargetDepartmentId = 1,
+            TargetEntityName = "جهة",
+            FollowUpSequence = 1,
+            ResponseDeadlineDays = 7,
         };
 
         var job = new FollowUpPrintJob
@@ -47,6 +62,7 @@ public class FollowUpPrintJobServiceTests
             FilterSnapshotJson = "{}",
             TemplateId = template.Id,
             ResponseDeadlineDays = 7,
+            BatchSize = 25,
             TotalTransactions = 1,
             TotalLetters = 1,
             ReadyParts = 1,
@@ -63,11 +79,15 @@ public class FollowUpPrintJobServiceTests
             Status = FollowUpPrintJobPartStatus.ReadyToPrint,
             LetterCount = 1,
             EstimatedPages = 1,
-            PayloadJson = JsonSerializer.Serialize(payloads, JsonOptions),
+            PayloadJson = JsonSerializer.Serialize(new List<FollowUpPrintJobLetterPayload> { letterPayload }, JsonOptions),
             CreatedAt = DateTime.UtcNow,
         };
         db.FollowUpPrintJobParts.Add(part);
         await db.SaveChangesAsync();
+
+        payloadEntity.JobId = job.Id;
+        payloadEntity.PartId = part.Id;
+        db.FollowUpPrintJobPayloads.Add(payloadEntity);
 
         db.Transactions.Add(new Transaction
         {
@@ -128,7 +148,7 @@ public class FollowUpPrintJobServiceTests
             },
             new TestCurrentUser(1));
 
-        Assert.True(preview.EligibleCount > 0);
+        Assert.True(preview.EligibleTransactionCount > 0);
         Assert.Equal(0, await db.FollowUpLetterPrintRecords.CountAsync());
     }
 
@@ -163,5 +183,65 @@ public class FollowUpPrintJobServiceTests
         var updatedPart = await db.FollowUpPrintJobParts.SingleAsync(p => p.Id == part.Id);
         Assert.Equal(FollowUpPrintJobPartStatus.Printed, updatedPart.Status);
         Assert.NotNull(updatedPart.PrintedAt);
+    }
+
+    [Fact]
+    public async Task MarkPartPrintRequestedAsync_IsIdempotentWhenAlreadyPrinted()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(MarkPartPrintRequestedAsync_IsIdempotentWhenAlreadyPrinted));
+        var today = new DateTime(2025, 6, 25);
+        var eligibility = new FollowUpPrintEligibilityService(
+            db,
+            new StubRenderService(),
+            new FixedTimeZone(today),
+            LettersTestInfrastructure.CreateOptions());
+        var service = CreateService(db, eligibility, new StubRenderService());
+        var (job, part) = await SeedReadyPartAsync(db);
+        var user = new TestCurrentUser(1);
+
+        var first = await service.MarkPartPrintRequestedAsync(job.Id, part.PartNumber, user);
+        var second = await service.MarkPartPrintRequestedAsync(job.Id, part.PartNumber, user);
+
+        Assert.Equal(first.Count, second.Count);
+        Assert.Equal(1, await db.FollowUpLetterPrintRecords.CountAsync());
+    }
+
+    [Fact]
+    public async Task GetPartPrintViewHtmlAsync_UsesStoredSnapshots()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(GetPartPrintViewHtmlAsync_UsesStoredSnapshots));
+        var today = new DateTime(2025, 6, 25);
+        var render = new TrackingRenderService();
+        var eligibility = new FollowUpPrintEligibilityService(
+            db,
+            render,
+            new FixedTimeZone(today),
+            LettersTestInfrastructure.CreateOptions());
+        var service = CreateService(db, eligibility, render);
+        var (job, part) = await SeedReadyPartAsync(db);
+
+        var html = await service.GetPartPrintViewHtmlAsync(job.Id, part.PartNumber, new TestCurrentUser(1));
+
+        Assert.False(string.IsNullOrWhiteSpace(html));
+        Assert.Equal(0, render.BuildDocumentCalls);
+    }
+
+    private sealed class TrackingRenderService : StubRenderService
+    {
+        public int BuildDocumentCalls { get; private set; }
+
+        public override Task<FollowUpLetterDocumentModel?> BuildDocumentAsync(
+            int transactionId,
+            FollowUpLetterTargetEntity target,
+            ICurrentUserService currentUser,
+            int? templateId = null,
+            string? bodyOverride = null,
+            int? followUpSequenceOverride = null,
+            int? responseDeadlineDays = null,
+            CancellationToken cancellationToken = default)
+        {
+            BuildDocumentCalls++;
+            return base.BuildDocumentAsync(transactionId, target, currentUser, templateId, bodyOverride, followUpSequenceOverride, responseDeadlineDays, cancellationToken);
+        }
     }
 }

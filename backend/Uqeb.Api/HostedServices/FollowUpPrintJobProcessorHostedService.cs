@@ -65,40 +65,45 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var eligibility = scope.ServiceProvider.GetRequiredService<IFollowUpPrintEligibilityService>();
-        var renderService = scope.ServiceProvider.GetRequiredService<IFollowUpLetterRenderService>();
         var notifications = scope.ServiceProvider.GetRequiredService<IUserNotificationService>();
+        var audit = scope.ServiceProvider.GetRequiredService<IAuditService>();
 
         var now = DateTime.UtcNow;
         var leaseOwner = Environment.MachineName + ":" + Guid.NewGuid().ToString("N");
+        var leaseUntil = now.AddSeconds(_options.JobLeaseSeconds);
 
-        var job = await db.FollowUpPrintJobs
+        var jobId = await db.FollowUpPrintJobs.AsNoTracking()
             .Where(j =>
                 ClaimableStatuses.Contains(j.Status) &&
                 (j.LeaseExpiresAt == null || j.LeaseExpiresAt < now))
             .OrderBy(j => j.CreatedAt)
+            .Select(j => j.Id)
             .FirstOrDefaultAsync(cancellationToken);
 
-        if (job == null)
+        if (jobId == 0)
             return;
 
-        job.Status = FollowUpPrintJobStatus.Claimed;
-        job.LeaseOwner = leaseOwner;
-        job.LeaseExpiresAt = now.AddSeconds(_options.JobLeaseSeconds);
-        job.StartedAt ??= now;
+        var claimed = await db.FollowUpPrintJobs
+            .Where(j =>
+                j.Id == jobId &&
+                ClaimableStatuses.Contains(j.Status) &&
+                (j.LeaseExpiresAt == null || j.LeaseExpiresAt < now))
+            .ExecuteUpdateAsync(
+                s => s
+                    .SetProperty(j => j.Status, FollowUpPrintJobStatus.Claimed)
+                    .SetProperty(j => j.LeaseOwner, leaseOwner)
+                    .SetProperty(j => j.LeaseExpiresAt, leaseUntil)
+                    .SetProperty(j => j.StartedAt, j => j.StartedAt ?? now),
+                cancellationToken);
+
+        if (claimed == 0)
+            return;
+
+        var job = await db.FollowUpPrintJobs.FirstAsync(j => j.Id == jobId, cancellationToken);
 
         try
         {
-            await db.SaveChangesAsync(cancellationToken);
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            return;
-        }
-
-        try
-        {
-            await ProcessJobAsync(db, eligibility, renderService, notifications, job, leaseOwner, cancellationToken);
+            await ProcessJobAsync(db, notifications, audit, job, leaseOwner, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -109,6 +114,7 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
             job.LeaseOwner = null;
             job.LeaseExpiresAt = null;
             await db.SaveChangesAsync(cancellationToken);
+            await FollowUpPrintAuditWriter.LogJobFailedAsync(audit, job.RequestedById, job.Id, job.FailureReason);
 
             await notifications.CreateAsync(
                 job.RequestedById,
@@ -122,116 +128,199 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
 
     private async Task ProcessJobAsync(
         AppDbContext db,
-        IFollowUpPrintEligibilityService eligibility,
-        IFollowUpLetterRenderService renderService,
         IUserNotificationService notifications,
+        IAuditService audit,
         FollowUpPrintJob job,
         string leaseOwner,
         CancellationToken cancellationToken)
     {
         job.Status = FollowUpPrintJobStatus.Processing;
-        await RenewLeaseAsync(job, leaseOwner, cancellationToken);
-        await db.SaveChangesAsync(cancellationToken);
+        await RenewLeaseIfOwnerAsync(db, job.Id, leaseOwner, cancellationToken);
+        await db.Entry(job).ReloadAsync(cancellationToken);
+        await FollowUpPrintAuditWriter.LogJobStartedAsync(audit, job.RequestedById, job.Id);
 
-        var filter = JsonSerializer.Deserialize<FollowUpPrintFilterSnapshot>(job.FilterSnapshotJson, JsonOptions)
-            ?? new FollowUpPrintFilterSnapshot();
-
-        var payloads = (await eligibility.BuildLetterPayloadsAsync(filter, cancellationToken: cancellationToken)).ToList();
-        if (payloads.Count == 0)
+        while (!cancellationToken.IsCancellationRequested)
         {
-            job.Status = FollowUpPrintJobStatus.Failed;
-            job.FailureReason = "لم يتم العثور على خطابات مطابقة للفلاتر.";
-            job.FailedAt = DateTime.UtcNow;
-            job.LeaseOwner = null;
-            job.LeaseExpiresAt = null;
+            cancellationToken.ThrowIfCancellationRequested();
+
+            await RenewLeaseIfOwnerAsync(db, job.Id, leaseOwner, cancellationToken);
+            await db.Entry(job).ReloadAsync(cancellationToken);
+
+            if (job.Status is FollowUpPrintJobStatus.Cancelled or FollowUpPrintJobStatus.Failed or FollowUpPrintJobStatus.Completed)
+                return;
+
+            var batch = await db.FollowUpPrintJobPayloads
+                .Where(p => p.JobId == job.Id && p.PartId == null && p.Status == FollowUpPrintJobPayloadStatus.Pending)
+                .OrderBy(p => p.PayloadOrdinal)
+                .Take(job.BatchSize)
+                .ToListAsync(cancellationToken);
+
+            if (batch.Count == 0)
+                break;
+
+            await ProcessBatchAsync(db, job, batch, leaseOwner, cancellationToken);
+            await db.Entry(job).ReloadAsync(cancellationToken);
+        }
+
+        var pendingCount = await db.FollowUpPrintJobPayloads.CountAsync(
+            p => p.JobId == job.Id && p.Status == FollowUpPrintJobPayloadStatus.Pending,
+            cancellationToken);
+
+        var unhandledFailures = await db.FollowUpPrintJobPayloads.CountAsync(
+            p => p.JobId == job.Id &&
+                 p.Status == FollowUpPrintJobPayloadStatus.Failed &&
+                 p.PartId == null,
+            cancellationToken);
+
+        if (pendingCount == 0 && unhandledFailures == 0)
+        {
+            job.Status = job.ReadyParts > 0 ? FollowUpPrintJobStatus.ReadyToPrint : FollowUpPrintJobStatus.Failed;
+            job.ReadyAt = job.ReadyParts > 0 ? DateTime.UtcNow : job.ReadyAt;
+            if (job.Status == FollowUpPrintJobStatus.Failed)
+            {
+                job.FailureReason ??= "لم يتم تجهيز أي جزء للطباعة.";
+                job.FailedAt = DateTime.UtcNow;
+            }
+        }
+        else if (pendingCount == 0 && unhandledFailures > 0 && job.ReadyParts > 0)
+        {
+            job.Status = FollowUpPrintJobStatus.ReadyToPrint;
+            job.ReadyAt ??= DateTime.UtcNow;
+        }
+        else if (pendingCount > 0)
+        {
+            job.Status = FollowUpPrintJobStatus.Processing;
+            job.LeaseOwner = leaseOwner;
+            job.LeaseExpiresAt = DateTime.UtcNow.AddSeconds(_options.JobLeaseSeconds);
             await db.SaveChangesAsync(cancellationToken);
             return;
         }
 
-        var batchSize = Math.Clamp(_options.DefaultBatchPrintSize, 1, _options.AbsoluteMaxBatchPrintSize);
-        var partNumber = await db.FollowUpPrintJobParts.CountAsync(p => p.JobId == job.Id, cancellationToken);
-        var processed = 0;
-
-        for (var offset = 0; offset < payloads.Count; offset += batchSize)
-        {
-            await RenewLeaseAsync(job, leaseOwner, cancellationToken);
-            await db.SaveChangesAsync(cancellationToken);
-
-            partNumber += 1;
-            var batch = payloads.Skip(offset).Take(batchSize).ToList();
-            var documents = new List<FollowUpLetterDocumentModel>();
-
-            foreach (var payload in batch)
-            {
-                var target = new FollowUpLetterTargetEntity(
-                    payload.TargetEntityName,
-                    payload.TargetDepartmentId,
-                    payload.TargetEntityId);
-
-                var document = await renderService.BuildDocumentAsync(
-                    payload.TransactionId,
-                    target,
-                    new SystemUser(job.RequestedById),
-                    job.TemplateId,
-                    followUpSequenceOverride: payload.FollowUpSequence,
-                    responseDeadlineDays: payload.ResponseDeadlineDays ?? job.ResponseDeadlineDays,
-                    cancellationToken: cancellationToken);
-
-                if (document != null)
-                    documents.Add(document);
-            }
-
-            var part = new FollowUpPrintJobPart
-            {
-                JobId = job.Id,
-                PartNumber = partNumber,
-                Status = FollowUpPrintJobPartStatus.ReadyToPrint,
-                LetterCount = batch.Count,
-                EstimatedPages = Math.Max(1, documents.Count),
-                PayloadJson = JsonSerializer.Serialize(batch, JsonOptions),
-                CreatedAt = DateTime.UtcNow,
-                ReadyAt = DateTime.UtcNow,
-            };
-
-            db.FollowUpPrintJobParts.Add(part);
-            processed += batch.Count;
-            job.ProcessedLetters = processed;
-            job.ReadyLetters = processed;
-            job.TotalParts = partNumber;
-            job.ReadyParts = partNumber;
-            job.CurrentPart = partNumber;
-        }
-
-        job.TotalLetters = payloads.Count;
-        job.TotalTransactions = payloads.Select(p => p.TransactionId).Distinct().Count();
-        job.Status = FollowUpPrintJobStatus.ReadyToPrint;
-        job.ReadyAt = DateTime.UtcNow;
         job.LeaseOwner = null;
         job.LeaseExpiresAt = null;
         await db.SaveChangesAsync(cancellationToken);
 
-        await notifications.CreateAsync(
-            job.RequestedById,
-            NotificationTypeJobReady,
-            "مهمة طباعة التعقيب جاهزة",
-            $"أصبحت مهمة الطباعة رقم {job.Id} جاهزة ({job.ReadyParts} جزء/أجزاء).",
-            $"/follow-up-print/jobs/{job.Id}",
-            cancellationToken);
+        if (job.Status == FollowUpPrintJobStatus.ReadyToPrint)
+        {
+            await FollowUpPrintAuditWriter.LogJobReadyAsync(audit, job.RequestedById, job.Id, $"parts={job.ReadyParts}");
+            await notifications.CreateAsync(
+                job.RequestedById,
+                NotificationTypeJobReady,
+                "مهمة طباعة التعقيب جاهزة",
+                $"أصبحت مهمة الطباعة رقم {job.Id} جاهزة ({job.ReadyParts} جزء/أجزاء).",
+                $"/follow-up-print/jobs/{job.Id}",
+                cancellationToken);
+        }
     }
 
-    private Task RenewLeaseAsync(FollowUpPrintJob job, string leaseOwner, CancellationToken cancellationToken)
+    private async Task ProcessBatchAsync(
+        AppDbContext db,
+        FollowUpPrintJob job,
+        List<FollowUpPrintJobPayload> batch,
+        string leaseOwner,
+        CancellationToken cancellationToken)
     {
-        job.LeaseOwner = leaseOwner;
-        job.LeaseExpiresAt = DateTime.UtcNow.AddSeconds(_options.JobLeaseSeconds);
-        return Task.CompletedTask;
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+        var partNumber = job.TotalParts + 1;
+        var letterPayloads = new List<FollowUpPrintJobLetterPayload>();
+        var documents = new List<FollowUpLetterDocumentModel>();
+        var readyCount = 0;
+        var failedCount = 0;
+
+        foreach (var payload in batch)
+        {
+            FollowUpLetterDocumentModel? document = null;
+            if (!string.IsNullOrWhiteSpace(payload.SnapshotJson) && payload.SnapshotJson != "{}")
+            {
+                try
+                {
+                    document = JsonSerializer.Deserialize<FollowUpLetterDocumentModel>(payload.SnapshotJson, JsonOptions);
+                }
+                catch (JsonException)
+                {
+                    document = null;
+                }
+            }
+
+            if (document == null)
+            {
+                payload.Status = FollowUpPrintJobPayloadStatus.Failed;
+                payload.FailureReason = "لقطة مستند الخطاب غير صالحة.";
+                failedCount++;
+                continue;
+            }
+
+            letterPayloads.Add(new FollowUpPrintJobLetterPayload
+            {
+                TransactionId = payload.TransactionId,
+                TargetDepartmentId = payload.TargetDepartmentId,
+                TargetEntityId = payload.TargetEntityId,
+                TargetEntityName = payload.TargetEntityName,
+                FollowUpSequence = payload.FollowUpSequence,
+                ResponseDeadlineDays = payload.ResponseDeadlineDays,
+            });
+            documents.Add(document);
+            readyCount++;
+        }
+
+        var part = new FollowUpPrintJobPart
+        {
+            JobId = job.Id,
+            PartNumber = partNumber,
+            LetterCount = batch.Count,
+            EstimatedPages = Math.Max(1, documents.Count),
+            PayloadJson = JsonSerializer.Serialize(letterPayloads, JsonOptions),
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        if (readyCount == 0)
+        {
+            part.Status = FollowUpPrintJobPartStatus.Failed;
+            part.FailureReason = "فشل تجهيز جميع خطابات الجزء.";
+        }
+        else if (failedCount > 0)
+        {
+            part.Status = FollowUpPrintJobPartStatus.PartiallyReady;
+            part.ReadyAt = DateTime.UtcNow;
+            part.FailureReason = $"فشل {failedCount} خطاب/خطابات ضمن الجزء.";
+        }
+        else
+        {
+            part.Status = FollowUpPrintJobPartStatus.ReadyToPrint;
+            part.ReadyAt = DateTime.UtcNow;
+        }
+
+        db.FollowUpPrintJobParts.Add(part);
+        await db.SaveChangesAsync(cancellationToken);
+
+        foreach (var payload in batch.Where(p => p.Status != FollowUpPrintJobPayloadStatus.Failed))
+        {
+            payload.PartId = part.Id;
+            payload.Status = FollowUpPrintJobPayloadStatus.Assigned;
+        }
+
+        job.ProcessedLetters += batch.Count;
+        job.ReadyLetters += readyCount;
+        job.FailedLetters += failedCount;
+        job.TotalParts = partNumber;
+        if (part.Status is FollowUpPrintJobPartStatus.ReadyToPrint or FollowUpPrintJobPartStatus.PartiallyReady)
+            job.ReadyParts += 1;
+        job.CurrentPart = partNumber;
+
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        await RenewLeaseIfOwnerAsync(db, job.Id, leaseOwner, cancellationToken);
     }
 
-    private sealed class SystemUser(int userId) : ICurrentUserService
+    private async Task RenewLeaseIfOwnerAsync(AppDbContext db, int jobId, string leaseOwner, CancellationToken cancellationToken)
     {
-        public int UserId { get; } = userId;
-        public string Username { get; } = "system";
-        public UserRole Role { get; } = UserRole.Admin;
-        public int? DepartmentId => null;
-        public bool IsAuthenticated => true;
+        var leaseUntil = DateTime.UtcNow.AddSeconds(_options.JobLeaseSeconds);
+        await db.FollowUpPrintJobs
+            .Where(j => j.Id == jobId && j.LeaseOwner == leaseOwner)
+            .ExecuteUpdateAsync(
+                s => s.SetProperty(j => j.LeaseExpiresAt, leaseUntil),
+                cancellationToken);
     }
 }

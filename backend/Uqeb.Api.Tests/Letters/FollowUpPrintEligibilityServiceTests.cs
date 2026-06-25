@@ -161,7 +161,7 @@ public class FollowUpPrintEligibilityServiceTests
             new TestCurrentUser(1));
 
         Assert.Equal(2, preview.MatchedCount);
-        Assert.Equal(1, preview.EligibleCount);
+        Assert.Equal(1, preview.EligibleTransactionCount);
         Assert.Equal(1, preview.RecentlyPrintedExcludedCount);
     }
 

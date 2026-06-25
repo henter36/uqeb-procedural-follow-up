@@ -13,6 +13,8 @@ public class FollowUpPrintJob
     public bool ExcludeRecentlyPrinted { get; set; } = true;
     public int PrintedLetterExclusionDays { get; set; } = 7;
     public int DaysSinceLastFollowUp { get; set; } = 10;
+    public int BatchSize { get; set; } = 25;
+    public int NextPayloadOrdinal { get; set; }
     public int TotalTransactions { get; set; }
     public int TotalLetters { get; set; }
     public int ProcessedLetters { get; set; }
@@ -38,5 +40,6 @@ public class FollowUpPrintJob
     public User RequestedBy { get; set; } = null!;
     public LetterTemplate Template { get; set; } = null!;
     public ICollection<FollowUpPrintJobPart> Parts { get; set; } = new List<FollowUpPrintJobPart>();
+    public ICollection<FollowUpPrintJobPayload> Payloads { get; set; } = new List<FollowUpPrintJobPayload>();
     public ICollection<FollowUpLetterPrintRecord> PrintRecords { get; set; } = new List<FollowUpLetterPrintRecord>();
 }

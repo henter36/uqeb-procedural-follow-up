@@ -42,9 +42,11 @@ public class EligibleTransactionDto
 public class FollowUpPrintEligibilityPreviewDto
 {
     public int MatchedCount { get; set; }
-    public int EligibleCount { get; set; }
-    public int RecentlyPrintedExcludedCount { get; set; }
+    public int EligibleTransactionCount { get; set; }
     public int EstimatedLetterCount { get; set; }
+    public int NotDueYetCount { get; set; }
+    public int RecentlyPrintedExcludedCount { get; set; }
+    public int NoTargetCount { get; set; }
     public int EstimatedPartCount { get; set; }
 }
 

@@ -445,8 +445,10 @@ export interface PagedEligibleTransactions {
 
 export interface FollowUpPrintEligibilityPreview {
   matchedCount: number;
-  eligibleCount: number;
+  eligibleTransactionCount: number;
   recentlyPrintedExcludedCount: number;
+  notDueYetCount: number;
+  noTargetCount: number;
   estimatedLetterCount: number;
   estimatedPartCount: number;
 }

@@ -13,7 +13,7 @@ public class LetterTemplateAdminServiceTests
     public async Task CreateAsync_PersistsTemplateWithGeneratedCode()
     {
         await using var db = LettersTestInfrastructure.CreateDb(nameof(CreateAsync_PersistsTemplateWithGeneratedCode));
-        var service = new LetterTemplateAdminService(db);
+        var service = new LetterTemplateAdminService(db, new NoOpAuditService());
 
         var created = await service.CreateAsync(new CreateLetterTemplateRequest
         {
@@ -32,7 +32,7 @@ public class LetterTemplateAdminServiceTests
     [Fact]
     public void ValidateContent_FlagsUnknownVariables()
     {
-        var service = new LetterTemplateAdminService(LettersTestInfrastructure.CreateDb(nameof(ValidateContent_FlagsUnknownVariables)));
+        var service = new LetterTemplateAdminService(LettersTestInfrastructure.CreateDb(nameof(ValidateContent_FlagsUnknownVariables)), new NoOpAuditService());
 
         var result = service.ValidateContent("مرحبًا {Subject} و{BadVariable}");
 
@@ -44,7 +44,7 @@ public class LetterTemplateAdminServiceTests
     public async Task SetDefaultAsync_ClearsPreviousDefaultForSameType()
     {
         await using var db = LettersTestInfrastructure.CreateDb(nameof(SetDefaultAsync_ClearsPreviousDefaultForSameType));
-        var service = new LetterTemplateAdminService(db);
+        var service = new LetterTemplateAdminService(db, new NoOpAuditService());
 
         var first = await service.CreateAsync(new CreateLetterTemplateRequest
         {
@@ -75,7 +75,7 @@ public class LetterTemplateAdminServiceTests
     public async Task SetActiveAsync_RejectsDeactivatingDefaultTemplate()
     {
         await using var db = LettersTestInfrastructure.CreateDb(nameof(SetActiveAsync_RejectsDeactivatingDefaultTemplate));
-        var service = new LetterTemplateAdminService(db);
+        var service = new LetterTemplateAdminService(db, new NoOpAuditService());
 
         var template = await service.CreateAsync(new CreateLetterTemplateRequest
         {
@@ -93,7 +93,7 @@ public class LetterTemplateAdminServiceTests
     public async Task CopyAsync_CreatesIndependentDuplicate()
     {
         await using var db = LettersTestInfrastructure.CreateDb(nameof(CopyAsync_CreatesIndependentDuplicate));
-        var service = new LetterTemplateAdminService(db);
+        var service = new LetterTemplateAdminService(db, new NoOpAuditService());
 
         var source = await service.CreateAsync(new CreateLetterTemplateRequest
         {
@@ -116,7 +116,7 @@ public class LetterTemplateAdminServiceTests
     public async Task UpdateDefaultFollowUpTemplateAsync_UpdatesExistingDefaultContent()
     {
         await using var db = LettersTestInfrastructure.CreateDb(nameof(UpdateDefaultFollowUpTemplateAsync_UpdatesExistingDefaultContent));
-        var service = new LetterTemplateAdminService(db);
+        var service = new LetterTemplateAdminService(db, new NoOpAuditService());
 
         await service.CreateAsync(new CreateLetterTemplateRequest
         {
@@ -137,7 +137,7 @@ public class LetterTemplateAdminServiceTests
     public async Task ReorderAsync_UpdatesSortOrder()
     {
         await using var db = LettersTestInfrastructure.CreateDb(nameof(ReorderAsync_UpdatesSortOrder));
-        var service = new LetterTemplateAdminService(db);
+        var service = new LetterTemplateAdminService(db, new NoOpAuditService());
 
         var first = await service.CreateAsync(new CreateLetterTemplateRequest
         {

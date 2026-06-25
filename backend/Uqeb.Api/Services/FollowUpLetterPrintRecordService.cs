@@ -22,15 +22,18 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
     private readonly AppDbContext _db;
     private readonly IFollowUpLetterTimeZone _timeZone;
     private readonly FollowUpLettersOptions _options;
+    private readonly IAuditService _audit;
 
     public FollowUpLetterPrintRecordService(
         AppDbContext db,
         IFollowUpLetterTimeZone timeZone,
-        IOptions<FollowUpLettersOptions> options)
+        IOptions<FollowUpLettersOptions> options,
+        IAuditService audit)
     {
         _db = db;
         _timeZone = timeZone;
         _options = options.Value;
+        _audit = audit;
     }
 
     public async Task<FollowUpLetterPrintRecordDto?> ConfirmPrintAsync(
@@ -45,6 +48,7 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
         record.PrintConfirmedAt = DateTime.UtcNow;
         record.PrintConfirmedById = currentUser.UserId;
         await _db.SaveChangesAsync(cancellationToken);
+        await FollowUpPrintAuditWriter.LogPrintConfirmedAsync(_audit, currentUser.UserId, recordId, record.TransactionId);
         return await MapRecordAsync(recordId, cancellationToken);
     }
 
@@ -66,6 +70,7 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
         record.CancelledById = currentUser.UserId;
         record.CancellationReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
         await _db.SaveChangesAsync(cancellationToken);
+        await FollowUpPrintAuditWriter.LogPrintCancelledAsync(_audit, currentUser.UserId, recordId, record.TransactionId, record.CancellationReason);
         return await MapRecordAsync(recordId, cancellationToken);
     }
 
@@ -88,6 +93,7 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
         record.RegisteredFollowUpId = followUpId;
         record.RegisteredAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(cancellationToken);
+        await FollowUpPrintAuditWriter.LogLinkedToFollowUpAsync(_audit, currentUser.UserId, recordId, record.TransactionId, followUpId);
         return await MapRecordAsync(recordId, cancellationToken);
     }
 
@@ -160,6 +166,7 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
 
         _db.FollowUpLetterPrintRecords.Add(reprint);
         await _db.SaveChangesAsync(cancellationToken);
+        await FollowUpPrintAuditWriter.LogReprintedAsync(_audit, currentUser.UserId, reprint.Id, reprint.TransactionId, $"sourceId={recordId}");
         return (await MapRecordAsync(reprint.Id, cancellationToken))!;
     }
 

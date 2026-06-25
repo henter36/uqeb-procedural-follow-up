@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Uqeb.Api.Authorization;
 using Uqeb.Api.DTOs.FollowUpPrint;
+using Uqeb.Api.Exceptions;
 using Uqeb.Api.Services;
 
 namespace Uqeb.Api.Controllers;
@@ -68,6 +69,10 @@ public class FollowUpPrintController : ControllerBase
             var job = await _jobs.CreateJobAsync(request, _currentUser, cancellationToken);
             return Accepted(job);
         }
+        catch (FollowUpPrintConflictException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
         catch (InvalidOperationException ex)
         {
             return BadRequest(new { message = ex.Message });
@@ -85,8 +90,15 @@ public class FollowUpPrintController : ControllerBase
     [Authorize(Policy = Policies.ViewFollowUpPrintJobs)]
     public async Task<IActionResult> GetJob(int id, CancellationToken cancellationToken)
     {
-        var job = await _jobs.GetJobAsync(id, cancellationToken);
-        return job == null ? NotFound() : Ok(job);
+        try
+        {
+            var job = await _jobs.GetJobAsync(id, _currentUser, cancellationToken);
+            return job == null ? NotFound() : Ok(job);
+        }
+        catch (FollowUpPrintForbiddenException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
     }
 
     [HttpPost("jobs/{id:int}/cancel")]
@@ -97,6 +109,10 @@ public class FollowUpPrintController : ControllerBase
         {
             var job = await _jobs.CancelJobAsync(id, _currentUser, cancellationToken);
             return job == null ? NotFound() : Ok(job);
+        }
+        catch (FollowUpPrintForbiddenException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
         }
         catch (InvalidOperationException ex)
         {
@@ -113,6 +129,10 @@ public class FollowUpPrintController : ControllerBase
             var job = await _jobs.RetryJobAsync(id, _currentUser, cancellationToken);
             return job == null ? NotFound() : Ok(job);
         }
+        catch (FollowUpPrintForbiddenException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
         catch (InvalidOperationException ex)
         {
             return BadRequest(new { message = ex.Message });
@@ -123,8 +143,15 @@ public class FollowUpPrintController : ControllerBase
     [Authorize(Policy = Policies.PrintFollowUpLetters)]
     public async Task<IActionResult> GetPartPrintView(int jobId, int partNumber, CancellationToken cancellationToken)
     {
-        var html = await _jobs.GetPartPrintViewHtmlAsync(jobId, partNumber, _currentUser, cancellationToken);
-        return html == null ? NotFound() : Content(html, "text/html; charset=utf-8");
+        try
+        {
+            var html = await _jobs.GetPartPrintViewHtmlAsync(jobId, partNumber, _currentUser, cancellationToken);
+            return html == null ? NotFound() : Content(html, "text/html; charset=utf-8");
+        }
+        catch (FollowUpPrintForbiddenException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
     }
 
     [HttpPost("jobs/{jobId:int}/parts/{partNumber:int}/mark-print-requested")]
@@ -134,6 +161,10 @@ public class FollowUpPrintController : ControllerBase
         try
         {
             return Ok(await _jobs.MarkPartPrintRequestedAsync(jobId, partNumber, _currentUser, cancellationToken));
+        }
+        catch (FollowUpPrintForbiddenException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
         }
         catch (InvalidOperationException ex)
         {

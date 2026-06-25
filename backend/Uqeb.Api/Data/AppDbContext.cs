@@ -23,6 +23,7 @@ public class AppDbContext : DbContext
     public DbSet<LetterTemplate> LetterTemplates => Set<LetterTemplate>();
     public DbSet<FollowUpPrintJob> FollowUpPrintJobs => Set<FollowUpPrintJob>();
     public DbSet<FollowUpPrintJobPart> FollowUpPrintJobParts => Set<FollowUpPrintJobPart>();
+    public DbSet<FollowUpPrintJobPayload> FollowUpPrintJobPayloads => Set<FollowUpPrintJobPayload>();
     public DbSet<FollowUpLetterPrintRecord> FollowUpLetterPrintRecords => Set<FollowUpLetterPrintRecord>();
     public DbSet<FollowUpPrintIdempotencyKey> FollowUpPrintIdempotencyKeys => Set<FollowUpPrintIdempotencyKey>();
     public DbSet<UserNotification> UserNotifications => Set<UserNotification>();
@@ -199,6 +200,15 @@ public class AppDbContext : DbContext
             e.HasOne(j => j.Template).WithMany().HasForeignKey(j => j.TemplateId).OnDelete(DeleteBehavior.NoAction);
         });
 
+        modelBuilder.Entity<FollowUpPrintJobPayload>(e =>
+        {
+            e.HasIndex(p => new { p.JobId, p.PayloadOrdinal }).IsUnique();
+            e.HasIndex(p => new { p.JobId, p.TransactionId, p.TargetDepartmentId, p.TargetEntityId, p.FollowUpSequence }).IsUnique();
+            e.Property(p => p.RowVersion).IsRowVersion();
+            e.HasOne(p => p.Job).WithMany(j => j.Payloads).HasForeignKey(p => p.JobId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(p => p.Part).WithMany(p => p.Payloads).HasForeignKey(p => p.PartId).OnDelete(DeleteBehavior.NoAction);
+        });
+
         modelBuilder.Entity<FollowUpPrintJobPart>(e =>
         {
             e.HasIndex(p => new { p.JobId, p.PartNumber }).IsUnique();
@@ -209,6 +219,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<FollowUpLetterPrintRecord>(e =>
         {
             e.HasIndex(r => new { r.TransactionId, r.PrintRequestedAt });
+            e.HasIndex(r => new { r.BatchJobPartId, r.TransactionId, r.TargetDepartmentId, r.TargetEntityId, r.FollowUpSequence }).IsUnique();
             e.HasIndex(r => r.RegisteredFollowUpId).HasFilter("[RegisteredFollowUpId] IS NULL");
             e.Property(r => r.RowVersion).IsRowVersion();
             e.HasOne(r => r.Transaction).WithMany().HasForeignKey(r => r.TransactionId).OnDelete(DeleteBehavior.Cascade);
@@ -226,7 +237,7 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<FollowUpPrintIdempotencyKey>(e =>
         {
-            e.HasIndex(k => new { k.UserId, k.Key, k.Operation }).IsUnique();
+            e.HasIndex(k => new { k.UserId, k.Operation, k.Key }).IsUnique();
             e.HasOne(k => k.User).WithMany().HasForeignKey(k => k.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 

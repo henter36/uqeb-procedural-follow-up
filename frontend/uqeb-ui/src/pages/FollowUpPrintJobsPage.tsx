@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { followUpPrintApi } from '../api/services';
 import type { FollowUpPrintJob } from '../api/types';
@@ -11,6 +11,7 @@ import DateDisplay from '../components/DateDisplay';
 import {
   Alert, EmptyState, LoadingInline, PageHeader, Pagination,
 } from '../components/ui';
+import { useDeferredEffect } from '../hooks/useDeferredEffect';
 
 export default function FollowUpPrintJobsPage() {
   const [jobs, setJobs] = useState<FollowUpPrintJob[]>([]);
@@ -20,23 +21,26 @@ export default function FollowUpPrintJobsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const loadJobs = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  const loadJobs = useCallback(async (active: () => boolean) => {
+    await Promise.resolve();
+    if (active()) {
+      setLoading(true);
+      setError('');
+    }
     try {
       const res = await followUpPrintApi.listJobs({ page, pageSize });
+      if (!active()) return;
       setJobs(res.data.items);
       setTotalCount(res.data.totalCount);
     } catch (err: unknown) {
+      if (!active()) return;
       setError(getApiErrorMessage(err));
     } finally {
-      setLoading(false);
+      if (active()) setLoading(false);
     }
   }, [page, pageSize]);
 
-  useEffect(() => {
-    void loadJobs();
-  }, [loadJobs]);
+  useDeferredEffect(loadJobs, [loadJobs]);
 
   return (
     <div dir="rtl">

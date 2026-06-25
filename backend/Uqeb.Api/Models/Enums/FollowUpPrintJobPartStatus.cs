@@ -7,5 +7,6 @@ public enum FollowUpPrintJobPartStatus
     ReadyToPrint = 3,
     Printed = 4,
     Failed = 5,
-    Cancelled = 6
+    Cancelled = 6,
+    PartiallyReady = 7,
 }
