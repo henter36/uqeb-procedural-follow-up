@@ -600,6 +600,97 @@ function Test-RecentLogErrors {
         -UseFileWriteTimeFallback $useFileWriteTimeFallback
 }
 
+function Assert-ApiRollbackStaging {
+    param([string]$StagingPath)
+
+    if (-not (Test-Path -LiteralPath (Join-Path $StagingPath 'Uqeb.Api.dll'))) {
+        throw 'نسخة API الاحتياطية لا تحتوي Uqeb.Api.dll.'
+    }
+}
+
+function Assert-WebRollbackStaging {
+    param([string]$StagingPath)
+
+    if (-not (Test-Path -LiteralPath (Join-Path $StagingPath 'index.html'))) {
+        throw 'نسخة Web الاحتياطية لا تحتوي index.html.'
+    }
+}
+
+function Assert-RollbackConfigurationAvailable {
+    param(
+        [string]$ConfigSource,
+        [bool]$HasApplicationBackup
+    )
+
+    if ($HasApplicationBackup -and -not (Test-Path -LiteralPath $ConfigSource)) {
+        throw "إعداد الإنتاج المعتمد غير موجود أثناء file rollback: $ConfigSource"
+    }
+}
+
+function Restore-DeploymentDirectoryAtomically {
+    param(
+        [string]$Source,
+        [string]$Target,
+        [scriptblock]$ValidateStaging = $null
+    )
+
+    $previous = Swap-DirectoryAtomically `
+        -Source $Source `
+        -Target $Target `
+        -ValidateStaging $ValidateStaging
+    Remove-DirectoryIfExists -Path $previous
+}
+
+function Restore-ApiDirectoryFromBackup {
+    param(
+        [string]$BackupApi,
+        [string]$ApiTarget
+    )
+
+    Restore-DeploymentDirectoryAtomically `
+        -Source $BackupApi `
+        -Target $ApiTarget `
+        -ValidateStaging {
+            param($StagingPath)
+            Assert-ApiRollbackStaging -StagingPath $StagingPath
+        }
+}
+
+function Restore-WebDirectoryFromBackup {
+    param(
+        [string]$BackupWeb,
+        [string]$WebTarget
+    )
+
+    Restore-DeploymentDirectoryAtomically `
+        -Source $BackupWeb `
+        -Target $WebTarget `
+        -ValidateStaging {
+            param($StagingPath)
+            Assert-WebRollbackStaging -StagingPath $StagingPath
+        }
+}
+
+function Restore-BrowserDirectoryFromBackup {
+    param(
+        [string]$BackupBrowsers,
+        [string]$PlaywrightBrowsersPath
+    )
+
+    Restore-DeploymentDirectoryAtomically `
+        -Source $BackupBrowsers `
+        -Target $PlaywrightBrowsersPath
+}
+
+function Restore-ReleaseManifestFromBackup {
+    param(
+        [string]$BackupReleaseManifest,
+        [string]$ReleaseManifestPath
+    )
+
+    Copy-Item -LiteralPath $BackupReleaseManifest -Destination $ReleaseManifestPath -Force
+}
+
 function Invoke-DeploymentFileRollback {
     param(
         [string]$BackupApi,
@@ -614,53 +705,39 @@ function Invoke-DeploymentFileRollback {
         [string]$BackupReleaseManifest = ""
     )
 
-    if (-not (Test-DirectoryHasContent $BackupApi) -and -not (Test-DirectoryHasContent $BackupWeb) -and -not (Test-DirectoryHasContent $BackupBrowsers)) {
+    $hasApiBackup = Test-DirectoryHasContent $BackupApi
+    $hasWebBackup = Test-DirectoryHasContent $BackupWeb
+    $hasBrowserBackup = Test-DirectoryHasContent $BackupBrowsers
+    $hasApplicationBackup = $hasApiBackup -or $hasWebBackup
+
+    if (-not $hasApiBackup -and -not $hasWebBackup -and -not $hasBrowserBackup) {
         Write-DeployInfo "لا توجد نسخة ملفات سابقة لاسترجاعها."
         return $false
     }
 
-    if ((Test-DirectoryHasContent $BackupApi) -or (Test-DirectoryHasContent $BackupWeb)) {
-        if (-not (Test-Path -LiteralPath $ConfigSource)) {
-            throw "إعداد الإنتاج المعتمد غير موجود أثناء file rollback: $ConfigSource"
-        }
-    }
+    Assert-RollbackConfigurationAvailable `
+        -ConfigSource $ConfigSource `
+        -HasApplicationBackup $hasApplicationBackup
 
-    if (Test-DirectoryHasContent $BackupApi) {
-        $apiPrevious = Swap-DirectoryAtomically `
-            -Source $BackupApi `
-            -Target $ApiTarget `
-            -ValidateStaging {
-                param($StagingPath)
-                if (-not (Test-Path -LiteralPath (Join-Path $StagingPath 'Uqeb.Api.dll'))) {
-                    throw 'نسخة API الاحتياطية لا تحتوي Uqeb.Api.dll.'
-                }
-            }
-        Remove-DirectoryIfExists -Path $apiPrevious
+    if ($hasApiBackup) {
+        Restore-ApiDirectoryFromBackup -BackupApi $BackupApi -ApiTarget $ApiTarget
     }
-    if (Test-DirectoryHasContent $BackupWeb) {
-        $webPrevious = Swap-DirectoryAtomically `
-            -Source $BackupWeb `
-            -Target $WebTarget `
-            -ValidateStaging {
-                param($StagingPath)
-                if (-not (Test-Path -LiteralPath (Join-Path $StagingPath 'index.html'))) {
-                    throw 'نسخة Web الاحتياطية لا تحتوي index.html.'
-                }
-            }
-        Remove-DirectoryIfExists -Path $webPrevious
+    if ($hasWebBackup) {
+        Restore-WebDirectoryFromBackup -BackupWeb $BackupWeb -WebTarget $WebTarget
     }
-    if ((Test-DirectoryHasContent $BackupApi) -or (Test-DirectoryHasContent $BackupWeb)) {
+    if ($hasApplicationBackup) {
         Copy-Item -LiteralPath $ConfigSource -Destination $ConfigTarget -Force
     }
 
-    if ($PlaywrightBrowsersPath -and (Test-DirectoryHasContent $BackupBrowsers)) {
-        $browserPrevious = Swap-DirectoryAtomically `
-            -Source $BackupBrowsers `
-            -Target $PlaywrightBrowsersPath
-        Remove-DirectoryIfExists -Path $browserPrevious
+    if ($PlaywrightBrowsersPath -and $hasBrowserBackup) {
+        Restore-BrowserDirectoryFromBackup `
+            -BackupBrowsers $BackupBrowsers `
+            -PlaywrightBrowsersPath $PlaywrightBrowsersPath
     }
     if ($ReleaseManifestPath -and (Test-Path -LiteralPath $BackupReleaseManifest)) {
-        Copy-Item -LiteralPath $BackupReleaseManifest -Destination $ReleaseManifestPath -Force
+        Restore-ReleaseManifestFromBackup `
+            -BackupReleaseManifest $BackupReleaseManifest `
+            -ReleaseManifestPath $ReleaseManifestPath
     }
 
     return $true
@@ -2197,11 +2274,10 @@ function Test-RequiredMigrationApplied {
     }
 }
 
-function Move-DeploymentPackageToArchive {
+function Assert-DeploymentArchiveSources {
     param(
-        [Parameter(Mandatory = $true)][string]$ZipPath,
-        [Parameter(Mandatory = $true)][string]$Sha256Path,
-        [Parameter(Mandatory = $true)][string]$ArchiveDirectory
+        [string]$ZipPath,
+        [string]$Sha256Path
     )
 
     if (-not (Test-Path -LiteralPath $ZipPath)) {
@@ -2210,34 +2286,103 @@ function Move-DeploymentPackageToArchive {
     if (-not (Test-Path -LiteralPath $Sha256Path)) {
         throw "ملف SHA256 المراد أرشفته غير موجود: $Sha256Path"
     }
+}
+
+function Get-DeploymentArchiveTargets {
+    param(
+        [string]$ZipPath,
+        [string]$Sha256Path,
+        [string]$ArchiveDirectory
+    )
 
     Ensure-Directory $ArchiveDirectory
-    $zipTarget = Join-Path $ArchiveDirectory (Split-Path -Leaf $ZipPath)
-    $shaTarget = Join-Path $ArchiveDirectory (Split-Path -Leaf $Sha256Path)
-    $zipTargetExists = Test-Path -LiteralPath $zipTarget
-    $shaTargetExists = Test-Path -LiteralPath $shaTarget
-
-    if ($zipTargetExists -or $shaTargetExists) {
-        if (-not ($zipTargetExists -and $shaTargetExists)) {
-            throw 'تعارض أرشفة الحزمة: يوجد جزء واحد فقط من زوج ZIP/SHA256 في deployed.'
-        }
-
-        $sourceZipHash = Get-FileSha256Hex -Path $ZipPath
-        $targetZipHash = Get-FileSha256Hex -Path $zipTarget
-        $sourceSidecarHash = Get-FileSha256Hex -Path $Sha256Path
-        $targetSidecarHash = Get-FileSha256Hex -Path $shaTarget
-        if ($sourceZipHash -ne $targetZipHash -or $sourceSidecarHash -ne $targetSidecarHash) {
-            throw 'تعارض أرشفة الحزمة: يوجد artifact بالاسم نفسه وبمحتوى مختلف.'
-        }
-
-        Remove-Item -LiteralPath $ZipPath -Force
-        Remove-Item -LiteralPath $Sha256Path -Force
-        return [pscustomobject]@{
-            Status = 'already_archived'
-            ZipPath = $zipTarget
-            Sha256Path = $shaTarget
-        }
+    return [pscustomobject]@{
+        ZipTarget = Join-Path $ArchiveDirectory (Split-Path -Leaf $ZipPath)
+        ShaTarget = Join-Path $ArchiveDirectory (Split-Path -Leaf $Sha256Path)
     }
+}
+
+function Assert-ArchiveArtifactsMatch {
+    param(
+        [string]$ZipPath,
+        [string]$Sha256Path,
+        [string]$ZipTarget,
+        [string]$ShaTarget
+    )
+
+    $sourceZipHash = Get-FileSha256Hex -Path $ZipPath
+    $targetZipHash = Get-FileSha256Hex -Path $ZipTarget
+    $sourceSidecarHash = Get-FileSha256Hex -Path $Sha256Path
+    $targetSidecarHash = Get-FileSha256Hex -Path $ShaTarget
+    if ($sourceZipHash -ne $targetZipHash -or $sourceSidecarHash -ne $targetSidecarHash) {
+        throw 'تعارض أرشفة الحزمة: يوجد artifact بالاسم نفسه وبمحتوى مختلف.'
+    }
+}
+
+function New-DeploymentArchiveResult {
+    param(
+        [string]$Status,
+        [string]$ZipPath,
+        [string]$Sha256Path
+    )
+
+    return [pscustomobject]@{
+        Status = $Status
+        ZipPath = $ZipPath
+        Sha256Path = $Sha256Path
+    }
+}
+
+function Resolve-ExistingDeploymentArchivePair {
+    param(
+        [string]$ZipPath,
+        [string]$Sha256Path,
+        [string]$ZipTarget,
+        [string]$ShaTarget
+    )
+
+    $zipTargetExists = Test-Path -LiteralPath $ZipTarget
+    $shaTargetExists = Test-Path -LiteralPath $ShaTarget
+    if (-not $zipTargetExists -and -not $shaTargetExists) {
+        return $null
+    }
+
+    if (-not ($zipTargetExists -and $shaTargetExists)) {
+        throw 'تعارض أرشفة الحزمة: يوجد جزء واحد فقط من زوج ZIP/SHA256 في deployed.'
+    }
+
+    Assert-ArchiveArtifactsMatch `
+        -ZipPath $ZipPath `
+        -Sha256Path $Sha256Path `
+        -ZipTarget $ZipTarget `
+        -ShaTarget $ShaTarget
+
+    Remove-Item -LiteralPath $ZipPath -Force
+    Remove-Item -LiteralPath $Sha256Path -Force
+    return New-DeploymentArchiveResult `
+        -Status 'already_archived' `
+        -ZipPath $ZipTarget `
+        -Sha256Path $ShaTarget
+}
+
+function Restore-ZipAfterArchiveFailure {
+    param(
+        [string]$ZipPath,
+        [string]$ZipTarget
+    )
+
+    if ((Test-Path -LiteralPath $ZipTarget) -and -not (Test-Path -LiteralPath $ZipPath)) {
+        Move-Item -LiteralPath $ZipTarget -Destination $ZipPath
+    }
+}
+
+function Move-DeploymentArchivePair {
+    param(
+        [string]$ZipPath,
+        [string]$Sha256Path,
+        [string]$ZipTarget,
+        [string]$ShaTarget
+    )
 
     Move-Item -LiteralPath $ZipPath -Destination $zipTarget
     try {
@@ -2249,21 +2394,48 @@ function Move-DeploymentPackageToArchive {
     catch {
         $archiveError = $_
         try {
-            if ((Test-Path -LiteralPath $zipTarget) -and -not (Test-Path -LiteralPath $ZipPath)) {
-                Move-Item -LiteralPath $zipTarget -Destination $ZipPath
-            }
+            Restore-ZipAfterArchiveFailure -ZipPath $ZipPath -ZipTarget $ZipTarget
         }
         catch {
             throw "فشل نقل SHA256 وفشل التراجع عن نقل ZIP. Archive: $($archiveError.Exception.Message) Restore: $($_.Exception.Message)"
         }
         throw $archiveError
     }
+}
 
-    return [pscustomobject]@{
-        Status = 'archived'
-        ZipPath = $zipTarget
-        Sha256Path = $shaTarget
+function Move-DeploymentPackageToArchive {
+    param(
+        [Parameter(Mandatory = $true)][string]$ZipPath,
+        [Parameter(Mandatory = $true)][string]$Sha256Path,
+        [Parameter(Mandatory = $true)][string]$ArchiveDirectory
+    )
+
+    Assert-DeploymentArchiveSources -ZipPath $ZipPath -Sha256Path $Sha256Path
+
+    $targets = Get-DeploymentArchiveTargets `
+        -ZipPath $ZipPath `
+        -Sha256Path $Sha256Path `
+        -ArchiveDirectory $ArchiveDirectory
+
+    $existingResult = Resolve-ExistingDeploymentArchivePair `
+        -ZipPath $ZipPath `
+        -Sha256Path $Sha256Path `
+        -ZipTarget $targets.ZipTarget `
+        -ShaTarget $targets.ShaTarget
+    if ($null -ne $existingResult) {
+        return $existingResult
     }
+
+    Move-DeploymentArchivePair `
+        -ZipPath $ZipPath `
+        -Sha256Path $Sha256Path `
+        -ZipTarget $targets.ZipTarget `
+        -ShaTarget $targets.ShaTarget
+
+    return New-DeploymentArchiveResult `
+        -Status 'archived' `
+        -ZipPath $targets.ZipTarget `
+        -Sha256Path $targets.ShaTarget
 }
 
 function Get-SafeArchiveDestinationRoot {

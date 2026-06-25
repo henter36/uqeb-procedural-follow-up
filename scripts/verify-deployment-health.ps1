@@ -225,6 +225,63 @@ function Invoke-HealthEndpoint {
     }
 }
 
+function Get-HttpStatusCodeFromException {
+    param($Exception)
+
+    if ($Exception.PSObject.Properties.Name -contains 'Response' -and $Exception.Response) {
+        return [int]$Exception.Response.StatusCode
+    }
+
+    return $null
+}
+
+function Invoke-InvalidLoginProbeAttempt {
+    param(
+        [string]$Uri,
+        [string]$Body,
+        [int]$TimeoutSec
+    )
+
+    try {
+        $response = Invoke-WebRequest `
+            -UseBasicParsing `
+            -Uri $Uri `
+            -Method Post `
+            -ContentType 'application/json' `
+            -Body $Body `
+            -TimeoutSec $TimeoutSec
+
+        $statusCode = [int]$response.StatusCode
+    }
+    catch {
+        $statusCode = Get-HttpStatusCodeFromException -Exception $_.Exception
+        if ($null -ne $statusCode) {
+            if ($statusCode -eq 401) {
+                return [pscustomobject]@{ Succeeded = $true; Failure = $null }
+            }
+
+            return [pscustomobject]@{
+                Succeeded = $false
+                Failure = "unexpected status $statusCode"
+            }
+        }
+
+        return [pscustomobject]@{
+            Succeeded = $false
+            Failure = $_.Exception.Message
+        }
+    }
+
+    if ($statusCode -eq 401) {
+        return [pscustomobject]@{ Succeeded = $true; Failure = $null }
+    }
+
+    return [pscustomobject]@{
+        Succeeded = $false
+        Failure = "unexpected status $statusCode"
+    }
+}
+
 function Invoke-InvalidLoginProbe {
     $uri = Get-HealthUri -BaseUrl $ApiBaseUrl -Path '/api/auth/login'
     $body = @{
@@ -236,42 +293,16 @@ function Invoke-InvalidLoginProbe {
     $lastFailure = $null
 
     for ($attempt = 1; $attempt -le $RetryCount; $attempt++) {
-        try {
-            $response = Invoke-WebRequest `
-                -UseBasicParsing `
-                -Uri $uri `
-                -Method Post `
-                -ContentType 'application/json' `
-                -Body $body `
-                -TimeoutSec $TimeoutSec
-
-            $statusCode = [int]$response.StatusCode
-            if ($statusCode -eq 401) {
-                return
-            }
-
-            $lastFailure = "unexpected status $statusCode"
-        }
-        catch {
-            if ($_.Exception.PSObject.Properties.Name -contains 'Response' -and $_.Exception.Response) {
-                $statusCode = [int]$_.Exception.Response.StatusCode
-                if ($statusCode -eq 401) {
-                    return
-                }
-
-                $lastFailure = "unexpected status $statusCode"
-            }
-            else {
-                $lastFailure = $_.Exception.Message
-            }
+        $result = Invoke-InvalidLoginProbeAttempt -Uri $uri -Body $body -TimeoutSec $TimeoutSec
+        if ($result.Succeeded) {
+            return
         }
 
-        if ($attempt -eq $RetryCount) {
-            break
+        $lastFailure = $result.Failure
+        if ($attempt -lt $RetryCount) {
+            Write-Output "Retry $attempt/$RetryCount for invalid-login probe after failure: $lastFailure"
+            Start-Sleep -Seconds $RetryDelaySec
         }
-
-        Write-Output "Retry $attempt/$RetryCount for invalid-login probe after failure: $lastFailure"
-        Start-Sleep -Seconds $RetryDelaySec
     }
 
     throw "invalid-login probe failed after $RetryCount attempts at $uri. Last failure: $lastFailure"
