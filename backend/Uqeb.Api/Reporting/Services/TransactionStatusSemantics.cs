@@ -1,3 +1,4 @@
+using Uqeb.Api.Helpers;
 using Uqeb.Api.Models.Enums;
 
 namespace Uqeb.Api.Reporting.Services;
@@ -13,9 +14,7 @@ namespace Uqeb.Api.Reporting.Services;
 public static class TransactionStatusSemantics
 {
     public static bool IsOperationalOpen(TransactionStatus status) =>
-        status is not TransactionStatus.Closed
-            and not TransactionStatus.Cancelled
-            and not TransactionStatus.Archived;
+        TransactionTemporalCalculator.IsOpen(status);
 
     public static bool IsOperationalClosed(TransactionStatus status) =>
         status == TransactionStatus.Closed;

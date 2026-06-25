@@ -273,8 +273,6 @@ public class TransactionService : ITransactionService
         if (t == null) return null;
         if (!await CanAccessTransactionAsync(id, currentUser)) return null;
 
-        await UpdateOverdueStatusesForTransactionAsync(id);
-
         var assignmentRows = await _db.Assignments.AsNoTracking()
             .Where(a => a.TransactionId == id)
             .Select(a => new AssignmentSummaryRow(
@@ -321,8 +319,8 @@ public class TransactionService : ITransactionService
                 ReplyDate = a.ReplyDate,
                 ReplySummary = a.ReplySummary,
                 Status = a.Status.ToString(),
-                IsOverdue = a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
-                    && a.Status == AssignmentStatus.Active && a.DueDate.HasValue && a.DueDate.Value < now,
+                IsOverdue = TransactionTemporalCalculator.IsAssignmentOverdue(
+                    a.ReplyStatus, a.RequiresReply, a.Status, a.DueDate, now),
                 CreatedByName = a.CreatedBy != null ? a.CreatedBy.FullName : "",
                 CreatedAt = a.CreatedAt
             })
@@ -1001,47 +999,6 @@ public class TransactionService : ITransactionService
         _cacheInvalidation.InvalidateOnTransactionChange();
     }
 
-    private async Task UpdateOverdueStatusesForTransactionAsync(int transactionId)
-    {
-        var now = DateTime.UtcNow;
-        var overdueAssignments = await _db.Assignments
-            .Where(a => a.TransactionId == transactionId
-                && a.RequiresReply
-                && a.ReplyStatus == ReplyStatus.Pending
-                && a.DueDate < now)
-            .ToListAsync();
-
-        if (overdueAssignments.Count == 0) return;
-
-        foreach (var a in overdueAssignments)
-            a.ReplyStatus = ReplyStatus.Overdue;
-
-        var t = await _db.Transactions.Include(x => x.Assignments).FirstOrDefaultAsync(x => x.Id == transactionId);
-        if (t == null) return;
-
-        WorkflowHelper.UpdateTransactionStatusFromAssignments(t);
-        await _db.SaveChangesAsync();
-    }
-
-    private async Task UpdateOverdueStatusesAsync(Transaction t)
-    {
-        var now = DateTime.UtcNow;
-        var changed = false;
-        foreach (var a in t.Assignments)
-        {
-            if (a.RequiresReply && a.ReplyStatus == ReplyStatus.Pending && a.DueDate < now)
-            {
-                a.ReplyStatus = ReplyStatus.Overdue;
-                changed = true;
-            }
-        }
-        if (changed)
-        {
-            WorkflowHelper.UpdateTransactionStatusFromAssignments(t);
-            await _db.SaveChangesAsync();
-        }
-    }
-
     private async Task SyncOutgoingDepartmentsAsync(Transaction transaction, List<int> departmentIds, int userId)
     {
         var existing = transaction.Id > 0
@@ -1358,9 +1315,9 @@ public class TransactionService : ITransactionService
             RequiresResponse = t.RequiresResponse,
             ResponseCompleted = t.ResponseCompleted,
             ResponseDueDate = t.ResponseDueDate,
-            IsResponseOverdue = WorkflowHelper.IsResponseOverdue(t, now),
+            IsResponseOverdue = TransactionTemporalCalculator.IsResponseOverdue(t, now),
             HasPendingAssignments = t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied && a.Status == AssignmentStatus.Active),
-            IsOverdue = WorkflowHelper.IsTransactionOverdue(t, now),
+            IsOverdue = TransactionTemporalCalculator.IsOverdue(t, now),
             IsArchived = t.IsArchived,
             CreatedByName = t.CreatedBy?.FullName ?? "",
             CreatedAt = t.CreatedAt
@@ -1385,9 +1342,10 @@ public class TransactionService : ITransactionService
         var pending = assignmentRows.Where(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied && a.Status == AssignmentStatus.Active)
             .Select(a => a.DepartmentName).ToList();
         var hasPending = pending.Count > 0;
-        var hasOverdueAssignment = assignmentRows.Any(a =>
-            a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied && a.Status == AssignmentStatus.Active
-            && a.DueDate.HasValue && a.DueDate.Value < now);
+        var summaryFacts = assignmentRows
+            .Select(a => new TransactionTemporalCalculator.AssignmentSummaryFacts(
+                a.ReplyStatus, a.RequiresReply, a.Status, a.DueDate))
+            .ToList();
 
         var dto = new TransactionDetailDto
         {
@@ -1416,9 +1374,9 @@ public class TransactionService : ITransactionService
             ResponseCompletedDate = t.ResponseCompletedDate,
             ResponseSummary = t.ResponseSummary,
             Notes = t.Notes,
-            IsResponseOverdue = WorkflowHelper.IsResponseOverdue(t, now),
+            IsResponseOverdue = TransactionTemporalCalculator.IsResponseOverdue(t, now),
             HasPendingAssignments = hasPending,
-            IsOverdue = WorkflowHelper.IsResponseOverdue(t, now) || hasOverdueAssignment,
+            IsOverdue = TransactionTemporalCalculator.IsOverdue(t, summaryFacts, now),
             IsArchived = t.IsArchived,
             CreatedByName = t.CreatedBy?.FullName ?? "",
             CreatedAt = t.CreatedAt,
@@ -1472,9 +1430,9 @@ public class TransactionService : ITransactionService
             ResponseCompletedDate = t.ResponseCompletedDate,
             ResponseSummary = t.ResponseSummary,
             Notes = t.Notes,
-            IsResponseOverdue = WorkflowHelper.IsResponseOverdue(t, now),
+            IsResponseOverdue = TransactionTemporalCalculator.IsResponseOverdue(t, now),
             HasPendingAssignments = t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied && a.Status == AssignmentStatus.Active),
-            IsOverdue = WorkflowHelper.IsTransactionOverdue(t, now),
+            IsOverdue = TransactionTemporalCalculator.IsOverdue(t, now),
             IsArchived = t.IsArchived,
             CreatedByName = t.CreatedBy?.FullName ?? "",
             CreatedAt = t.CreatedAt,
@@ -1570,7 +1528,7 @@ public class TransactionService : ITransactionService
             ReplyDate = a.ReplyDate,
             ReplySummary = a.ReplySummary,
             Status = a.Status.ToString(),
-            IsOverdue = WorkflowHelper.IsAssignmentOverdue(a, now),
+            IsOverdue = TransactionTemporalCalculator.IsAssignmentOverdue(a, now),
             CreatedByName = createdByName,
             CreatedAt = a.CreatedAt
         };
