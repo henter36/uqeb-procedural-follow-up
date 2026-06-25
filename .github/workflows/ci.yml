@@ -141,19 +141,19 @@ jobs:
   transaction-sqlserver-integration:
     runs-on: ubuntu-latest
     env:
-      MSSQL_SA_PASSWORD: UqebCiSql2022_TestOnly
-      UQEB_TRANSACTION_TEST_CONNECTION: Server=localhost,1433;User Id=sa;Password=UqebCiSql2022_TestOnly;TrustServerCertificate=True;MultipleActiveResultSets=true
+      MSSQL_SA_PASSWORD: YourStrong@Passw0rd
+      UQEB_TRANSACTION_TEST_CONNECTION: Server=localhost,1433;User Id=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=True;MultipleActiveResultSets=true
       REQUIRE_TRANSACTION_SQLSERVER_TESTS: "1"
     services:
       sqlserver:
         image: mcr.microsoft.com/mssql/server:2022-latest
         env:
           ACCEPT_EULA: Y
-          MSSQL_SA_PASSWORD: UqebCiSql2022_TestOnly
+          MSSQL_SA_PASSWORD: YourStrong@Passw0rd
         ports:
           - 1433:1433
         options: >-
-          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q \"SELECT 1\" || exit 1"
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"YourStrong@Passw0rd\" -Q \"SELECT 1\" || exit 1"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 12
