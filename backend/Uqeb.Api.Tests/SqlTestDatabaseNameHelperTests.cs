@@ -36,6 +36,9 @@ public class SqlTestDatabaseNameHelperTests
             connection,
             "Uqeb_TransactionRetry_ab12cd34ef56");
 
+        Assert.Equal("[Uqeb_TransactionRetry_ab12cd34ef56]", quoted);
+    }
+
     [Fact]
     public void ValidateAndQuoteDatabaseName_QuotesFollowUpPrintName()
     {
