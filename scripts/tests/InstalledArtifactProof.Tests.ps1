@@ -74,7 +74,7 @@ Describe 'Windows installed-artifact promotion proof' {
 
 Describe 'Windows offline installer artifact proof' {
     BeforeEach {
-        Register-StandardDeploymentInstallMocks -IncludePromotionMock
+        Register-StandardDeploymentInstallMocks
     }
 
     It 'writes rollback-state and release manifest during mocked Windows install' -Skip:(-not $IsWindows) {
