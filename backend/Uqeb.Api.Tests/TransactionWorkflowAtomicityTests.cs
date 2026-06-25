@@ -49,6 +49,8 @@ public class TransactionWorkflowAtomicityTests
         public void ResetInvalidations() => TransactionChangeInvalidations = 0;
 
         public string DashboardSummaryKey => "dashboard";
+        public string BuildDashboardSummaryKey() => DashboardSummaryKey;
+        public string BuildDashboardFullKey() => "dashboard:full";
         public TimeSpan DashboardCacheDuration => TimeSpan.FromMinutes(1);
         public TimeSpan ReportsPageSummaryCacheDuration => TimeSpan.FromMinutes(1);
         public TimeSpan ReferenceDataCacheDuration => TimeSpan.FromMinutes(1);

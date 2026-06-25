@@ -83,7 +83,8 @@ export const dashboardApi = {
 };
 
 export const reportsApi = {
-  dashboard: () => api.get('/reports/dashboard'),
+  dashboard: (config?: { signal?: AbortSignal }) =>
+    api.get<DashboardSummary>('/reports/dashboard', config),
   pageSummary: (params?: Record<string, unknown>, config?: { signal?: AbortSignal }) =>
     api.get<ReportSectionCounts>('/reports/page-summary', { params, ...config }),
   overdue: (params?: Record<string, unknown>) => api.get<TransactionListItem[]>('/reports/overdue', { params }),

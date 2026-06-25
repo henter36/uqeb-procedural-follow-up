@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Caching.Memory;
 using Uqeb.Api.DTOs.Reports;
 using Uqeb.Api.Services;
 
@@ -12,12 +11,12 @@ namespace Uqeb.Api.Controllers;
 public class DashboardController : ControllerBase
 {
     private readonly IReportService _reports;
-    private readonly IMemoryCache _cache;
+    private readonly IMemoryCacheCoordinator _cache;
     private readonly ICacheInvalidationService _cacheInvalidation;
 
     public DashboardController(
         IReportService reports,
-        IMemoryCache cache,
+        IMemoryCacheCoordinator cache,
         ICacheInvalidationService cacheInvalidation)
     {
         _reports = reports;
@@ -28,12 +27,10 @@ public class DashboardController : ControllerBase
     [HttpGet("summary")]
     public async Task<IActionResult> Summary()
     {
-        var cacheKey = _cacheInvalidation.DashboardSummaryKey;
-        if (_cache.TryGetValue(cacheKey, out DashboardSummaryDto? cached) && cached != null)
-            return Ok(cached);
-
-        var result = await _reports.GetDashboardSummaryAsync();
-        _cache.Set(cacheKey, result, _cacheInvalidation.DashboardCacheDuration);
+        var result = await _cache.GetOrCreateAsync(
+            _cacheInvalidation.BuildDashboardSummaryKey(),
+            () => _reports.GetDashboardSummaryAsync(),
+            _cacheInvalidation.DashboardCacheDuration);
         return Ok(result);
     }
 

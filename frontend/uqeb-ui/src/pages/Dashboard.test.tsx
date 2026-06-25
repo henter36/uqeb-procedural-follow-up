@@ -5,6 +5,9 @@ import DashboardPage from './Dashboard';
 import * as services from '../api/services';
 
 vi.mock('../api/services', () => ({
+  reportsApi: {
+    dashboard: vi.fn(),
+  },
   dashboardApi: {
     summary: vi.fn(),
     actionRequired: vi.fn(),
@@ -15,21 +18,45 @@ vi.mock('../api/services', () => ({
   },
 }));
 
+const emptyDashboard = {
+  totalOpen: 0,
+  requiresResponsePending: 0,
+  responseOverdueCount: 0,
+  waitingForReply: 0,
+  partiallyReplied: 0,
+  readyForResponse: 0,
+  closedThisMonth: 0,
+  averageCompletionDays: 0,
+  topOverdueDepartments: [],
+  topIncomingParties: [],
+  byCategory: [],
+  byStatus: [],
+  actionRequired: [],
+};
+
 describe('DashboardPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(services.dashboardApi.summary).mockResolvedValue({
-      data: { totalOpen: 0, requiresResponsePending: 0, responseOverdueCount: 0, waitingForReply: 0, partiallyReplied: 0, readyForResponse: 0, closedThisMonth: 0, averageCompletionDays: 0 },
-    } as never);
-    vi.mocked(services.dashboardApi.actionRequired).mockResolvedValue({ data: [] } as never);
-    vi.mocked(services.dashboardApi.topOverdueDepartments).mockResolvedValue({ data: [] } as never);
-    vi.mocked(services.dashboardApi.topIncomingParties).mockResolvedValue({ data: [] } as never);
-    vi.mocked(services.dashboardApi.categoryDistribution).mockResolvedValue({ data: [] } as never);
-    vi.mocked(services.dashboardApi.statusDistribution).mockResolvedValue({ data: [] } as never);
+    vi.mocked(services.reportsApi.dashboard).mockResolvedValue({ data: emptyDashboard } as never);
   });
 
   afterEach(() => {
     cleanup();
+  });
+
+  it('loads consolidated dashboard in one request', async () => {
+    render(
+      <MemoryRouter>
+        <DashboardPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(services.reportsApi.dashboard).toHaveBeenCalledTimes(1);
+    });
+
+    expect(services.dashboardApi.summary).not.toHaveBeenCalled();
+    expect(services.dashboardApi.actionRequired).not.toHaveBeenCalled();
   });
 
   it('shows a single empty state for action required section', async () => {

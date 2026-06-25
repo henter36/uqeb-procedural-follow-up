@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Caching.Memory;
 using Uqeb.Api.DTOs.Reports;
 using Uqeb.Api.DTOs.Transactions;
 using Uqeb.Api.Helpers;
@@ -14,12 +13,12 @@ namespace Uqeb.Api.Controllers;
 public class ReportsController : ControllerBase
 {
     private readonly IReportService _reports;
-    private readonly IMemoryCache _cache;
+    private readonly IMemoryCacheCoordinator _cache;
     private readonly ICacheInvalidationService _cacheInvalidation;
 
     public ReportsController(
         IReportService reports,
-        IMemoryCache cache,
+        IMemoryCacheCoordinator cache,
         ICacheInvalidationService cacheInvalidation)
     {
         _reports = reports;
@@ -28,17 +27,22 @@ public class ReportsController : ControllerBase
     }
 
     [HttpGet("dashboard")]
-    public async Task<IActionResult> Dashboard() => Ok(await _reports.GetDashboardAsync());
+    public async Task<IActionResult> Dashboard()
+    {
+        var result = await _cache.GetOrCreateAsync(
+            _cacheInvalidation.BuildDashboardFullKey(),
+            () => _reports.GetDashboardAsync(),
+            _cacheInvalidation.DashboardCacheDuration);
+        return Ok(result);
+    }
 
     [HttpGet("page-summary")]
     public async Task<IActionResult> PageSummary([FromQuery] ReportFilterRequest filter)
     {
-        var cacheKey = _cacheInvalidation.BuildReportsPageSummaryKey(filter);
-        if (_cache.TryGetValue(cacheKey, out ReportSectionCountsDto? cached) && cached != null)
-            return Ok(cached);
-
-        var result = await _reports.GetPageSummaryAsync(filter);
-        _cache.Set(cacheKey, result, _cacheInvalidation.ReportsPageSummaryCacheDuration);
+        var result = await _cache.GetOrCreateAsync(
+            _cacheInvalidation.BuildReportsPageSummaryKey(filter),
+            () => _reports.GetPageSummaryAsync(filter),
+            _cacheInvalidation.ReportsPageSummaryCacheDuration);
         return Ok(result);
     }
 
