@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Uqeb.Api.Data;
@@ -587,7 +588,7 @@ public class TransactionService : ITransactionService
             throw new DuplicateTrackingNumberException();
         }
 
-        throw exception;
+        ExceptionDispatchInfo.Capture(exception).Throw();
     }
 
     public async Task<TransactionDetailDto?> UpdateAsync(int id, UpdateTransactionRequest request, int userId, UserRole role)
