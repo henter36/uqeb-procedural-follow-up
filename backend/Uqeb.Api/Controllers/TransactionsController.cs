@@ -38,8 +38,17 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> Search([FromQuery] TransactionSearchRequest request) =>
-        Ok(await _transactions.SearchAsync(request, _currentUser));
+    public async Task<IActionResult> Search([FromQuery] TransactionSearchRequest request)
+    {
+        try
+        {
+            return Ok(await _transactions.SearchAsync(request, _currentUser));
+        }
+        catch (InvalidTransactionSearchCursorException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
 
     [HttpGet("{id}/basic")]
     public async Task<IActionResult> GetBasic(int id)

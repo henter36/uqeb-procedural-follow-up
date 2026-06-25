@@ -62,8 +62,69 @@ public class TransactionService : ITransactionService
     public async Task<PagedResult<TransactionListDto>> SearchAsync(TransactionSearchRequest request, ICurrentUserService currentUser)
     {
         var now = DateTime.UtcNow;
-        var query = _db.Transactions.AsNoTracking();
+        var query = ApplySearchFilters(_db.Transactions.AsNoTracking(), request, currentUser, now);
+        var sortBy = TransactionSearchPagination.NormalizeSortBy(request.SortBy);
+        var pageSize = request.PageSize > 0 ? request.PageSize : 20;
 
+        if (TransactionSearchPagination.IsCursorMode(request.PaginationMode))
+        {
+            IQueryable<Transaction> orderedQuery = TransactionSearchPagination.ApplySort(query, sortBy, request.SortDesc);
+
+            if (!string.IsNullOrWhiteSpace(request.Cursor))
+            {
+                var cursorPayload = TransactionSearchCursorCodec.Decode(request.Cursor);
+                TransactionSearchPagination.EnsureCursorMatchesRequest(cursorPayload, sortBy, request.SortDesc);
+                orderedQuery = TransactionSearchPagination.ApplyKeysetFilter(
+                    orderedQuery,
+                    sortBy,
+                    request.SortDesc,
+                    cursorPayload);
+            }
+
+            var fetchSize = pageSize + 1;
+            var rows = await ProjectSearchRows(orderedQuery, now).Take(fetchSize).ToListAsync();
+            var hasNextPage = rows.Count > pageSize;
+            if (hasNextPage)
+                rows = rows.Take(pageSize).ToList();
+
+            int? totalCount = null;
+            if (request.IncludeTotalCount)
+                totalCount = await query.CountAsync();
+
+            var items = await MapSearchRowsToDtosAsync(rows, now);
+            string? nextCursor = null;
+            if (hasNextPage && rows.Count > 0)
+            {
+                var lastRow = rows[^1];
+                nextCursor = TransactionSearchCursorCodec.Encode(
+                    TransactionSearchPagination.BuildCursorPayload(sortBy, request.SortDesc, lastRow));
+            }
+
+            return PagedResult<TransactionListDto>.CreateCursor(
+                items,
+                pageSize,
+                nextCursor,
+                totalCount,
+                request.IncludeTotalCount);
+        }
+
+        var total = await query.CountAsync();
+        var orderedOffset = TransactionSearchPagination.ApplySort(query, sortBy, request.SortDesc);
+        var offsetRows = await ProjectSearchRows(orderedOffset, now)
+            .Skip((request.Page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        var offsetItems = await MapSearchRowsToDtosAsync(offsetRows, now);
+        return PagedResult<TransactionListDto>.Create(offsetItems, total, request.Page, pageSize);
+    }
+
+    private static IQueryable<Transaction> ApplySearchFilters(
+        IQueryable<Transaction> query,
+        TransactionSearchRequest request,
+        ICurrentUserService currentUser,
+        DateTime now)
+    {
         if (currentUser.Role == UserRole.DepartmentUser && currentUser.DepartmentId.HasValue)
         {
             var deptId = currentUser.DepartmentId.Value;
@@ -118,69 +179,43 @@ public class TransactionService : ITransactionService
                 (t.RequiresResponse && !t.ResponseCompleted && t.ResponseDueDate < now) ||
                 t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied && a.DueDate < now));
 
-        var total = await query.CountAsync();
+        return query;
+    }
 
-        var ordered = request.SortBy?.ToLower() switch
-        {
-            "incomingnumber" => request.SortDesc ? query.OrderByDescending(t => t.IncomingNumber) : query.OrderBy(t => t.IncomingNumber),
-            "incomingdate" => request.SortDesc ? query.OrderByDescending(t => t.IncomingDate) : query.OrderBy(t => t.IncomingDate),
-            "subject" => request.SortDesc ? query.OrderByDescending(t => t.Subject) : query.OrderBy(t => t.Subject),
-            "incomingfrom" => request.SortDesc
-                ? query.OrderByDescending(t => t.IncomingFromParty != null ? t.IncomingFromParty.Name
-                    : t.IncomingFromDepartment != null ? t.IncomingFromDepartment.Name
-                    : t.IncomingFrom ?? "")
-                : query.OrderBy(t => t.IncomingFromParty != null ? t.IncomingFromParty.Name
-                    : t.IncomingFromDepartment != null ? t.IncomingFromDepartment.Name
-                    : t.IncomingFrom ?? ""),
-            "category" => request.SortDesc
-                ? query.OrderByDescending(t => t.CategoryEntity != null ? t.CategoryEntity.Name : t.Category ?? "")
-                : query.OrderBy(t => t.CategoryEntity != null ? t.CategoryEntity.Name : t.Category ?? ""),
-            "priority" => request.SortDesc ? query.OrderByDescending(t => t.Priority) : query.OrderBy(t => t.Priority),
-            "status" => request.SortDesc ? query.OrderByDescending(t => t.Status) : query.OrderBy(t => t.Status),
-            "responseduedate" => request.SortDesc
-                ? query.OrderByDescending(t => t.ResponseDueDate)
-                : query.OrderBy(t => t.ResponseDueDate),
-            "createdat" => request.SortDesc ? query.OrderByDescending(t => t.CreatedAt) : query.OrderBy(t => t.CreatedAt),
-            _ => request.SortDesc ? query.OrderByDescending(t => t.IncomingDate) : query.OrderBy(t => t.IncomingDate)
-        };
+    private static IQueryable<TransactionSearchRow> ProjectSearchRows(IQueryable<Transaction> ordered, DateTime now) =>
+        ordered.Select(t => new TransactionSearchRow(
+            t.Id,
+            t.InternalTrackingNumber,
+            t.IncomingNumber,
+            t.IncomingDate,
+            t.Subject,
+            t.IncomingFrom,
+            t.IncomingSourceType,
+            t.IncomingFromParty != null ? t.IncomingFromParty.Name : null,
+            t.IncomingFromDepartment != null ? t.IncomingFromDepartment.Name : null,
+            t.OutgoingNumber,
+            t.OutgoingDate,
+            t.Status,
+            t.Priority,
+            t.CategoryEntity != null ? t.CategoryEntity.Name : t.Category,
+            t.RequiresResponse,
+            t.ResponseCompleted,
+            t.ResponseDueDays,
+            t.ResponseDueDate,
+            t.IsArchived,
+            t.CreatedBy != null ? t.CreatedBy.FullName : "",
+            t.CreatedAt,
+            t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
+                && a.Status == AssignmentStatus.Active),
+            t.RequiresResponse && !t.ResponseCompleted
+                && t.ResponseDueDate.HasValue && t.ResponseDueDate.Value < now,
+            (t.RequiresResponse && !t.ResponseCompleted
+                    && t.ResponseDueDate.HasValue && t.ResponseDueDate.Value < now)
+                || t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
+                    && a.Status == AssignmentStatus.Active && a.DueDate.HasValue && a.DueDate.Value < now)));
 
-        var rows = await ordered
-            .Skip((request.Page - 1) * request.PageSize)
-            .Take(request.PageSize)
-            .Select(t => new
-            {
-                t.Id,
-                t.InternalTrackingNumber,
-                t.IncomingNumber,
-                t.IncomingDate,
-                t.Subject,
-                t.IncomingFrom,
-                t.IncomingSourceType,
-                IncomingFromPartyName = t.IncomingFromParty != null ? t.IncomingFromParty.Name : null,
-                IncomingFromDepartmentName = t.IncomingFromDepartment != null ? t.IncomingFromDepartment.Name : null,
-                t.OutgoingNumber,
-                t.OutgoingDate,
-                t.Status,
-                t.Priority,
-                CategoryName = t.CategoryEntity != null ? t.CategoryEntity.Name : t.Category,
-                t.RequiresResponse,
-                t.ResponseCompleted,
-                t.ResponseDueDays,
-                t.ResponseDueDate,
-                t.IsArchived,
-                CreatedByName = t.CreatedBy != null ? t.CreatedBy.FullName : "",
-                t.CreatedAt,
-                HasPendingAssignments = t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
-                    && a.Status == AssignmentStatus.Active),
-                IsResponseOverdue = t.RequiresResponse && !t.ResponseCompleted
-                    && t.ResponseDueDate.HasValue && t.ResponseDueDate.Value < now,
-                IsOverdue = (t.RequiresResponse && !t.ResponseCompleted
-                        && t.ResponseDueDate.HasValue && t.ResponseDueDate.Value < now)
-                    || t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
-                        && a.Status == AssignmentStatus.Active && a.DueDate.HasValue && a.DueDate.Value < now)
-            })
-            .ToListAsync();
-
+    private async Task<List<TransactionListDto>> MapSearchRowsToDtosAsync(List<TransactionSearchRow> rows, DateTime now)
+    {
         var pageIds = rows.Select(r => r.Id).ToList();
         var deptNames = pageIds.Count == 0
             ? new List<(int TransactionId, string Name)>()
@@ -208,7 +243,7 @@ public class TransactionService : ITransactionService
                 .ToListAsync())
                 .ToDictionary(x => x.TransactionId, x => (DateTime?)x.LastDate);
 
-        var items = rows.Select(r =>
+        return rows.Select(r =>
         {
             var names = deptLookup.GetValueOrDefault(r.Id) ?? new List<string>();
             var dto = new TransactionListDto
@@ -253,8 +288,6 @@ public class TransactionService : ITransactionService
                 now.Date));
             return dto;
         }).ToList();
-
-        return PagedResult<TransactionListDto>.Create(items, total, request.Page, request.PageSize);
     }
 
     public Task<TransactionDetailDto?> GetByIdAsync(int id, ICurrentUserService currentUser) =>
