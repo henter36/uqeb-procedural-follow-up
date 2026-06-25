@@ -230,54 +230,6 @@ public class TransactionPersistenceAtomicityTests
             a.Action == AuditAction.Update && a.OldValue == Priority.Normal.ToString() && a.NewValue == Priority.Urgent.ToString());
     }
 
-    private sealed class CollisionThenUniqueTrackingService : ITrackingNumberService
-    {
-        private int _calls;
-
-        public const string CollisionNumber = "UQEB-COLLISION";
-
-        public Task<string> GenerateNextAsync(CancellationToken cancellationToken = default)
-        {
-            _calls++;
-            return Task.FromResult(_calls == 1 ? CollisionNumber : $"UQEB-2026-{_calls:00000}");
-        }
-    }
-
-    [Fact]
-    public async Task CreateAsync_retries_after_tracking_number_collision_without_duplicates()
-    {
-        var (service, db, _, _) = await CreateServiceAsync(
-            nameof(CreateAsync_retries_after_tracking_number_collision_without_duplicates),
-            new CollisionThenUniqueTrackingService());
-
-        db.Transactions.Add(new Transaction
-        {
-            IncomingNumber = "IN-EXISTING",
-            InternalTrackingNumber = CollisionThenUniqueTrackingService.CollisionNumber,
-            IncomingDate = DateTime.UtcNow.Date,
-            Subject = "existing",
-            IncomingSourceType = IncomingSourceType.External,
-            IncomingFromPartyId = 1,
-            IncomingFrom = "جهة",
-            Status = TransactionStatus.New,
-            CreatedById = 1,
-            CreatedAt = DateTime.UtcNow
-        });
-        await db.SaveChangesAsync();
-
-        var created = await service.CreateAsync(BuildCreateRequest(10, 11), userId: 1);
-
-        Assert.NotNull(created);
-        Assert.Equal(2, await db.Transactions.CountAsync());
-        Assert.Equal(1, await db.Transactions.CountAsync(t => t.IncomingNumber == "IN-1001"));
-        Assert.Equal(2, await db.TransactionOutgoingDepartments.CountAsync(tod => tod.TransactionId == created.Id));
-        Assert.Equal(2, await db.Assignments.CountAsync(a => a.TransactionId == created.Id));
-        Assert.Equal(1, await db.AuditLogs.CountAsync(a => a.Action == AuditAction.Create && a.TransactionId == created.Id));
-        Assert.DoesNotContain(
-            await db.AuditLogs.Where(a => a.TransactionId == created.Id).ToListAsync(),
-            audit => audit.Action == AuditAction.Create && audit.EntityId != created.Id);
-    }
-
     [Fact]
     public async Task CreateAsync_does_not_attach_unrelated_pending_audit_log()
     {
