@@ -56,10 +56,8 @@ public sealed class ReportingAnalysisInstrumentation(
         bool succeeded = true)
     {
         if (succeeded)
-            metrics.RecordAnalysisDuration(milliseconds, reportType, snapshotCount);
-
-        if (succeeded)
         {
+            metrics.RecordAnalysisDuration(milliseconds, reportType, snapshotCount);
             logger.LogDebug(
                 "Institutional report analysis completed. AnalysisStage=total DurationMs={DurationMs} SnapshotCount={SnapshotCount} ReportType={ReportType}",
                 milliseconds,

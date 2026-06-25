@@ -70,8 +70,8 @@ public class InstitutionalReportAnalysisPipelineBenchmarkTests
         Assert.Equal("reporting-analysis-pipeline", root.GetProperty("scenarioId").GetString());
         Assert.Equal(snapshotCount, root.GetProperty("snapshotCount").GetInt32());
         Assert.True(root.GetProperty("totalMilliseconds").GetDouble() >= 0);
-        Assert.Equal(PeriodFrom.ToString("O"), root.GetProperty("periodFrom").GetString());
-        Assert.Equal(PeriodTo.ToString("O"), root.GetProperty("periodTo").GetString());
+        Assert.Equal(PeriodFrom, root.GetProperty("periodFrom").GetDateTime());
+        Assert.Equal(PeriodTo, root.GetProperty("periodTo").GetDateTime());
 
         var stages = root.GetProperty("stages");
         foreach (var expectedStage in ExpectedStages)

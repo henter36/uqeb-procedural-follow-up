@@ -3,11 +3,12 @@
 BeforeAll {
     function Resolve-DeploymentScriptsRoot {
         $candidate = $PSScriptRoot
-        if (Test-Path (Join-Path $candidate 'deployment\Common.ps1')) {
-            return $candidate
+        $commonPath = Join-Path $candidate 'deployment\Common.ps1'
+        if (-not (Test-Path $commonPath)) {
+            throw "Helper script missing: Common.ps1 could not be found at $commonPath"
         }
 
-        throw "Unable to resolve deployment scripts root from $PSScriptRoot"
+        return $candidate
     }
 
     $script:RepoScriptsRoot = Resolve-DeploymentScriptsRoot
@@ -15,6 +16,9 @@ BeforeAll {
     $script:CommonPath = Join-Path $script:RepoScriptsRoot 'deployment\Common.ps1'
     $script:InstallScript = Join-Path $script:RepoScriptsRoot 'install-production-package.ps1'
     . $script:CommonPath
+    if (-not (Get-Command -Name 'Invoke-SqlDeploymentCommand' -ErrorAction SilentlyContinue)) {
+        throw "Required function 'Invoke-SqlDeploymentCommand' is not defined after dot-sourcing Common.ps1."
+    }
     $script:DeploymentTest = Initialize-DeploymentTestSession -ScriptsRoot $script:RepoScriptsRoot
     $script:ApplyScript = Join-Path $script:RepoScriptsRoot 'apply-migrations.ps1'
 
