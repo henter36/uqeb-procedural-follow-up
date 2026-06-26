@@ -169,6 +169,9 @@ public sealed class FollowUpLetterRenderService : IFollowUpLetterRenderService
             SenderDepartment = senderDepartment,
             LogoPath = _branding.LogoPath,
             TodayLocal = _timeZone.TodayDisplayDate,
+            SignatoryPosition = request.SignatoryPosition,
+            SignatoryRank = request.SignatoryRank,
+            SignatoryNameOverride = request.SignatoryNameOverride,
         });
     }
 

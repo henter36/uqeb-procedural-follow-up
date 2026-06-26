@@ -24,7 +24,7 @@ public sealed class LetterTemplateTypeJsonConverter : JsonConverter<LetterTempla
             if (string.IsNullOrWhiteSpace(value))
                 throw new JsonException("نوع القالب مطلوب ولا يمكن أن يكون نصًا فارغًا.");
 
-            if (Enum.TryParse<LetterTemplateType>(value, ignoreCase: false, out var parsed) &&
+            if (Enum.TryParse<LetterTemplateType>(value, ignoreCase: true, out var parsed) &&
                 Enum.IsDefined(parsed))
             {
                 return parsed;

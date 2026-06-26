@@ -75,6 +75,8 @@ export default function FollowUpPrintJobDetailPage() {
     };
   }, [isTerminalStatus, jobId]);
 
+  const handleRefresh = () => { loadJob(() => true).catch(() => undefined); };
+
   const handleCancel = async () => {
     if (!globalThis.confirm('هل أنت متأكد من إلغاء مهمة الطباعة؟')) return;
     setActing(true);
@@ -155,9 +157,28 @@ export default function FollowUpPrintJobDetailPage() {
         </Alert>
       ) : (
         <Alert variant="info">
-          تقوم المهمة بتحضير الخطابات. عند اكتمال الجزء ستظهر زر «طباعة الآن».
+          تقوم المهمة بتحضير الخطابات. عند اكتمال الجزء سيظهر زر «طباعة الآن».
         </Alert>
       )}
+
+      {(() => {
+        const readyParts = job.parts.filter((p) => ['ReadyToPrint', 'PartiallyReady'].includes(p.status));
+        if (readyParts.length === 1) {
+          return (
+            <div className="mb-4">
+              <Link
+                to={`/follow-up-print/parts/${job.id}/${readyParts[0].partNumber}/print`}
+                className="btn btn-primary btn-lg"
+                target="_blank"
+                rel="noreferrer"
+              >
+                طباعة الآن
+              </Link>
+            </div>
+          );
+        }
+        return null;
+      })()}
 
       <div className="card">
         <div className="details-banner-row">
@@ -171,6 +192,9 @@ export default function FollowUpPrintJobDetailPage() {
         </div>
         {job.failureReason && <Alert variant="error">{job.failureReason}</Alert>}
         <div className="form-actions mt-4">
+          <button type="button" className="btn btn-outline" disabled={loading} onClick={handleRefresh}>
+            تحديث الحالة
+          </button>
           {canCancel && (
             <button type="button" className="btn btn-outline" disabled={acting} onClick={() => { handleCancel().catch(() => undefined); }}>
               إلغاء المهمة

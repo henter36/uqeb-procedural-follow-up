@@ -472,6 +472,9 @@ export interface CreateFollowUpPrintJobRequest {
   responseDeadlineDays?: number;
   batchSize?: number;
   idempotencyKey?: string;
+  signatoryPosition?: string;
+  signatoryRank?: string;
+  signatoryNameOverride?: string;
 }
 
 export interface CreateDirectPrintRequest {

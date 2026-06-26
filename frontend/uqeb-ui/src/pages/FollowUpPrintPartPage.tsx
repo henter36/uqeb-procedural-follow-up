@@ -90,6 +90,7 @@ export default function FollowUpPrintPartPage() {
           <Alert variant="info">
             انقر «طباعة الآن» لفتح نافذة الطباعة، ثم اطبع أو احفظ PDF.
             بعد الطباعة اذهب إلى «بانتظار التسجيل» لتأكيد الطباعة وتسجيل التعقيب.
+            {' '}قم بتعطيل «Headers and footers» من إعدادات الطباعة لمنع ظهور عنوان المتصفح وتاريخه على الخطاب.
           </Alert>
         )}
         {printError && <Alert variant="error">{printError}</Alert>}

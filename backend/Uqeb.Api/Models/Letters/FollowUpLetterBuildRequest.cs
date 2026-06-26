@@ -11,5 +11,8 @@ public sealed record FollowUpLetterBuildRequest
     public string? BodyOverride { get; init; }
     public int? FollowUpSequenceOverride { get; init; }
     public int? ResponseDeadlineDays { get; init; }
+    public string? SignatoryPosition { get; init; }
+    public string? SignatoryRank { get; init; }
+    public string? SignatoryNameOverride { get; init; }
     public CancellationToken CancellationToken { get; init; } = default;
 }

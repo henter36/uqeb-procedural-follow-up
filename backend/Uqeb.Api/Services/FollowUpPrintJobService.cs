@@ -136,6 +136,9 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
                 template,
                 currentUser,
                 request.ResponseDeadlineDays,
+                request.SignatoryPosition,
+                request.SignatoryRank,
+                request.SignatoryNameOverride,
                 cancellationToken);
 
             await PersistIdempotencyKeyAsync(request, currentUser, requestHash, job.Id, cancellationToken);
@@ -673,6 +676,9 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         LetterTemplate template,
         ICurrentUserService currentUser,
         int? responseDeadlineDays,
+        string? signatoryPosition,
+        string? signatoryRank,
+        string? signatoryNameOverride,
         CancellationToken cancellationToken)
     {
         var ordinal = 0;
@@ -690,6 +696,9 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
                     TemplateId = template.Id,
                     FollowUpSequenceOverride = sequence,
                     ResponseDeadlineDays = responseDeadlineDays,
+                    SignatoryPosition = signatoryPosition,
+                    SignatoryRank = signatoryRank,
+                    SignatoryNameOverride = signatoryNameOverride,
                     CancellationToken = cancellationToken,
                 });
 

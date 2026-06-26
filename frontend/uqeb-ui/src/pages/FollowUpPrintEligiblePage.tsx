@@ -35,6 +35,9 @@ export default function FollowUpPrintEligiblePage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [templateId, setTemplateId] = useState('');
   const [responseDeadlineDays, setResponseDeadlineDays] = useState('7');
+  const [signatoryPosition, setSignatoryPosition] = useState('');
+  const [signatoryRank, setSignatoryRank] = useState('');
+  const [signatoryNameOverride, setSignatoryNameOverride] = useState('');
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
@@ -173,6 +176,9 @@ export default function FollowUpPrintEligiblePage() {
         templateId: templateId ? Number(templateId) : undefined,
         responseDeadlineDays: responseDeadlineDays ? Number(responseDeadlineDays) : undefined,
         idempotencyKey: createIdempotencyKey(),
+        signatoryPosition: signatoryPosition.trim() || undefined,
+        signatoryRank: signatoryRank.trim() || undefined,
+        signatoryNameOverride: signatoryNameOverride.trim() || undefined,
       });
       // Navigate to the job detail page so the user can track progress and print
       navigate(`/follow-up-print/jobs/${res.data.id}`);
@@ -288,6 +294,33 @@ export default function FollowUpPrintEligiblePage() {
                 min={1}
                 value={responseDeadlineDays}
                 onChange={(e) => setResponseDeadlineDays(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="signatory-position">المنصب الوظيفي (اختياري)</label>
+              <input
+                id="signatory-position"
+                value={signatoryPosition}
+                onChange={(e) => setSignatoryPosition(e.target.value)}
+                placeholder="مدير الإدارة"
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="signatory-rank">الرتبة (اختياري)</label>
+              <input
+                id="signatory-rank"
+                value={signatoryRank}
+                onChange={(e) => setSignatoryRank(e.target.value)}
+                placeholder="عميد"
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="signatory-name-override">اسم الموقّع (اختياري)</label>
+              <input
+                id="signatory-name-override"
+                value={signatoryNameOverride}
+                onChange={(e) => setSignatoryNameOverride(e.target.value)}
+                placeholder="اترك فارغاً لاستخدام اسم المستخدم الحالي"
               />
             </div>
           </div>

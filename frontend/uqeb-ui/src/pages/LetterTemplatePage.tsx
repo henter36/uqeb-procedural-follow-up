@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { letterTemplatesApi } from '../api/services';
 import type { LetterTemplate, LetterTemplateVariable } from '../api/types';
 import { getApiErrorMessage } from '../utils/apiHelpers';
@@ -42,11 +42,14 @@ export default function LetterTemplatePage() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [showVariables, setShowVariables] = useState(false);
+  const previewIdRef = useRef<number | 'new' | null>(null);
 
   const isDirty = snapshotEditor(editor) !== savedSnapshot;
 
   const loadPreview = useCallback(async () => {
     if (selectedId == null) return;
+    const thisId = selectedId;
+    previewIdRef.current = thisId;
     setPreviewLoading(true);
     setPreviewError('');
     try {
@@ -56,11 +59,18 @@ export default function LetterTemplatePage() {
         content: editor.content,
         templateType: editor.templateType,
       });
-      setPreviewHtml(sanitizeFullDocumentHtml(res.data.html));
+      // Only update if this is still the latest request
+      if (previewIdRef.current === thisId) {
+        setPreviewHtml(sanitizeFullDocumentHtml(res.data.html));
+      }
     } catch (err: unknown) {
-      setPreviewError(getApiErrorMessage(err) || 'تعذر بناء معاينة الخطاب.');
+      if (previewIdRef.current === thisId) {
+        setPreviewError(getApiErrorMessage(err) || 'تعذر بناء معاينة الخطاب.');
+      }
     } finally {
-      setPreviewLoading(false);
+      if (previewIdRef.current === thisId) {
+        setPreviewLoading(false);
+      }
     }
   }, [editor, selectedId]);
 
@@ -464,7 +474,7 @@ export default function LetterTemplatePage() {
             {previewLoading && <span className="text-muted">جاري التحديث...</span>}
           </div>
           {previewError && <Alert variant="error">{previewError}</Alert>}
-          {previewHtml && !previewLoading ? (
+          {previewHtml ? (
             <iframe
               title="معاينة القالب"
               className="letter-template-preview-frame"

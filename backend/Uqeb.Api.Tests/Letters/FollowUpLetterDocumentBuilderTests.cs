@@ -159,7 +159,8 @@ public class FollowUpLetterDocumentBuilderTests
     {
         // ASP.NET Core uses PropertyNameCaseInsensitive = true; mirror that here so camelCase JSON keys resolve to PascalCase properties.
         var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-        var request = JsonSerializer.Deserialize<CreateLetterTemplateRequest>("""{"name":"n","content":"c","templateType":"FollowUp"}""", opts);
+        var request = JsonSerializer.Deserialize<CreateLetterTemplateRequest>(
+            """{"name":"n","content":"c","templateType":"FollowUp"}""", opts);
 
         Assert.Equal(LetterTemplateType.FollowUp, request!.TemplateType);
         Assert.Contains(
@@ -173,7 +174,19 @@ public class FollowUpLetterDocumentBuilderTests
     public void LetterTemplateTypeJson_AcceptsLegacyNumber()
     {
         var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-        var request = JsonSerializer.Deserialize<CreateLetterTemplateRequest>("""{"name":"n","content":"c","templateType":1}""", opts);
+        var request = JsonSerializer.Deserialize<CreateLetterTemplateRequest>(
+            """{"name":"n","content":"c","templateType":1}""", opts);
+
+        Assert.Equal(LetterTemplateType.FollowUp, request!.TemplateType);
+    }
+
+    [Fact]
+    public void LetterTemplateTypeJson_AcceptsLowerCaseString()
+    {
+        // ignoreCase: true allows lowercase variants (e.g. from legacy or mixed-case clients).
+        var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        var request = JsonSerializer.Deserialize<CreateLetterTemplateRequest>(
+            """{"name":"n","content":"c","templateType":"followup"}""", opts);
 
         Assert.Equal(LetterTemplateType.FollowUp, request!.TemplateType);
     }
