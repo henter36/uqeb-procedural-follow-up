@@ -82,7 +82,23 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         if (existingJob != null)
             return existingJob;
 
-        await EnsureConcurrentJobLimitsAsync(currentUser, cancellationToken);
+        try
+        {
+            await EnsureConcurrentJobLimitsAsync(currentUser, cancellationToken);
+        }
+        catch (InvalidOperationException) when (!string.IsNullOrWhiteSpace(request.IdempotencyKey))
+        {
+            var racedJob = await TryResolveExistingIdempotentJobAsync(
+                request,
+                currentUser,
+                requestHash,
+                cancellationToken);
+
+            if (racedJob != null)
+                return racedJob;
+
+            throw;
+        }
 
         var eligibleCandidates = await _eligibility.BuildEligibleCandidatesWithTargetsAsync(
             request.Filter,
@@ -128,6 +144,7 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         catch (DbUpdateException ex) when (SqlExceptionHelper.IsDuplicateKey(ex))
         {
             await transaction.RollbackAsync(cancellationToken);
+            _db.ChangeTracker.Clear();
 
             var racedJob = await TryResolveExistingIdempotentJobAsync(
                 request,
