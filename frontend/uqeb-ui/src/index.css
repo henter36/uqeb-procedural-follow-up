@@ -143,9 +143,19 @@ body {
 
 .letter-template-layout {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr) 260px;
+  grid-template-columns: 240px minmax(0, 1fr) 270px;
   gap: 1rem;
   align-items: start;
+}
+
+.letter-template-list,
+.letter-template-editor,
+.letter-template-variables,
+.letter-template-preview-panel {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  padding: 1rem;
 }
 
 .letter-template-items {
@@ -201,6 +211,26 @@ body {
 .letter-variable-btn code {
   display: block;
   margin-bottom: 0.25rem;
+}
+
+.letter-template-preview-panel {
+  margin-top: 1rem;
+}
+
+.preview-panel-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.letter-template-preview-frame {
+  width: 100%;
+  min-height: 760px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: #fff;
 }
 
 .follow-up-letter-print-view {

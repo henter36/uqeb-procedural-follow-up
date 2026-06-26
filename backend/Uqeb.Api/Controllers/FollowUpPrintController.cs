@@ -81,9 +81,13 @@ public class FollowUpPrintController : ControllerBase
 
     [HttpGet("jobs")]
     [Authorize(Policy = Policies.ViewFollowUpPrintJobs)]
-    public async Task<IActionResult> ListJobs([FromQuery] int page = 1, [FromQuery] int pageSize = 25, CancellationToken cancellationToken = default)
+    public async Task<IActionResult> ListJobs(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
+        [FromQuery] FollowUpPrintJobListStatusFilter status = FollowUpPrintJobListStatusFilter.Active,
+        CancellationToken cancellationToken = default)
     {
-        return Ok(await _jobs.ListJobsAsync(page, pageSize, _currentUser, cancellationToken));
+        return Ok(await _jobs.ListJobsAsync(page, pageSize, status, _currentUser, cancellationToken));
     }
 
     [HttpGet("jobs/{id:int}")]
@@ -184,6 +188,21 @@ public class FollowUpPrintController : ControllerBase
         catch (FollowUpPrintConflictException ex)
         {
             return Conflict(new { message = ex.Message });
+        }
+    }
+
+    [HttpGet("records/{id:int}/print-view")]
+    [Authorize(Policy = Policies.ViewFollowUpPrintJobs)]
+    public async Task<IActionResult> GetRecordPrintView(int id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await _records.GetPrintViewAsync(id, _currentUser, cancellationToken);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (FollowUpPrintForbiddenException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
         }
     }
 

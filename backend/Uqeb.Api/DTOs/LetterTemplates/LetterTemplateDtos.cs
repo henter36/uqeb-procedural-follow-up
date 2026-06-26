@@ -60,6 +60,19 @@ public class LetterTemplateValidationResult
     public bool IsValid => UnknownVariables.Count == 0;
 }
 
+public class LetterTemplatePreviewRequest
+{
+    public string Name { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public LetterTemplateType? TemplateType { get; set; }
+    public string Content { get; set; } = string.Empty;
+}
+
+public class LetterTemplatePreviewResponse
+{
+    public string Html { get; set; } = string.Empty;
+}
+
 public class UpdateLetterTemplateRequest
 {
     public string Content { get; set; } = string.Empty;

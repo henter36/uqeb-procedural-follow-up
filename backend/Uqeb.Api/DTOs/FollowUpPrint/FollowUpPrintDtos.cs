@@ -102,6 +102,16 @@ public class PagedFollowUpPrintJobsDto
     public List<FollowUpPrintJobDto> Items { get; set; } = [];
 }
 
+public enum FollowUpPrintJobListStatusFilter
+{
+    Active = 1,
+    ReadyToPrint = 2,
+    Completed = 3,
+    Failed = 4,
+    Cancelled = 5,
+    All = 6,
+}
+
 public class FollowUpPrintJobPartDto
 {
     public int Id { get; set; }
@@ -128,6 +138,7 @@ public class FollowUpLetterPrintRecordDto
     public int TemplateId { get; set; }
     public int FollowUpSequence { get; set; }
     public int? ResponseDeadlineDays { get; set; }
+    public bool HasDocumentSnapshot { get; set; }
     public DateTime PrintRequestedAt { get; set; }
     public DateTime? PrintConfirmedAt { get; set; }
     public int? RegisteredFollowUpId { get; set; }
@@ -140,6 +151,13 @@ public class FollowUpPrintPendingSummaryDto
     public int Total { get; set; }
     public int WithinExclusionDays { get; set; }
     public int OlderThanExclusionDays { get; set; }
+}
+
+public class FollowUpPrintRecordPrintViewDto
+{
+    public string Html { get; set; } = string.Empty;
+    public bool UsedStoredSnapshot { get; set; }
+    public string? Warning { get; set; }
 }
 
 public class PendingPrintRecordsRequest

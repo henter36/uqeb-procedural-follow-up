@@ -3,6 +3,7 @@ import { letterTemplatesApi } from '../api/services';
 import type { LetterTemplate, LetterTemplateVariable } from '../api/types';
 import { getApiErrorMessage } from '../utils/apiHelpers';
 import { letterTemplateTypeLabels } from '../utils/followUpPrintLabels';
+import { sanitizePrintHtml } from '../utils/sanitizePrintHtml';
 import {
   Alert, LoadingInline, PageHeader, EmptyState, ErrorState,
 } from '../components/ui';
@@ -35,10 +36,32 @@ export default function LetterTemplatePage() {
   const [savedSnapshot, setSavedSnapshot] = useState(snapshotEditor(EMPTY_EDITOR));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [previewHtml, setPreviewHtml] = useState('');
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
   const isDirty = snapshotEditor(editor) !== savedSnapshot;
+
+  const loadPreview = useCallback(async () => {
+    if (selectedId == null) return;
+    setPreviewLoading(true);
+    setError('');
+    try {
+      const res = await letterTemplatesApi.preview({
+        name: editor.name.trim() || 'قالب جديد',
+        description: editor.description.trim() || undefined,
+        content: editor.content,
+        isActive: editor.isActive,
+        templateType: editor.templateType,
+      });
+      setPreviewHtml(sanitizePrintHtml(res.data.html));
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err));
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [editor, selectedId]);
 
   useEffect(() => {
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -58,6 +81,14 @@ export default function LetterTemplatePage() {
     setVariables(varsRes.data);
     return listRes.data;
   }, []);
+
+  useEffect(() => {
+    if (selectedId == null) return undefined;
+    const timer = globalThis.setTimeout(() => {
+      loadPreview().catch(() => undefined);
+    }, 500);
+    return () => globalThis.clearTimeout(timer);
+  }, [loadPreview, selectedId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -282,7 +313,7 @@ export default function LetterTemplatePage() {
       {isDirty && <Alert variant="warning">لديك تغييرات غير محفوظة.</Alert>}
 
       <div className="letter-template-layout">
-        <aside className="card letter-template-list">
+        <aside className="letter-template-list">
           <h3>القوالب</h3>
           {templates.length === 0 ? (
             <EmptyState title="لا توجد قوالب" description="أنشئ قالباً جديداً للبدء." />
@@ -307,7 +338,7 @@ export default function LetterTemplatePage() {
           )}
         </aside>
 
-        <div className="card letter-template-editor">
+        <div className="letter-template-editor">
           {selectedId == null ? (
             <EmptyState title="اختر قالباً" description="اختر قالباً من القائمة أو أنشئ قالباً جديداً." />
           ) : (
@@ -371,6 +402,9 @@ export default function LetterTemplatePage() {
                 <button type="button" className="btn btn-primary" disabled={saving || !isDirty} onClick={() => { handleSave().catch(() => undefined); }}>
                   {saving ? 'جاري الحفظ...' : 'حفظ'}
                 </button>
+                <button type="button" className="btn btn-secondary" disabled={previewLoading} onClick={() => { loadPreview().catch(() => undefined); }}>
+                  {previewLoading ? 'جاري المعاينة...' : 'معاينة القالب'}
+                </button>
                 {typeof selectedId === 'number' && (
                   <>
                     <button type="button" className="btn btn-secondary" disabled={saving} onClick={() => { handleCopy().catch(() => undefined); }}>
@@ -391,7 +425,7 @@ export default function LetterTemplatePage() {
           )}
         </div>
 
-        <aside className="card letter-template-variables">
+        <aside className="letter-template-variables">
           <h3>المتغيرات</h3>
           <p className="text-muted">انقر لإدراج المتغير في نص القالب.</p>
           <ul className="letter-variable-list">
@@ -407,6 +441,25 @@ export default function LetterTemplatePage() {
           </ul>
         </aside>
       </div>
+
+      {selectedId != null && (
+        <section className="letter-template-preview-panel" aria-label="معاينة القالب">
+          <div className="preview-panel-header">
+            <h3>معاينة القالب</h3>
+            <span className="text-muted">تستخدم نفس نموذج المستند وتنسيق الطباعة.</span>
+          </div>
+          {previewHtml ? (
+            <iframe
+              title="معاينة القالب"
+              className="letter-template-preview-frame"
+              srcDoc={previewHtml}
+              sandbox="allow-same-origin"
+            />
+          ) : (
+            <EmptyState title="لا توجد معاينة" description="اضغط معاينة القالب لعرض شكل الخطاب الرسمي." />
+          )}
+        </section>
+      )}
 
     </div>
   );

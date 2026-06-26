@@ -111,6 +111,7 @@ public sealed class FollowUpLetterDocumentBuilder : IFollowUpLetterDocumentBuild
             TransactionId = transaction.Id,
             TemplateId = request.Template.Id,
             LogoPath = OrganizationBrandingPaths.LogoApiUrl,
+            OrganizationName = request.SenderDepartment ?? string.Empty,
             LetterNumber = transaction.IncomingNumber,
             GregorianDate = HijriDateFormatter.FormatGregorianArabic(today),
             HijriDate = HijriDateFormatter.Format(today) ?? string.Empty,
@@ -122,7 +123,9 @@ public sealed class FollowUpLetterDocumentBuilder : IFollowUpLetterDocumentBuild
             FollowUpSequenceText = sequenceText,
             ResponseDeadlineDays = request.ResponseDeadlineDays ?? transaction.ResponseDueDays,
             Footer = string.Empty,
-            Title = "خطاب تعقيب",
+            Title = string.Empty,
+            SignatoryName = request.PreparedBy ?? string.Empty,
+            SignatoryTitle = request.SenderDepartment ?? string.Empty,
         };
     }
 

@@ -14,7 +14,7 @@ public class FollowUpLetterPrintRecordServiceTests
     private static readonly DateTime Today = new(2025, 6, 25);
 
     private static FollowUpLetterPrintRecordService CreateService(AppDbContext db, DateTime today) =>
-        new(db, new FixedTimeZone(today), LettersTestInfrastructure.CreateOptions(), new NoOpAuditService());
+        new(db, new FixedTimeZone(today), new StubRenderService(), LettersTestInfrastructure.CreateOptions(), new NoOpAuditService());
 
     private static async Task<(Transaction Transaction, FollowUp FollowUp)> SeedTransactionWithFollowUpAsync(AppDbContext db)
     {

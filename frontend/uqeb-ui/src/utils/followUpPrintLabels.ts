@@ -5,7 +5,7 @@ export const followUpPrintJobStatusLabels: Record<FollowUpPrintJobStatus, string
   Claimed: 'تمت المطالبة',
   Processing: 'قيد المعالجة',
   ReadyToPrint: 'جاهز للطباعة',
-  PartiallyPrinted: 'طُبع جزئياً',
+  PartiallyPrinted: 'طُلبت طباعة جزء',
   Completed: 'مكتمل',
   Failed: 'فشل',
   Cancelled: 'ملغى',
@@ -17,7 +17,7 @@ export const followUpPrintJobPartStatusLabels: Record<FollowUpPrintJobPartStatus
   Processing: 'قيد المعالجة',
   ReadyToPrint: 'جاهز للطباعة',
   PartiallyReady: 'جاهز جزئياً',
-  Printed: 'طُبع',
+  Printed: 'تم طلب الطباعة',
   Failed: 'فشل',
   Cancelled: 'ملغى',
 };

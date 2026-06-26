@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 using Uqeb.Api.Configuration;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.FollowUpPrint;
@@ -7,6 +8,7 @@ using Uqeb.Api.Exceptions;
 using Uqeb.Api.Helpers;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
+using Uqeb.Api.Models.Letters;
 
 namespace Uqeb.Api.Services;
 
@@ -17,6 +19,7 @@ public interface IFollowUpLetterPrintRecordService
     Task<FollowUpLetterPrintRecordDto?> LinkToFollowUpAsync(int recordId, int followUpId, ICurrentUserService currentUser, CancellationToken cancellationToken = default);
     Task<FollowUpPrintPendingSummaryDto> GetPendingSummaryAsync(CancellationToken cancellationToken = default);
     Task<List<FollowUpLetterPrintRecordDto>> GetPendingListAsync(int? page = null, int? pageSize = null, CancellationToken cancellationToken = default);
+    Task<FollowUpPrintRecordPrintViewDto?> GetPrintViewAsync(int recordId, ICurrentUserService currentUser, CancellationToken cancellationToken = default);
     Task<FollowUpLetterPrintRecordDto> ReprintAsync(int recordId, string? idempotencyKey, ICurrentUserService currentUser, CancellationToken cancellationToken = default);
     Task<FollowUpLetterPrintRecordDto> RegisterDirectPrintRequestAsync(int transactionId, CreateDirectPrintRequest request, ICurrentUserService currentUser, CancellationToken cancellationToken = default);
 }
@@ -25,17 +28,21 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
 {
     private readonly AppDbContext _db;
     private readonly IFollowUpLetterTimeZone _timeZone;
+    private readonly IFollowUpLetterRenderService _renderService;
     private readonly FollowUpLettersOptions _options;
     private readonly IAuditService _audit;
+    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     public FollowUpLetterPrintRecordService(
         AppDbContext db,
         IFollowUpLetterTimeZone timeZone,
+        IFollowUpLetterRenderService renderService,
         IOptions<FollowUpLettersOptions> options,
         IAuditService audit)
     {
         _db = db;
         _timeZone = timeZone;
+        _renderService = renderService;
         _options = options.Value;
         _audit = audit;
     }
@@ -169,6 +176,59 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
         return await query.Select(MapExpr).ToListAsync(cancellationToken);
     }
 
+    public async Task<FollowUpPrintRecordPrintViewDto?> GetPrintViewAsync(
+        int recordId,
+        ICurrentUserService currentUser,
+        CancellationToken cancellationToken = default)
+    {
+        var record = await _db.FollowUpLetterPrintRecords.AsNoTracking()
+            .FirstOrDefaultAsync(r => r.Id == recordId, cancellationToken);
+        if (record == null)
+            return null;
+
+        if (!await CanAccessRecordAsync(record, currentUser, cancellationToken))
+            throw new FollowUpPrintForbiddenException();
+
+        if (!string.IsNullOrWhiteSpace(record.DocumentSnapshotJson))
+        {
+            var snapshot = JsonSerializer.Deserialize<FollowUpLetterDocumentModel>(record.DocumentSnapshotJson, JsonOptions);
+            if (snapshot != null)
+            {
+                return new FollowUpPrintRecordPrintViewDto
+                {
+                    Html = FollowUpLetterPrintViewRenderer.Render([snapshot], _options, $"عرض خطاب #{recordId}"),
+                    UsedStoredSnapshot = true,
+                };
+            }
+        }
+
+        var target = new FollowUpLetterTargetEntity(
+            record.TargetEntityNameSnapshot ?? string.Empty,
+            record.TargetDepartmentId,
+            record.TargetEntityId);
+        var document = await _renderService.BuildDocumentAsync(new FollowUpLetterBuildRequest
+        {
+            TransactionId = record.TransactionId,
+            Target = target,
+            CurrentUser = currentUser,
+            TemplateId = record.TemplateId,
+            FollowUpSequenceOverride = record.FollowUpSequence,
+            ResponseDeadlineDays = record.ResponseDeadlineDays,
+            CancellationToken = cancellationToken,
+        });
+        if (document == null)
+            return null;
+
+        const string warning = "هذا السجل قديم ولا يحتوي snapshot محفوظًا؛ أُعيد توليد المعاينة وقد تختلف عن النسخة الأصلية.";
+        document.Footer = warning;
+        return new FollowUpPrintRecordPrintViewDto
+        {
+            Html = FollowUpLetterPrintViewRenderer.Render([document], _options, $"عرض خطاب #{recordId}"),
+            UsedStoredSnapshot = false,
+            Warning = warning,
+        };
+    }
+
     public async Task<FollowUpLetterPrintRecordDto> ReprintAsync(
         int recordId,
         string? idempotencyKey,
@@ -207,6 +267,7 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
             TemplateId = source.TemplateId,
             FollowUpSequence = source.FollowUpSequence,
             ResponseDeadlineDays = source.ResponseDeadlineDays,
+            DocumentSnapshotJson = source.DocumentSnapshotJson,
             PrintRequestedAt = now,
             PrintRequestedById = currentUser.UserId,
             ReprintOfId = source.Id,
@@ -319,6 +380,17 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
         if (string.IsNullOrWhiteSpace(targetName))
             throw new FollowUpPrintValidationException("جهة الطباعة غير موجودة.");
 
+        var document = await _renderService.BuildDocumentAsync(new FollowUpLetterBuildRequest
+        {
+            TransactionId = transaction.Id,
+            Target = new FollowUpLetterTargetEntity(targetName, request.TargetDepartmentId, request.TargetEntityId),
+            CurrentUser = currentUser,
+            TemplateId = template.Id,
+            FollowUpSequenceOverride = request.FollowUpSequence,
+            ResponseDeadlineDays = request.ResponseDeadlineDays,
+            CancellationToken = cancellationToken,
+        });
+
         var now = DateTime.UtcNow;
         var record = new FollowUpLetterPrintRecord
         {
@@ -329,6 +401,7 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
             TemplateId = template.Id,
             FollowUpSequence = request.FollowUpSequence,
             ResponseDeadlineDays = request.ResponseDeadlineDays,
+            DocumentSnapshotJson = document == null ? null : JsonSerializer.Serialize(document, JsonOptions),
             PrintRequestedAt = now,
             PrintRequestedById = currentUser.UserId,
             CreatedAt = now,
@@ -420,6 +493,19 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
             : request.TargetEntityName.Trim();
     }
 
+    private async Task<bool> CanAccessRecordAsync(
+        FollowUpLetterPrintRecord record,
+        ICurrentUserService currentUser,
+        CancellationToken cancellationToken)
+    {
+        if (currentUser.Role != UserRole.DepartmentUser || !currentUser.DepartmentId.HasValue)
+            return true;
+
+        return await _db.Assignments.AsNoTracking().AnyAsync(
+            a => a.TransactionId == record.TransactionId && a.DepartmentId == currentUser.DepartmentId.Value,
+            cancellationToken);
+    }
+
     private async Task<Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction?> BeginTransactionIfRelationalAsync(CancellationToken cancellationToken) =>
         _db.Database.IsRelational()
             ? await _db.Database.BeginTransactionAsync(cancellationToken)
@@ -457,6 +543,7 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
         TemplateId = r.TemplateId,
         FollowUpSequence = r.FollowUpSequence,
         ResponseDeadlineDays = r.ResponseDeadlineDays,
+        HasDocumentSnapshot = r.DocumentSnapshotJson != null && r.DocumentSnapshotJson != "",
         PrintRequestedAt = r.PrintRequestedAt,
         PrintConfirmedAt = r.PrintConfirmedAt,
         RegisteredFollowUpId = r.RegisteredFollowUpId,

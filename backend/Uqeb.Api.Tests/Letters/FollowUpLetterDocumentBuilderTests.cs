@@ -1,6 +1,9 @@
 using System.Globalization;
+using System.Text.Json;
 using Uqeb.Api.Configuration;
+using Uqeb.Api.DTOs.LetterTemplates;
 using Uqeb.Api.Helpers;
+using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Models.Letters;
 using Uqeb.Api.Services;
 using Xunit;
@@ -124,6 +127,52 @@ public class FollowUpLetterDocumentBuilderTests
         });
 
         Assert.Equal(overrideBody, document.Body);
+    }
+
+    [Fact]
+    public void Build_DoesNotInjectStaticFollowUpLetterTitle()
+    {
+        var builder = new FollowUpLetterDocumentBuilder(new FixedTimeZone(new DateTime(2026, 6, 26)));
+
+        var document = builder.Build(new FollowUpLetterDocumentBuildRequest
+        {
+            Transaction = new Models.Entities.Transaction
+            {
+                Id = 1,
+                InternalTrackingNumber = "INT-1",
+                IncomingNumber = "IN-1",
+                IncomingDate = new DateTime(2026, 6, 1),
+                Subject = "اختبار",
+                Priority = Priority.Normal,
+            },
+            Template = new Models.Entities.LetterTemplate { Id = 1, Content = "نص القالب فقط", Name = "test" },
+            Target = new FollowUpLetterTargetEntity("جهة"),
+            TodayLocal = new DateTime(2026, 6, 26),
+        });
+
+        Assert.Equal(string.Empty, document.Title);
+        Assert.DoesNotContain("خطاب تعقيب", FollowUpLetterPrintViewRenderer.Render([document]));
+    }
+
+    [Fact]
+    public void LetterTemplateTypeJson_AcceptsStringAndWritesCanonicalString()
+    {
+        var request = JsonSerializer.Deserialize<CreateLetterTemplateRequest>("""{"name":"n","content":"c","templateType":"FollowUp"}""");
+
+        Assert.Equal(LetterTemplateType.FollowUp, request!.TemplateType);
+        Assert.Contains(
+            """"templateType":"FollowUp"""",
+            JsonSerializer.Serialize(
+                new LetterTemplateDto { TemplateType = LetterTemplateType.FollowUp },
+                new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
+    }
+
+    [Fact]
+    public void LetterTemplateTypeJson_AcceptsLegacyNumber()
+    {
+        var request = JsonSerializer.Deserialize<CreateLetterTemplateRequest>("""{"name":"n","content":"c","templateType":1}""");
+
+        Assert.Equal(LetterTemplateType.FollowUp, request!.TemplateType);
     }
 
     [Fact]

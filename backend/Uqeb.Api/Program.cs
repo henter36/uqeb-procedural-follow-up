@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Text;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
@@ -193,7 +194,33 @@ builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
     options.Level = CompressionLevel.Fastest);
 builder.Services.Configure<GzipCompressionProviderOptions>(options =>
     options.Level = CompressionLevel.Fastest);
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        options.InvalidModelStateResponseFactory = context =>
+        {
+            var messages = context.ModelState
+                .SelectMany(entry => entry.Value?.Errors ?? [])
+                .Select(error => error.ErrorMessage)
+                .Where(message => !string.IsNullOrWhiteSpace(message))
+                .Select(message =>
+                    message.Contains("LetterTemplateType", StringComparison.OrdinalIgnoreCase) ||
+                    message.Contains("نوع القالب غير معروف", StringComparison.OrdinalIgnoreCase)
+                        ? "نوع القالب غير معروف. استخدم إحدى القيم النصية المعتمدة مثل FollowUp أو FirstFollowUp."
+                        : message)
+                .Where(message =>
+                    !message.Contains("The request field is required", StringComparison.OrdinalIgnoreCase) &&
+                    !message.Contains("JSON value could not be converted", StringComparison.OrdinalIgnoreCase) &&
+                    !message.Contains("$.", StringComparison.OrdinalIgnoreCase))
+                .Distinct()
+                .ToList();
+
+            if (messages.Count == 0)
+                messages.Add("البيانات المرسلة غير صحيحة. راجع الحقول وحاول مرة أخرى.");
+
+            return new BadRequestObjectResult(new { message = messages[0], errors = messages });
+        };
+    });
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;

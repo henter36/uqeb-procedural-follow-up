@@ -74,6 +74,9 @@ export default function FollowUpPrintPartPage() {
     <div dir="rtl">
       <div className="no-print mb-3">
         <Link to={`/follow-up-print/jobs/${parsedJobId}`} className="btn btn-outline">العودة للمهمة</Link>
+        <Alert variant="info">
+          فتح نافذة الطباعة أو اختيار Save as PDF يسجل طلب الطباعة فقط. يتم تأكيد الطباعة لاحقًا من شاشة بانتظار تسجيل التعقيب.
+        </Alert>
         {printError && <Alert variant="error">{printError}</Alert>}
       </div>
       <FollowUpLetterPrintView
@@ -81,7 +84,7 @@ export default function FollowUpPrintPartPage() {
         autoPrint={false}
         onPrint={handlePrint}
         printDisabled={marked || printing}
-        printingLabel={marked ? 'تم التسجيل' : 'جاري التسجيل...'}
+        printingLabel={marked ? 'تم تسجيل طلب الطباعة' : 'جاري تسجيل الطلب...'}
       />
     </div>
   );

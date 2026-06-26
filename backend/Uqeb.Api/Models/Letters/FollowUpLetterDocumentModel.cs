@@ -5,6 +5,7 @@ public class FollowUpLetterDocumentModel
     public int TransactionId { get; set; }
     public int? TemplateId { get; set; }
     public string? LogoPath { get; set; }
+    public string OrganizationName { get; set; } = string.Empty;
     public string LetterNumber { get; set; } = string.Empty;
     public string GregorianDate { get; set; } = string.Empty;
     public string HijriDate { get; set; } = string.Empty;
@@ -16,5 +17,7 @@ public class FollowUpLetterDocumentModel
     public string FollowUpSequenceText { get; set; } = string.Empty;
     public int? ResponseDeadlineDays { get; set; }
     public string Footer { get; set; } = string.Empty;
-    public string Title { get; set; } = "خطاب تعقيب";
+    public string Title { get; set; } = string.Empty;
+    public string SignatoryName { get; set; } = string.Empty;
+    public string SignatoryTitle { get; set; } = string.Empty;
 }

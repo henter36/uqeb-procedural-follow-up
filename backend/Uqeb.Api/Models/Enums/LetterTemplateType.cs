@@ -1,5 +1,9 @@
 namespace Uqeb.Api.Models.Enums;
 
+using System.Text.Json.Serialization;
+using Uqeb.Api.Json;
+
+[JsonConverter(typeof(LetterTemplateTypeJsonConverter))]
 public enum LetterTemplateType
 {
     FollowUp = 1,

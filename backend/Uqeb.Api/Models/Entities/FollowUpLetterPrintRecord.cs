@@ -10,6 +10,7 @@ public class FollowUpLetterPrintRecord
     public int TemplateId { get; set; }
     public int FollowUpSequence { get; set; }
     public int? ResponseDeadlineDays { get; set; }
+    public string? DocumentSnapshotJson { get; set; }
     public DateTime PrintRequestedAt { get; set; }
     public int PrintRequestedById { get; set; }
     public DateTime? PrintConfirmedAt { get; set; }

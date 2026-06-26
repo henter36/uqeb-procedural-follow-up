@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { followUpPrintApi } from '../api/services';
-import type { FollowUpPrintJob } from '../api/types';
+import type { FollowUpPrintJob, FollowUpPrintJobListStatusFilter } from '../api/types';
 import { getApiErrorMessage } from '../utils/apiHelpers';
 import {
   followUpPrintJobStatusBadgeClass,
@@ -18,6 +18,7 @@ export default function FollowUpPrintJobsPage() {
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [status, setStatus] = useState<FollowUpPrintJobListStatusFilter>('Active');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -28,7 +29,7 @@ export default function FollowUpPrintJobsPage() {
       setError('');
     }
     try {
-      const res = await followUpPrintApi.listJobs({ page, pageSize });
+      const res = await followUpPrintApi.listJobs({ page, pageSize, status });
       if (!active()) return;
       setJobs(res.data.items);
       setTotalCount(res.data.totalCount);
@@ -38,7 +39,10 @@ export default function FollowUpPrintJobsPage() {
     } finally {
       if (active()) setLoading(false);
     }
-  }, [page, pageSize]);
+  }, [page, pageSize, status]);
+
+  const findNextPrintablePart = (job: FollowUpPrintJob) =>
+    job.parts.find((part) => ['ReadyToPrint', 'PartiallyReady'].includes(part.status));
 
   useDeferredEffect(loadJobs, [loadJobs]);
 
@@ -61,7 +65,7 @@ export default function FollowUpPrintJobsPage() {
                 <th>الخطابات</th>
                 <th>الأجزاء</th>
                 <th>تاريخ الإنشاء</th>
-                <th>عرض</th>
+                <th>إجراءات</th>
               </tr>
             </thead>
             <tbody>
@@ -77,7 +81,19 @@ export default function FollowUpPrintJobsPage() {
                   <td>{job.readyLetters}/{job.totalLetters}</td>
                   <td>{job.printedParts}/{job.totalParts}</td>
                   <td><DateDisplay date={job.createdAt} /></td>
-                  <td><Link to={`/follow-up-print/jobs/${job.id}`} className="btn btn-sm btn-outline">تفاصيل</Link></td>
+                  <td className="btn-group">
+                    {findNextPrintablePart(job) && (
+                      <Link
+                        to={`/follow-up-print/parts/${job.id}/${findNextPrintablePart(job)?.partNumber}/print`}
+                        className="btn btn-sm btn-primary"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        طباعة الجزء التالي
+                      </Link>
+                    )}
+                    <Link to={`/follow-up-print/jobs/${job.id}`} className="btn btn-sm btn-outline">تفاصيل</Link>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -109,8 +125,29 @@ export default function FollowUpPrintJobsPage() {
       />
 
       {error && <Alert variant="error">{error}</Alert>}
+      <Alert variant="info">
+        تقوم المهمة بتحضير الخطابات فقط. لا تتم الطباعة تلقائيًا، ويجب فتح الجزء الجاهز والضغط على طباعة.
+      </Alert>
 
       <div className="card">
+        <div className="form-actions mb-3">
+          <label htmlFor="job-status-filter">فلتر الحالة</label>
+          <select
+            id="job-status-filter"
+            value={status}
+            onChange={(event) => {
+              setStatus(event.target.value as FollowUpPrintJobListStatusFilter);
+              setPage(1);
+            }}
+          >
+            <option value="Active">النشطة</option>
+            <option value="ReadyToPrint">الجاهزة للطباعة</option>
+            <option value="Completed">المكتملة</option>
+            <option value="Failed">الفاشلة</option>
+            <option value="Cancelled">الملغاة</option>
+            <option value="All">الكل</option>
+          </select>
+        </div>
         {renderJobsContent()}
       </div>
     </div>

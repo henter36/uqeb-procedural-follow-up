@@ -19,7 +19,7 @@ public interface IFollowUpPrintJobService
     Task<FollowUpPrintJobDto?> CancelJobAsync(int jobId, ICurrentUserService currentUser, CancellationToken cancellationToken = default);
     Task<FollowUpPrintJobDto?> RetryJobAsync(int jobId, ICurrentUserService currentUser, CancellationToken cancellationToken = default);
     Task<FollowUpPrintJobDto?> GetJobAsync(int jobId, ICurrentUserService currentUser, CancellationToken cancellationToken = default);
-    Task<PagedFollowUpPrintJobsDto> ListJobsAsync(int page, int pageSize, ICurrentUserService currentUser, CancellationToken cancellationToken = default);
+    Task<PagedFollowUpPrintJobsDto> ListJobsAsync(int page, int pageSize, FollowUpPrintJobListStatusFilter status, ICurrentUserService currentUser, CancellationToken cancellationToken = default);
     Task<List<FollowUpPrintJobPartDto>> GetJobPartsAsync(int jobId, ICurrentUserService currentUser, CancellationToken cancellationToken = default);
     Task<List<FollowUpLetterPrintRecordDto>> MarkPartPrintRequestedAsync(int jobId, int partNumber, ICurrentUserService currentUser, CancellationToken cancellationToken = default);
     Task<string?> GetPartPrintViewHtmlAsync(int jobId, int partNumber, ICurrentUserService currentUser, CancellationToken cancellationToken = default);
@@ -277,13 +277,16 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
     public async Task<PagedFollowUpPrintJobsDto> ListJobsAsync(
         int page,
         int pageSize,
+        FollowUpPrintJobListStatusFilter status,
         ICurrentUserService currentUser,
         CancellationToken cancellationToken = default)
     {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
-        var query = _access.ApplyJobListScope(_db.FollowUpPrintJobs.AsNoTracking(), currentUser);
+        var query = ApplyStatusFilter(
+            _access.ApplyJobListScope(_db.FollowUpPrintJobs.AsNoTracking(), currentUser),
+            status);
 
         var total = await query.CountAsync(cancellationToken);
         var items = await query
@@ -292,6 +295,9 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
             .Take(pageSize)
             .Select(MapJobExpr)
             .ToListAsync(cancellationToken);
+
+        foreach (var item in items)
+            item.Parts = await GetJobPartsInternalAsync(item.Id, cancellationToken);
 
         return new PagedFollowUpPrintJobsDto
         {
@@ -310,6 +316,26 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         await _access.EnsureCanViewJobAsync(jobId, currentUser, cancellationToken);
         return await GetJobPartsInternalAsync(jobId, cancellationToken);
     }
+
+    private static IQueryable<FollowUpPrintJob> ApplyStatusFilter(
+        IQueryable<FollowUpPrintJob> query,
+        FollowUpPrintJobListStatusFilter status) =>
+        status switch
+        {
+            FollowUpPrintJobListStatusFilter.All => query,
+            FollowUpPrintJobListStatusFilter.Cancelled => query.Where(j => j.Status == FollowUpPrintJobStatus.Cancelled),
+            FollowUpPrintJobListStatusFilter.ReadyToPrint => query.Where(j =>
+                j.Status == FollowUpPrintJobStatus.ReadyToPrint ||
+                j.Status == FollowUpPrintJobStatus.PartiallyPrinted),
+            FollowUpPrintJobListStatusFilter.Completed => query.Where(j => j.Status == FollowUpPrintJobStatus.Completed),
+            FollowUpPrintJobListStatusFilter.Failed => query.Where(j =>
+                j.Status == FollowUpPrintJobStatus.Failed ||
+                j.Status == FollowUpPrintJobStatus.Expired),
+            _ => query.Where(j => j.Status != FollowUpPrintJobStatus.Cancelled &&
+                                  j.Status != FollowUpPrintJobStatus.Completed &&
+                                  j.Status != FollowUpPrintJobStatus.Failed &&
+                                  j.Status != FollowUpPrintJobStatus.Expired),
+        };
 
     public async Task<List<FollowUpLetterPrintRecordDto>> MarkPartPrintRequestedAsync(
         int jobId,
@@ -370,6 +396,7 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
                 TemplateId = part.Job.TemplateId,
                 FollowUpSequence = payload.FollowUpSequence,
                 ResponseDeadlineDays = payload.ResponseDeadlineDays ?? part.Job.ResponseDeadlineDays,
+                DocumentSnapshotJson = payload.SnapshotJson == "{}" ? null : payload.SnapshotJson,
                 PrintRequestedAt = now,
                 PrintRequestedById = currentUser.UserId,
                 BatchJobId = jobId,
@@ -708,6 +735,7 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         TemplateId = record.TemplateId,
         FollowUpSequence = record.FollowUpSequence,
         ResponseDeadlineDays = record.ResponseDeadlineDays,
+        HasDocumentSnapshot = record.DocumentSnapshotJson != null && record.DocumentSnapshotJson != "",
         PrintRequestedAt = record.PrintRequestedAt,
         PrintConfirmedAt = record.PrintConfirmedAt,
         RegisteredFollowUpId = record.RegisteredFollowUpId,

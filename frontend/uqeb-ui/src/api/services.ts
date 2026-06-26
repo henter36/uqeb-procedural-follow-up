@@ -5,9 +5,10 @@ import type {
   ReportTransactionRow, ReportSectionCounts, LetterTemplate, FollowUpLetterPreview,
   TransactionWorkspace, LetterTemplateVariable, LetterTemplateValidationResult,
   CreateLetterTemplateRequest, UpdateLetterTemplateRequest, LetterTemplateType,
+  LetterTemplatePreviewResponse, FollowUpPrintJobListStatusFilter,
   FollowUpPrintFilter, PagedEligibleTransactions, FollowUpPrintEligibilityPreview,
   CreateFollowUpPrintJobRequest, FollowUpPrintJob, PagedFollowUpPrintJobs,
-  FollowUpLetterPrintRecord, FollowUpPrintPendingSummary, UserNotification,
+  FollowUpLetterPrintRecord, FollowUpPrintPendingSummary, FollowUpPrintRecordPrintView, UserNotification,
   CreateDirectPrintRequest,
 } from './types';
 import type {
@@ -192,6 +193,8 @@ export const letterTemplatesApi = {
     api.delete(`/letter-templates/${id}`, { params: { replacementDefaultId } }),
   validate: (content: string) =>
     api.post<LetterTemplateValidationResult>('/letter-templates/validate', { content }),
+  preview: (data: CreateLetterTemplateRequest) =>
+    api.post<LetterTemplatePreviewResponse>('/letter-templates/preview', data),
   getVariables: () => api.get<LetterTemplateVariable[]>('/letter-templates/variables'),
 };
 
@@ -205,7 +208,7 @@ export const followUpPrintApi = {
     api.post<FollowUpPrintEligibilityPreview>('/follow-up-print/jobs/preview', data),
   createJob: (data: CreateFollowUpPrintJobRequest) =>
     api.post<FollowUpPrintJob>('/follow-up-print/jobs', data),
-  listJobs: (params?: { page?: number; pageSize?: number }) =>
+  listJobs: (params?: { page?: number; pageSize?: number; status?: FollowUpPrintJobListStatusFilter }) =>
     api.get<PagedFollowUpPrintJobs>('/follow-up-print/jobs', { params }),
   getJob: (id: number) => api.get<FollowUpPrintJob>(`/follow-up-print/jobs/${id}`),
   cancelJob: (id: number) => api.post<FollowUpPrintJob>(`/follow-up-print/jobs/${id}/cancel`),
@@ -230,6 +233,8 @@ export const followUpPrintApi = {
   registerDirectPrintRequest: (transactionId: number, data: CreateDirectPrintRequest) =>
     api.post<FollowUpLetterPrintRecord>(`/follow-up-print/transactions/${transactionId}/print-requests`, data),
   confirmRecord: (id: number) => api.post<FollowUpLetterPrintRecord>(`/follow-up-print/records/${id}/confirm`),
+  getRecordPrintView: (id: number) =>
+    api.get<FollowUpPrintRecordPrintView>(`/follow-up-print/records/${id}/print-view`),
   cancelRecord: (id: number, reason: string) =>
     api.post<FollowUpLetterPrintRecord>(`/follow-up-print/records/${id}/cancel`, { reason }),
   linkFollowUp: (id: number, followUpId: number) =>

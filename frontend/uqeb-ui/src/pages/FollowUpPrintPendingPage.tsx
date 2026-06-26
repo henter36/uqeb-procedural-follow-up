@@ -4,6 +4,7 @@ import { followUpPrintApi } from '../api/services';
 import type { FollowUpLetterPrintRecord } from '../api/types';
 import { getApiErrorMessage } from '../utils/apiHelpers';
 import { createIdempotencyKey } from '../utils/createIdempotencyKey';
+import { sanitizePrintHtml } from '../utils/sanitizePrintHtml';
 import DateDisplay from '../components/DateDisplay';
 import {
   Alert, EmptyState, LoadingInline, PageHeader, Pagination,
@@ -16,11 +17,13 @@ type RecordHandlers = {
   onCancel: (record: FollowUpLetterPrintRecord) => void;
   onReprint: (record: FollowUpLetterPrintRecord) => void;
   onLinkFollowUp: (record: FollowUpLetterPrintRecord) => void;
+  onViewLetter: (record: FollowUpLetterPrintRecord) => void;
   actingId: number | null;
 };
 
 function PendingRecordRow({ record, handlers }: Readonly<{ record: FollowUpLetterPrintRecord; handlers: RecordHandlers }>) {
   const busy = handlers.actingId === record.id;
+  const confirmed = Boolean(record.printConfirmedAt);
   return (
     <tr>
       <td>{record.incomingNumber}</td>
@@ -28,10 +31,22 @@ function PendingRecordRow({ record, handlers }: Readonly<{ record: FollowUpLette
       <td>{record.targetEntityNameSnapshot ?? '—'}</td>
       <td>{record.followUpSequence}</td>
       <td><DateDisplay date={record.printRequestedAt} /></td>
+      <td>
+        {confirmed ? (
+          <span className="badge badge-green">الطباعة مؤكدة</span>
+        ) : (
+          <span className="badge badge-yellow">الطباعة غير مؤكدة</span>
+        )}
+        <div className="text-muted">التعقيب غير مسجل</div>
+        {record.printConfirmedAt && <DateDisplay date={record.printConfirmedAt} />}
+      </td>
       <td className="btn-group">
         <Link to={`/transactions/${record.transactionId}`} className="btn btn-sm btn-outline">المعاملة</Link>
-        <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => handlers.onConfirm(record)}>
-          تأكيد
+        <button type="button" className="btn btn-sm btn-secondary" disabled={busy} onClick={() => handlers.onViewLetter(record)}>
+          عرض الخطاب
+        </button>
+        <button type="button" className="btn btn-sm btn-primary" disabled={busy || confirmed} onClick={() => handlers.onConfirm(record)}>
+          {confirmed ? 'تم التأكيد' : 'تأكيد'}
         </button>
         <button type="button" className="btn btn-sm btn-secondary" disabled={busy} onClick={() => handlers.onLinkFollowUp(record)}>
           ربط تعقيب
@@ -54,6 +69,8 @@ export default function FollowUpPrintPendingPage() {
   const [pageSize, setPageSize] = useState(25);
   const [loading, setLoading] = useState(true);
   const [actingId, setActingId] = useState<number | null>(null);
+  const [previewHtml, setPreviewHtml] = useState('');
+  const [previewWarning, setPreviewWarning] = useState('');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const { refresh: refreshPendingSummary } = usePendingPrintSummary();
@@ -90,10 +107,26 @@ export default function FollowUpPrintPendingPage() {
     setActingId(record.id);
     setError('');
     try {
-      await followUpPrintApi.confirmRecord(record.id);
+      const res = await followUpPrintApi.confirmRecord(record.id);
+      setRecords((prev) => prev.map((item) => (item.id === record.id ? res.data : item)));
       setMessage(`تم تأكيد طباعة ${record.incomingNumber}.`);
       await refreshRecords();
       await refreshPendingSummary();
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err));
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  const handleViewLetter = async (record: FollowUpLetterPrintRecord) => {
+    setActingId(record.id);
+    setError('');
+    setPreviewWarning('');
+    try {
+      const res = await followUpPrintApi.getRecordPrintView(record.id);
+      setPreviewHtml(sanitizePrintHtml(res.data.html));
+      setPreviewWarning(res.data.warning ?? '');
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
     } finally {
@@ -156,6 +189,7 @@ export default function FollowUpPrintPendingPage() {
     onCancel: (r) => { handleCancel(r).catch(() => undefined); },
     onReprint: (r) => { handleReprint(r).catch(() => undefined); },
     onLinkFollowUp: (r) => { handleLinkFollowUp(r).catch(() => undefined); },
+    onViewLetter: (r) => { handleViewLetter(r).catch(() => undefined); },
     actingId,
   };
 
@@ -177,6 +211,7 @@ export default function FollowUpPrintPendingPage() {
                 <th>الجهة</th>
                 <th>ترتيب التعقيب</th>
                 <th>تاريخ الطلب</th>
+                <th>حالة التسجيل</th>
                 <th>إجراءات</th>
               </tr>
             </thead>
@@ -222,6 +257,22 @@ export default function FollowUpPrintPendingPage() {
       <div className="card">
         {renderRecordsContent()}
       </div>
+
+      {previewHtml && (
+        <div className="card mt-4">
+          <div className="details-banner-row">
+            <h3>عرض الخطاب</h3>
+            <button type="button" className="btn btn-outline" onClick={() => setPreviewHtml('')}>إغلاق</button>
+          </div>
+          {previewWarning && <Alert variant="warning">{previewWarning}</Alert>}
+          <iframe
+            title="عرض الخطاب"
+            className="letter-template-preview-frame"
+            srcDoc={previewHtml}
+            sandbox="allow-same-origin"
+          />
+        </div>
+      )}
     </div>
   );
 }

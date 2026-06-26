@@ -126,6 +126,12 @@ export default function FollowUpPrintJobDetailPage() {
 
   const canCancel = !['Completed', 'Cancelled', 'Expired'].includes(job.status);
   const canRetry = job.status === 'Failed';
+  const getUnavailablePrintReason = (status: string) => {
+    if (status === 'Cancelled') return 'الجزء ملغى ولا يمكن طباعته.';
+    if (status === 'Failed') return 'فشل تجهيز الجزء.';
+    if (status === 'Printed') return 'تم طلب الطباعة لهذا الجزء؛ يمكن فتحه للمراجعة فقط.';
+    return 'الجزء غير جاهز للطباعة بعد.';
+  };
 
   return (
     <div dir="rtl">
@@ -137,6 +143,9 @@ export default function FollowUpPrintJobDetailPage() {
 
       {message && <Alert variant="success">{message}</Alert>}
       {error && <Alert variant="error">{error}</Alert>}
+      <Alert variant="info">
+        تقوم المهمة بتحضير الخطابات فقط. لا تتم الطباعة تلقائيًا، ويجب فتح الجزء الجاهز والضغط على طباعة.
+      </Alert>
 
       <div className="card">
         <div className="details-banner-row">
@@ -145,7 +154,7 @@ export default function FollowUpPrintJobDetailPage() {
           </span>
           <span>المعاملات: {job.totalTransactions}</span>
           <span>الخطابات الجاهزة: {job.readyLetters}/{job.totalLetters}</span>
-          <span>الأجزاء المطبوعة: {job.printedParts}/{job.totalParts}</span>
+          <span>الأجزاء التي طُلبت طباعتها: {job.printedParts}/{job.totalParts}</span>
           <span>تاريخ الإنشاء: <DateDisplay date={job.createdAt} /></span>
         </div>
         {job.failureReason && <Alert variant="error">{job.failureReason}</Alert>}
@@ -174,7 +183,7 @@ export default function FollowUpPrintJobDetailPage() {
                 <th>عدد الخطابات</th>
                 <th>الصفحات</th>
                 <th>جاهز</th>
-                <th>طُبع</th>
+                <th>طلب الطباعة</th>
                 <th>إجراء</th>
               </tr>
             </thead>
@@ -192,16 +201,18 @@ export default function FollowUpPrintJobDetailPage() {
                   <td>{part.readyAt ? <DateDisplay date={part.readyAt} /> : '—'}</td>
                   <td>{part.printedAt ? <DateDisplay date={part.printedAt} /> : '—'}</td>
                   <td>
-                    {['ReadyToPrint', 'PartiallyReady', 'Printed'].includes(part.status) ? (
+                    {['ReadyToPrint', 'PartiallyReady'].includes(part.status) ? (
                       <Link
                         to={`/follow-up-print/parts/${job.id}/${part.partNumber}/print`}
                         className="btn btn-sm btn-primary"
                         target="_blank"
                         rel="noreferrer"
                       >
-                        طباعة
+                        فتح للطباعة
                       </Link>
-                    ) : '—'}
+                    ) : (
+                      <span className="text-muted">{getUnavailablePrintReason(part.status)}</span>
+                    )}
                   </td>
                 </tr>
               ))}

@@ -190,6 +190,21 @@ internal class StubRenderService(params FollowUpLetterTargetEntity[] targets) : 
         CancellationToken cancellationToken = default) =>
         Task.FromResult<string?>(null);
 
+    public Task<string> GenerateTemplatePreviewHtmlAsync(
+        LetterTemplatePreviewRequest request,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(FollowUpLetterPrintViewRenderer.Render([
+            new FollowUpLetterDocumentModel
+            {
+                Body = request.Content,
+                Recipient = "جهة",
+                Subject = "موضوع",
+                LetterNumber = "1",
+                GregorianDate = "26/06/2026",
+                HijriDate = "هجري",
+            },
+        ]));
+
     public Task<bool> CanAccessTransactionAsync(
         int transactionId,
         ICurrentUserService currentUser,

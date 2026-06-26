@@ -371,6 +371,10 @@ export interface LetterTemplateValidationResult {
   isValid: boolean;
 }
 
+export interface LetterTemplatePreviewResponse {
+  html: string;
+}
+
 export interface CreateLetterTemplateRequest {
   name: string;
   description?: string;
@@ -403,6 +407,14 @@ export type FollowUpPrintJobStatus =
   | 'Failed'
   | 'Cancelled'
   | 'Expired';
+
+export type FollowUpPrintJobListStatusFilter =
+  | 'Active'
+  | 'ReadyToPrint'
+  | 'Completed'
+  | 'Failed'
+  | 'Cancelled'
+  | 'All';
 
 export type FollowUpPrintJobPartStatus =
   | 'Pending'
@@ -527,6 +539,7 @@ export interface FollowUpLetterPrintRecord {
   templateId: number;
   followUpSequence: number;
   responseDeadlineDays?: number;
+  hasDocumentSnapshot: boolean;
   printRequestedAt: string;
   printConfirmedAt?: string;
   registeredFollowUpId?: number;
@@ -538,6 +551,12 @@ export interface FollowUpPrintPendingSummary {
   total: number;
   withinExclusionDays: number;
   olderThanExclusionDays: number;
+}
+
+export interface FollowUpPrintRecordPrintView {
+  html: string;
+  usedStoredSnapshot: boolean;
+  warning?: string;
 }
 
 export interface UserNotification {

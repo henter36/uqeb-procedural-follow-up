@@ -40,6 +40,10 @@ public interface IFollowUpLetterRenderService
         int? templateId = null,
         CancellationToken cancellationToken = default);
 
+    Task<string> GenerateTemplatePreviewHtmlAsync(
+        LetterTemplatePreviewRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<FollowUpLetterTargetEntity>> ResolveTargetEntitiesAsync(
         int transactionId,
         string? targetEntityHint = null,
@@ -216,6 +220,66 @@ public sealed class FollowUpLetterRenderService : IFollowUpLetterRenderService
         });
 
         return document == null ? null : FollowUpLetterPrintViewRenderer.Render([document], _printOptions);
+    }
+
+    public Task<string> GenerateTemplatePreviewHtmlAsync(
+        LetterTemplatePreviewRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var today = _timeZone.TodayDisplayDate;
+        var content = string.IsNullOrWhiteSpace(request.Content)
+            ? DefaultFollowUpContent
+            : request.Content;
+
+        var body = FollowUpLetterVariableReplacer.Render(
+            content,
+            FollowUpLetterVariableReplacer.BuildValues(new FollowUpLetterRenderContext
+            {
+                TransactionId = 1001,
+                TransactionNumber = "TR-1001",
+                IncomingNumber = "وارد-تجريبي-1447",
+                IncomingDateLocal = today.AddDays(-18),
+                Subject = "موضوع تجريبي لمعاينة خطاب التعقيب",
+                TargetEntity = "إدارة تجريبية",
+                TargetEntities = "إدارة تجريبية، جهة خارجية تجريبية",
+                TargetDepartments = "إدارة تجريبية",
+                AssignmentDateLocal = today.AddDays(-14),
+                DueDateLocal = today.AddDays(-3),
+                DaysOverdue = 3,
+                Priority = "عاجل",
+                Category = "تصنيف تجريبي",
+                TodayLocal = today,
+                SenderDepartment = "الإدارة العامة للمتابعة",
+                PreparedBy = "اسم معد الخطاب",
+                FollowUpNumber = "تعقيب-تجريبي-001",
+                FollowUpDateLocal = today.AddDays(-7),
+                FollowUpSequence = 2,
+                FollowUpSequenceText = "التعقيب الثاني",
+                ResponseDeadlineDays = 5,
+            }));
+
+        var document = new FollowUpLetterDocumentModel
+        {
+            TransactionId = 1001,
+            TemplateId = null,
+            LogoPath = OrganizationBrandingPaths.LogoApiUrl,
+            OrganizationName = "الإدارة العامة للمتابعة",
+            LetterNumber = "خطاب-تجريبي-001",
+            GregorianDate = HijriDateFormatter.FormatGregorianArabic(today),
+            HijriDate = HijriDateFormatter.Format(today) ?? string.Empty,
+            Recipient = "إدارة تجريبية",
+            Subject = "موضوع تجريبي لمعاينة خطاب التعقيب",
+            Body = body,
+            SenderDepartment = "الإدارة العامة للمتابعة",
+            FollowUpSequence = 2,
+            FollowUpSequenceText = "التعقيب الثاني",
+            ResponseDeadlineDays = 5,
+            Footer = "هذه معاينة تجريبية لا تعتمد كسجل رسمي.",
+            SignatoryName = "اسم صاحب الصلاحية",
+            SignatoryTitle = "مدير المتابعة",
+        };
+
+        return Task.FromResult(FollowUpLetterPrintViewRenderer.Render([document], _printOptions, "معاينة القالب"));
     }
 
     public async Task<IReadOnlyList<FollowUpLetterTargetEntity>> ResolveTargetEntitiesAsync(

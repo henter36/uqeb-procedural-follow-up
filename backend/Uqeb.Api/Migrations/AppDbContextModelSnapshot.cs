@@ -396,6 +396,9 @@ namespace Uqeb.Api.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("DocumentSnapshotJson")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int>("FollowUpSequence")
                         .HasColumnType("int");
 
