@@ -11,6 +11,7 @@ vi.mock('../../api/services', () => ({
   },
   followUpPrintApi: {
     getTransactionPrintView: vi.fn(),
+    registerDirectPrintRequest: vi.fn(),
   },
 }));
 
@@ -142,6 +143,9 @@ describe('FollowUpLetterFormPanel', () => {
     vi.mocked(services.followUpPrintApi.getTransactionPrintView).mockResolvedValue({
       data: '<html>print</html>',
     } as never);
+    vi.mocked(services.followUpPrintApi.registerDirectPrintRequest).mockResolvedValue({
+      data: { id: 10 },
+    } as never);
 
     render(
       <FollowUpLetterFormPanel
@@ -158,6 +162,9 @@ describe('FollowUpLetterFormPanel', () => {
     await user.click(screen.getByRole('button', { name: 'طباعة مباشرة' }));
 
     await waitFor(() => {
+      const registerOrder = vi.mocked(services.followUpPrintApi.registerDirectPrintRequest).mock.invocationCallOrder[0];
+      const printViewOrder = vi.mocked(services.followUpPrintApi.getTransactionPrintView).mock.invocationCallOrder[0];
+      expect(registerOrder).toBeLessThan(printViewOrder);
       expect(services.followUpPrintApi.getTransactionPrintView).toHaveBeenCalledWith(1, {
         targetEntity: 'إدارة أ',
         content: 'نص الخطاب الأولي',

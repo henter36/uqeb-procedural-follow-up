@@ -8,6 +8,7 @@ import type {
   FollowUpPrintFilter, PagedEligibleTransactions, FollowUpPrintEligibilityPreview,
   CreateFollowUpPrintJobRequest, FollowUpPrintJob, PagedFollowUpPrintJobs,
   FollowUpLetterPrintRecord, FollowUpPrintPendingSummary, UserNotification,
+  CreateDirectPrintRequest,
 } from './types';
 import type {
   InstitutionalReportManifest,
@@ -226,12 +227,15 @@ export const followUpPrintApi = {
       responseType: 'text',
       headers: { Accept: 'text/html' },
     }),
+  registerDirectPrintRequest: (transactionId: number, data: CreateDirectPrintRequest) =>
+    api.post<FollowUpLetterPrintRecord>(`/follow-up-print/transactions/${transactionId}/print-requests`, data),
   confirmRecord: (id: number) => api.post<FollowUpLetterPrintRecord>(`/follow-up-print/records/${id}/confirm`),
   cancelRecord: (id: number, reason: string) =>
     api.post<FollowUpLetterPrintRecord>(`/follow-up-print/records/${id}/cancel`, { reason }),
   linkFollowUp: (id: number, followUpId: number) =>
     api.post<FollowUpLetterPrintRecord>(`/follow-up-print/records/${id}/link-follow-up`, { followUpId }),
-  reprintRecord: (id: number) => api.post<FollowUpLetterPrintRecord>(`/follow-up-print/records/${id}/reprint`),
+  reprintRecord: (id: number, idempotencyKey?: string) =>
+    api.post<FollowUpLetterPrintRecord>(`/follow-up-print/records/${id}/reprint`, { idempotencyKey }),
 };
 
 export const notificationsApi = {

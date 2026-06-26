@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { followUpPrintApi } from '../api/services';
 import type { FollowUpPrintJob } from '../api/types';
@@ -23,6 +23,8 @@ export default function FollowUpPrintJobDetailPage() {
   const [acting, setActing] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const pollSeq = useRef(0);
+  const isTerminalStatus = job ? ['Completed', 'Cancelled', 'Expired', 'Failed'].includes(job.status) : false;
 
   const loadJob = useCallback(async (active: () => boolean) => {
     if (!Number.isFinite(jobId)) {
@@ -55,13 +57,23 @@ export default function FollowUpPrintJobDetailPage() {
 
   useEffect(() => {
     if (!Number.isFinite(jobId)) return undefined;
+    if (isTerminalStatus) return undefined;
+    let mounted = true;
     const timer = globalThis.setInterval(() => {
+      const seq = pollSeq.current + 1;
+      pollSeq.current = seq;
       followUpPrintApi.getJob(jobId)
-        .then((res) => setJob(res.data))
+        .then((res) => {
+          if (mounted && pollSeq.current === seq) setJob(res.data);
+        })
         .catch(() => undefined);
     }, 5000);
-    return () => globalThis.clearInterval(timer);
-  }, [jobId]);
+    return () => {
+      mounted = false;
+      pollSeq.current += 1;
+      globalThis.clearInterval(timer);
+    };
+  }, [isTerminalStatus, jobId]);
 
   const handleCancel = async () => {
     if (!globalThis.confirm('هل أنت متأكد من إلغاء مهمة الطباعة؟')) return;
@@ -180,7 +192,7 @@ export default function FollowUpPrintJobDetailPage() {
                   <td>{part.readyAt ? <DateDisplay date={part.readyAt} /> : '—'}</td>
                   <td>{part.printedAt ? <DateDisplay date={part.printedAt} /> : '—'}</td>
                   <td>
-                    {part.status === 'ReadyToPrint' || part.status === 'Printed' ? (
+                    {['ReadyToPrint', 'PartiallyReady', 'Printed'].includes(part.status) ? (
                       <Link
                         to={`/follow-up-print/parts/${job.id}/${part.partNumber}/print`}
                         className="btn btn-sm btn-primary"

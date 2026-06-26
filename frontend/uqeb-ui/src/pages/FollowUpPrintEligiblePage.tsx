@@ -24,7 +24,8 @@ const DEFAULT_FILTER = {
 };
 
 export default function FollowUpPrintEligiblePage() {
-  const [filters, setFilters] = useState(DEFAULT_FILTER);
+  const [draftFilters, setDraftFilters] = useState(DEFAULT_FILTER);
+  const [appliedFilters, setAppliedFilters] = useState(DEFAULT_FILTER);
   const [items, setItems] = useState<EligibleTransaction[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [preview, setPreview] = useState<FollowUpPrintEligibilityPreview | null>(null);
@@ -39,15 +40,15 @@ export default function FollowUpPrintEligiblePage() {
   const [message, setMessage] = useState('');
 
   const buildFilter = useCallback(() => ({
-    daysSinceLastFollowUp: filters.daysSinceLastFollowUp,
-    excludeRecentlyPrinted: filters.excludeRecentlyPrinted,
-    printedLetterExclusionDays: filters.printedLetterExclusionDays,
-    departmentId: filters.departmentId ? Number(filters.departmentId) : undefined,
-    categoryId: filters.categoryId ? Number(filters.categoryId) : undefined,
-    search: filters.search.trim() || undefined,
-    page: filters.page,
-    pageSize: filters.pageSize,
-  }), [filters]);
+    daysSinceLastFollowUp: appliedFilters.daysSinceLastFollowUp,
+    excludeRecentlyPrinted: appliedFilters.excludeRecentlyPrinted,
+    printedLetterExclusionDays: appliedFilters.printedLetterExclusionDays,
+    departmentId: appliedFilters.departmentId ? Number(appliedFilters.departmentId) : undefined,
+    categoryId: appliedFilters.categoryId ? Number(appliedFilters.categoryId) : undefined,
+    search: appliedFilters.search.trim() || undefined,
+    page: appliedFilters.page,
+    pageSize: appliedFilters.pageSize,
+  }), [appliedFilters]);
 
   const loadData = useCallback(async (active: () => boolean) => {
     await Promise.resolve();
@@ -82,7 +83,7 @@ export default function FollowUpPrintEligiblePage() {
     (async () => {
       try {
         const [templatesRes, departmentsRes, categoriesRes] = await Promise.all([
-          letterTemplatesApi.list({ active: true }),
+          letterTemplatesApi.list({ type: 'FollowUp', active: true }),
           departmentsApi.getAll(),
           categoriesApi.getAll(),
         ]);
@@ -105,7 +106,7 @@ export default function FollowUpPrintEligiblePage() {
 
   const handleSearch = (event: FormEvent) => {
     event.preventDefault();
-    setFilters((prev) => ({ ...prev, page: 1 }));
+    setAppliedFilters({ ...draftFilters, page: 1 });
   };
 
   const renderTransactionsContent = () => {
@@ -146,12 +147,12 @@ export default function FollowUpPrintEligiblePage() {
           </table>
         </div>
         <Pagination
-          page={filters.page}
-          pageSize={filters.pageSize}
+          page={appliedFilters.page}
+          pageSize={appliedFilters.pageSize}
           total={totalCount}
           itemCount={items.length}
-          onPageChange={(page) => setFilters((prev) => ({ ...prev, page }))}
-          onPageSizeChange={(pageSize) => setFilters((prev) => ({ ...prev, pageSize, page: 1 }))}
+          onPageChange={(page) => setAppliedFilters((prev) => ({ ...prev, page }))}
+          onPageSizeChange={(pageSize) => setAppliedFilters((prev) => ({ ...prev, pageSize, page: 1 }))}
         />
       </>
     );
@@ -199,8 +200,8 @@ export default function FollowUpPrintEligiblePage() {
               id="days-since"
               type="number"
               min={1}
-              value={filters.daysSinceLastFollowUp}
-              onChange={(e) => setFilters((prev) => ({ ...prev, daysSinceLastFollowUp: Number(e.target.value) || 10 }))}
+              value={draftFilters.daysSinceLastFollowUp}
+              onChange={(e) => setDraftFilters((prev) => ({ ...prev, daysSinceLastFollowUp: Number(e.target.value) || 10 }))}
             />
           </div>
           <div className="form-group">
@@ -209,16 +210,16 @@ export default function FollowUpPrintEligiblePage() {
               id="exclusion-days"
               type="number"
               min={0}
-              value={filters.printedLetterExclusionDays}
-              onChange={(e) => setFilters((prev) => ({ ...prev, printedLetterExclusionDays: Number(e.target.value) || 0 }))}
+              value={draftFilters.printedLetterExclusionDays}
+              onChange={(e) => setDraftFilters((prev) => ({ ...prev, printedLetterExclusionDays: Number(e.target.value) || 0 }))}
             />
           </div>
           <div className="form-group">
             <label htmlFor="department-filter">الإدارة</label>
             <select
               id="department-filter"
-              value={filters.departmentId}
-              onChange={(e) => setFilters((prev) => ({ ...prev, departmentId: e.target.value, page: 1 }))}
+              value={draftFilters.departmentId}
+              onChange={(e) => setDraftFilters((prev) => ({ ...prev, departmentId: e.target.value }))}
             >
               <option value="">الكل</option>
               {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
@@ -228,8 +229,8 @@ export default function FollowUpPrintEligiblePage() {
             <label htmlFor="category-filter">التصنيف</label>
             <select
               id="category-filter"
-              value={filters.categoryId}
-              onChange={(e) => setFilters((prev) => ({ ...prev, categoryId: e.target.value, page: 1 }))}
+              value={draftFilters.categoryId}
+              onChange={(e) => setDraftFilters((prev) => ({ ...prev, categoryId: e.target.value }))}
             >
               <option value="">الكل</option>
               {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -239,8 +240,8 @@ export default function FollowUpPrintEligiblePage() {
             <label htmlFor="search-filter">بحث</label>
             <input
               id="search-filter"
-              value={filters.search}
-              onChange={(e) => setFilters((prev) => ({ ...prev, search: e.target.value }))}
+              value={draftFilters.search}
+              onChange={(e) => setDraftFilters((prev) => ({ ...prev, search: e.target.value }))}
               placeholder="رقم الوارد أو الموضوع"
             />
           </div>
@@ -249,8 +250,8 @@ export default function FollowUpPrintEligiblePage() {
               <input
                 id="exclude-recent"
                 type="checkbox"
-                checked={filters.excludeRecentlyPrinted}
-                onChange={(e) => setFilters((prev) => ({ ...prev, excludeRecentlyPrinted: e.target.checked, page: 1 }))}
+                checked={draftFilters.excludeRecentlyPrinted}
+                onChange={(e) => setDraftFilters((prev) => ({ ...prev, excludeRecentlyPrinted: e.target.checked }))}
               />
               {' '}استبعاد المطبوع مؤخراً
             </label>

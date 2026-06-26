@@ -3,11 +3,13 @@ import { Link } from 'react-router-dom';
 import { followUpPrintApi } from '../api/services';
 import type { FollowUpLetterPrintRecord } from '../api/types';
 import { getApiErrorMessage } from '../utils/apiHelpers';
+import { createIdempotencyKey } from '../utils/createIdempotencyKey';
 import DateDisplay from '../components/DateDisplay';
 import {
   Alert, EmptyState, LoadingInline, PageHeader, Pagination,
 } from '../components/ui';
 import { useDeferredEffect } from '../hooks/useDeferredEffect';
+import { usePendingPrintSummary } from '../hooks/usePendingPrintSummary';
 
 export default function FollowUpPrintPendingPage() {
   const [records, setRecords] = useState<FollowUpLetterPrintRecord[]>([]);
@@ -18,6 +20,7 @@ export default function FollowUpPrintPendingPage() {
   const [actingId, setActingId] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const { refresh: refreshPendingSummary } = usePendingPrintSummary();
 
   const loadRecords = useCallback(async (active: () => boolean) => {
     await Promise.resolve();
@@ -54,6 +57,7 @@ export default function FollowUpPrintPendingPage() {
       await followUpPrintApi.confirmRecord(record.id);
       setMessage(`تم تأكيد طباعة ${record.incomingNumber}.`);
       await refreshRecords();
+      await refreshPendingSummary();
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
     } finally {
@@ -70,6 +74,7 @@ export default function FollowUpPrintPendingPage() {
       await followUpPrintApi.cancelRecord(record.id, reason.trim());
       setMessage(`تم إلغاء سجل ${record.incomingNumber}.`);
       await refreshRecords();
+      await refreshPendingSummary();
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
     } finally {
@@ -81,9 +86,10 @@ export default function FollowUpPrintPendingPage() {
     setActingId(record.id);
     setError('');
     try {
-      await followUpPrintApi.reprintRecord(record.id);
+      await followUpPrintApi.reprintRecord(record.id, createIdempotencyKey());
       setMessage(`تم إنشاء إعادة طباعة لـ ${record.incomingNumber}.`);
       await refreshRecords();
+      await refreshPendingSummary();
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
     } finally {
@@ -101,6 +107,7 @@ export default function FollowUpPrintPendingPage() {
       await followUpPrintApi.linkFollowUp(record.id, followUpId);
       setMessage(`تم ربط ${record.incomingNumber} بالتعقيب ${followUpId}.`);
       await refreshRecords();
+      await refreshPendingSummary();
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
     } finally {

@@ -16,6 +16,7 @@ export const followUpPrintJobPartStatusLabels: Record<FollowUpPrintJobPartStatus
   Pending: 'في الانتظار',
   Processing: 'قيد المعالجة',
   ReadyToPrint: 'جاهز للطباعة',
+  PartiallyReady: 'جاهز جزئياً',
   Printed: 'طُبع',
   Failed: 'فشل',
   Cancelled: 'ملغى',
@@ -50,7 +51,8 @@ export function followUpPrintJobStatusBadgeClass(status: FollowUpPrintJobStatus)
 export function followUpPrintPartStatusBadgeClass(status: FollowUpPrintJobPartStatus): string {
   switch (status) {
     case 'Printed': return 'badge-green';
-    case 'ReadyToPrint': return 'badge-blue';
+    case 'ReadyToPrint':
+    case 'PartiallyReady': return 'badge-blue';
     case 'Failed': return 'badge-red';
     case 'Cancelled': return 'badge-gray';
     case 'Processing': return 'badge-orange';

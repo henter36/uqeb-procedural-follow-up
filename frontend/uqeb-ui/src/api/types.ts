@@ -408,6 +408,7 @@ export type FollowUpPrintJobPartStatus =
   | 'Pending'
   | 'Processing'
   | 'ReadyToPrint'
+  | 'PartiallyReady'
   | 'Printed'
   | 'Failed'
   | 'Cancelled';
@@ -459,6 +460,16 @@ export interface CreateFollowUpPrintJobRequest {
   responseDeadlineDays?: number;
   batchSize?: number;
   idempotencyKey?: string;
+}
+
+export interface CreateDirectPrintRequest {
+  templateId?: number;
+  targetDepartmentId?: number;
+  targetEntityId?: number;
+  targetEntityName?: string;
+  followUpSequence?: number;
+  responseDeadlineDays?: number;
+  idempotencyKey: string;
 }
 
 export interface FollowUpPrintJobPart {

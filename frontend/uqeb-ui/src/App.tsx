@@ -20,6 +20,7 @@ import FollowUpPrintPartPage from './pages/FollowUpPrintPartPage';
 import SecurityPage from './pages/SecurityPage';
 import TransactionImport from './pages/TransactionImport';
 import { institutionalReportsEnabled } from './config/institutionalReportsRuntime';
+import { PendingPrintSummaryProvider } from './context/PendingPrintSummaryContext';
 
 export default function App() {
   return (
@@ -30,7 +31,9 @@ export default function App() {
           <Route element={(
             <ProtectedRoute>
               <ReferenceDataProvider>
-                <Layout />
+                <PendingPrintSummaryProvider>
+                  <Layout />
+                </PendingPrintSummaryProvider>
               </ReferenceDataProvider>
             </ProtectedRoute>
           )}>
@@ -58,7 +61,14 @@ export default function App() {
                 )}
               />
             )}
-            <Route path="letter-template" element={<LetterTemplatePage />} />
+            <Route
+              path="letter-template"
+              element={(
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor']}>
+                  <LetterTemplatePage />
+                </ProtectedRoute>
+              )}
+            />
             <Route
               path="follow-up-print/eligible"
               element={(

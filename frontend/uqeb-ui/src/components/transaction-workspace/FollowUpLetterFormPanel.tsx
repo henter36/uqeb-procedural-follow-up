@@ -6,6 +6,8 @@ import { getApiErrorMessage } from '../../utils/apiHelpers';
 import { downloadBlob } from '../../utils/downloadBlob';
 import { openHtmlPrintWindow } from '../../utils/followUpPrintWindow';
 import { Alert, LoadingInline } from '../ui';
+import { createIdempotencyKey } from '../../utils/createIdempotencyKey';
+import { usePendingPrintSummary } from '../../hooks/usePendingPrintSummary';
 
 type FollowUpLetterFormPanelProps = Readonly<{
   transactionId: number;
@@ -46,6 +48,7 @@ export default function FollowUpLetterFormPanel({
   const baselineReadyRef = useRef(false);
   const previewDialogRef = useRef<HTMLDialogElement>(null);
   const closePreviewButtonRef = useRef<HTMLButtonElement>(null);
+  const { refresh } = usePendingPrintSummary();
 
   const closePreview = useCallback(() => {
     setPreviewOpen(false);
@@ -167,14 +170,22 @@ export default function FollowUpLetterFormPanel({
   };
 
   const handleDirectPrint = async () => {
+    if (printing) return;
     setError('');
     setPrinting(true);
     try {
+      await followUpPrintApi.registerDirectPrintRequest(transactionId, {
+        targetEntityName: recipient,
+        followUpSequence: (tx.followUps?.length ?? 0) + 1,
+        responseDeadlineDays: tx.responseDueDays,
+        idempotencyKey: createIdempotencyKey(),
+      });
       const res = await followUpPrintApi.getTransactionPrintView(transactionId, {
         targetEntity: recipient,
         content: letterBody,
       });
       openHtmlPrintWindow(res.data);
+      await refresh();
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
     } finally {

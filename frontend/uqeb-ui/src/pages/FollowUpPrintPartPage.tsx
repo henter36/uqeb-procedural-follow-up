@@ -5,6 +5,7 @@ import { getApiErrorMessage } from '../utils/apiHelpers';
 import FollowUpLetterPrintView from '../components/follow-up-print/FollowUpLetterPrintView';
 import { Alert, ErrorState, LoadingInline } from '../components/ui';
 import { useDeferredEffect } from '../hooks/useDeferredEffect';
+import { usePendingPrintSummary } from '../hooks/usePendingPrintSummary';
 
 export default function FollowUpPrintPartPage() {
   const { jobId, partNumber } = useParams();
@@ -14,6 +15,8 @@ export default function FollowUpPrintPartPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [marked, setMarked] = useState(false);
+  const [printing, setPrinting] = useState(false);
+  const { refresh } = usePendingPrintSummary();
 
   const loadPrintView = useCallback(async (active: () => boolean) => {
     if (!Number.isFinite(parsedJobId) || !Number.isFinite(parsedPartNumber)) {
@@ -44,12 +47,18 @@ export default function FollowUpPrintPartPage() {
   useDeferredEffect(loadPrintView, [loadPrintView]);
 
   const handlePrint = async () => {
-    if (marked) return;
+    if (marked || printing) return;
+    setPrinting(true);
+    setError('');
     try {
       await followUpPrintApi.markPartPrintRequested(parsedJobId, parsedPartNumber);
       setMarked(true);
+      await refresh();
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
+      throw err;
+    } finally {
+      setPrinting(false);
     }
   };
 
@@ -70,7 +79,9 @@ export default function FollowUpPrintPartPage() {
       <FollowUpLetterPrintView
         html={html}
         autoPrint={false}
-        onPrint={() => { void handlePrint(); }}
+        onPrint={handlePrint}
+        printDisabled={marked || printing}
+        printingLabel={marked ? 'تم التسجيل' : 'جاري التسجيل...'}
       />
     </div>
   );

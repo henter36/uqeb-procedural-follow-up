@@ -1,50 +1,23 @@
-import { useCallback, useEffect, useState } from 'react';
-import { followUpPrintApi } from '../api/services';
-import { useAuth } from '../context/useAuth';
-
-const POLL_INTERVAL_MS = 60_000;
+import { useContext } from 'react';
+import { PendingPrintSummaryContext } from '../context/pendingPrintSummaryContextValue';
 
 export function usePendingPrintSummary(enabled = true) {
-  const { canClose } = useAuth();
-  const [pendingTotal, setPendingTotal] = useState(0);
-
-  const fetchSummary = useCallback(async (active: () => boolean) => {
-    try {
-      const res = await followUpPrintApi.getPendingSummary();
-      if (active()) setPendingTotal(res.data.total);
-    } catch {
-      // ignore polling errors
-    }
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const active = () => !cancelled;
-
-    (async () => {
-      if (!enabled || !canClose) {
-        await Promise.resolve();
-        if (active()) setPendingTotal(0);
-        return;
-      }
-      await fetchSummary(active);
-    })().catch(() => undefined);
-
-    if (!enabled || !canClose) {
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const timer = globalThis.setInterval(() => {
-      fetchSummary(active).catch(() => undefined);
-    }, POLL_INTERVAL_MS);
-
-    return () => {
-      cancelled = true;
-      globalThis.clearInterval(timer);
+  const context = useContext(PendingPrintSummaryContext);
+  if (!enabled) {
+    return {
+      pendingTotal: 0,
+      summary: null,
+      loading: false,
+      error: '',
+      refresh: context.refresh,
     };
-  }, [canClose, enabled, fetchSummary]);
+  }
 
-  return { pendingTotal };
+  return {
+    pendingTotal: context.summary?.total ?? 0,
+    summary: context.summary,
+    loading: context.loading,
+    error: context.error,
+    refresh: context.refresh,
+  };
 }
