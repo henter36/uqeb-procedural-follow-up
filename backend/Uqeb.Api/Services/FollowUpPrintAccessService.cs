@@ -21,8 +21,6 @@ public interface IFollowUpPrintAccessService
 
 public sealed class FollowUpPrintAccessService : IFollowUpPrintAccessService
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-
     private readonly AppDbContext _db;
 
     public FollowUpPrintAccessService(AppDbContext db) => _db = db;
@@ -100,8 +98,7 @@ public sealed class FollowUpPrintAccessService : IFollowUpPrintAccessService
             var departmentId = currentUser.DepartmentId.Value;
             return query.Where(j =>
                 j.RequestedById == currentUser.UserId ||
-                j.FilterSnapshotJson.Contains($"\"departmentId\":{departmentId}") ||
-                j.FilterSnapshotJson.Contains($"\"departmentId\": {departmentId}"));
+                j.ScopeDepartmentId == departmentId);
         }
 
         return query.Where(j => j.RequestedById == currentUser.UserId);
@@ -114,7 +111,7 @@ public sealed class FollowUpPrintAccessService : IFollowUpPrintAccessService
 
         var job = await _db.FollowUpPrintJobs.AsNoTracking()
             .Where(j => j.Id == jobId)
-            .Select(j => new { j.RequestedById, j.FilterSnapshotJson })
+            .Select(j => new { j.RequestedById, j.ScopeDepartmentId })
             .FirstOrDefaultAsync(cancellationToken);
 
         if (job == null)
@@ -125,11 +122,8 @@ public sealed class FollowUpPrintAccessService : IFollowUpPrintAccessService
 
         if (currentUser.Role == UserRole.DepartmentUser && currentUser.DepartmentId.HasValue)
         {
-            if (job.RequestedById == currentUser.UserId)
-                return true;
-
-            var snapshot = JsonSerializer.Deserialize<FollowUpPrintFilterSnapshot>(job.FilterSnapshotJson, JsonOptions);
-            return snapshot?.DepartmentId == currentUser.DepartmentId;
+            return job.RequestedById == currentUser.UserId ||
+                   job.ScopeDepartmentId == currentUser.DepartmentId;
         }
 
         return job.RequestedById == currentUser.UserId;

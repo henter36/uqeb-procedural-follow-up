@@ -370,4 +370,46 @@ public class FollowUpPrintJobServiceTests
             return base.BuildDocumentAsync(request);
         }
     }
+
+    // ─── Pagination semantics (section 9) ─────────────────────────────────────
+    // Job creation captures ALL matching results, not just the current UI page.
+    // Changing Page/PageSize must not alter the request hash or payload set.
+
+    [Fact]
+    public void RequestHash_PageAndPageSize_DoNotAffectHash()
+    {
+        var base64Request = new CreateFollowUpPrintJobRequest
+        {
+            Filter = new FollowUpPrintFilterRequest { DaysSinceLastFollowUp = 10, DepartmentId = 1 },
+        };
+        var page2Request = new CreateFollowUpPrintJobRequest
+        {
+            Filter = new FollowUpPrintFilterRequest { DaysSinceLastFollowUp = 10, DepartmentId = 1, Page = 2, PageSize = 50 },
+        };
+        var page10Request = new CreateFollowUpPrintJobRequest
+        {
+            Filter = new FollowUpPrintFilterRequest { DaysSinceLastFollowUp = 10, DepartmentId = 1, Page = 10, PageSize = 100 },
+        };
+
+        var hash1 = FollowUpPrintRequestHash.Compute(base64Request, 25);
+        var hash2 = FollowUpPrintRequestHash.Compute(page2Request, 25);
+        var hash3 = FollowUpPrintRequestHash.Compute(page10Request, 25);
+
+        Assert.Equal(hash1, hash2);
+        Assert.Equal(hash1, hash3);
+    }
+
+    [Fact]
+    public void RequestHash_BatchSizeChange_ProducesDifferentHash()
+    {
+        var request = new CreateFollowUpPrintJobRequest
+        {
+            Filter = new FollowUpPrintFilterRequest { DaysSinceLastFollowUp = 10 },
+        };
+
+        var hash25 = FollowUpPrintRequestHash.Compute(request, 25);
+        var hash50 = FollowUpPrintRequestHash.Compute(request, 50);
+
+        Assert.NotEqual(hash25, hash50);
+    }
 }

@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Uqeb.Api.Configuration;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.FollowUpPrint;
+using Uqeb.Api.Exceptions;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Models.Letters;
@@ -23,6 +24,7 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
     private static readonly FollowUpPrintJobStatus[] ClaimableStatuses =
     [
         FollowUpPrintJobStatus.Queued,
+        FollowUpPrintJobStatus.Claimed,
         FollowUpPrintJobStatus.Processing,
     ];
 
@@ -78,6 +80,10 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
         {
             await ProcessJobAsync(db, notifications, audit, job, leaseOwner, isLeaseRecovery, cancellationToken);
         }
+        catch (FollowUpPrintLeaseExpiredException ex)
+        {
+            _logger.LogWarning("توقف عامل الطباعة عن مهمة {JobId} بعد انتهاء الـlease.", ex.JobId);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "فشلت معالجة مهمة الطباعة {JobId}", job.Id);
@@ -128,7 +134,7 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
                 (j.LeaseExpiresAt == null || j.LeaseExpiresAt < now))
             .ExecuteUpdateAsync(
                 s => s
-                    .SetProperty(j => j.Status, FollowUpPrintJobStatus.Claimed)
+                    .SetProperty(j => j.Status, FollowUpPrintJobStatus.Processing)
                     .SetProperty(j => j.LeaseOwner, leaseOwner)
                     .SetProperty(j => j.LeaseExpiresAt, leaseUntil)
                     .SetProperty(j => j.StartedAt, j => j.StartedAt ?? now),
@@ -150,7 +156,6 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
         bool isLeaseRecovery,
         CancellationToken cancellationToken)
     {
-        job.Status = FollowUpPrintJobStatus.Processing;
         await RenewLeaseIfOwnerAsync(db, job.Id, leaseOwner, cancellationToken);
         await db.Entry(job).ReloadAsync(cancellationToken);
 
@@ -364,10 +369,13 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
     private async Task RenewLeaseIfOwnerAsync(AppDbContext db, int jobId, string leaseOwner, CancellationToken cancellationToken)
     {
         var leaseUntil = DateTime.UtcNow.AddSeconds(_options.JobLeaseSeconds);
-        await db.FollowUpPrintJobs
+        var updated = await db.FollowUpPrintJobs
             .Where(j => j.Id == jobId && j.LeaseOwner == leaseOwner)
             .ExecuteUpdateAsync(
                 s => s.SetProperty(j => j.LeaseExpiresAt, leaseUntil),
                 cancellationToken);
+
+        if (updated == 0)
+            throw new FollowUpPrintLeaseExpiredException(jobId);
     }
 }

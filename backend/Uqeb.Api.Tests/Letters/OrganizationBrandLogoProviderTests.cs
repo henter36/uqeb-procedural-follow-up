@@ -112,6 +112,24 @@ public class OrganizationBrandLogoProviderTests : IDisposable
         Assert.Equal(new byte[] { 2, 3 }, refreshed);
     }
 
+    [Fact]
+    public void TryGetLogoBytes_ReturnsCopy_CallerMutationDoesNotCorruptCache()
+    {
+        var logoPath = Path.Combine(_brandDir, "defensive.png");
+        var original = new byte[] { 0x89, 0x50, 0x4E, 0x47 };
+        File.WriteAllBytes(logoPath, original);
+
+        var first = _provider.TryGetLogoBytes("defensive.png");
+        Assert.NotNull(first);
+
+        // Mutate the returned array.
+        first[0] = 0xFF;
+
+        var second = _provider.TryGetLogoBytes("defensive.png");
+        Assert.NotNull(second);
+        Assert.Equal(original, second);
+    }
+
     private sealed class TestWebHostEnvironment(string contentRoot) : IWebHostEnvironment
     {
         public string ApplicationName { get; set; } = "Uqeb.Api.Tests";

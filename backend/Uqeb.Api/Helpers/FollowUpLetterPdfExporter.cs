@@ -81,8 +81,10 @@ public sealed class FollowUpLetterPdfExporter : IFollowUpLetterPdfExporter
     private byte[]? ResolveLogoBytes(string? explicitLogoPath) =>
         _logoProvider.TryGetLogoBytes(explicitLogoPath);
 
-    private static string[] SplitBodyLines(string body) =>
-        body.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+    private static string[] SplitBodyLines(string? body) =>
+        string.IsNullOrEmpty(body)
+            ? []
+            : body.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
 
     private static void RenderHeader(IContainer container, FollowUpLetterDocumentModel document, byte[]? logoBytes)
     {

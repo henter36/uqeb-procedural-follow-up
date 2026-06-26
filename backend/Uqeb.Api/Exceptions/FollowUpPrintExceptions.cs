@@ -28,3 +28,14 @@ public sealed class FollowUpPrintNotFoundException : FollowUpPrintException
     public FollowUpPrintNotFoundException(string message)
         : base(message) { }
 }
+
+public sealed class FollowUpPrintLeaseExpiredException : FollowUpPrintException
+{
+    public int JobId { get; }
+
+    public FollowUpPrintLeaseExpiredException(int jobId)
+        : base($"انتهت صلاحية الـlease للمهمة {jobId}. تم الإيقاف لتجنب التعارض مع عامل آخر.")
+    {
+        JobId = jobId;
+    }
+}

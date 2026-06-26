@@ -52,35 +52,42 @@ public class FollowUpPrintMigrationSqlServerTests : FollowUpPrintSqlServerTestBa
 
         var services = new ServiceCollection();
         services.AddDbContext<AppDbContext>(o => o.UseSqlServer(connectionString));
-        await using var provider = services.BuildServiceProvider();
-
-        await using (var scope = provider.CreateAsyncScope())
+        ServiceProvider? provider = null;
+        try
         {
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            await db.Database.MigrateAsync();
-            Assert.True(await CheckConstraintExistsAsync(db, "LetterTemplates", "CK_LetterTemplates_DefaultRequiresActive"));
-        }
+            provider = services.BuildServiceProvider();
 
-        await using (var scope = provider.CreateAsyncScope())
+            await using (var scope = provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                await db.Database.MigrateAsync();
+                Assert.True(await CheckConstraintExistsAsync(db, "LetterTemplates", "CK_LetterTemplates_DefaultRequiresActive"));
+            }
+
+            await using (var scope = provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var migrator = db.Database.GetService<IMigrator>();
+                migrator.Migrate("20260625201021_AddFollowUpPrintJobPayloadsAndBatchSize");
+                Assert.False(await CheckConstraintExistsAsync(db, "LetterTemplates", "CK_LetterTemplates_DefaultRequiresActive"));
+                Assert.Equal(("nvarchar", -1, true), await GetColumnShapeAsync(db, "FollowUpPrintIdempotencyKeys", "RequestHash"));
+            }
+
+            await using (var scope = provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                await db.Database.MigrateAsync();
+                Assert.True(await IndexExistsAsync(db, "LetterTemplates", "IX_LetterTemplates_TemplateType"));
+                Assert.True(await CheckConstraintExistsAsync(db, "LetterTemplates", "CK_LetterTemplates_DefaultRequiresActive"));
+                Assert.Equal(("varchar", 64, false), await GetColumnShapeAsync(db, "FollowUpPrintIdempotencyKeys", "RequestHash"));
+            }
+        }
+        finally
         {
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var migrator = db.Database.GetService<IMigrator>();
-            migrator.Migrate("20260625201021_AddFollowUpPrintJobPayloadsAndBatchSize");
-            Assert.False(await CheckConstraintExistsAsync(db, "LetterTemplates", "CK_LetterTemplates_DefaultRequiresActive"));
-            Assert.Equal(("nvarchar", -1, true), await GetColumnShapeAsync(db, "FollowUpPrintIdempotencyKeys", "RequestHash"));
+            if (provider != null)
+                await provider.DisposeAsync();
+            await SqlServerTestDatabaseHelper.DropDatabaseAsync(ConnectionString!, databaseName);
         }
-
-        await using (var scope = provider.CreateAsyncScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            await db.Database.MigrateAsync();
-            Assert.True(await IndexExistsAsync(db, "LetterTemplates", "IX_LetterTemplates_TemplateType"));
-            Assert.True(await CheckConstraintExistsAsync(db, "LetterTemplates", "CK_LetterTemplates_DefaultRequiresActive"));
-            Assert.Equal(("varchar", 64, false), await GetColumnShapeAsync(db, "FollowUpPrintIdempotencyKeys", "RequestHash"));
-        }
-
-        await provider.DisposeAsync();
-        await SqlServerTestDatabaseHelper.DropDatabaseAsync(ConnectionString!, databaseName);
     }
 
     [Fact]
@@ -94,32 +101,126 @@ public class FollowUpPrintMigrationSqlServerTests : FollowUpPrintSqlServerTestBa
 
         var services = new ServiceCollection();
         services.AddDbContext<AppDbContext>(o => o.UseSqlServer(connectionString));
-        await using var provider = services.BuildServiceProvider();
-
-        await using (var scope = provider.CreateAsyncScope())
+        ServiceProvider? provider = null;
+        try
         {
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            await db.Database.MigrateAsync();
-            Assert.True(await TableExistsAsync(db, "FollowUpPrintJobPayloads"));
-        }
+            provider = services.BuildServiceProvider();
 
-        await using (var scope = provider.CreateAsyncScope())
+            await using (var scope = provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                await db.Database.MigrateAsync();
+                Assert.True(await TableExistsAsync(db, "FollowUpPrintJobPayloads"));
+            }
+
+            await using (var scope = provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var migrator = db.Database.GetService<IMigrator>();
+                migrator.Migrate("20260625194203_AddFollowUpPrintQueueAndLetterTemplatesV2");
+                Assert.False(await TableExistsAsync(db, "FollowUpPrintJobPayloads"));
+            }
+
+            await using (var scope = provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                await db.Database.MigrateAsync();
+                Assert.True(await TableExistsAsync(db, "FollowUpPrintJobPayloads"));
+            }
+        }
+        finally
         {
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var migrator = db.Database.GetService<IMigrator>();
-            migrator.Migrate("20260625194203_AddFollowUpPrintQueueAndLetterTemplatesV2");
-            Assert.False(await TableExistsAsync(db, "FollowUpPrintJobPayloads"));
+            if (provider != null)
+                await provider.DisposeAsync();
+            await SqlServerTestDatabaseHelper.DropDatabaseAsync(ConnectionString!, databaseName);
         }
+    }
 
-        await using (var scope = provider.CreateAsyncScope())
+    [Fact]
+    public async Task NewMigration_AddsScopeDepartmentIdColumnAndTargetShapeConstraints()
+    {
+        if (!ShouldRunSqlServerTest())
+            return;
+
+        var context = await CreateMigratedContextAsync();
+        try
         {
+            await using var scope = context.Provider.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            await db.Database.MigrateAsync();
-            Assert.True(await TableExistsAsync(db, "FollowUpPrintJobPayloads"));
-        }
 
-        await provider.DisposeAsync();
-        await SqlServerTestDatabaseHelper.DropDatabaseAsync(ConnectionString!, databaseName);
+            // ScopeDepartmentId column on FollowUpPrintJobs
+            var col = await GetColumnShapeAsync(db, "FollowUpPrintJobs", "ScopeDepartmentId");
+            Assert.Equal("int", col.DataType);
+
+            // Filtered unique indexes on FollowUpPrintJobPayloads
+            Assert.True(await IndexExistsAsync(db, "FollowUpPrintJobPayloads",
+                "IX_FollowUpPrintJobPayloads_JobId_Tx_Dept_Seq"));
+            Assert.True(await IndexExistsAsync(db, "FollowUpPrintJobPayloads",
+                "IX_FollowUpPrintJobPayloads_JobId_Tx_Entity_Seq"));
+
+            // XOR check constraints
+            Assert.True(await CheckConstraintExistsAsync(db, "FollowUpPrintJobPayloads",
+                "CK_FollowUpPrintJobPayloads_TargetShape"));
+            Assert.True(await CheckConstraintExistsAsync(db, "FollowUpLetterPrintRecords",
+                "CK_FollowUpLetterPrintRecords_TargetShape"));
+        }
+        finally
+        {
+            await CleanupAsync(context);
+        }
+    }
+
+    [Fact]
+    public async Task DownScopeDepartmentIdMigration_ThenReUp_RestoresConstraints()
+    {
+        if (!ShouldRunSqlServerTest())
+            return;
+
+        var databaseName = $"Uqeb_FollowUpPrint_ScopeConstraints_{Guid.NewGuid():N}";
+        var connectionString = await CreateDatabaseAsync(databaseName);
+
+        var services = new ServiceCollection();
+        services.AddDbContext<AppDbContext>(o => o.UseSqlServer(connectionString));
+        ServiceProvider? provider = null;
+        try
+        {
+            provider = services.BuildServiceProvider();
+
+            await using (var scope = provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                await db.Database.MigrateAsync();
+                Assert.True(await CheckConstraintExistsAsync(db, "FollowUpPrintJobPayloads",
+                    "CK_FollowUpPrintJobPayloads_TargetShape"));
+            }
+
+            // Roll back the new migration
+            await using (var scope = provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var migrator = db.Database.GetService<IMigrator>();
+                migrator.Migrate("20260626061519_EnforceFollowUpPrintInvariants");
+                Assert.False(await CheckConstraintExistsAsync(db, "FollowUpPrintJobPayloads",
+                    "CK_FollowUpPrintJobPayloads_TargetShape"));
+            }
+
+            // Re-apply
+            await using (var scope = provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                await db.Database.MigrateAsync();
+                Assert.True(await CheckConstraintExistsAsync(db, "FollowUpPrintJobPayloads",
+                    "CK_FollowUpPrintJobPayloads_TargetShape"));
+                Assert.True(await IndexExistsAsync(db, "FollowUpPrintJobPayloads",
+                    "IX_FollowUpPrintJobPayloads_JobId_Tx_Dept_Seq"));
+            }
+        }
+        finally
+        {
+            if (provider != null)
+                await provider.DisposeAsync();
+            await SqlServerTestDatabaseHelper.DropDatabaseAsync(ConnectionString!, databaseName);
+        }
     }
 
     private static async Task<(string DataType, int MaxLength, bool IsUnicode)> GetColumnShapeAsync(

@@ -6,6 +6,7 @@ public class FollowUpPrintJob
 {
     public int Id { get; set; }
     public int RequestedById { get; set; }
+    public int? ScopeDepartmentId { get; set; }
     public FollowUpPrintJobStatus Status { get; set; } = FollowUpPrintJobStatus.Queued;
     public string FilterSnapshotJson { get; set; } = "{}";
     public int TemplateId { get; set; }

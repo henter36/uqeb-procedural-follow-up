@@ -13,7 +13,8 @@ export default function FollowUpPrintPartPage() {
   const parsedPartNumber = Number(partNumber);
   const [html, setHtml] = useState('');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const [printError, setPrintError] = useState('');
   const [marked, setMarked] = useState(false);
   const [printing, setPrinting] = useState(false);
   const { refresh } = usePendingPrintSummary();
@@ -22,7 +23,7 @@ export default function FollowUpPrintPartPage() {
     if (!Number.isFinite(parsedJobId) || !Number.isFinite(parsedPartNumber)) {
       await Promise.resolve();
       if (active()) {
-        setError('معرف الجزء غير صالح');
+        setLoadError('معرف الجزء غير صالح');
         setLoading(false);
       }
       return;
@@ -30,7 +31,7 @@ export default function FollowUpPrintPartPage() {
     await Promise.resolve();
     if (active()) {
       setLoading(true);
-      setError('');
+      setLoadError('');
     }
     try {
       const res = await followUpPrintApi.getPartPrintView(parsedJobId, parsedPartNumber);
@@ -38,7 +39,7 @@ export default function FollowUpPrintPartPage() {
       setHtml(res.data);
     } catch (err: unknown) {
       if (!active()) return;
-      setError(getApiErrorMessage(err));
+      setLoadError(getApiErrorMessage(err));
     } finally {
       if (active()) setLoading(false);
     }
@@ -49,14 +50,13 @@ export default function FollowUpPrintPartPage() {
   const handlePrint = async () => {
     if (marked || printing) return;
     setPrinting(true);
-    setError('');
+    setPrintError('');
     try {
       await followUpPrintApi.markPartPrintRequested(parsedJobId, parsedPartNumber);
       setMarked(true);
       await refresh();
     } catch (err: unknown) {
-      setError(getApiErrorMessage(err));
-      throw err;
+      setPrintError(getApiErrorMessage(err));
     } finally {
       setPrinting(false);
     }
@@ -66,15 +66,15 @@ export default function FollowUpPrintPartPage() {
     return <LoadingInline label="جاري تحضير صفحة الطباعة..." />;
   }
 
-  if (error) {
-    return <ErrorState title="تعذر تحضير الطباعة" description={error} />;
+  if (loadError) {
+    return <ErrorState title="تعذر تحضير الطباعة" description={loadError} />;
   }
 
   return (
     <div dir="rtl">
       <div className="no-print mb-3">
         <Link to={`/follow-up-print/jobs/${parsedJobId}`} className="btn btn-outline">العودة للمهمة</Link>
-        {error && <Alert variant="error">{error}</Alert>}
+        {printError && <Alert variant="error">{printError}</Alert>}
       </div>
       <FollowUpLetterPrintView
         html={html}

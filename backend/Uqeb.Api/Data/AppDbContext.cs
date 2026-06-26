@@ -201,6 +201,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<FollowUpPrintJob>(e =>
         {
             e.HasIndex(j => new { j.Status, j.CreatedAt });
+            e.HasIndex(j => j.ScopeDepartmentId);
             e.Property(j => j.RowVersion).IsRowVersion();
             e.HasOne(j => j.RequestedBy).WithMany().HasForeignKey(j => j.RequestedById).OnDelete(DeleteBehavior.NoAction);
             e.HasOne(j => j.Template).WithMany().HasForeignKey(j => j.TemplateId).OnDelete(DeleteBehavior.NoAction);
@@ -209,7 +210,19 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<FollowUpPrintJobPayload>(e =>
         {
             e.HasIndex(p => new { p.JobId, p.PayloadOrdinal }).IsUnique();
-            e.HasIndex(p => new { p.JobId, p.TransactionId, p.TargetDepartmentId, p.TargetEntityId, p.FollowUpSequence }).IsUnique();
+            // Two separate filtered unique indexes — one per target shape.
+            // XOR check constraint guarantees exactly one is non-null, so these together cover all valid rows.
+            e.HasIndex(p => new { p.JobId, p.TransactionId, p.TargetDepartmentId, p.FollowUpSequence })
+                .IsUnique()
+                .HasFilter("[TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NULL")
+                .HasDatabaseName("IX_FollowUpPrintJobPayloads_JobId_Tx_Dept_Seq");
+            e.HasIndex(p => new { p.JobId, p.TransactionId, p.TargetEntityId, p.FollowUpSequence })
+                .IsUnique()
+                .HasFilter("[TargetEntityId] IS NOT NULL AND [TargetDepartmentId] IS NULL")
+                .HasDatabaseName("IX_FollowUpPrintJobPayloads_JobId_Tx_Entity_Seq");
+            e.ToTable(t => t.HasCheckConstraint(
+                "CK_FollowUpPrintJobPayloads_TargetShape",
+                "([TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NULL) OR ([TargetEntityId] IS NOT NULL AND [TargetDepartmentId] IS NULL)"));
             e.Property(p => p.RowVersion).IsRowVersion();
             e.HasOne(p => p.Job).WithMany(j => j.Payloads).HasForeignKey(p => p.JobId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(p => p.Part).WithMany(p => p.Payloads).HasForeignKey(p => p.PartId).OnDelete(DeleteBehavior.NoAction);
@@ -225,7 +238,19 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<FollowUpLetterPrintRecord>(e =>
         {
             e.HasIndex(r => new { r.TransactionId, r.PrintRequestedAt });
-            e.HasIndex(r => new { r.BatchJobPartId, r.TransactionId, r.TargetDepartmentId, r.TargetEntityId, r.FollowUpSequence }).IsUnique();
+            // Two separate filtered unique indexes per target shape for batch records.
+            // Direct print records (BatchJobPartId IS NULL) are protected by idempotency keys.
+            e.HasIndex(r => new { r.BatchJobPartId, r.TransactionId, r.TargetDepartmentId, r.FollowUpSequence })
+                .IsUnique()
+                .HasFilter("[BatchJobPartId] IS NOT NULL AND [TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NULL")
+                .HasDatabaseName("IX_FollowUpLetterPrintRecords_Part_Tx_Dept_Seq");
+            e.HasIndex(r => new { r.BatchJobPartId, r.TransactionId, r.TargetEntityId, r.FollowUpSequence })
+                .IsUnique()
+                .HasFilter("[BatchJobPartId] IS NOT NULL AND [TargetEntityId] IS NOT NULL AND [TargetDepartmentId] IS NULL")
+                .HasDatabaseName("IX_FollowUpLetterPrintRecords_Part_Tx_Entity_Seq");
+            e.ToTable(t => t.HasCheckConstraint(
+                "CK_FollowUpLetterPrintRecords_TargetShape",
+                "([TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NULL) OR ([TargetEntityId] IS NOT NULL AND [TargetDepartmentId] IS NULL)"));
             e.HasIndex(r => r.RegisteredFollowUpId).HasFilter("[RegisteredFollowUpId] IS NULL");
             e.Property(r => r.RowVersion).IsRowVersion();
             e.HasOne(r => r.Transaction).WithMany().HasForeignKey(r => r.TransactionId).OnDelete(DeleteBehavior.Cascade);

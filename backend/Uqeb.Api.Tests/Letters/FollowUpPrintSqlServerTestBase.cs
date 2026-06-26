@@ -24,20 +24,32 @@ public abstract class FollowUpPrintSqlServerTestBase
     protected static bool IsRequired =>
         string.Equals(Environment.GetEnvironmentVariable(RequireEnvVar), "1", StringComparison.Ordinal);
 
+    private static bool? _sqlServerAvailable;
+    private static readonly object _sqlServerAvailableLock = new();
+
     protected static bool IsSqlServerAvailable()
     {
         if (string.IsNullOrWhiteSpace(ConnectionString))
             return false;
 
-        try
+        lock (_sqlServerAvailableLock)
         {
-            using var connection = new SqlConnection(ConnectionString);
-            connection.Open();
-            return true;
-        }
-        catch
-        {
-            return false;
+            if (_sqlServerAvailable.HasValue)
+                return _sqlServerAvailable.Value;
+
+            try
+            {
+                var builder = new SqlConnectionStringBuilder(ConnectionString) { ConnectTimeout = 4 };
+                using var connection = new SqlConnection(builder.ConnectionString);
+                connection.Open();
+                _sqlServerAvailable = true;
+            }
+            catch
+            {
+                _sqlServerAvailable = false;
+            }
+
+            return _sqlServerAvailable.Value;
         }
     }
 
@@ -57,29 +69,40 @@ public abstract class FollowUpPrintSqlServerTestBase
         databaseName ??= $"Uqeb_FollowUpPrint_{Guid.NewGuid():N}";
         var testConnectionString = await CreateDatabaseAsync(databaseName);
 
-        var services = new ServiceCollection();
-        services.AddLogging(b => b.SetMinimumLevel(LogLevel.Warning));
-        services.AddDbContext<AppDbContext>(o => o.UseSqlServer(testConnectionString));
-        services.Configure<FollowUpLettersOptions>(o =>
+        ServiceProvider? provider = null;
+        try
         {
-            o.DefaultBatchPrintSize = 25;
-            o.AbsoluteMaxBatchPrintSize = 100;
-            o.JobLeaseSeconds = 30;
-            o.JobRetryCount = 3;
-            o.MaxConcurrentPrintJobs = 10;
-            o.MaxConcurrentJobsPerUser = 3;
-            o.MaxOutstandingUnprintedJobs = 5;
-        });
-        services.AddScoped<IAuditService, AuditService>();
-        services.AddScoped<IUserNotificationService, NoOpFollowUpPrintNotificationService>();
-        services.AddScoped<FollowUpPrintJobProcessorHostedService>();
+            var services = new ServiceCollection();
+            services.AddLogging(b => b.SetMinimumLevel(LogLevel.Warning));
+            services.AddDbContext<AppDbContext>(o => o.UseSqlServer(testConnectionString));
+            services.Configure<FollowUpLettersOptions>(o =>
+            {
+                o.DefaultBatchPrintSize = 25;
+                o.AbsoluteMaxBatchPrintSize = 100;
+                o.JobLeaseSeconds = 30;
+                o.JobRetryCount = 3;
+                o.MaxConcurrentPrintJobs = 10;
+                o.MaxConcurrentJobsPerUser = 3;
+                o.MaxOutstandingUnprintedJobs = 5;
+            });
+            services.AddScoped<IAuditService, AuditService>();
+            services.AddScoped<IUserNotificationService, NoOpFollowUpPrintNotificationService>();
+            services.AddScoped<FollowUpPrintJobProcessorHostedService>();
 
-        var provider = services.BuildServiceProvider();
-        await using var scope = provider.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await db.Database.MigrateAsync();
+            provider = services.BuildServiceProvider();
+            await using var scope = provider.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Database.MigrateAsync();
 
-        return new FollowUpPrintSqlServerContext(provider, testConnectionString, databaseName);
+            return new FollowUpPrintSqlServerContext(provider, testConnectionString, databaseName);
+        }
+        catch
+        {
+            if (provider != null)
+                await provider.DisposeAsync();
+            await SqlServerTestDatabaseHelper.DropDatabaseAsync(ConnectionString!, databaseName);
+            throw;
+        }
     }
 
     protected static async Task<string> CreateDatabaseAsync(string databaseName)

@@ -114,12 +114,12 @@ public sealed class OrganizationBrandLogoProvider : IOrganizationBrandLogoProvid
 
         var cacheKey = new LogoCacheKey(fullPath, fileInfo.LastWriteTimeUtc, fileInfo.Length);
         if (_cache.TryGetValue(cacheKey, out var cached))
-            return cached;
+            return (byte[])cached.Clone();
 
         try
         {
             var bytes = File.ReadAllBytes(fullPath);
-            _cache[cacheKey] = bytes;
+            _cache[cacheKey] = (byte[])bytes.Clone();
             return bytes;
         }
         catch (Exception ex)

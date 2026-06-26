@@ -112,7 +112,7 @@ public class LetterTemplateAdminServiceTests
                 IsActive = false,
             }, 1));
 
-        Assert.Contains("نشط", ex.Message);
+        Assert.Contains("نشطًا", ex.Message);
     }
 
     [Fact]
@@ -167,7 +167,7 @@ public class LetterTemplateAdminServiceTests
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.DeleteAsync(currentDefault.Id, inactiveReplacement.Id, actorUserId: 1));
 
-        Assert.Contains("نشط", ex.Message);
+        Assert.Contains("نشطًا", ex.Message);
     }
 
     [Fact]

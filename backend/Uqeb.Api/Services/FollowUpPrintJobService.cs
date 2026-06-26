@@ -534,6 +534,7 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         var job = new FollowUpPrintJob
         {
             RequestedById = currentUser.UserId,
+            ScopeDepartmentId = request.Filter.DepartmentId,
             Status = FollowUpPrintJobStatus.Queued,
             FilterSnapshotJson = JsonSerializer.Serialize(snapshot, JsonOptions),
             TemplateId = template.Id,

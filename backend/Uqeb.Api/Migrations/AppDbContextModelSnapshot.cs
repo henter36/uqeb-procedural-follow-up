@@ -470,11 +470,20 @@ namespace Uqeb.Api.Migrations
 
                     b.HasIndex("TransactionId", "PrintRequestedAt");
 
-                    b.HasIndex("BatchJobPartId", "TransactionId", "TargetDepartmentId", "TargetEntityId", "FollowUpSequence")
+                    b.HasIndex("BatchJobPartId", "TransactionId", "TargetDepartmentId", "FollowUpSequence")
                         .IsUnique()
-                        .HasFilter("[BatchJobPartId] IS NOT NULL AND [TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NOT NULL");
+                        .HasDatabaseName("IX_FollowUpLetterPrintRecords_Part_Tx_Dept_Seq")
+                        .HasFilter("[BatchJobPartId] IS NOT NULL AND [TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NULL");
 
-                    b.ToTable("FollowUpLetterPrintRecords");
+                    b.HasIndex("BatchJobPartId", "TransactionId", "TargetEntityId", "FollowUpSequence")
+                        .IsUnique()
+                        .HasDatabaseName("IX_FollowUpLetterPrintRecords_Part_Tx_Entity_Seq")
+                        .HasFilter("[BatchJobPartId] IS NOT NULL AND [TargetEntityId] IS NOT NULL AND [TargetDepartmentId] IS NULL");
+
+                    b.ToTable("FollowUpLetterPrintRecords", t =>
+                    {
+                        t.HasCheckConstraint("CK_FollowUpLetterPrintRecords_TargetShape", "([TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NULL) OR ([TargetEntityId] IS NOT NULL AND [TargetDepartmentId] IS NULL)");
+                    });
                 });
 
             modelBuilder.Entity("Uqeb.Api.Models.Entities.FollowUpPrintIdempotencyKey", b =>
@@ -605,6 +614,9 @@ namespace Uqeb.Api.Migrations
                     b.Property<int>("SkippedLetters")
                         .HasColumnType("int");
 
+                    b.Property<int?>("ScopeDepartmentId")
+                        .HasColumnType("int");
+
                     b.Property<DateTime?>("StartedAt")
                         .HasColumnType("datetime2");
 
@@ -626,6 +638,8 @@ namespace Uqeb.Api.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("RequestedById");
+
+                    b.HasIndex("ScopeDepartmentId");
 
                     b.HasIndex("TemplateId");
 
@@ -746,11 +760,20 @@ namespace Uqeb.Api.Migrations
                     b.HasIndex("JobId", "PayloadOrdinal")
                         .IsUnique();
 
-                    b.HasIndex("JobId", "TransactionId", "TargetDepartmentId", "TargetEntityId", "FollowUpSequence")
+                    b.HasIndex("JobId", "TransactionId", "TargetDepartmentId", "FollowUpSequence")
                         .IsUnique()
-                        .HasFilter("[TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NOT NULL");
+                        .HasDatabaseName("IX_FollowUpPrintJobPayloads_JobId_Tx_Dept_Seq")
+                        .HasFilter("[TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NULL");
 
-                    b.ToTable("FollowUpPrintJobPayloads");
+                    b.HasIndex("JobId", "TransactionId", "TargetEntityId", "FollowUpSequence")
+                        .IsUnique()
+                        .HasDatabaseName("IX_FollowUpPrintJobPayloads_JobId_Tx_Entity_Seq")
+                        .HasFilter("[TargetEntityId] IS NOT NULL AND [TargetDepartmentId] IS NULL");
+
+                    b.ToTable("FollowUpPrintJobPayloads", t =>
+                    {
+                        t.HasCheckConstraint("CK_FollowUpPrintJobPayloads_TargetShape", "([TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NULL) OR ([TargetEntityId] IS NOT NULL AND [TargetDepartmentId] IS NULL)");
+                    });
                 });
 
             modelBuilder.Entity("Uqeb.Api.Models.Entities.FollowUpRecipient", b =>

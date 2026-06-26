@@ -46,9 +46,11 @@ export function PendingPrintSummaryProvider({ children }: { children: ReactNode 
     if (!canClose || !user) {
       requestSeq.current += 1;
       Promise.resolve().then(() => {
-        setSummary(null);
-        setError('');
-        setLoading(false);
+        if (mounted) {
+          setSummary(null);
+          setError('');
+          setLoading(false);
+        }
       });
       return () => {
         mounted = false;
