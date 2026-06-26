@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Uqeb.Api.Data;
 
@@ -11,9 +12,11 @@ using Uqeb.Api.Data;
 namespace Uqeb.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260626112704_AddUniqueRegisteredFollowUpPrintRecordLink")]
+    partial class AddUniqueRegisteredFollowUpPrintRecordLink
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -483,9 +486,9 @@ namespace Uqeb.Api.Migrations
                         .HasFilter("[BatchJobPartId] IS NOT NULL AND [TargetEntityId] IS NOT NULL AND [TargetDepartmentId] IS NULL");
 
                     b.ToTable("FollowUpLetterPrintRecords", t =>
-                    {
-                        t.HasCheckConstraint("CK_FollowUpLetterPrintRecords_TargetShape", "NOT ([TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NOT NULL)");
-                    });
+                        {
+                            t.HasCheckConstraint("CK_FollowUpLetterPrintRecords_TargetShape", "NOT ([TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NOT NULL)");
+                        });
                 });
 
             modelBuilder.Entity("Uqeb.Api.Models.Entities.FollowUpPrintIdempotencyKey", b =>
@@ -613,10 +616,10 @@ namespace Uqeb.Api.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("rowversion");
 
-                    b.Property<int>("SkippedLetters")
+                    b.Property<int?>("ScopeDepartmentId")
                         .HasColumnType("int");
 
-                    b.Property<int?>("ScopeDepartmentId")
+                    b.Property<int>("SkippedLetters")
                         .HasColumnType("int");
 
                     b.Property<DateTime?>("StartedAt")
@@ -773,9 +776,9 @@ namespace Uqeb.Api.Migrations
                         .HasFilter("[TargetEntityId] IS NOT NULL AND [TargetDepartmentId] IS NULL");
 
                     b.ToTable("FollowUpPrintJobPayloads", t =>
-                    {
-                        t.HasCheckConstraint("CK_FollowUpPrintJobPayloads_TargetShape", "([TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NULL) OR ([TargetEntityId] IS NOT NULL AND [TargetDepartmentId] IS NULL)");
-                    });
+                        {
+                            t.HasCheckConstraint("CK_FollowUpPrintJobPayloads_TargetShape", "([TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NULL) OR ([TargetEntityId] IS NOT NULL AND [TargetDepartmentId] IS NULL)");
+                        });
                 });
 
             modelBuilder.Entity("Uqeb.Api.Models.Entities.FollowUpRecipient", b =>

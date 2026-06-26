@@ -17,7 +17,7 @@ public class FollowUpPrintJobServiceTests
 
     internal static FollowUpPrintJobService CreateService(
         AppDbContext db,
-        FollowUpPrintEligibilityService eligibility,
+        IFollowUpPrintEligibilityService eligibility,
         StubRenderService renderService,
         IFollowUpPrintAccessService? access = null,
         IAuditService? audit = null,
@@ -174,6 +174,78 @@ public class FollowUpPrintJobServiceTests
 
         Assert.True(job.Id > 0);
         Assert.Equal(FollowUpPrintJobStatus.Queued, job.Status);
+    }
+
+    [Fact]
+    public async Task CreateJobAsync_SavesCountsFromSingleEligibleCandidateQuery()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(CreateJobAsync_SavesCountsFromSingleEligibleCandidateQuery));
+        await LettersTestInfrastructure.SeedUserAsync(db);
+        await LettersTestInfrastructure.SeedTemplateAsync(db);
+
+        var eligibility = new CountingEligibilityService([
+            new EligibleCandidateWithTargets
+            {
+                TransactionId = 1,
+                FollowUpCount = 0,
+                Targets =
+                [
+                    new FollowUpLetterTargetEntity("إدارة 1", 1, null),
+                    new FollowUpLetterTargetEntity("إدارة 2", 2, null),
+                ],
+            },
+            new EligibleCandidateWithTargets
+            {
+                TransactionId = 2,
+                FollowUpCount = 1,
+                Targets = [new FollowUpLetterTargetEntity("إدارة 3", 3, null)],
+            },
+        ]);
+        var service = CreateService(db, eligibility, new StubRenderService());
+
+        var job = await service.CreateJobAsync(
+            new CreateFollowUpPrintJobRequest
+            {
+                Filter = new FollowUpPrintFilterRequest
+                {
+                    DaysSinceLastFollowUp = 10,
+                    ExcludeRecentlyPrinted = false,
+                },
+            },
+            new TestCurrentUser(1));
+
+        var stored = await db.FollowUpPrintJobs.SingleAsync(j => j.Id == job.Id);
+        Assert.Equal(2, stored.TotalTransactions);
+        Assert.Equal(3, stored.TotalLetters);
+        Assert.Equal(1, eligibility.BuildEligibleCandidatesCalls);
+        Assert.Equal(0, eligibility.PreviewCalls);
+    }
+
+    [Fact]
+    public async Task CreateJobAsync_DoesNotCreateJob_WhenNoEligibleCandidates()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(CreateJobAsync_DoesNotCreateJob_WhenNoEligibleCandidates));
+        await LettersTestInfrastructure.SeedUserAsync(db);
+        await LettersTestInfrastructure.SeedTemplateAsync(db);
+
+        var eligibility = new CountingEligibilityService([]);
+        var service = CreateService(db, eligibility, new StubRenderService());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateJobAsync(
+                new CreateFollowUpPrintJobRequest
+                {
+                    Filter = new FollowUpPrintFilterRequest
+                    {
+                        DaysSinceLastFollowUp = 10,
+                        ExcludeRecentlyPrinted = false,
+                    },
+                },
+                new TestCurrentUser(1)));
+
+        Assert.Equal(0, await db.FollowUpPrintJobs.CountAsync());
+        Assert.Equal(1, eligibility.BuildEligibleCandidatesCalls);
+        Assert.Equal(0, eligibility.PreviewCalls);
     }
 
     [Fact]
@@ -368,6 +440,44 @@ public class FollowUpPrintJobServiceTests
         {
             BuildDocumentCalls++;
             return base.BuildDocumentAsync(request);
+        }
+    }
+
+    private sealed class CountingEligibilityService(IReadOnlyList<EligibleCandidateWithTargets> candidates)
+        : IFollowUpPrintEligibilityService
+    {
+        public int PreviewCalls { get; private set; }
+        public int BuildEligibleCandidatesCalls { get; private set; }
+
+        public Task<PagedEligibleTransactionsDto> GetEligibleAsync(
+            FollowUpPrintFilterRequest filter,
+            ICurrentUserService currentUser,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new PagedEligibleTransactionsDto());
+
+        public Task<FollowUpPrintEligibilityPreviewDto> PreviewAsync(
+            FollowUpPrintFilterRequest filter,
+            int batchSize,
+            ICurrentUserService currentUser,
+            CancellationToken cancellationToken = default)
+        {
+            PreviewCalls++;
+            return Task.FromResult(new FollowUpPrintEligibilityPreviewDto());
+        }
+
+        public Task<IReadOnlyList<FollowUpPrintJobLetterPayload>> BuildLetterPayloadsAsync(
+            FollowUpPrintFilterSnapshot filter,
+            int? maxCount = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<FollowUpPrintJobLetterPayload>>([]);
+
+        public Task<IReadOnlyList<EligibleCandidateWithTargets>> BuildEligibleCandidatesWithTargetsAsync(
+            FollowUpPrintFilterRequest filter,
+            ICurrentUserService currentUser,
+            CancellationToken cancellationToken = default)
+        {
+            BuildEligibleCandidatesCalls++;
+            return Task.FromResult(candidates);
         }
     }
 

@@ -84,13 +84,26 @@ public sealed class OrganizationBrandLogoProvider : IOrganizationBrandLogoProvid
         }
 
         var combined = Path.GetFullPath(Path.Combine(_brandRoot, normalized.Replace('/', Path.DirectorySeparatorChar)));
-        if (!combined.StartsWith(_brandRoot, StringComparison.OrdinalIgnoreCase))
+        if (!IsInsideBrandRoot(combined))
         {
             _logger.LogWarning("تم تجاهل مسار الشعار لمحاولة تجاوز المجلد المسموح: {LogoPath}", candidate);
             return null;
         }
 
         return combined;
+    }
+
+    private bool IsInsideBrandRoot(string candidate)
+    {
+        var relative = Path.GetRelativePath(_brandRoot, candidate);
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        return !Path.IsPathRooted(relative)
+            && !string.Equals(relative, "..", comparison)
+            && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", comparison)
+            && !relative.StartsWith($"..{Path.AltDirectorySeparatorChar}", comparison);
     }
 
     private byte[]? TryLoadCached(string fullPath)

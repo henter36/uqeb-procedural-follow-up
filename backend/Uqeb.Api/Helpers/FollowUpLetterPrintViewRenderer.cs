@@ -7,6 +7,10 @@ namespace Uqeb.Api.Helpers;
 
 public static class FollowUpLetterPrintViewRenderer
 {
+    // Overload kept for call sites that provide documents without options (defaults to safe limits).
+    public static string Render(IReadOnlyList<FollowUpLetterDocumentModel> documents, string? title = null)
+        => Render(documents, new FollowUpLettersOptions(), title);
+
     public static string Render(
         IReadOnlyList<FollowUpLetterDocumentModel> documents,
         FollowUpLettersOptions options,
@@ -35,7 +39,7 @@ public static class FollowUpLetterPrintViewRenderer
     {
         var logo = $"<img class=\"logo\" src=\"{OrganizationBrandingPaths.LogoApiUrl}\" alt=\"\" />";
 
-        var rawBody = document.Body;
+        var rawBody = document.Body ?? string.Empty;
         if (rawBody.Length > maxBodyChars)
             throw new ArgumentException(
                 $"نص الخطاب يتجاوز الحد الأقصى ({maxBodyChars} حرف).");
@@ -79,10 +83,6 @@ public static class FollowUpLetterPrintViewRenderer
             </article>
             """;
     }
-
-    // Overload kept for call sites that provide documents without options (defaults to safe limits).
-    public static string Render(IReadOnlyList<FollowUpLetterDocumentModel> documents, string? title = null)
-        => Render(documents, new FollowUpLettersOptions(), title);
 
     private static string BuildShell(string title, string content)
     {

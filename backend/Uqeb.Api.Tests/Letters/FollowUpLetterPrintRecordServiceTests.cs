@@ -227,6 +227,29 @@ public class FollowUpLetterPrintRecordServiceTests
     }
 
     [Fact]
+    public async Task LinkToFollowUpAsync_RejectsSameFollowUpOnDifferentRecord()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(LinkToFollowUpAsync_RejectsSameFollowUpOnDifferentRecord));
+        var service = CreateService(db, Today);
+        var (transaction, followUp) = await SeedTransactionWithFollowUpAsync(db);
+        db.FollowUpLetterPrintRecords.AddRange(
+            CreatePendingRecord(transaction.Id, Today.AddDays(-2)),
+            CreatePendingRecord(transaction.Id, Today.AddDays(-1)));
+        await db.SaveChangesAsync();
+
+        var recordIds = await db.FollowUpLetterPrintRecords
+            .OrderBy(r => r.Id)
+            .Select(r => r.Id)
+            .ToListAsync();
+
+        var linked = await service.LinkToFollowUpAsync(recordIds[0], followUp.Id, new TestCurrentUser(1));
+
+        Assert.Equal(followUp.Id, linked!.RegisteredFollowUpId);
+        await Assert.ThrowsAsync<FollowUpPrintConflictException>(() =>
+            service.LinkToFollowUpAsync(recordIds[1], followUp.Id, new TestCurrentUser(1)));
+    }
+
+    [Fact]
     public async Task RegisterDirectPrintRequestAsync_UsesIdempotencyAndRejectsConflictingPayload()
     {
         await using var db = LettersTestInfrastructure.CreateDb(nameof(RegisterDirectPrintRequestAsync_UsesIdempotencyAndRejectsConflictingPayload));

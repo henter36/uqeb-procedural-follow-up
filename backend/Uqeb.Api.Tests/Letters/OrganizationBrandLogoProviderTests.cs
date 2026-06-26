@@ -73,6 +73,18 @@ public class OrganizationBrandLogoProviderTests : IDisposable
     }
 
     [Fact]
+    public void TryGetLogoBytes_RejectsSiblingPrefixDirectory()
+    {
+        var sibling = Path.Combine(_root, "Assets", "BrandNew");
+        Directory.CreateDirectory(sibling);
+        File.WriteAllBytes(Path.Combine(sibling, "file.png"), [1, 2, 3]);
+
+        var bytes = _provider.TryGetLogoBytes("../BrandNew/file.png");
+
+        Assert.Null(bytes);
+    }
+
+    [Fact]
     public void TryGetLogoBytes_RejectsAbsolutePaths()
     {
         var outside = Path.Combine(_brandDir, "safe.png");

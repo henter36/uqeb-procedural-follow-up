@@ -15,7 +15,7 @@ describe('sanitizePrintHtml', () => {
           <article class="letter">
             <img class="logo" src="/api/branding/organization-logo" alt="" />
             <h1>عنوان</h1>
-            <p>نص</p>
+            <p style="color:red">نص</p>
             <script>alert(1)</script>
             <iframe srcdoc="<script>alert(1)</script>"></iframe>
           </article>
@@ -28,10 +28,11 @@ describe('sanitizePrintHtml', () => {
     expect(result).not.toContain('<head');
     expect(result).not.toContain('<body');
     // Content inside body is preserved.
-    expect(result).toContain('<style>.letter { color: #111; }</style>');
     expect(result).toContain('/api/branding/organization-logo');
     expect(result).toContain('<p>نص</p>');
     // Executable markup is removed.
+    expect(result).not.toContain('<style');
+    expect(result).not.toContain('color:red');
     expect(result).not.toContain('<script');
     expect(result).not.toContain('<iframe');
     expect(result).not.toContain('onload');
@@ -43,5 +44,13 @@ describe('sanitizePrintHtml', () => {
 
     expect(result).not.toContain('javascript:');
     expect(result).toContain('<p>safe</p>');
+  });
+
+  it('removes inline event handlers while preserving allowed image attributes', () => {
+    const result = sanitizePrintHtml('<article><img src="/logo.png" alt="شعار" onerror="alert(1)" /></article>');
+
+    expect(result).toContain('src="/logo.png"');
+    expect(result).toContain('alt="شعار"');
+    expect(result).not.toContain('onerror');
   });
 });

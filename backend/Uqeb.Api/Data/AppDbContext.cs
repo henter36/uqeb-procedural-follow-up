@@ -251,7 +251,10 @@ public class AppDbContext : DbContext
             e.ToTable(t => t.HasCheckConstraint(
                 "CK_FollowUpLetterPrintRecords_TargetShape",
                 "NOT ([TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NOT NULL)"));
-            e.HasIndex(r => r.RegisteredFollowUpId).HasFilter("[RegisteredFollowUpId] IS NULL");
+            e.HasIndex(r => r.RegisteredFollowUpId)
+                .IsUnique()
+                .HasFilter("[RegisteredFollowUpId] IS NOT NULL")
+                .HasDatabaseName("IX_FollowUpLetterPrintRecords_RegisteredFollowUpId_Linked");
             e.Property(r => r.RowVersion).IsRowVersion();
             e.HasOne(r => r.Transaction).WithMany().HasForeignKey(r => r.TransactionId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(r => r.TargetDepartment).WithMany().HasForeignKey(r => r.TargetDepartmentId).OnDelete(DeleteBehavior.NoAction);

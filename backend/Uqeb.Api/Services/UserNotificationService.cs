@@ -49,7 +49,7 @@ public sealed class UserNotificationService : IUserNotificationService
             UserId = userId,
             Type = type.Trim(),
             Title = title.Trim(),
-            Body = body.Trim(),
+            Body = body?.Trim() ?? string.Empty,
             Link = string.IsNullOrWhiteSpace(link) ? null : link.Trim(),
             IsRead = false,
             CreatedAt = DateTime.UtcNow,

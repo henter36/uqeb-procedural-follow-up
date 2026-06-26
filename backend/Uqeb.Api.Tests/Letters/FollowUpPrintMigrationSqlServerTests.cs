@@ -165,6 +165,11 @@ public class FollowUpPrintMigrationSqlServerTests
                 "CK_FollowUpPrintJobPayloads_TargetShape"));
             Assert.True(await CheckConstraintExistsAsync(db, "FollowUpLetterPrintRecords",
                 "CK_FollowUpLetterPrintRecords_TargetShape"));
+            Assert.True(await FilteredUniqueIndexExistsAsync(
+                db,
+                "FollowUpLetterPrintRecords",
+                "IX_FollowUpLetterPrintRecords_RegisteredFollowUpId_Linked",
+                "[RegisteredFollowUpId] IS NOT NULL"));
         }
         finally
         {
@@ -283,5 +288,42 @@ public class FollowUpPrintMigrationSqlServerTests
         command.Parameters.Add(constraintParameter);
 
         return Convert.ToInt32(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture) == 1;
+    }
+
+    private static async Task<bool> FilteredUniqueIndexExistsAsync(
+        AppDbContext db,
+        string tableName,
+        string indexName,
+        string expectedFilter)
+    {
+        var connection = db.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open)
+            await connection.OpenAsync();
+
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT i.is_unique, i.has_filter, i.filter_definition
+            FROM sys.indexes i
+            INNER JOIN sys.tables t ON i.object_id = t.object_id
+            WHERE t.name = @tableName AND i.name = @indexName
+            """;
+        var tableParameter = command.CreateParameter();
+        tableParameter.ParameterName = "@tableName";
+        tableParameter.Value = tableName;
+        command.Parameters.Add(tableParameter);
+
+        var indexParameter = command.CreateParameter();
+        indexParameter.ParameterName = "@indexName";
+        indexParameter.Value = indexName;
+        command.Parameters.Add(indexParameter);
+
+        await using var reader = await command.ExecuteReaderAsync();
+        if (!await reader.ReadAsync())
+            return false;
+
+        return reader.GetBoolean(0)
+            && reader.GetBoolean(1)
+            && string.Equals(reader.GetString(2), expectedFilter, StringComparison.OrdinalIgnoreCase);
     }
 }

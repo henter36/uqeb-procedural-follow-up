@@ -146,4 +146,25 @@ public class FollowUpLetterDocumentBuilderTests
         Assert.Contains(OrganizationBrandingPaths.LogoApiUrl, html);
         Assert.Contains("object-fit: contain", html);
     }
+
+    [Fact]
+    public void RenderPrintView_AllowsNullBody()
+    {
+        var html = FollowUpLetterPrintViewRenderer.Render([
+            new FollowUpLetterDocumentModel
+            {
+                Title = "خطاب",
+                Body = null!,
+                Recipient = "جهة",
+                Subject = "موضوع",
+                LetterNumber = "1",
+                GregorianDate = "26/06/2026",
+                HijriDate = "هجري",
+                FollowUpSequenceText = "التعقيب الأول",
+            },
+        ]);
+
+        Assert.Contains("خطاب", html);
+        Assert.Contains("موضوع", html);
+    }
 }

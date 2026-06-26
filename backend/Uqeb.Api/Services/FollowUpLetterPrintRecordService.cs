@@ -100,6 +100,15 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
         if (record.RegisteredFollowUpId.HasValue)
             throw new FollowUpPrintConflictException("سجل الطباعة مرتبط بتعقيب آخر.");
 
+        var alreadyLinked = await _db.FollowUpLetterPrintRecords
+            .AsNoTracking()
+            .AnyAsync(
+                r => r.RegisteredFollowUpId == followUpId && r.Id != recordId,
+                cancellationToken);
+
+        if (alreadyLinked)
+            throw new FollowUpPrintConflictException("التعقيب مرتبط بسجل طباعة آخر بالفعل.");
+
         var followUp = await _db.FollowUps.AsNoTracking()
             .FirstOrDefaultAsync(f => f.Id == followUpId && f.TransactionId == record.TransactionId, cancellationToken);
 
@@ -108,7 +117,15 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
 
         record.RegisteredFollowUpId = followUpId;
         record.RegisteredAt = DateTime.UtcNow;
-        await _db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (SqlExceptionHelper.IsDuplicateKey(ex, "IX_FollowUpLetterPrintRecords_RegisteredFollowUpId_Linked"))
+        {
+            throw new FollowUpPrintConflictException("التعقيب مرتبط بسجل طباعة آخر بالفعل.");
+        }
+
         await FollowUpPrintAuditWriter.LogLinkedToFollowUpAsync(_audit, currentUser.UserId, recordId, record.TransactionId, followUpId);
         return await MapRecordAsync(recordId, cancellationToken);
     }
