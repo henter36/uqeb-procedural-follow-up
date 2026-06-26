@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { sanitizePrintHtml } from '../../utils/sanitizePrintHtml';
 
 type FollowUpLetterPrintViewProps = Readonly<{
   html: string;
@@ -19,6 +20,7 @@ export default function FollowUpLetterPrintView({
 }: FollowUpLetterPrintViewProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const printedRef = useRef(false);
+  const sanitizedHtml = useMemo(() => sanitizePrintHtml(html), [html]);
 
   const handlePrint = useCallback(async () => {
     if (printDisabled) return;
@@ -29,7 +31,7 @@ export default function FollowUpLetterPrintView({
 
   useEffect(() => {
     printedRef.current = false;
-  }, [html]);
+  }, [sanitizedHtml]);
 
   const handleFrameLoad = useCallback(() => {
     if (!autoPrint || printedRef.current) return;
@@ -51,7 +53,7 @@ export default function FollowUpLetterPrintView({
         ref={iframeRef}
         title={title}
         className="follow-up-print-frame"
-        srcDoc={html}
+        srcDoc={sanitizedHtml}
         sandbox="allow-same-origin allow-modals"
         onLoad={handleFrameLoad}
       />
