@@ -77,6 +77,9 @@ public sealed class LetterTemplateAdminService : ILetterTemplateAdminService
     {
         ValidateTemplateContent(request.Content);
         var name = RequireName(request.Name);
+        if (request.IsDefault && !request.IsActive)
+            throw new InvalidOperationException("القالب الافتراضي يجب أن يكون نشطًا.");
+
         var code = await GenerateUniqueCodeAsync(name, cancellationToken);
         var sortOrder = await _db.LetterTemplates
             .Where(t => t.TemplateType == request.TemplateType)
@@ -97,11 +100,22 @@ public sealed class LetterTemplateAdminService : ILetterTemplateAdminService
             CreatedAt = DateTime.UtcNow,
         };
 
-        if (template.IsDefault)
-            await ClearDefaultAsync(template.TemplateType, null, cancellationToken);
-
-        _db.LetterTemplates.Add(template);
-        await _db.SaveChangesAsync(cancellationToken);
+        if (_db.Database.IsRelational())
+        {
+            await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+            if (template.IsDefault)
+                await ClearDefaultAsync(template.TemplateType, null, cancellationToken);
+            _db.LetterTemplates.Add(template);
+            await _db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        else
+        {
+            if (template.IsDefault)
+                await ClearDefaultAsync(template.TemplateType, null, cancellationToken);
+            _db.LetterTemplates.Add(template);
+            await _db.SaveChangesAsync(cancellationToken);
+        }
         await FollowUpPrintAuditWriter.LogLetterTemplateCreatedAsync(_audit, actorUserId, template.Id, template.Code);
         return (await GetByIdAsync(template.Id, cancellationToken))!;
     }
@@ -116,6 +130,12 @@ public sealed class LetterTemplateAdminService : ILetterTemplateAdminService
         var template = await _db.LetterTemplates.FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
         if (template == null)
             return null;
+
+        if (template.IsDefault && !request.IsActive)
+            throw new InvalidOperationException("لا يمكن إلغاء تفعيل القالب الافتراضي.");
+
+        if (template.IsDefault && template.TemplateType != request.TemplateType)
+            throw new InvalidOperationException("لا يمكن تغيير نوع القالب الافتراضي مباشرة.");
 
         template.Name = RequireName(request.Name);
         template.Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
@@ -173,11 +193,24 @@ public sealed class LetterTemplateAdminService : ILetterTemplateAdminService
         if (!template.IsActive)
             throw new InvalidOperationException("لا يمكن تعيين قالب غير نشط كافتراضي.");
 
-        await ClearDefaultAsync(template.TemplateType, template.Id, cancellationToken);
-        template.IsDefault = true;
-        template.UpdatedById = actorUserId;
-        template.UpdatedAt = DateTime.UtcNow;
-        await _db.SaveChangesAsync(cancellationToken);
+        if (_db.Database.IsRelational())
+        {
+            await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+            await ClearDefaultAsync(template.TemplateType, template.Id, cancellationToken);
+            template.IsDefault = true;
+            template.UpdatedById = actorUserId;
+            template.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        else
+        {
+            await ClearDefaultAsync(template.TemplateType, template.Id, cancellationToken);
+            template.IsDefault = true;
+            template.UpdatedById = actorUserId;
+            template.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync(cancellationToken);
+        }
         await FollowUpPrintAuditWriter.LogLetterTemplateDefaultChangedAsync(_audit, actorUserId, id);
         return await GetByIdAsync(id, cancellationToken);
     }
@@ -242,6 +275,8 @@ public sealed class LetterTemplateAdminService : ILetterTemplateAdminService
 
             if (replacement.TemplateType != template.TemplateType)
                 throw new InvalidOperationException("يجب أن يكون قالب البديل من نفس نوع القالب.");
+            if (!replacement.IsActive)
+                throw new InvalidOperationException("يجب أن يكون قالب البديل نشطًا.");
 
             await ClearDefaultAsync(template.TemplateType, replacement.Id, cancellationToken);
             replacement.IsDefault = true;
@@ -365,6 +400,10 @@ public sealed class LetterTemplateAdminService : ILetterTemplateAdminService
 
         if (content.Length > _options.MaxTemplateContentLength)
             throw new InvalidOperationException($"محتوى القالب يتجاوز الحد الأقصى ({_options.MaxTemplateContentLength} حرف).");
+
+        var unknownVariables = FollowUpLetterVariableRegistry.FindUnknownVariables(content);
+        if (unknownVariables.Count > 0)
+            throw new InvalidOperationException($"متغيرات غير مدعومة في قالب الخطاب: {string.Join(", ", unknownVariables)}");
     }
 
     private static readonly System.Linq.Expressions.Expression<Func<LetterTemplate, LetterTemplateDto>> MapExpr = t => new LetterTemplateDto

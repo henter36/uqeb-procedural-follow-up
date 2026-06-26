@@ -78,12 +78,13 @@ public sealed class FollowUpLetterDocumentBuilder : IFollowUpLetterDocumentBuild
             .Where(t => t.DepartmentId.HasValue));
 
         var body = !string.IsNullOrWhiteSpace(request.BodyOverride)
-            ? request.BodyOverride.Trim()
+            ? request.BodyOverride
             : FollowUpLetterVariableReplacer.Render(
                 request.Template.Content,
                 FollowUpLetterVariableReplacer.BuildValues(new FollowUpLetterRenderContext
                 {
                     TransactionId = transaction.Id,
+                    TransactionNumber = transaction.InternalTrackingNumber,
                     IncomingNumber = transaction.IncomingNumber,
                     IncomingDateLocal = incomingLocal,
                     Subject = transaction.Subject,

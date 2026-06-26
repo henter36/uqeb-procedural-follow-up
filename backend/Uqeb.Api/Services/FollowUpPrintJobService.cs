@@ -61,6 +61,7 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
             request.BatchSize ?? _options.DefaultBatchPrintSize,
             1,
             _options.AbsoluteMaxBatchPrintSize);
+        request.IdempotencyKey = NormalizeIdempotencyKey(request.IdempotencyKey);
 
         var requestHash = FollowUpPrintRequestHash.Compute(request, batchSize);
         var existingJob = await TryResolveExistingIdempotentJobAsync(
@@ -471,7 +472,7 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         string requestHash,
         CancellationToken cancellationToken)
     {
-        var idempotencyKey = request.IdempotencyKey?.Trim();
+        var idempotencyKey = NormalizeIdempotencyKey(request.IdempotencyKey, required: false);
         if (string.IsNullOrWhiteSpace(idempotencyKey))
             return null;
 
@@ -479,7 +480,7 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
             .FirstOrDefaultAsync(
                 k => k.UserId == currentUser.UserId &&
                      k.Key == idempotencyKey &&
-                     k.Operation == "create-job",
+                     k.Operation == FollowUpPrintOperations.CreateJob,
                 cancellationToken);
 
         if (existingKey == null)
@@ -508,7 +509,11 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
     private async Task<LetterTemplate> ResolveActiveTemplateAsync(int? templateId, CancellationToken cancellationToken)
     {
         var template = templateId.HasValue
-            ? await _db.LetterTemplates.AsNoTracking().FirstOrDefaultAsync(t => t.Id == templateId.Value && t.IsActive, cancellationToken)
+            ? await _db.LetterTemplates.AsNoTracking().FirstOrDefaultAsync(
+                t => t.Id == templateId.Value &&
+                     t.TemplateType == LetterTemplateType.FollowUp &&
+                     t.IsActive,
+                cancellationToken)
             : await _renderService.GetOrCreateDefaultTemplateAsync(cancellationToken);
 
         if (template == null)
@@ -615,7 +620,7 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         int jobId,
         CancellationToken cancellationToken)
     {
-        var idempotencyKey = request.IdempotencyKey?.Trim();
+        var idempotencyKey = NormalizeIdempotencyKey(request.IdempotencyKey, required: false);
         if (string.IsNullOrWhiteSpace(idempotencyKey))
             return;
 
@@ -623,12 +628,28 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         {
             UserId = currentUser.UserId,
             Key = idempotencyKey,
-            Operation = "create-job",
+            Operation = FollowUpPrintOperations.CreateJob,
             RequestHash = requestHash,
             ResultId = jobId,
             CreatedAt = DateTime.UtcNow,
         });
         await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    private static string? NormalizeIdempotencyKey(string? value, bool required = false)
+    {
+        var key = value?.Trim();
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            if (required)
+                throw new InvalidOperationException("مفتاح idempotency مطلوب.");
+            return null;
+        }
+
+        if (key.Length > 128)
+            throw new InvalidOperationException("مفتاح idempotency يجب ألا يتجاوز 128 حرفًا.");
+
+        return key;
     }
 
     private static FollowUpPrintFilterSnapshot BuildSnapshot(FollowUpPrintFilterRequest filter) => new()

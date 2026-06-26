@@ -97,6 +97,80 @@ public class LetterTemplateAdminServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_RejectsInactiveDefaultTemplate()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(CreateAsync_RejectsInactiveDefaultTemplate));
+        var service = CreateService(db);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateAsync(new CreateLetterTemplateRequest
+            {
+                Name = "افتراضي غير نشط",
+                Content = "محتوى",
+                TemplateType = LetterTemplateType.FollowUp,
+                IsDefault = true,
+                IsActive = false,
+            }, 1));
+
+        Assert.Contains("نشط", ex.Message);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_RejectsChangingDefaultTemplateType()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(UpdateAsync_RejectsChangingDefaultTemplateType));
+        var service = CreateService(db);
+
+        var template = await service.CreateAsync(new CreateLetterTemplateRequest
+        {
+            Name = "افتراضي",
+            Content = "محتوى",
+            TemplateType = LetterTemplateType.FollowUp,
+            IsDefault = true,
+            IsActive = true,
+        }, 1);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpdateAsync(template.Id, new UpdateLetterTemplateAdminRequest
+            {
+                Name = "افتراضي",
+                Content = "محتوى",
+                TemplateType = LetterTemplateType.FinalFollowUp,
+                IsActive = true,
+            }, 1));
+
+        Assert.Contains("نوع", ex.Message);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_RequiresActiveReplacementForDefaultTemplate()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(DeleteAsync_RequiresActiveReplacementForDefaultTemplate));
+        var service = CreateService(db);
+
+        var currentDefault = await service.CreateAsync(new CreateLetterTemplateRequest
+        {
+            Name = "افتراضي",
+            Content = "محتوى",
+            TemplateType = LetterTemplateType.FollowUp,
+            IsDefault = true,
+            IsActive = true,
+        }, 1);
+        var inactiveReplacement = await service.CreateAsync(new CreateLetterTemplateRequest
+        {
+            Name = "بديل",
+            Content = "محتوى",
+            TemplateType = LetterTemplateType.FollowUp,
+            IsActive = false,
+        }, 1);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.DeleteAsync(currentDefault.Id, inactiveReplacement.Id, actorUserId: 1));
+
+        Assert.Contains("نشط", ex.Message);
+    }
+
+    [Fact]
     public async Task CopyAsync_CreatesIndependentDuplicate()
     {
         await using var db = LettersTestInfrastructure.CreateDb(nameof(CopyAsync_CreatesIndependentDuplicate));

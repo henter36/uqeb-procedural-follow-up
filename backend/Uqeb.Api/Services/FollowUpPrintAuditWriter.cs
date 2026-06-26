@@ -13,6 +13,7 @@ public static class FollowUpPrintAuditEvents
     public const string JobLeaseRecovered = "follow_up_print.job_lease_recovered";
     public const string JobRetryRequested = "follow_up_print.job_retry_requested";
     public const string PartPrintRequested = "follow_up_print.part_print_requested";
+    public const string DirectPrintRequested = "follow_up_print.direct_print_requested";
     public const string PrintConfirmed = "follow_up_print.print_confirmed";
     public const string PrintCancelled = "follow_up_print.print_cancelled";
     public const string Reprinted = "follow_up_print.reprinted";
@@ -52,6 +53,9 @@ public static class FollowUpPrintAuditWriter
 
     public static Task LogPartPrintRequestedAsync(IAuditService audit, int userId, int partId, int jobId, string? detail = null) =>
         audit.LogAsync(userId, AuditAction.FollowUpLetterPrintRequested, PartResourceType, partId, null, null, Format(PartResourceType, partId, FollowUpPrintAuditEvents.PartPrintRequested, detail, jobId));
+
+    public static Task LogDirectPrintRequestedAsync(IAuditService audit, int userId, int recordId, int transactionId, string? detail = null) =>
+        audit.LogAsync(userId, AuditAction.FollowUpLetterPrintRequested, PrintRecordResourceType, recordId, transactionId, null, Format(PrintRecordResourceType, recordId, FollowUpPrintAuditEvents.DirectPrintRequested, detail));
 
     public static Task LogPrintConfirmedAsync(IAuditService audit, int userId, int recordId, int transactionId, string? detail = null) =>
         audit.LogAsync(userId, AuditAction.FollowUpLetterPrintConfirmed, PrintRecordResourceType, recordId, transactionId, null, Format(PrintRecordResourceType, recordId, FollowUpPrintAuditEvents.PrintConfirmed, detail));

@@ -133,11 +133,15 @@ public sealed class FollowUpLetterRenderService : IFollowUpLetterRenderService
             return null;
 
         var template = request.TemplateId.HasValue
-            ? await _db.LetterTemplates.AsNoTracking().FirstOrDefaultAsync(t => t.Id == request.TemplateId.Value, request.CancellationToken)
+            ? await _db.LetterTemplates.AsNoTracking().FirstOrDefaultAsync(
+                t => t.Id == request.TemplateId.Value &&
+                     t.TemplateType == LetterTemplateType.FollowUp &&
+                     t.IsActive,
+                request.CancellationToken)
             : await GetDefaultTemplateReadOnlyAsync(request.CancellationToken);
 
         if (template == null)
-            return null;
+            throw new InvalidOperationException("قالب خطاب التعقيب غير موجود أو غير نشط.");
 
         var allTargets = await ResolveTargetEntitiesAsync(request.TransactionId, cancellationToken: request.CancellationToken);
         var senderDepartment = await ResolveSenderDepartmentAsync(request.CurrentUser, request.CancellationToken);
@@ -378,11 +382,15 @@ public sealed class FollowUpLetterRenderService : IFollowUpLetterRenderService
     {
         var template = await _db.LetterTemplates
             .FirstOrDefaultAsync(
-                t => t.TemplateType == LetterTemplateType.FollowUp && t.IsDefault,
+                t => t.TemplateType == LetterTemplateType.FollowUp && t.IsDefault && t.IsActive,
                 cancellationToken);
 
         template ??= await _db.LetterTemplates
-            .FirstOrDefaultAsync(t => t.Code == FollowUpTemplateCode, cancellationToken);
+            .FirstOrDefaultAsync(
+                t => t.Code == FollowUpTemplateCode &&
+                     t.TemplateType == LetterTemplateType.FollowUp &&
+                     t.IsActive,
+                cancellationToken);
 
         if (template != null)
             return template;
@@ -412,7 +420,11 @@ public sealed class FollowUpLetterRenderService : IFollowUpLetterRenderService
             .FirstOrDefaultAsync(t => t.TemplateType == LetterTemplateType.FollowUp, cancellationToken);
 
         template ??= await _db.LetterTemplates.AsNoTracking()
-            .FirstOrDefaultAsync(t => t.Code == FollowUpTemplateCode, cancellationToken);
+            .FirstOrDefaultAsync(
+                t => t.Code == FollowUpTemplateCode &&
+                     t.TemplateType == LetterTemplateType.FollowUp &&
+                     t.IsActive,
+                cancellationToken);
 
         if (template != null)
             return template;

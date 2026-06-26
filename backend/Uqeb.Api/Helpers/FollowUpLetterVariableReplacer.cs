@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using Uqeb.Api.Models.Letters;
 
 namespace Uqeb.Api.Helpers;
@@ -7,15 +8,30 @@ public static class FollowUpLetterVariableReplacer
 {
     public static string Render(string template, IReadOnlyDictionary<string, string?> values)
     {
-        var content = template;
-        foreach (var pair in values)
-        {
-            var token = "{" + pair.Key + "}";
-            content = content.Replace(token, pair.Value ?? string.Empty, StringComparison.Ordinal);
-        }
+        var lookup = values is Dictionary<string, string?> dictionary &&
+                     dictionary.Comparer.Equals(StringComparer.OrdinalIgnoreCase)
+            ? values
+            : new Dictionary<string, string?>(values, StringComparer.OrdinalIgnoreCase);
 
-        content = FollowUpLetterPlaceholderRegex.RemoveRemaining(content);
-        return LetterTemplateRenderer.CleanupEmptyReferencePatterns(content);
+        try
+        {
+            var content = FollowUpLetterPlaceholderRegex.Replace(template, match =>
+            {
+                var name = match.Groups[1].Value;
+                if (!FollowUpLetterVariableRegistry.IsKnown(name))
+                    throw new InvalidOperationException($"متغيرات غير مدعومة في قالب الخطاب: {name}");
+
+                return lookup.TryGetValue(name, out var value)
+                    ? value ?? string.Empty
+                    : match.Value;
+            });
+
+            return LetterTemplateRenderer.CleanupEmptyReferencePatterns(content);
+        }
+        catch (RegexMatchTimeoutException ex)
+        {
+            throw new InvalidOperationException("انتهت مهلة تصيير متغيرات القالب.", ex);
+        }
     }
 
     public static Dictionary<string, string?> BuildValues(FollowUpLetterRenderContext ctx)
@@ -26,10 +42,12 @@ public static class FollowUpLetterVariableReplacer
         var assignment = ctx.AssignmentDateLocal;
         var due = ctx.DueDateLocal;
 
-        return new Dictionary<string, string?>(StringComparer.Ordinal)
+        return new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
         {
             ["TransactionId"] = ctx.TransactionId.ToString(CultureInfo.InvariantCulture),
-            ["TransactionNumber"] = ctx.TransactionId.ToString(CultureInfo.InvariantCulture),
+            ["TransactionNumber"] = string.IsNullOrWhiteSpace(ctx.TransactionNumber)
+                ? ctx.TransactionId.ToString(CultureInfo.InvariantCulture)
+                : ctx.TransactionNumber,
             ["IncomingNumber"] = ctx.IncomingNumber,
             ["IncomingDate"] = incoming.HasValue ? HijriDateFormatter.FormatGregorian(incoming.Value) : null,
             ["IncomingDateGregorian"] = incoming.HasValue ? HijriDateFormatter.FormatGregorianArabic(incoming.Value) : null,
@@ -62,6 +80,7 @@ public static class FollowUpLetterVariableReplacer
 public sealed class FollowUpLetterRenderContext
 {
     public int TransactionId { get; init; }
+    public string? TransactionNumber { get; init; }
     public string? IncomingNumber { get; init; }
     public DateTime? IncomingDateLocal { get; init; }
     public string? Subject { get; init; }

@@ -3,7 +3,10 @@ using Microsoft.Extensions.Options;
 using Uqeb.Api.Configuration;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.FollowUpPrint;
+using Uqeb.Api.Exceptions;
+using Uqeb.Api.Helpers;
 using Uqeb.Api.Models.Entities;
+using Uqeb.Api.Models.Enums;
 
 namespace Uqeb.Api.Services;
 
@@ -14,7 +17,8 @@ public interface IFollowUpLetterPrintRecordService
     Task<FollowUpLetterPrintRecordDto?> LinkToFollowUpAsync(int recordId, int followUpId, ICurrentUserService currentUser, CancellationToken cancellationToken = default);
     Task<FollowUpPrintPendingSummaryDto> GetPendingSummaryAsync(CancellationToken cancellationToken = default);
     Task<List<FollowUpLetterPrintRecordDto>> GetPendingListAsync(int? page = null, int? pageSize = null, CancellationToken cancellationToken = default);
-    Task<FollowUpLetterPrintRecordDto> ReprintAsync(int recordId, ICurrentUserService currentUser, CancellationToken cancellationToken = default);
+    Task<FollowUpLetterPrintRecordDto> ReprintAsync(int recordId, string? idempotencyKey, ICurrentUserService currentUser, CancellationToken cancellationToken = default);
+    Task<FollowUpLetterPrintRecordDto> RegisterDirectPrintRequestAsync(int transactionId, CreateDirectPrintRequest request, ICurrentUserService currentUser, CancellationToken cancellationToken = default);
 }
 
 public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecordService
@@ -42,8 +46,12 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
         CancellationToken cancellationToken = default)
     {
         var record = await _db.FollowUpLetterPrintRecords.FirstOrDefaultAsync(r => r.Id == recordId, cancellationToken);
-        if (record == null || record.IsCancelled)
+        if (record == null)
             return null;
+        if (record.IsCancelled)
+            throw new FollowUpPrintConflictException("لا يمكن تأكيد سجل طباعة ملغى.");
+        if (record.PrintConfirmedAt.HasValue)
+            return await MapRecordAsync(recordId, cancellationToken);
 
         record.PrintConfirmedAt = DateTime.UtcNow;
         record.PrintConfirmedById = currentUser.UserId;
@@ -63,7 +71,9 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
             return null;
 
         if (record.RegisteredFollowUpId.HasValue)
-            throw new InvalidOperationException("لا يمكن إلغاء سجل مطبوع مرتبط بتعقيب مسجل.");
+            throw new FollowUpPrintConflictException("لا يمكن إلغاء سجل مطبوع مرتبط بتعقيب مسجل.");
+        if (record.IsCancelled)
+            return await MapRecordAsync(recordId, cancellationToken);
 
         record.IsCancelled = true;
         record.CancelledAt = DateTime.UtcNow;
@@ -81,14 +91,20 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
         CancellationToken cancellationToken = default)
     {
         var record = await _db.FollowUpLetterPrintRecords.FirstOrDefaultAsync(r => r.Id == recordId, cancellationToken);
-        if (record == null || record.IsCancelled)
+        if (record == null)
             return null;
+        if (record.IsCancelled)
+            throw new FollowUpPrintConflictException("لا يمكن ربط سجل طباعة ملغى.");
+        if (record.RegisteredFollowUpId == followUpId)
+            return await MapRecordAsync(recordId, cancellationToken);
+        if (record.RegisteredFollowUpId.HasValue)
+            throw new FollowUpPrintConflictException("سجل الطباعة مرتبط بتعقيب آخر.");
 
         var followUp = await _db.FollowUps.AsNoTracking()
             .FirstOrDefaultAsync(f => f.Id == followUpId && f.TransactionId == record.TransactionId, cancellationToken);
 
         if (followUp == null)
-            throw new InvalidOperationException("التعقيب غير موجود أو لا ينتمي إلى نفس المعاملة.");
+            throw new FollowUpPrintValidationException("التعقيب غير موجود أو لا ينتمي إلى نفس المعاملة.");
 
         record.RegisteredFollowUpId = followUpId;
         record.RegisteredAt = DateTime.UtcNow;
@@ -138,15 +154,31 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
 
     public async Task<FollowUpLetterPrintRecordDto> ReprintAsync(
         int recordId,
+        string? idempotencyKey,
         ICurrentUserService currentUser,
         CancellationToken cancellationToken = default)
     {
+        idempotencyKey = NormalizeIdempotencyKey(idempotencyKey, required: false);
+        var requestHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes($"reprint:{recordId}")));
+        if (!string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            var existing = await TryResolveExistingRecordAsync(
+                currentUser.UserId,
+                FollowUpPrintOperations.ReprintRecord,
+                idempotencyKey,
+                requestHash,
+                cancellationToken);
+            if (existing != null)
+                return existing;
+        }
+
         var source = await _db.FollowUpLetterPrintRecords.AsNoTracking()
             .FirstOrDefaultAsync(r => r.Id == recordId, cancellationToken)
-            ?? throw new InvalidOperationException("سجل الطباعة غير موجود.");
+            ?? throw new FollowUpPrintNotFoundException("سجل الطباعة غير موجود.");
 
         if (source.IsCancelled)
-            throw new InvalidOperationException("لا يمكن إعادة طباعة سجل ملغى.");
+            throw new FollowUpPrintConflictException("لا يمكن إعادة طباعة سجل ملغى.");
 
         var now = DateTime.UtcNow;
         var reprint = new FollowUpLetterPrintRecord
@@ -164,10 +196,230 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
             CreatedAt = now,
         };
 
+        var transaction = await BeginTransactionIfRelationalAsync(cancellationToken);
         _db.FollowUpLetterPrintRecords.Add(reprint);
-        await _db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+            if (!string.IsNullOrWhiteSpace(idempotencyKey))
+            {
+                _db.FollowUpPrintIdempotencyKeys.Add(new FollowUpPrintIdempotencyKey
+                {
+                    UserId = currentUser.UserId,
+                    Key = idempotencyKey,
+                    Operation = FollowUpPrintOperations.ReprintRecord,
+                    RequestHash = requestHash,
+                    ResultId = reprint.Id,
+                    CreatedAt = now,
+                });
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+
+            if (transaction != null)
+                await transaction.CommitAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (SqlExceptionHelper.IsDuplicateKey(ex) && !string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            if (transaction != null)
+                await transaction.RollbackAsync(cancellationToken);
+            _db.ChangeTracker.Clear();
+
+            var racedRecord = await TryResolveExistingRecordAsync(
+                currentUser.UserId,
+                FollowUpPrintOperations.ReprintRecord,
+                idempotencyKey,
+                requestHash,
+                cancellationToken);
+            if (racedRecord != null)
+                return racedRecord;
+
+            throw;
+        }
+        finally
+        {
+            if (transaction != null)
+                await transaction.DisposeAsync();
+        }
         await FollowUpPrintAuditWriter.LogReprintedAsync(_audit, currentUser.UserId, reprint.Id, reprint.TransactionId, $"sourceId={recordId}");
         return (await MapRecordAsync(reprint.Id, cancellationToken))!;
+    }
+
+    public Task<FollowUpLetterPrintRecordDto> ReprintAsync(
+        int recordId,
+        ICurrentUserService currentUser,
+        CancellationToken cancellationToken = default) =>
+        ReprintAsync(recordId, null, currentUser, cancellationToken);
+
+    public async Task<FollowUpLetterPrintRecordDto> RegisterDirectPrintRequestAsync(
+        int transactionId,
+        CreateDirectPrintRequest request,
+        ICurrentUserService currentUser,
+        CancellationToken cancellationToken = default)
+    {
+        var idempotencyKey = NormalizeIdempotencyKey(request.IdempotencyKey, required: true)!;
+        request.IdempotencyKey = idempotencyKey;
+
+        var requestHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(new
+            {
+                transactionId,
+                request.TemplateId,
+                request.TargetDepartmentId,
+                request.TargetEntityId,
+                targetEntityName = request.TargetEntityName?.Trim(),
+                request.FollowUpSequence,
+                request.ResponseDeadlineDays,
+            }))));
+
+        var existing = await TryResolveExistingRecordAsync(
+            currentUser.UserId,
+            FollowUpPrintOperations.DirectPrintRequest,
+            idempotencyKey,
+            requestHash,
+            cancellationToken);
+        if (existing != null)
+            return existing;
+
+        var transaction = await _db.Transactions.AsNoTracking()
+            .FirstOrDefaultAsync(t => t.Id == transactionId, cancellationToken)
+            ?? throw new FollowUpPrintNotFoundException("المعاملة غير موجودة.");
+
+        var template = request.TemplateId.HasValue
+            ? await _db.LetterTemplates.AsNoTracking().FirstOrDefaultAsync(
+                t => t.Id == request.TemplateId.Value &&
+                     t.TemplateType == LetterTemplateType.FollowUp &&
+                     t.IsActive,
+                cancellationToken)
+            : await _db.LetterTemplates.AsNoTracking().FirstOrDefaultAsync(
+                t => t.TemplateType == LetterTemplateType.FollowUp &&
+                     t.IsDefault &&
+                     t.IsActive,
+                cancellationToken);
+        if (template == null)
+            throw new FollowUpPrintValidationException("قالب خطاب التعقيب غير موجود أو غير نشط.");
+
+        var targetName = await ResolveDirectTargetNameAsync(request, cancellationToken);
+        if (string.IsNullOrWhiteSpace(targetName))
+            throw new FollowUpPrintValidationException("جهة الطباعة غير موجودة.");
+
+        var now = DateTime.UtcNow;
+        var record = new FollowUpLetterPrintRecord
+        {
+            TransactionId = transaction.Id,
+            TargetDepartmentId = request.TargetDepartmentId,
+            TargetEntityId = request.TargetEntityId,
+            TargetEntityNameSnapshot = targetName,
+            TemplateId = template.Id,
+            FollowUpSequence = request.FollowUpSequence,
+            ResponseDeadlineDays = request.ResponseDeadlineDays,
+            PrintRequestedAt = now,
+            PrintRequestedById = currentUser.UserId,
+            CreatedAt = now,
+        };
+
+        var dbTransaction = await BeginTransactionIfRelationalAsync(cancellationToken);
+        _db.FollowUpLetterPrintRecords.Add(record);
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+            _db.FollowUpPrintIdempotencyKeys.Add(new FollowUpPrintIdempotencyKey
+            {
+                UserId = currentUser.UserId,
+                Key = idempotencyKey,
+                Operation = FollowUpPrintOperations.DirectPrintRequest,
+                RequestHash = requestHash,
+                ResultId = record.Id,
+                CreatedAt = now,
+            });
+            await _db.SaveChangesAsync(cancellationToken);
+            if (dbTransaction != null)
+                await dbTransaction.CommitAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (SqlExceptionHelper.IsDuplicateKey(ex))
+        {
+            if (dbTransaction != null)
+                await dbTransaction.RollbackAsync(cancellationToken);
+            _db.ChangeTracker.Clear();
+
+            var racedRecord = await TryResolveExistingRecordAsync(
+                currentUser.UserId,
+                FollowUpPrintOperations.DirectPrintRequest,
+                idempotencyKey,
+                requestHash,
+                cancellationToken);
+            if (racedRecord != null)
+                return racedRecord;
+
+            throw;
+        }
+        finally
+        {
+            if (dbTransaction != null)
+                await dbTransaction.DisposeAsync();
+        }
+
+        await FollowUpPrintAuditWriter.LogDirectPrintRequestedAsync(_audit, currentUser.UserId, record.Id, record.TransactionId, "direct-print-request");
+        return (await MapRecordAsync(record.Id, cancellationToken))!;
+    }
+
+    private async Task<FollowUpLetterPrintRecordDto?> TryResolveExistingRecordAsync(
+        int userId,
+        string operation,
+        string idempotencyKey,
+        string requestHash,
+        CancellationToken cancellationToken)
+    {
+        var existingKey = await _db.FollowUpPrintIdempotencyKeys.AsNoTracking()
+            .FirstOrDefaultAsync(
+                k => k.UserId == userId &&
+                     k.Operation == operation &&
+                     k.Key == idempotencyKey,
+                cancellationToken);
+        if (existingKey == null)
+            return null;
+        if (!string.Equals(existingKey.RequestHash, requestHash, StringComparison.OrdinalIgnoreCase))
+            throw new FollowUpPrintConflictException("مفتاح idempotency مستخدم لطلب مختلف.");
+        return existingKey.ResultId.HasValue
+            ? await MapRecordAsync(existingKey.ResultId.Value, cancellationToken)
+            : null;
+    }
+
+    private async Task<string?> ResolveDirectTargetNameAsync(CreateDirectPrintRequest request, CancellationToken cancellationToken)
+    {
+        if (request.TargetDepartmentId.HasValue)
+            return await _db.Departments.AsNoTracking()
+                .Where(d => d.Id == request.TargetDepartmentId.Value)
+                .Select(d => d.Name)
+                .FirstOrDefaultAsync(cancellationToken);
+
+        if (request.TargetEntityId.HasValue)
+            return await _db.ExternalParties.AsNoTracking()
+                .Where(p => p.Id == request.TargetEntityId.Value)
+                .Select(p => p.Name)
+                .FirstOrDefaultAsync(cancellationToken);
+
+        return string.IsNullOrWhiteSpace(request.TargetEntityName)
+            ? null
+            : request.TargetEntityName.Trim();
+    }
+
+    private async Task<Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction?> BeginTransactionIfRelationalAsync(CancellationToken cancellationToken) =>
+        _db.Database.IsRelational()
+            ? await _db.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+
+    private static string? NormalizeIdempotencyKey(string? value, bool required)
+    {
+        var key = value?.Trim();
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            if (required)
+                throw new FollowUpPrintValidationException("مفتاح idempotency مطلوب.");
+            return null;
+        }
+        if (key.Length > 128)
+            throw new FollowUpPrintValidationException("مفتاح idempotency يجب ألا يتجاوز 128 حرفًا.");
+        return key;
     }
 
     private async Task<FollowUpLetterPrintRecordDto?> MapRecordAsync(int recordId, CancellationToken cancellationToken) =>

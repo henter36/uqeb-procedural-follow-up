@@ -12,4 +12,6 @@ public static partial class FollowUpLetterPlaceholderRegex
     public static MatchCollection MatchAll(string content) => PlaceholderPattern().Matches(content);
 
     public static string RemoveRemaining(string content) => PlaceholderPattern().Replace(content, string.Empty);
+
+    public static string Replace(string content, MatchEvaluator evaluator) => PlaceholderPattern().Replace(content, evaluator);
 }

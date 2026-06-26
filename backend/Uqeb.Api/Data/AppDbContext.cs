@@ -156,6 +156,12 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<LetterTemplate>(e =>
         {
             e.HasIndex(t => t.Code).IsUnique();
+            e.HasIndex(t => t.TemplateType)
+                .IsUnique()
+                .HasFilter("[IsDefault] = 1");
+            e.ToTable(t => t.HasCheckConstraint(
+                "CK_LetterTemplates_DefaultRequiresActive",
+                "[IsDefault] = 0 OR [IsActive] = 1"));
             e.Property(t => t.RowVersion).IsRowVersion();
             e.HasOne(t => t.CreatedBy).WithMany().HasForeignKey(t => t.CreatedById).OnDelete(DeleteBehavior.NoAction);
             e.HasOne(t => t.UpdatedBy).WithMany().HasForeignKey(t => t.UpdatedById).OnDelete(DeleteBehavior.NoAction);
@@ -237,6 +243,13 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<FollowUpPrintIdempotencyKey>(e =>
         {
+            e.Property(k => k.Key)
+                .HasMaxLength(128);
+            e.Property(k => k.Operation)
+                .HasMaxLength(64);
+            e.Property(k => k.RequestHash)
+                .HasMaxLength(64)
+                .IsUnicode(false);
             e.HasIndex(k => new { k.UserId, k.Operation, k.Key }).IsUnique();
             e.HasOne(k => k.User).WithMany().HasForeignKey(k => k.UserId).OnDelete(DeleteBehavior.Cascade);
         });

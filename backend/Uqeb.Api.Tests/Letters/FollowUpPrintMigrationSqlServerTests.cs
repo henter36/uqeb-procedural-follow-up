@@ -29,11 +29,58 @@ public class FollowUpPrintMigrationSqlServerTests : FollowUpPrintSqlServerTestBa
 
             Assert.True(await IndexExistsAsync(db, "FollowUpPrintJobPayloads", "IX_FollowUpPrintJobPayloads_JobId_PayloadOrdinal"));
             Assert.True(await IndexExistsAsync(db, "FollowUpPrintIdempotencyKeys", "IX_FollowUpPrintIdempotencyKeys_UserId_Operation_Key"));
+            Assert.True(await IndexExistsAsync(db, "LetterTemplates", "IX_LetterTemplates_TemplateType"));
+            Assert.True(await CheckConstraintExistsAsync(db, "LetterTemplates", "CK_LetterTemplates_DefaultRequiresActive"));
+            Assert.Equal(("nvarchar", 128, true), await GetColumnShapeAsync(db, "FollowUpPrintIdempotencyKeys", "Key"));
+            Assert.Equal(("nvarchar", 64, true), await GetColumnShapeAsync(db, "FollowUpPrintIdempotencyKeys", "Operation"));
+            Assert.Equal(("varchar", 64, false), await GetColumnShapeAsync(db, "FollowUpPrintIdempotencyKeys", "RequestHash"));
         }
         finally
         {
             await CleanupAsync(context);
         }
+    }
+
+    [Fact]
+    public async Task DownAndReUpInvariantMigration_RestoresIndexesConstraintsAndColumnShapes()
+    {
+        if (!ShouldRunSqlServerTest())
+            return;
+
+        var databaseName = $"Uqeb_FollowUpPrint_Invariants_{Guid.NewGuid():N}";
+        var connectionString = await CreateDatabaseAsync(databaseName);
+
+        var services = new ServiceCollection();
+        services.AddDbContext<AppDbContext>(o => o.UseSqlServer(connectionString));
+        await using var provider = services.BuildServiceProvider();
+
+        await using (var scope = provider.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Database.MigrateAsync();
+            Assert.True(await CheckConstraintExistsAsync(db, "LetterTemplates", "CK_LetterTemplates_DefaultRequiresActive"));
+        }
+
+        await using (var scope = provider.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var migrator = db.Database.GetService<IMigrator>();
+            migrator.Migrate("20260625201021_AddFollowUpPrintJobPayloadsAndBatchSize");
+            Assert.False(await CheckConstraintExistsAsync(db, "LetterTemplates", "CK_LetterTemplates_DefaultRequiresActive"));
+            Assert.Equal(("nvarchar", -1, true), await GetColumnShapeAsync(db, "FollowUpPrintIdempotencyKeys", "RequestHash"));
+        }
+
+        await using (var scope = provider.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Database.MigrateAsync();
+            Assert.True(await IndexExistsAsync(db, "LetterTemplates", "IX_LetterTemplates_TemplateType"));
+            Assert.True(await CheckConstraintExistsAsync(db, "LetterTemplates", "CK_LetterTemplates_DefaultRequiresActive"));
+            Assert.Equal(("varchar", 64, false), await GetColumnShapeAsync(db, "FollowUpPrintIdempotencyKeys", "RequestHash"));
+        }
+
+        await provider.DisposeAsync();
+        await SqlServerTestDatabaseHelper.DropDatabaseAsync(ConnectionString!, databaseName);
     }
 
     [Fact]
@@ -73,5 +120,65 @@ public class FollowUpPrintMigrationSqlServerTests : FollowUpPrintSqlServerTestBa
 
         await provider.DisposeAsync();
         await SqlServerTestDatabaseHelper.DropDatabaseAsync(ConnectionString!, databaseName);
+    }
+
+    private static async Task<(string DataType, int MaxLength, bool IsUnicode)> GetColumnShapeAsync(
+        AppDbContext db,
+        string tableName,
+        string columnName)
+    {
+        var connection = db.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open)
+            await connection.OpenAsync();
+
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_NAME = @tableName AND COLUMN_NAME = @columnName
+            """;
+        var tableParameter = command.CreateParameter();
+        tableParameter.ParameterName = "@tableName";
+        tableParameter.Value = tableName;
+        command.Parameters.Add(tableParameter);
+
+        var columnParameter = command.CreateParameter();
+        columnParameter.ParameterName = "@columnName";
+        columnParameter.Value = columnName;
+        command.Parameters.Add(columnParameter);
+
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync(), $"Column {tableName}.{columnName} was not found.");
+        var dataType = reader.GetString(0);
+        var maxLength = reader.IsDBNull(1) ? 0 : reader.GetInt32(1);
+        return (dataType, maxLength, string.Equals(dataType, "nvarchar", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static async Task<bool> CheckConstraintExistsAsync(AppDbContext db, string tableName, string constraintName)
+    {
+        var connection = db.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open)
+            await connection.OpenAsync();
+
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT COUNT(1)
+            FROM sys.check_constraints c
+            INNER JOIN sys.tables t ON c.parent_object_id = t.object_id
+            WHERE t.name = @tableName AND c.name = @constraintName
+            """;
+        var tableParameter = command.CreateParameter();
+        tableParameter.ParameterName = "@tableName";
+        tableParameter.Value = tableName;
+        command.Parameters.Add(tableParameter);
+
+        var constraintParameter = command.CreateParameter();
+        constraintParameter.ParameterName = "@constraintName";
+        constraintParameter.Value = constraintName;
+        command.Parameters.Add(constraintParameter);
+
+        return Convert.ToInt32(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture) == 1;
     }
 }

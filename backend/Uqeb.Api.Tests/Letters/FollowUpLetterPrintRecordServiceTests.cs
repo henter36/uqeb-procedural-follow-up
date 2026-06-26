@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Uqeb.Api.Data;
+using Uqeb.Api.DTOs.FollowUpPrint;
+using Uqeb.Api.Exceptions;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Services;
@@ -150,8 +152,107 @@ public class FollowUpLetterPrintRecordServiceTests
 
         var recordId = await db.FollowUpLetterPrintRecords.Select(r => r.Id).SingleAsync();
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<FollowUpPrintValidationException>(() =>
             service.LinkToFollowUpAsync(recordId, followUpId: 20, new TestCurrentUser(1)));
+    }
+
+    [Fact]
+    public async Task ConfirmPrintAsync_IsIdempotentAndKeepsOriginalConfirmation()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(ConfirmPrintAsync_IsIdempotentAndKeepsOriginalConfirmation));
+        var service = CreateService(db, Today);
+        var (transaction, _) = await SeedTransactionWithFollowUpAsync(db);
+        db.FollowUpLetterPrintRecords.Add(CreatePendingRecord(transaction.Id, Today.AddDays(-1)));
+        await db.SaveChangesAsync();
+
+        var recordId = await db.FollowUpLetterPrintRecords.Select(r => r.Id).SingleAsync();
+
+        _ = await service.ConfirmPrintAsync(recordId, new TestCurrentUser(1));
+        var firstStored = await db.FollowUpLetterPrintRecords.AsNoTracking().SingleAsync(r => r.Id == recordId);
+
+        _ = await service.ConfirmPrintAsync(recordId, new TestCurrentUser(2));
+        var secondStored = await db.FollowUpLetterPrintRecords.AsNoTracking().SingleAsync(r => r.Id == recordId);
+
+        Assert.Equal(firstStored.PrintConfirmedAt, secondStored.PrintConfirmedAt);
+        Assert.Equal(1, secondStored.PrintConfirmedById);
+    }
+
+    [Fact]
+    public async Task CancelRecordAsync_IsIdempotentAndKeepsOriginalCancellation()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(CancelRecordAsync_IsIdempotentAndKeepsOriginalCancellation));
+        var service = CreateService(db, Today);
+        var (transaction, _) = await SeedTransactionWithFollowUpAsync(db);
+        db.FollowUpLetterPrintRecords.Add(CreatePendingRecord(transaction.Id, Today.AddDays(-1)));
+        await db.SaveChangesAsync();
+
+        var recordId = await db.FollowUpLetterPrintRecords.Select(r => r.Id).SingleAsync();
+
+        _ = await service.CancelRecordAsync(recordId, "سبب أول", new TestCurrentUser(1));
+        var firstStored = await db.FollowUpLetterPrintRecords.AsNoTracking().SingleAsync(r => r.Id == recordId);
+
+        _ = await service.CancelRecordAsync(recordId, "سبب ثان", new TestCurrentUser(2));
+        var secondStored = await db.FollowUpLetterPrintRecords.AsNoTracking().SingleAsync(r => r.Id == recordId);
+
+        Assert.Equal(firstStored.CancelledAt, secondStored.CancelledAt);
+        Assert.Equal(1, secondStored.CancelledById);
+        Assert.Equal("سبب أول", secondStored.CancellationReason);
+    }
+
+    [Fact]
+    public async Task LinkToFollowUpAsync_IsIdempotentForSameFollowUpAndRejectsMove()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(LinkToFollowUpAsync_IsIdempotentForSameFollowUpAndRejectsMove));
+        var service = CreateService(db, Today);
+        var (transaction, followUp) = await SeedTransactionWithFollowUpAsync(db);
+        db.FollowUps.Add(new FollowUp
+        {
+            Id = 11,
+            TransactionId = transaction.Id,
+            FollowUpDate = Today.AddDays(-4),
+            CreatedById = 1,
+            CreatedAt = Today.AddDays(-4),
+        });
+        db.FollowUpLetterPrintRecords.Add(CreatePendingRecord(transaction.Id, Today.AddDays(-1)));
+        await db.SaveChangesAsync();
+
+        var recordId = await db.FollowUpLetterPrintRecords.Select(r => r.Id).SingleAsync();
+
+        var first = await service.LinkToFollowUpAsync(recordId, followUp.Id, new TestCurrentUser(1));
+        var second = await service.LinkToFollowUpAsync(recordId, followUp.Id, new TestCurrentUser(2));
+
+        Assert.Equal(first!.RegisteredFollowUpId, second!.RegisteredFollowUpId);
+        await Assert.ThrowsAsync<FollowUpPrintConflictException>(() =>
+            service.LinkToFollowUpAsync(recordId, 11, new TestCurrentUser(1)));
+    }
+
+    [Fact]
+    public async Task RegisterDirectPrintRequestAsync_UsesIdempotencyAndRejectsConflictingPayload()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(RegisterDirectPrintRequestAsync_UsesIdempotencyAndRejectsConflictingPayload));
+        var service = CreateService(db, Today);
+        var (transaction, _) = await SeedTransactionWithFollowUpAsync(db);
+        var user = new TestCurrentUser(1);
+        var request = new CreateDirectPrintRequest
+        {
+            TargetEntityName = "إدارة أ",
+            FollowUpSequence = 1,
+            IdempotencyKey = "direct-print-key",
+        };
+
+        var first = await service.RegisterDirectPrintRequestAsync(transaction.Id, request, user);
+        var second = await service.RegisterDirectPrintRequestAsync(transaction.Id, request, user);
+
+        Assert.Equal(first.Id, second.Id);
+        Assert.Equal(1, await db.FollowUpLetterPrintRecords.CountAsync());
+
+        await Assert.ThrowsAsync<FollowUpPrintConflictException>(() =>
+            service.RegisterDirectPrintRequestAsync(transaction.Id, new CreateDirectPrintRequest
+            {
+                TargetEntityName = "إدارة ب",
+                FollowUpSequence = 1,
+                IdempotencyKey = "direct-print-key",
+            }, user));
     }
 
     [Fact]

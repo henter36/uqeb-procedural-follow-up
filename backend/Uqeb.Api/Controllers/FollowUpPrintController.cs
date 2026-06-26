@@ -176,8 +176,15 @@ public class FollowUpPrintController : ControllerBase
     [Authorize(Policy = Policies.PrintFollowUpLetters)]
     public async Task<IActionResult> ConfirmPrint(int id, CancellationToken cancellationToken)
     {
-        var record = await _records.ConfirmPrintAsync(id, _currentUser, cancellationToken);
-        return record == null ? NotFound() : Ok(record);
+        try
+        {
+            var record = await _records.ConfirmPrintAsync(id, _currentUser, cancellationToken);
+            return record == null ? NotFound() : Ok(record);
+        }
+        catch (FollowUpPrintConflictException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
     }
 
     [HttpPost("records/{id:int}/cancel")]
@@ -193,6 +200,10 @@ public class FollowUpPrintController : ControllerBase
         {
             return BadRequest(new { message = ex.Message });
         }
+        catch (FollowUpPrintConflictException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
     }
 
     [HttpPost("records/{id:int}/link-follow-up")]
@@ -201,8 +212,19 @@ public class FollowUpPrintController : ControllerBase
     {
         try
         {
-            var record = await _records.LinkToFollowUpAsync(id, request.FollowUpId, _currentUser, cancellationToken);
+            if (!request.FollowUpId.HasValue)
+                return BadRequest(new { message = "معرف التعقيب مطلوب." });
+
+            var record = await _records.LinkToFollowUpAsync(id, request.FollowUpId.Value, _currentUser, cancellationToken);
             return record == null ? NotFound() : Ok(record);
+        }
+        catch (FollowUpPrintConflictException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+        catch (FollowUpPrintValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
         }
         catch (InvalidOperationException ex)
         {
@@ -212,13 +234,50 @@ public class FollowUpPrintController : ControllerBase
 
     [HttpPost("records/{id:int}/reprint")]
     [Authorize(Policy = Policies.PrintFollowUpLetters)]
-    public async Task<IActionResult> Reprint(int id, CancellationToken cancellationToken)
+    public async Task<IActionResult> Reprint(int id, [FromBody] ReprintPrintRecordRequest? request, CancellationToken cancellationToken)
     {
         try
         {
-            return Ok(await _records.ReprintAsync(id, _currentUser, cancellationToken));
+            return Ok(await _records.ReprintAsync(id, request?.IdempotencyKey, _currentUser, cancellationToken));
+        }
+        catch (FollowUpPrintNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (FollowUpPrintConflictException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+        catch (FollowUpPrintValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
         }
         catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("transactions/{transactionId:int}/print-requests")]
+    [Authorize(Policy = Policies.PrintFollowUpLetters)]
+    public async Task<IActionResult> RegisterDirectPrintRequest(
+        int transactionId,
+        [FromBody] CreateDirectPrintRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await _records.RegisterDirectPrintRequestAsync(transactionId, request, _currentUser, cancellationToken));
+        }
+        catch (FollowUpPrintNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (FollowUpPrintConflictException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+        catch (FollowUpPrintValidationException ex)
         {
             return BadRequest(new { message = ex.Message });
         }
@@ -228,14 +287,21 @@ public class FollowUpPrintController : ControllerBase
     [Authorize(Policy = Policies.PrintFollowUpLetters)]
     public async Task<IActionResult> GetTransactionPrintView(int transactionId, [FromBody] FollowUpLetterPrintRequest? request, CancellationToken cancellationToken)
     {
-        var html = await _render.GeneratePrintViewHtmlAsync(
-            transactionId,
-            request?.TargetEntity,
-            request?.Content,
-            _currentUser,
-            request?.TemplateId,
-            cancellationToken);
-        return html == null ? NotFound() : Content(html, "text/html; charset=utf-8");
+        try
+        {
+            var html = await _render.GeneratePrintViewHtmlAsync(
+                transactionId,
+                request?.TargetEntity,
+                request?.Content,
+                _currentUser,
+                request?.TemplateId,
+                cancellationToken);
+            return html == null ? NotFound() : Content(html, "text/html; charset=utf-8");
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 }
 

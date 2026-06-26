@@ -16,3 +16,15 @@ public sealed class FollowUpPrintConflictException : FollowUpPrintException
     public FollowUpPrintConflictException(string message = "تعارض في مفتاح idempotency لمهمة الطباعة.")
         : base(message) { }
 }
+
+public sealed class FollowUpPrintValidationException : FollowUpPrintException
+{
+    public FollowUpPrintValidationException(string message)
+        : base(message) { }
+}
+
+public sealed class FollowUpPrintNotFoundException : FollowUpPrintException
+{
+    public FollowUpPrintNotFoundException(string message)
+        : base(message) { }
+}

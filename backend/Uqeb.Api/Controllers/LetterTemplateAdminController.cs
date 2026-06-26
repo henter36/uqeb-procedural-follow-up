@@ -108,16 +108,30 @@ public class LetterTemplateAdminController : ControllerBase
     [Authorize(Policy = Policies.ManageLetterTemplates)]
     public async Task<IActionResult> Deactivate(int id, CancellationToken cancellationToken)
     {
-        var result = await _admin.SetActiveAsync(id, false, _currentUser.UserId, cancellationToken);
-        return result == null ? NotFound() : Ok(result);
+        try
+        {
+            var result = await _admin.SetActiveAsync(id, false, _currentUser.UserId, cancellationToken);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPatch("reorder")]
     [Authorize(Policy = Policies.ManageLetterTemplates)]
     public async Task<IActionResult> Reorder([FromBody] ReorderLetterTemplatesRequest request, CancellationToken cancellationToken)
     {
-        await _admin.ReorderAsync(request, _currentUser.UserId, cancellationToken);
-        return NoContent();
+        try
+        {
+            await _admin.ReorderAsync(request, _currentUser.UserId, cancellationToken);
+            return NoContent();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpDelete("{id:int}")]

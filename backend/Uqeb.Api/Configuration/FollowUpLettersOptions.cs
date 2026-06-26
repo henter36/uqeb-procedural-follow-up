@@ -47,5 +47,23 @@ public class FollowUpLettersOptions
 
         if (MaxOutstandingUnprintedJobs <= 0)
             throw new InvalidOperationException("MaxOutstandingUnprintedJobs must be positive.");
+
+        if (MaxEstimatedPagesPerPart <= 0)
+            throw new InvalidOperationException("MaxEstimatedPagesPerPart must be positive.");
+        if (MaxConcurrentPrintJobs <= 0)
+            throw new InvalidOperationException("MaxConcurrentPrintJobs must be positive.");
+        if (MaxConcurrentJobsPerUser <= 0)
+            throw new InvalidOperationException("MaxConcurrentJobsPerUser must be positive.");
+        if (JobLeaseSeconds <= 0)
+            throw new InvalidOperationException("JobLeaseSeconds must be positive.");
+        if (JobRetryCount < 0)
+            throw new InvalidOperationException("JobRetryCount must be non-negative.");
+        if (JobExpirationHours <= 0)
+            throw new InvalidOperationException("JobExpirationHours must be positive.");
+        if (NotificationPollIntervalSeconds <= 0)
+            throw new InvalidOperationException("NotificationPollIntervalSeconds must be positive.");
+
+        if (!Uqeb.Api.Services.FollowUpLetterTimeZone.CanResolveConfiguredTimeZone(DisplayTimeZoneId))
+            throw new InvalidOperationException("DisplayTimeZoneId is invalid.");
     }
 }

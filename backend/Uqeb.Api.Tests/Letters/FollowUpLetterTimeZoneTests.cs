@@ -19,11 +19,12 @@ public class FollowUpLetterTimeZoneTests
     }
 
     [Fact]
-    public void ResolveTimeZone_FallsBackWhenConfiguredIdMissing()
+    public void ResolveTimeZone_RejectsInvalidConfiguredId()
     {
-        var timeZone = FollowUpLetterTimeZone.ResolveTimeZone("Not/A/Real/Zone", NullLogger.Instance);
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            FollowUpLetterTimeZone.ResolveTimeZone("Not/A/Real/Zone", NullLogger.Instance));
 
-        Assert.Contains(timeZone.Id, new[] { "Asia/Riyadh", "Arab Standard Time" });
+        Assert.Contains("Not/A/Real/Zone", ex.Message);
     }
 
     [Fact]

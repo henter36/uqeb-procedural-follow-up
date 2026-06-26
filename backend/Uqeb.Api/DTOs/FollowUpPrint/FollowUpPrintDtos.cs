@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Uqeb.Api.Models.Enums;
 
 namespace Uqeb.Api.DTOs.FollowUpPrint;
@@ -64,6 +65,7 @@ public class CreateFollowUpPrintJobRequest
     public int? TemplateId { get; set; }
     public int? ResponseDeadlineDays { get; set; }
     public int? BatchSize { get; set; }
+    [MaxLength(128)]
     public string? IdempotencyKey { get; set; }
 }
 
@@ -151,9 +153,30 @@ public class CancelPrintRecordRequest
     public string Reason { get; set; } = string.Empty;
 }
 
+public class ReprintPrintRecordRequest
+{
+    [MaxLength(128)]
+    public string? IdempotencyKey { get; set; }
+}
+
 public class LinkPrintRecordRequest
 {
-    public int FollowUpId { get; set; }
+    [Required]
+    [Range(1, int.MaxValue)]
+    public int? FollowUpId { get; set; }
+}
+
+public class CreateDirectPrintRequest
+{
+    public int? TemplateId { get; set; }
+    public int? TargetDepartmentId { get; set; }
+    public int? TargetEntityId { get; set; }
+    public string? TargetEntityName { get; set; }
+    public int FollowUpSequence { get; set; } = 1;
+    public int? ResponseDeadlineDays { get; set; }
+    [Required]
+    [MaxLength(128)]
+    public string? IdempotencyKey { get; set; }
 }
 
 public class UserNotificationDto

@@ -234,6 +234,12 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
             job.Status = FollowUpPrintJobStatus.ReadyToPrint;
             job.ReadyAt ??= DateTime.UtcNow;
         }
+        else if (pendingCount == 0 && unhandledFailures > 0)
+        {
+            job.Status = FollowUpPrintJobStatus.Failed;
+            job.FailureReason ??= "فشل تجهيز جميع خطابات مهمة الطباعة.";
+            job.FailedAt = DateTime.UtcNow;
+        }
         else if (pendingCount > 0)
         {
             job.Status = FollowUpPrintJobStatus.Processing;
@@ -299,22 +305,28 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
             readyCount++;
         }
 
+        if (readyCount == 0)
+        {
+            job.ProcessedLetters += batch.Count;
+            job.FailedLetters += failedCount;
+            job.CurrentPart = job.TotalParts;
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            await RenewLeaseIfOwnerAsync(db, job.Id, leaseOwner, cancellationToken);
+            return;
+        }
+
         var part = new FollowUpPrintJobPart
         {
             JobId = job.Id,
             PartNumber = partNumber,
-            LetterCount = batch.Count,
+            LetterCount = documents.Count,
             EstimatedPages = Math.Max(1, documents.Count),
             PayloadJson = JsonSerializer.Serialize(letterPayloads, JsonOptions),
             CreatedAt = DateTime.UtcNow,
         };
 
-        if (readyCount == 0)
-        {
-            part.Status = FollowUpPrintJobPartStatus.Failed;
-            part.FailureReason = "فشل تجهيز جميع خطابات الجزء.";
-        }
-        else if (failedCount > 0)
+        if (failedCount > 0)
         {
             part.Status = FollowUpPrintJobPartStatus.PartiallyReady;
             part.ReadyAt = DateTime.UtcNow;

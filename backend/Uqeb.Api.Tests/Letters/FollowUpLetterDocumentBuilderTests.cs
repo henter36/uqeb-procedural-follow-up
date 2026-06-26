@@ -68,6 +68,32 @@ public class FollowUpLetterDocumentBuilderTests
     }
 
     [Fact]
+    public void Build_PreservesBodyOverrideWhitespaceExactly()
+    {
+        var builder = new FollowUpLetterDocumentBuilder(new FixedTimeZone(new DateTime(2026, 6, 26)));
+        var overrideBody = "  بداية النص\n\nفقرة ثانية\n  نهاية النص  ";
+
+        var document = builder.Build(new FollowUpLetterDocumentBuildRequest
+        {
+            Transaction = new Models.Entities.Transaction
+            {
+                Id = 1,
+                InternalTrackingNumber = "INT-1",
+                IncomingNumber = "IN-1",
+                IncomingDate = new DateTime(2026, 6, 1),
+                Subject = "اختبار",
+                Priority = Models.Enums.Priority.Normal,
+            },
+            Template = new Models.Entities.LetterTemplate { Id = 1, Content = "test", Name = "test" },
+            Target = new FollowUpLetterTargetEntity("جهة"),
+            BodyOverride = overrideBody,
+            TodayLocal = new DateTime(2026, 6, 26),
+        });
+
+        Assert.Equal(overrideBody, document.Body);
+    }
+
+    [Fact]
     public void RenderPrintView_IncludesLogoWithObjectFitContain()
     {
         var html = FollowUpLetterPrintViewRenderer.Render([
