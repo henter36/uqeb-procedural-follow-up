@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using Uqeb.Api.Configuration;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.LetterTemplates;
+using Uqeb.Api.Helpers;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Models.Letters;

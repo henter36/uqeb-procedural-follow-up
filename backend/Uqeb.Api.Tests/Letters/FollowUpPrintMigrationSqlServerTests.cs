@@ -178,6 +178,79 @@ public class FollowUpPrintMigrationSqlServerTests
     }
 
     [Fact]
+    public async Task DocumentSnapshotMigration_IsDiscoveredAndRoundTripsColumn()
+    {
+        if (!ShouldRunSqlServerTest())
+            return;
+
+        const string migrationId = "20260626143000_AddDocumentSnapshotToFollowUpPrintRecords";
+        const string previousMigrationId = "20260626112704_AddUniqueRegisteredFollowUpPrintRecordLink";
+        var databaseName = $"Uqeb_FollowUpPrint_DocumentSnapshot_{Guid.NewGuid():N}";
+        var connectionString = await CreateDatabaseAsync(databaseName);
+
+        var services = new ServiceCollection();
+        services.AddDbContext<AppDbContext>(o => o.UseSqlServer(connectionString));
+        ServiceProvider? provider = null;
+        try
+        {
+            provider = services.BuildServiceProvider();
+
+            await using (var scope = provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var migrations = db.GetService<IMigrationsAssembly>().Migrations;
+                Assert.Contains(migrationId, migrations.Keys);
+
+                await db.Database.MigrateAsync();
+
+                Assert.False(db.Database.HasPendingModelChanges());
+                Assert.Equal(("nvarchar", -1, true), await GetColumnShapeAsync(
+                    db,
+                    "FollowUpLetterPrintRecords",
+                    "DocumentSnapshotJson"));
+                Assert.True(await IsColumnNullableAsync(
+                    db,
+                    "FollowUpLetterPrintRecords",
+                    "DocumentSnapshotJson"));
+            }
+
+            await using (var scope = provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var migrator = db.Database.GetService<IMigrator>();
+                migrator.Migrate(previousMigrationId);
+
+                Assert.False(await ColumnExistsAsync(
+                    db,
+                    "FollowUpLetterPrintRecords",
+                    "DocumentSnapshotJson"));
+            }
+
+            await using (var scope = provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                await db.Database.MigrateAsync();
+
+                Assert.Equal(("nvarchar", -1, true), await GetColumnShapeAsync(
+                    db,
+                    "FollowUpLetterPrintRecords",
+                    "DocumentSnapshotJson"));
+                Assert.True(await IsColumnNullableAsync(
+                    db,
+                    "FollowUpLetterPrintRecords",
+                    "DocumentSnapshotJson"));
+                Assert.False(db.Database.HasPendingModelChanges());
+            }
+        }
+        finally
+        {
+            if (provider != null)
+                await provider.DisposeAsync();
+            await SqlServerTestDatabaseHelper.DropDatabaseAsync(ConnectionString!, databaseName);
+        }
+    }
+
+    [Fact]
     public async Task DownScopeDepartmentIdMigration_ThenReUp_RestoresConstraints()
     {
         if (!ShouldRunSqlServerTest())
@@ -261,6 +334,60 @@ public class FollowUpPrintMigrationSqlServerTests
         var dataType = reader.GetString(0);
         var maxLength = reader.IsDBNull(1) ? 0 : reader.GetInt32(1);
         return (dataType, maxLength, string.Equals(dataType, "nvarchar", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static async Task<bool> ColumnExistsAsync(AppDbContext db, string tableName, string columnName)
+    {
+        var connection = db.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open)
+            await connection.OpenAsync();
+
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT COUNT(1)
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_NAME = @tableName AND COLUMN_NAME = @columnName
+            """;
+        var tableParameter = command.CreateParameter();
+        tableParameter.ParameterName = "@tableName";
+        tableParameter.Value = tableName;
+        command.Parameters.Add(tableParameter);
+
+        var columnParameter = command.CreateParameter();
+        columnParameter.ParameterName = "@columnName";
+        columnParameter.Value = columnName;
+        command.Parameters.Add(columnParameter);
+
+        return Convert.ToInt32(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture) == 1;
+    }
+
+    private static async Task<bool> IsColumnNullableAsync(AppDbContext db, string tableName, string columnName)
+    {
+        var connection = db.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open)
+            await connection.OpenAsync();
+
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT IS_NULLABLE
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_NAME = @tableName AND COLUMN_NAME = @columnName
+            """;
+        var tableParameter = command.CreateParameter();
+        tableParameter.ParameterName = "@tableName";
+        tableParameter.Value = tableName;
+        command.Parameters.Add(tableParameter);
+
+        var columnParameter = command.CreateParameter();
+        columnParameter.ParameterName = "@columnName";
+        columnParameter.Value = columnName;
+        command.Parameters.Add(columnParameter);
+
+        var result = await command.ExecuteScalarAsync();
+        Assert.NotNull(result);
+        return string.Equals(Convert.ToString(result, System.Globalization.CultureInfo.InvariantCulture), "YES", StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task<bool> CheckConstraintExistsAsync(AppDbContext db, string tableName, string constraintName)

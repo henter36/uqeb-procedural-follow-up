@@ -347,65 +347,102 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
 
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
 
-        var part = await _db.FollowUpPrintJobParts
-            .Include(p => p.Job)
-            .FirstOrDefaultAsync(p => p.JobId == jobId && p.PartNumber == partNumber, cancellationToken)
-            ?? throw new InvalidOperationException("جزء مهمة الطباعة غير موجود.");
+        var part = await LoadPrintablePartAsync(jobId, partNumber, cancellationToken);
 
         if (part.Status == FollowUpPrintJobPartStatus.Printed)
-        {
-            var existing = await _db.FollowUpLetterPrintRecords.AsNoTracking()
-                .Where(r => r.BatchJobPartId == part.Id)
-                .ToListAsync(cancellationToken);
-            return existing.Select(MapRecord).ToList();
-        }
+            return await LoadExistingPrintRecordDtosAsync(part.Id, cancellationToken);
 
         if (part.Status is not (FollowUpPrintJobPartStatus.ReadyToPrint or FollowUpPrintJobPartStatus.PartiallyReady))
             throw new InvalidOperationException("جزء مهمة الطباعة غير جاهز للطباعة.");
 
+        var payloads = await LoadAssignedPayloadsAsync(part, cancellationToken);
+
+        var now = DateTime.UtcNow;
+        var records = CreatePrintRecords(payloads, part, jobId, currentUser.UserId, now);
+
+        _db.FollowUpLetterPrintRecords.AddRange(records);
+        ApplyPrintedPartState(part, partNumber, now);
+
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (IsPrintRecordDuplicate(ex))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            var existing = await LoadExistingPrintRecordDtosAsync(part.Id, cancellationToken);
+            if (existing.Count > 0)
+                return existing;
+
+            throw;
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        await WritePrintRequestAuditAsync(part, jobId, currentUser.UserId, records.Count);
+
+        return records.Select(MapRecord).ToList();
+    }
+
+    private async Task<FollowUpPrintJobPart> LoadPrintablePartAsync(
+        int jobId,
+        int partNumber,
+        CancellationToken cancellationToken) =>
+        await _db.FollowUpPrintJobParts
+            .Include(p => p.Job)
+            .FirstOrDefaultAsync(p => p.JobId == jobId && p.PartNumber == partNumber, cancellationToken)
+        ?? throw new InvalidOperationException("جزء مهمة الطباعة غير موجود.");
+
+    private async Task<List<FollowUpPrintJobPayload>> LoadAssignedPayloadsAsync(
+        FollowUpPrintJobPart part,
+        CancellationToken cancellationToken)
+    {
         var payloads = await _db.FollowUpPrintJobPayloads.AsNoTracking()
             .Where(p => p.PartId == part.Id && p.Status == FollowUpPrintJobPayloadStatus.Assigned)
             .OrderBy(p => p.PayloadOrdinal)
             .ToListAsync(cancellationToken);
 
-        if (payloads.Count == 0)
-            payloads = DeserializePayload(part.PayloadJson)
-                .Select(p => new FollowUpPrintJobPayload
-                {
-                    TransactionId = p.TransactionId,
-                    TargetDepartmentId = p.TargetDepartmentId,
-                    TargetEntityId = p.TargetEntityId,
-                    TargetEntityName = p.TargetEntityName,
-                    FollowUpSequence = p.FollowUpSequence,
-                    ResponseDeadlineDays = p.ResponseDeadlineDays,
-                    Status = FollowUpPrintJobPayloadStatus.Assigned,
-                })
-                .ToList();
+        return payloads.Count > 0 ? payloads : BuildFallbackPayloads(part.PayloadJson);
+    }
 
-        var now = DateTime.UtcNow;
-        var records = new List<FollowUpLetterPrintRecord>();
-
-        foreach (var payload in payloads)
-        {
-            records.Add(new FollowUpLetterPrintRecord
+    private static List<FollowUpPrintJobPayload> BuildFallbackPayloads(string payloadJson) =>
+        DeserializePayload(payloadJson)
+            .Select(p => new FollowUpPrintJobPayload
             {
-                TransactionId = payload.TransactionId,
-                TargetDepartmentId = payload.TargetDepartmentId,
-                TargetEntityId = payload.TargetEntityId,
-                TargetEntityNameSnapshot = payload.TargetEntityName,
-                TemplateId = part.Job.TemplateId,
-                FollowUpSequence = payload.FollowUpSequence,
-                ResponseDeadlineDays = payload.ResponseDeadlineDays ?? part.Job.ResponseDeadlineDays,
-                DocumentSnapshotJson = payload.SnapshotJson == "{}" ? null : payload.SnapshotJson,
-                PrintRequestedAt = now,
-                PrintRequestedById = currentUser.UserId,
-                BatchJobId = jobId,
-                BatchJobPartId = part.Id,
-                CreatedAt = now,
-            });
-        }
+                TransactionId = p.TransactionId,
+                TargetDepartmentId = p.TargetDepartmentId,
+                TargetEntityId = p.TargetEntityId,
+                TargetEntityName = p.TargetEntityName,
+                FollowUpSequence = p.FollowUpSequence,
+                ResponseDeadlineDays = p.ResponseDeadlineDays,
+                Status = FollowUpPrintJobPayloadStatus.Assigned,
+            })
+            .ToList();
 
-        _db.FollowUpLetterPrintRecords.AddRange(records);
+    private static List<FollowUpLetterPrintRecord> CreatePrintRecords(
+        IReadOnlyCollection<FollowUpPrintJobPayload> payloads,
+        FollowUpPrintJobPart part,
+        int jobId,
+        int userId,
+        DateTime now) =>
+        payloads.Select(payload => new FollowUpLetterPrintRecord
+        {
+            TransactionId = payload.TransactionId,
+            TargetDepartmentId = payload.TargetDepartmentId,
+            TargetEntityId = payload.TargetEntityId,
+            TargetEntityNameSnapshot = payload.TargetEntityName,
+            TemplateId = part.Job.TemplateId,
+            FollowUpSequence = payload.FollowUpSequence,
+            ResponseDeadlineDays = payload.ResponseDeadlineDays ?? part.Job.ResponseDeadlineDays,
+            DocumentSnapshotJson = payload.SnapshotJson == "{}" ? null : payload.SnapshotJson,
+            PrintRequestedAt = now,
+            PrintRequestedById = userId,
+            BatchJobId = jobId,
+            BatchJobPartId = part.Id,
+            CreatedAt = now,
+        }).ToList();
+
+    private static void ApplyPrintedPartState(FollowUpPrintJobPart part, int partNumber, DateTime now)
+    {
         part.Status = FollowUpPrintJobPartStatus.Printed;
         part.PrintedAt = now;
         part.Job.PrintedParts += 1;
@@ -416,31 +453,45 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         else if (part.Job.PrintedParts > 0)
             part.Job.Status = FollowUpPrintJobStatus.PartiallyPrinted;
 
-        part.Job.CompletedAt = part.Job.Status == FollowUpPrintJobStatus.Completed ? now : part.Job.CompletedAt;
+        if (part.Job.Status == FollowUpPrintJobStatus.Completed)
+            part.Job.CompletedAt = now;
+    }
 
-        try
-        {
-            await _db.SaveChangesAsync(cancellationToken);
-        }
-        catch (DbUpdateException)
-        {
-            await transaction.RollbackAsync(cancellationToken);
-            var existing = await _db.FollowUpLetterPrintRecords.AsNoTracking()
-                .Where(r => r.BatchJobPartId == part.Id)
-                .ToListAsync(cancellationToken);
-            if (existing.Count > 0)
-                return existing.Select(MapRecord).ToList();
-            throw;
-        }
+    private async Task<List<FollowUpLetterPrintRecordDto>> LoadExistingPrintRecordDtosAsync(
+        int partId,
+        CancellationToken cancellationToken)
+    {
+        var existing = await _db.FollowUpLetterPrintRecords.AsNoTracking()
+            .Where(r => r.BatchJobPartId == partId)
+            .ToListAsync(cancellationToken);
 
-        await transaction.CommitAsync(cancellationToken);
-        await FollowUpPrintAuditWriter.LogPartPrintRequestedAsync(_audit, currentUser.UserId, part.Id, jobId, $"records={records.Count}");
+        return existing.Select(MapRecord).ToList();
+    }
+
+    private async Task WritePrintRequestAuditAsync(
+        FollowUpPrintJobPart part,
+        int jobId,
+        int userId,
+        int recordsCount)
+    {
+        await FollowUpPrintAuditWriter.LogPartPrintRequestedAsync(
+            _audit,
+            userId,
+            part.Id,
+            jobId,
+            $"records={recordsCount}");
 
         if (part.Job.Status == FollowUpPrintJobStatus.Completed)
-            await FollowUpPrintAuditWriter.LogJobCompletedAsync(_audit, currentUser.UserId, jobId, $"printedParts={part.Job.PrintedParts}");
-
-        return records.Select(MapRecord).ToList();
+            await FollowUpPrintAuditWriter.LogJobCompletedAsync(
+                _audit,
+                userId,
+                jobId,
+                $"printedParts={part.Job.PrintedParts}");
     }
+
+    private static bool IsPrintRecordDuplicate(DbUpdateException ex) =>
+        SqlExceptionHelper.IsDuplicateKey(ex, "IX_FollowUpLetterPrintRecords_Part_Tx_Dept_Seq") ||
+        SqlExceptionHelper.IsDuplicateKey(ex, "IX_FollowUpLetterPrintRecords_Part_Tx_Entity_Seq");
 
     public async Task<string?> GetPartPrintViewHtmlAsync(
         int jobId,

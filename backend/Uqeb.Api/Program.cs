@@ -2,7 +2,6 @@ using System.IO.Compression;
 using System.Text;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
@@ -12,7 +11,6 @@ using Uqeb.Api.Authorization;
 using Uqeb.Api.Configuration;
 using Uqeb.Api.Data;
 using Uqeb.Api.Helpers;
-using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Middleware;
 using Uqeb.Api.HostedServices;
 using Uqeb.Api.Reporting.Exporters;
@@ -50,15 +48,7 @@ builder.Services.AddOptions<DatabaseStartupOptions>()
         return true;
     }, "DatabaseStartup configuration is invalid.")
     .ValidateOnStart();
-builder.Services.AddOptions<FollowUpLettersOptions>()
-    .Bind(builder.Configuration.GetSection(FollowUpLettersOptions.SectionName))
-    .Validate(o =>
-    {
-        o.Validate();
-        return true;
-    }, "FollowUpLetters configuration is invalid.")
-    .ValidateOnStart();
-builder.Services.Configure<OrganizationBrandingOptions>(builder.Configuration.GetSection(OrganizationBrandingOptions.SectionName));
+builder.Services.AddFollowUpLetterOptions(builder.Configuration);
 
 var useInMemoryDatabase = builder.Configuration.GetValue<bool>("Testing:UseInMemoryDatabase");
 if (!useInMemoryDatabase)
@@ -106,19 +96,8 @@ builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IDepartmentService, DepartmentService>();
 builder.Services.AddScoped<IExternalPartyService, ExternalPartyService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
-builder.Services.AddScoped<ILetterTemplateService, LetterTemplateService>();
-builder.Services.AddScoped<ILetterTemplateAdminService, LetterTemplateAdminService>();
-builder.Services.AddSingleton<IOrganizationBrandLogoProvider, OrganizationBrandLogoProvider>();
-builder.Services.AddScoped<IFollowUpLetterTimeZone, FollowUpLetterTimeZone>();
-builder.Services.AddScoped<IFollowUpLetterDocumentBuilder, FollowUpLetterDocumentBuilder>();
-builder.Services.AddScoped<IFollowUpLetterRenderService, FollowUpLetterRenderService>();
-builder.Services.AddScoped<IFollowUpPrintEligibilityService, FollowUpPrintEligibilityService>();
-builder.Services.AddScoped<IFollowUpPrintAccessService, FollowUpPrintAccessService>();
-builder.Services.AddScoped<IFollowUpPrintJobService, FollowUpPrintJobService>();
-builder.Services.AddScoped<IFollowUpLetterPrintRecordService, FollowUpLetterPrintRecordService>();
+builder.Services.AddFollowUpLetterServices();
 builder.Services.AddScoped<IUserNotificationService, UserNotificationService>();
-builder.Services.AddSingleton<IFollowUpLetterPdfExporter, FollowUpLetterPdfExporter>();
-builder.Services.AddHostedService<FollowUpPrintJobProcessorHostedService>();
 builder.Services.AddScoped<ISecurityAuditService, SecurityAuditService>();
 builder.Services.AddScoped<IAuditIntegrityDiagnosticService, AuditIntegrityDiagnosticService>();
 builder.Services.AddScoped<IHealthDatabaseProbe, DbContextHealthDatabaseProbe>();
@@ -152,34 +131,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
-builder.Services.AddAuthorization(options =>
-{
-    options.AddPolicy(Policies.AdminOnly, p => p.RequireRole(UserRole.Admin.ToString()));
-    options.AddPolicy(Policies.SupervisorOrAdmin, p => p.RequireRole(
-        UserRole.Admin.ToString(), UserRole.Supervisor.ToString()));
-    options.AddPolicy(Policies.CanEditTransactions, p => p.RequireRole(
-        UserRole.Admin.ToString(), UserRole.Supervisor.ToString(), UserRole.DataEntry.ToString()));
-    options.AddPolicy(Policies.CanCloseTransactions, p => p.RequireRole(
-        UserRole.Admin.ToString(), UserRole.Supervisor.ToString()));
-    options.AddPolicy(Policies.CanManageUsers, p => p.RequireRole(UserRole.Admin.ToString()));
-    options.AddPolicy(Policies.ManageLetterTemplates, p => p.RequireRole(
-        UserRole.Admin.ToString(), UserRole.Supervisor.ToString()));
-    options.AddPolicy(Policies.CreateFollowUpPrintJob, p => p.RequireRole(
-        UserRole.Admin.ToString(), UserRole.Supervisor.ToString()));
-    options.AddPolicy(Policies.ViewFollowUpPrintJobs, p => p.RequireRole(
-        UserRole.Admin.ToString(), UserRole.Supervisor.ToString(),
-        UserRole.DataEntry.ToString(), UserRole.DepartmentUser.ToString()));
-    options.AddPolicy(Policies.CancelFollowUpPrintJob, p => p.RequireRole(
-        UserRole.Admin.ToString(), UserRole.Supervisor.ToString()));
-    options.AddPolicy(Policies.RetryFollowUpPrintJob, p => p.RequireRole(
-        UserRole.Admin.ToString(), UserRole.Supervisor.ToString()));
-    options.AddPolicy(Policies.PrintFollowUpLetters, p => p.RequireRole(
-        UserRole.Admin.ToString(), UserRole.Supervisor.ToString(), UserRole.DataEntry.ToString()));
-    options.AddPolicy(Policies.RegisterPrintedFollowUp, p => p.RequireRole(
-        UserRole.Admin.ToString(), UserRole.Supervisor.ToString(), UserRole.DataEntry.ToString()));
-    options.AddPolicy(Policies.CancelFollowUpPrintRecord, p => p.RequireRole(
-        UserRole.Admin.ToString(), UserRole.Supervisor.ToString()));
-});
+builder.Services.AddUqebAuthorizationPolicies();
 
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<ICacheInvalidationService, CacheInvalidationService>();
@@ -195,32 +147,7 @@ builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
 builder.Services.Configure<GzipCompressionProviderOptions>(options =>
     options.Level = CompressionLevel.Fastest);
 builder.Services.AddControllers()
-    .ConfigureApiBehaviorOptions(options =>
-    {
-        options.InvalidModelStateResponseFactory = context =>
-        {
-            var messages = context.ModelState
-                .SelectMany(entry => entry.Value?.Errors ?? [])
-                .Select(error => error.ErrorMessage)
-                .Where(message => !string.IsNullOrWhiteSpace(message))
-                .Select(message =>
-                    message.Contains("LetterTemplateType", StringComparison.OrdinalIgnoreCase) ||
-                    message.Contains("نوع القالب غير معروف", StringComparison.OrdinalIgnoreCase)
-                        ? "نوع القالب غير معروف. استخدم إحدى القيم النصية المعتمدة مثل FollowUp أو FirstFollowUp."
-                        : message)
-                .Where(message =>
-                    !message.Contains("The request field is required", StringComparison.OrdinalIgnoreCase) &&
-                    !message.Contains("JSON value could not be converted", StringComparison.OrdinalIgnoreCase) &&
-                    !message.Contains("$.", StringComparison.OrdinalIgnoreCase))
-                .Distinct()
-                .ToList();
-
-            if (messages.Count == 0)
-                messages.Add("البيانات المرسلة غير صحيحة. راجع الحقول وحاول مرة أخرى.");
-
-            return new BadRequestObjectResult(new { message = messages[0], errors = messages });
-        };
-    });
+    .ConfigureApiBehaviorOptions(options => options.ConfigureUqebApiBehavior());
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;

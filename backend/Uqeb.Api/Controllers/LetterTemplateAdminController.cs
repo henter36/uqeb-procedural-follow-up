@@ -12,16 +12,13 @@ namespace Uqeb.Api.Controllers;
 public class LetterTemplateAdminController : ControllerBase
 {
     private readonly ILetterTemplateAdminService _admin;
-    private readonly IFollowUpLetterRenderService _render;
     private readonly ICurrentUserService _currentUser;
 
     public LetterTemplateAdminController(
         ILetterTemplateAdminService admin,
-        IFollowUpLetterRenderService render,
         ICurrentUserService currentUser)
     {
         _admin = admin;
-        _render = render;
         _currentUser = currentUser;
     }
 
@@ -147,32 +144,6 @@ public class LetterTemplateAdminController : ControllerBase
             return NoContent();
         }
         catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
-    }
-
-    [HttpPost("validate")]
-    [Authorize(Policy = Policies.ManageLetterTemplates)]
-    public IActionResult Validate([FromBody] UpdateLetterTemplateRequest request)
-    {
-        return Ok(_admin.ValidateContent(request.Content));
-    }
-
-    [HttpPost("preview")]
-    [Authorize(Policy = Policies.ManageLetterTemplates)]
-    public async Task<IActionResult> Preview([FromBody] LetterTemplatePreviewRequest request, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var html = await _render.GenerateTemplatePreviewHtmlAsync(request, cancellationToken);
-            return Ok(new LetterTemplatePreviewResponse { Html = html });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
-        catch (ArgumentException ex)
         {
             return BadRequest(new { message = ex.Message });
         }

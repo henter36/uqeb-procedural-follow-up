@@ -147,6 +147,7 @@ public class FollowUpPrintAuditTests
         var service = new FollowUpLetterPrintRecordService(
             db,
             new FixedTimeZone(new DateTime(2025, 6, 25)),
+            new StubRenderService(),
             LettersTestInfrastructure.CreateOptions(),
             audit);
 

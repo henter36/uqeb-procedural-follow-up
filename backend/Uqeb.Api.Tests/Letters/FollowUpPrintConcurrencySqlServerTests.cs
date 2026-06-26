@@ -383,6 +383,7 @@ public class FollowUpPrintConcurrencySqlServerTests
                 var service = new FollowUpLetterPrintRecordService(
                     db,
                     new FixedTimeZone(DateTime.UtcNow.Date),
+                    new StubRenderService(),
                     Options.Create(new FollowUpLettersOptions()),
                     new NoOpAuditService());
 
