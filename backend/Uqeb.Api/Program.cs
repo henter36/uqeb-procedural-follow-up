@@ -10,8 +10,9 @@ using Microsoft.IdentityModel.Tokens;
 using Uqeb.Api.Authorization;
 using Uqeb.Api.Configuration;
 using Uqeb.Api.Data;
-using Uqeb.Api.Models.Enums;
+using Uqeb.Api.Helpers;
 using Uqeb.Api.Middleware;
+using Uqeb.Api.HostedServices;
 using Uqeb.Api.Reporting.Exporters;
 using Uqeb.Api.Reporting.Configuration;
 using Uqeb.Api.Reporting.Operations;
@@ -47,6 +48,7 @@ builder.Services.AddOptions<DatabaseStartupOptions>()
         return true;
     }, "DatabaseStartup configuration is invalid.")
     .ValidateOnStart();
+builder.Services.AddFollowUpLetterOptions(builder.Configuration);
 
 var useInMemoryDatabase = builder.Configuration.GetValue<bool>("Testing:UseInMemoryDatabase");
 if (!useInMemoryDatabase)
@@ -94,7 +96,8 @@ builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IDepartmentService, DepartmentService>();
 builder.Services.AddScoped<IExternalPartyService, ExternalPartyService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
-builder.Services.AddScoped<ILetterTemplateService, LetterTemplateService>();
+builder.Services.AddFollowUpLetterServices();
+builder.Services.AddScoped<IUserNotificationService, UserNotificationService>();
 builder.Services.AddScoped<ISecurityAuditService, SecurityAuditService>();
 builder.Services.AddScoped<IAuditIntegrityDiagnosticService, AuditIntegrityDiagnosticService>();
 builder.Services.AddScoped<IHealthDatabaseProbe, DbContextHealthDatabaseProbe>();
@@ -128,17 +131,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
-builder.Services.AddAuthorization(options =>
-{
-    options.AddPolicy(Policies.AdminOnly, p => p.RequireRole(UserRole.Admin.ToString()));
-    options.AddPolicy(Policies.SupervisorOrAdmin, p => p.RequireRole(
-        UserRole.Admin.ToString(), UserRole.Supervisor.ToString()));
-    options.AddPolicy(Policies.CanEditTransactions, p => p.RequireRole(
-        UserRole.Admin.ToString(), UserRole.Supervisor.ToString(), UserRole.DataEntry.ToString()));
-    options.AddPolicy(Policies.CanCloseTransactions, p => p.RequireRole(
-        UserRole.Admin.ToString(), UserRole.Supervisor.ToString()));
-    options.AddPolicy(Policies.CanManageUsers, p => p.RequireRole(UserRole.Admin.ToString()));
-});
+builder.Services.AddUqebAuthorizationPolicies();
 
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<ICacheInvalidationService, CacheInvalidationService>();
@@ -153,7 +146,8 @@ builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
     options.Level = CompressionLevel.Fastest);
 builder.Services.Configure<GzipCompressionProviderOptions>(options =>
     options.Level = CompressionLevel.Fastest);
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .ConfigureApiBehaviorOptions(options => options.ConfigureUqebApiBehavior());
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;

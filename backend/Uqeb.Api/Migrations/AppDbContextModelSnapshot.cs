@@ -370,6 +370,417 @@ namespace Uqeb.Api.Migrations
                     b.ToTable("FollowUpDepartments");
                 });
 
+            modelBuilder.Entity("Uqeb.Api.Models.Entities.FollowUpLetterPrintRecord", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("BatchJobId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("BatchJobPartId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("CancellationReason")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("CancelledById")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DocumentSnapshotJson")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("FollowUpSequence")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsCancelled")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("PrintConfirmedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("PrintConfirmedById")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("PrintRequestedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("PrintRequestedById")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("RegisteredAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("RegisteredFollowUpId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ReprintOfId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ResponseDeadlineDays")
+                        .HasColumnType("int");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<int?>("TargetDepartmentId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("TargetEntityId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TargetEntityNameSnapshot")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("TemplateId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TransactionId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BatchJobId");
+
+                    b.HasIndex("CancelledById");
+
+                    b.HasIndex("PrintConfirmedById");
+
+                    b.HasIndex("PrintRequestedById");
+
+                    b.HasIndex("RegisteredFollowUpId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_FollowUpLetterPrintRecords_RegisteredFollowUpId_Linked")
+                        .HasFilter("[RegisteredFollowUpId] IS NOT NULL");
+
+                    b.HasIndex("ReprintOfId");
+
+                    b.HasIndex("TargetDepartmentId");
+
+                    b.HasIndex("TargetEntityId");
+
+                    b.HasIndex("TemplateId");
+
+                    b.HasIndex("TransactionId", "PrintRequestedAt");
+
+                    b.HasIndex("BatchJobPartId", "TransactionId", "TargetDepartmentId", "FollowUpSequence")
+                        .IsUnique()
+                        .HasDatabaseName("IX_FollowUpLetterPrintRecords_Part_Tx_Dept_Seq")
+                        .HasFilter("[BatchJobPartId] IS NOT NULL AND [TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NULL");
+
+                    b.HasIndex("BatchJobPartId", "TransactionId", "TargetEntityId", "FollowUpSequence")
+                        .IsUnique()
+                        .HasDatabaseName("IX_FollowUpLetterPrintRecords_Part_Tx_Entity_Seq")
+                        .HasFilter("[BatchJobPartId] IS NOT NULL AND [TargetEntityId] IS NOT NULL AND [TargetDepartmentId] IS NULL");
+
+                    b.ToTable("FollowUpLetterPrintRecords", t =>
+                    {
+                        t.HasCheckConstraint("CK_FollowUpLetterPrintRecords_TargetShape", "NOT ([TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NOT NULL)");
+                    });
+                });
+
+            modelBuilder.Entity("Uqeb.Api.Models.Entities.FollowUpPrintIdempotencyKey", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("Operation")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<int?>("ResultId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Operation", "Key")
+                        .IsUnique();
+
+                    b.ToTable("FollowUpPrintIdempotencyKeys");
+                });
+
+            modelBuilder.Entity("Uqeb.Api.Models.Entities.FollowUpPrintJob", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BatchSize")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("CurrentPart")
+                        .HasColumnType("int");
+
+                    b.Property<int>("DaysSinceLastFollowUp")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("ExcludeRecentlyPrinted")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("FailedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("FailedLetters")
+                        .HasColumnType("int");
+
+                    b.Property<string>("FailureReason")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("FilterSnapshotJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("LeaseExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LeaseOwner")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("NextPayloadOrdinal")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PrintedLetterExclusionDays")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PrintedParts")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ProcessedLetters")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("ReadyAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("ReadyLetters")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ReadyParts")
+                        .HasColumnType("int");
+
+                    b.Property<int>("RequestedById")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ResponseDeadlineDays")
+                        .HasColumnType("int");
+
+                    b.Property<int>("RetryCount")
+                        .HasColumnType("int");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<int>("SkippedLetters")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ScopeDepartmentId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TemplateId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TotalLetters")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TotalParts")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TotalTransactions")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RequestedById");
+
+                    b.HasIndex("ScopeDepartmentId");
+
+                    b.HasIndex("TemplateId");
+
+                    b.HasIndex("Status", "CreatedAt");
+
+                    b.ToTable("FollowUpPrintJobs");
+                });
+
+            modelBuilder.Entity("Uqeb.Api.Models.Entities.FollowUpPrintJobPart", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("EstimatedPages")
+                        .HasColumnType("int");
+
+                    b.Property<string>("FailureReason")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("JobId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("LetterCount")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PartNumber")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("PrintedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("ReadyAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JobId", "PartNumber")
+                        .IsUnique();
+
+                    b.ToTable("FollowUpPrintJobParts");
+                });
+
+            modelBuilder.Entity("Uqeb.Api.Models.Entities.FollowUpPrintJobPayload", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("FailureReason")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("FollowUpSequence")
+                        .HasColumnType("int");
+
+                    b.Property<int>("JobId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("PartId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PayloadOrdinal")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ResponseDeadlineDays")
+                        .HasColumnType("int");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<string>("SnapshotJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("TargetDepartmentId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("TargetEntityId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TargetEntityName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("TransactionId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PartId");
+
+                    b.HasIndex("JobId", "PayloadOrdinal")
+                        .IsUnique();
+
+                    b.HasIndex("JobId", "TransactionId", "TargetDepartmentId", "FollowUpSequence")
+                        .IsUnique()
+                        .HasDatabaseName("IX_FollowUpPrintJobPayloads_JobId_Tx_Dept_Seq")
+                        .HasFilter("[TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NULL");
+
+                    b.HasIndex("JobId", "TransactionId", "TargetEntityId", "FollowUpSequence")
+                        .IsUnique()
+                        .HasDatabaseName("IX_FollowUpPrintJobPayloads_JobId_Tx_Entity_Seq")
+                        .HasFilter("[TargetEntityId] IS NOT NULL AND [TargetDepartmentId] IS NULL");
+
+                    b.ToTable("FollowUpPrintJobPayloads", t =>
+                    {
+                        t.HasCheckConstraint("CK_FollowUpPrintJobPayloads_TargetShape", "([TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NULL) OR ([TargetEntityId] IS NOT NULL AND [TargetDepartmentId] IS NULL)");
+                    });
+                });
+
             modelBuilder.Entity("Uqeb.Api.Models.Entities.FollowUpRecipient", b =>
                 {
                     b.Property<int>("Id")
@@ -413,22 +824,57 @@ namespace Uqeb.Api.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<int?>("CreatedById")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsDefault")
                         .HasColumnType("bit");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TemplateType")
+                        .HasColumnType("int");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<int?>("UpdatedById")
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("LetterTemplates");
+                    b.HasIndex("CreatedById");
+
+                    b.HasIndex("TemplateType")
+                        .IsUnique()
+                        .HasFilter("[IsDefault] = 1");
+
+                    b.HasIndex("UpdatedById");
+
+                    b.ToTable("LetterTemplates", t =>
+                        {
+                            t.HasCheckConstraint("CK_LetterTemplates_DefaultRequiresActive", "[IsDefault] = 0 OR [IsActive] = 1");
+                        });
                 });
 
             modelBuilder.Entity("Uqeb.Api.Models.Entities.LoginAttemptLog", b =>
@@ -859,6 +1305,45 @@ namespace Uqeb.Api.Migrations
                     b.ToTable("Users");
                 });
 
+            modelBuilder.Entity("Uqeb.Api.Models.Entities.UserNotification", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsRead")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Link")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "IsRead", "CreatedAt");
+
+                    b.ToTable("UserNotifications");
+                });
+
             modelBuilder.Entity("Uqeb.Api.Models.Entities.Assignment", b =>
                 {
                     b.HasOne("Uqeb.Api.Models.Entities.User", "CreatedBy")
@@ -969,6 +1454,148 @@ namespace Uqeb.Api.Migrations
                     b.Navigation("FollowUp");
                 });
 
+            modelBuilder.Entity("Uqeb.Api.Models.Entities.FollowUpLetterPrintRecord", b =>
+                {
+                    b.HasOne("Uqeb.Api.Models.Entities.FollowUpPrintJob", "BatchJob")
+                        .WithMany("PrintRecords")
+                        .HasForeignKey("BatchJobId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Uqeb.Api.Models.Entities.FollowUpPrintJobPart", "BatchJobPart")
+                        .WithMany()
+                        .HasForeignKey("BatchJobPartId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Uqeb.Api.Models.Entities.User", "CancelledBy")
+                        .WithMany()
+                        .HasForeignKey("CancelledById")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Uqeb.Api.Models.Entities.User", "PrintConfirmedBy")
+                        .WithMany()
+                        .HasForeignKey("PrintConfirmedById")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Uqeb.Api.Models.Entities.User", "PrintRequestedBy")
+                        .WithMany()
+                        .HasForeignKey("PrintRequestedById")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("Uqeb.Api.Models.Entities.FollowUp", "RegisteredFollowUp")
+                        .WithMany()
+                        .HasForeignKey("RegisteredFollowUpId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Uqeb.Api.Models.Entities.FollowUpLetterPrintRecord", "ReprintOf")
+                        .WithMany()
+                        .HasForeignKey("ReprintOfId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Uqeb.Api.Models.Entities.Department", "TargetDepartment")
+                        .WithMany()
+                        .HasForeignKey("TargetDepartmentId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Uqeb.Api.Models.Entities.ExternalParty", "TargetEntity")
+                        .WithMany()
+                        .HasForeignKey("TargetEntityId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Uqeb.Api.Models.Entities.LetterTemplate", "Template")
+                        .WithMany()
+                        .HasForeignKey("TemplateId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("Uqeb.Api.Models.Entities.Transaction", "Transaction")
+                        .WithMany()
+                        .HasForeignKey("TransactionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("BatchJob");
+
+                    b.Navigation("BatchJobPart");
+
+                    b.Navigation("CancelledBy");
+
+                    b.Navigation("PrintConfirmedBy");
+
+                    b.Navigation("PrintRequestedBy");
+
+                    b.Navigation("RegisteredFollowUp");
+
+                    b.Navigation("ReprintOf");
+
+                    b.Navigation("TargetDepartment");
+
+                    b.Navigation("TargetEntity");
+
+                    b.Navigation("Template");
+
+                    b.Navigation("Transaction");
+                });
+
+            modelBuilder.Entity("Uqeb.Api.Models.Entities.FollowUpPrintIdempotencyKey", b =>
+                {
+                    b.HasOne("Uqeb.Api.Models.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Uqeb.Api.Models.Entities.FollowUpPrintJob", b =>
+                {
+                    b.HasOne("Uqeb.Api.Models.Entities.User", "RequestedBy")
+                        .WithMany()
+                        .HasForeignKey("RequestedById")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("Uqeb.Api.Models.Entities.LetterTemplate", "Template")
+                        .WithMany()
+                        .HasForeignKey("TemplateId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("RequestedBy");
+
+                    b.Navigation("Template");
+                });
+
+            modelBuilder.Entity("Uqeb.Api.Models.Entities.FollowUpPrintJobPart", b =>
+                {
+                    b.HasOne("Uqeb.Api.Models.Entities.FollowUpPrintJob", "Job")
+                        .WithMany("Parts")
+                        .HasForeignKey("JobId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Job");
+                });
+
+            modelBuilder.Entity("Uqeb.Api.Models.Entities.FollowUpPrintJobPayload", b =>
+                {
+                    b.HasOne("Uqeb.Api.Models.Entities.FollowUpPrintJob", "Job")
+                        .WithMany("Payloads")
+                        .HasForeignKey("JobId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Uqeb.Api.Models.Entities.FollowUpPrintJobPart", "Part")
+                        .WithMany("Payloads")
+                        .HasForeignKey("PartId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.Navigation("Job");
+
+                    b.Navigation("Part");
+                });
+
             modelBuilder.Entity("Uqeb.Api.Models.Entities.FollowUpRecipient", b =>
                 {
                     b.HasOne("Uqeb.Api.Models.Entities.ExternalParty", "ExternalParty")
@@ -986,6 +1613,23 @@ namespace Uqeb.Api.Migrations
                     b.Navigation("ExternalParty");
 
                     b.Navigation("FollowUp");
+                });
+
+            modelBuilder.Entity("Uqeb.Api.Models.Entities.LetterTemplate", b =>
+                {
+                    b.HasOne("Uqeb.Api.Models.Entities.User", "CreatedBy")
+                        .WithMany()
+                        .HasForeignKey("CreatedById")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Uqeb.Api.Models.Entities.User", "UpdatedBy")
+                        .WithMany()
+                        .HasForeignKey("UpdatedById")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.Navigation("CreatedBy");
+
+                    b.Navigation("UpdatedBy");
                 });
 
             modelBuilder.Entity("Uqeb.Api.Models.Entities.ReportExportTemplate", b =>
@@ -1109,6 +1753,17 @@ namespace Uqeb.Api.Migrations
                     b.Navigation("Department");
                 });
 
+            modelBuilder.Entity("Uqeb.Api.Models.Entities.UserNotification", b =>
+                {
+                    b.HasOne("Uqeb.Api.Models.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("Uqeb.Api.Models.Entities.Category", b =>
                 {
                     b.Navigation("Transactions");
@@ -1132,6 +1787,20 @@ namespace Uqeb.Api.Migrations
                     b.Navigation("Departments");
 
                     b.Navigation("Recipients");
+                });
+
+            modelBuilder.Entity("Uqeb.Api.Models.Entities.FollowUpPrintJob", b =>
+                {
+                    b.Navigation("Parts");
+
+                    b.Navigation("Payloads");
+
+                    b.Navigation("PrintRecords");
+                });
+
+            modelBuilder.Entity("Uqeb.Api.Models.Entities.FollowUpPrintJobPart", b =>
+                {
+                    b.Navigation("Payloads");
                 });
 
             modelBuilder.Entity("Uqeb.Api.Models.Entities.Transaction", b =>

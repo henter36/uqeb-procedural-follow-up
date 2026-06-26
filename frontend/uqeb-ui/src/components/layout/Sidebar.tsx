@@ -5,6 +5,7 @@ import { APP_DISPLAY_NAME, APP_SUBTITLE } from '../../constants/app';
 import { isNavActive, buildNavSections, type NavItem } from './navConfig';
 import { IconChevron } from '../ui/icons';
 import { getStorageItem, setStorageItem } from '../../utils/safeStorage';
+import { usePendingPrintSummary } from '../../hooks/usePendingPrintSummary';
 
 const SIDEBAR_KEY = 'uqeb-sidebar-collapsed';
 
@@ -17,6 +18,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const { isAdmin, canClose } = useAuth();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(() => getStorageItem(SIDEBAR_KEY) === 'true');
+  const { pendingTotal } = usePendingPrintSummary(canClose);
 
   useEffect(() => {
     setStorageItem(SIDEBAR_KEY, String(collapsed));
@@ -86,6 +88,9 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
                       <Icon width={18} height={18} />
                     </span>
                     <span className="sidebar-link-label">{item.label}</span>
+                    {item.badgeKey === 'pendingPrints' && pendingTotal > 0 && (
+                      <span className="sidebar-link-badge badge badge-orange">{pendingTotal}</span>
+                    )}
                   </Link>
                 );
               })}

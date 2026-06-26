@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type SyntheticEvent } from 'react';
 import type { Assignment, TransactionDetail } from '../../api/types';
-import { transactionsApi } from '../../api/services';
+import { followUpPrintApi, transactionsApi } from '../../api/services';
 import { resolveFollowUpLetterRecipient } from '../../utils/followUpLetter';
 import { getApiErrorMessage } from '../../utils/apiHelpers';
 import { downloadBlob } from '../../utils/downloadBlob';
+import { openHtmlPrintWindow } from '../../utils/followUpPrintWindow';
 import { Alert, LoadingInline } from '../ui';
+import { createIdempotencyKey } from '../../utils/createIdempotencyKey';
+import { usePendingPrintSummary } from '../../hooks/usePendingPrintSummary';
 
 type FollowUpLetterFormPanelProps = Readonly<{
   transactionId: number;
@@ -36,46 +39,75 @@ export default function FollowUpLetterFormPanel({
   const [recipient, setRecipient] = useState(defaultRecipient);
   const [letterBody, setLetterBody] = useState('');
   const [loading, setLoading] = useState(true);
-  const [previewing, setPreviewing] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [printing, setPrinting] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [error, setError] = useState('');
   const baselineRef = useRef<LetterBaseline>({ recipient: defaultRecipient, letterBody: '' });
   const baselineReadyRef = useRef(false);
+  const previewDialogRef = useRef<HTMLDialogElement>(null);
+  const closePreviewButtonRef = useRef<HTMLButtonElement>(null);
+  const { refresh } = usePendingPrintSummary();
 
-  const syncDirtyState = useCallback(() => {
-    if (!baselineReadyRef.current) {
-      onDirtyChange(false);
-      return;
-    }
-    const baseline = baselineRef.current;
-    onDirtyChange(recipient !== baseline.recipient || letterBody !== baseline.letterBody);
-  }, [letterBody, onDirtyChange, recipient]);
+  const closePreview = useCallback(() => {
+    setPreviewOpen(false);
+  }, []);
+
+  const handlePreviewDialogCancel = useCallback((event: SyntheticEvent) => {
+    event.preventDefault();
+    closePreview();
+  }, [closePreview]);
 
   useEffect(() => {
-    syncDirtyState();
-  }, [syncDirtyState]);
+    const dialog = previewDialogRef.current;
+    if (!dialog) return;
+    if (previewOpen && !dialog.open) {
+      dialog.showModal();
+      closePreviewButtonRef.current?.focus();
+    } else if (!previewOpen && dialog.open) {
+      dialog.close();
+    }
+  }, [previewOpen]);
 
-  const applyPreviewResult = (content: string, targetEntity?: string) => {
-    setLetterBody(content);
-    if (targetEntity) setRecipient(targetEntity);
-  };
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      await Promise.resolve();
+      if (cancelled) return;
+      if (!baselineReadyRef.current) {
+        onDirtyChange(false);
+        return;
+      }
+      onDirtyChange(
+        recipient !== baselineRef.current.recipient || letterBody !== baselineRef.current.letterBody,
+      );
+    })().catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [recipient, letterBody, onDirtyChange]);
 
-  const loadPreview = useCallback(async (targetEntity?: string, keepEditedContent = false) => {
+  const regenerateFromTemplate = useCallback(async () => {
     setError('');
-    setPreviewing(true);
+    setRegenerating(true);
     try {
       const res = await transactionsApi.previewFollowUpLetter(transactionId, {
-        targetEntity: targetEntity ?? recipient,
-        ...(keepEditedContent && letterBody.trim() ? { content: letterBody } : {}),
+        targetEntity: recipient,
       });
-      applyPreviewResult(res.data.content, res.data.targetEntity);
+      const nextRecipient = res.data.targetEntity ?? recipient;
+      const nextBody = res.data.content;
+      setRecipient(nextRecipient);
+      setLetterBody(nextBody);
+      baselineRef.current = { recipient: nextRecipient, letterBody: nextBody };
+      baselineReadyRef.current = true;
+      onDirtyChange(false);
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
     } finally {
-      setPreviewing(false);
-      setLoading(false);
+      setRegenerating(false);
     }
-  }, [transactionId, recipient, letterBody]);
+  }, [onDirtyChange, recipient, transactionId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -106,6 +138,17 @@ export default function FollowUpLetterFormPanel({
     return () => { cancelled = true; };
   }, [transactionId, defaultRecipient, onDirtyChange]);
 
+  const handleRegenerateClick = () => {
+    const dirty = baselineReadyRef.current
+      && (recipient !== baselineRef.current.recipient || letterBody !== baselineRef.current.letterBody);
+    if (dirty && !globalThis.confirm('سيتم استبدال التعديلات الحالية بنص جديد من القالب. هل تريد المتابعة؟')) {
+      return;
+    }
+    regenerateFromTemplate().catch((err: unknown) => {
+      setError(getApiErrorMessage(err));
+    });
+  };
+
   const handleDownload = async () => {
     setError('');
     setDownloading(true);
@@ -123,6 +166,30 @@ export default function FollowUpLetterFormPanel({
       setError(getApiErrorMessage(err));
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const handleDirectPrint = async () => {
+    if (printing) return;
+    setError('');
+    setPrinting(true);
+    try {
+      await followUpPrintApi.registerDirectPrintRequest(transactionId, {
+        targetEntityName: recipient,
+        followUpSequence: (tx.followUps?.length ?? 0) + 1,
+        responseDeadlineDays: tx.responseDueDays,
+        idempotencyKey: createIdempotencyKey(),
+      });
+      const res = await followUpPrintApi.getTransactionPrintView(transactionId, {
+        targetEntity: recipient,
+        content: letterBody,
+      });
+      openHtmlPrintWindow(res.data);
+      await refresh();
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err));
+    } finally {
+      setPrinting(false);
     }
   };
 
@@ -154,14 +221,63 @@ export default function FollowUpLetterFormPanel({
       </div>
       {error && <Alert variant="error">{error}</Alert>}
       <div className="form-actions">
-        <button type="button" className="btn btn-secondary" disabled={previewing} onClick={() => loadPreview(recipient, false)}>
-          {previewing ? 'جاري المعاينة...' : 'معاينة'}
+        <button
+          type="button"
+          className="btn btn-secondary"
+          disabled={!letterBody.trim()}
+          onClick={() => setPreviewOpen(true)}
+        >
+          معاينة
         </button>
-        <button type="button" className="btn btn-primary" disabled={downloading || !letterBody.trim()} onClick={handleDownload}>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          disabled={regenerating}
+          onClick={handleRegenerateClick}
+        >
+          {regenerating ? 'جاري التوليد...' : 'إعادة توليد النص من القالب'}
+        </button>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          disabled={printing || !letterBody.trim()}
+          onClick={() => { handleDirectPrint().catch(() => undefined); }}
+        >
+          {printing ? 'جاري التحضير...' : 'طباعة مباشرة'}
+        </button>
+        <button type="button" className="btn btn-primary" disabled={downloading || !letterBody.trim()} onClick={() => { handleDownload().catch(() => undefined); }}>
           {downloading ? 'جاري التحميل...' : 'تحميل PDF'}
         </button>
         <button type="button" className="btn btn-outline" onClick={onCancel}>إلغاء</button>
       </div>
+
+      <dialog
+        ref={previewDialogRef}
+        className="modal follow-up-letter-modal"
+        aria-labelledby="follow-up-preview-title"
+        onCancel={handlePreviewDialogCancel}
+        onClose={closePreview}
+      >
+        <h3 id="follow-up-preview-title">معاينة الخطاب</h3>
+        <div className="form-group">
+          <label htmlFor="follow-up-preview-recipient">الجهة</label>
+          <p id="follow-up-preview-recipient" className="preview-readonly">{recipient || '—'}</p>
+        </div>
+        <div className="form-group">
+          <label htmlFor="follow-up-preview-body">نص الخطاب</label>
+          <pre id="follow-up-preview-body" className="follow-up-letter-preview-body">{letterBody}</pre>
+        </div>
+        <div className="modal-actions">
+          <button
+            ref={closePreviewButtonRef}
+            type="button"
+            className="btn btn-outline"
+            onClick={closePreview}
+          >
+            إغلاق
+          </button>
+        </div>
+      </dialog>
     </div>
   );
 }

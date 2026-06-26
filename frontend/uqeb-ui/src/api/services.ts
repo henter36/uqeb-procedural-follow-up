@@ -3,7 +3,13 @@ import type {
   LoginResponse, TransactionListItem, TransactionDetail, PagedResult,
   DashboardSummary, Department, ExternalParty, User, FollowUp, Assignment, Category,
   ReportTransactionRow, ReportSectionCounts, LetterTemplate, FollowUpLetterPreview,
-  TransactionWorkspace,
+  TransactionWorkspace, LetterTemplateVariable, LetterTemplateValidationResult,
+  CreateLetterTemplateRequest, UpdateLetterTemplateRequest, LetterTemplateType,
+  LetterTemplatePreviewResponse, FollowUpPrintJobListStatusFilter,
+  FollowUpPrintFilter, PagedEligibleTransactions, FollowUpPrintEligibilityPreview,
+  CreateFollowUpPrintJobRequest, FollowUpPrintJob, PagedFollowUpPrintJobs,
+  FollowUpLetterPrintRecord, FollowUpPrintPendingSummary, FollowUpPrintRecordPrintView, UserNotification,
+  CreateDirectPrintRequest,
 } from './types';
 import type {
   InstitutionalReportManifest,
@@ -173,6 +179,74 @@ export const usersApi = {
 export const letterTemplatesApi = {
   getFollowUp: () => api.get<LetterTemplate>('/letter-templates/follow-up'),
   updateFollowUp: (content: string) => api.put<LetterTemplate>('/letter-templates/follow-up', { content }),
+  list: (params?: { type?: LetterTemplateType; active?: boolean; search?: string }) =>
+    api.get<LetterTemplate[]>('/letter-templates', { params }),
+  getById: (id: number) => api.get<LetterTemplate>(`/letter-templates/${id}`),
+  create: (data: CreateLetterTemplateRequest) => api.post<LetterTemplate>('/letter-templates', data),
+  update: (id: number, data: UpdateLetterTemplateRequest) =>
+    api.put<LetterTemplate>(`/letter-templates/${id}`, data),
+  copy: (id: number) => api.post<LetterTemplate>(`/letter-templates/${id}/copy`),
+  setDefault: (id: number) => api.post<LetterTemplate>(`/letter-templates/${id}/set-default`),
+  activate: (id: number) => api.patch<LetterTemplate>(`/letter-templates/${id}/activate`),
+  deactivate: (id: number) => api.patch<LetterTemplate>(`/letter-templates/${id}/deactivate`),
+  delete: (id: number, replacementDefaultId?: number) =>
+    api.delete(`/letter-templates/${id}`, { params: { replacementDefaultId } }),
+  validate: (content: string) =>
+    api.post<LetterTemplateValidationResult>('/letter-templates/validate', { content }),
+  preview: (data: CreateLetterTemplateRequest) =>
+    api.post<LetterTemplatePreviewResponse>('/letter-templates/preview', data),
+  getVariables: () => api.get<LetterTemplateVariable[]>('/letter-templates/variables'),
+};
+
+export const followUpPrintApi = {
+  getEligible: (params?: FollowUpPrintFilter) =>
+    api.get<PagedEligibleTransactions>('/follow-up-print/eligible', { params }),
+  getPendingSummary: () => api.get<FollowUpPrintPendingSummary>('/follow-up-print/pending-summary'),
+  getPending: (params?: { page?: number; pageSize?: number }) =>
+    api.get<FollowUpLetterPrintRecord[]>('/follow-up-print/pending', { params }),
+  previewJob: (data: CreateFollowUpPrintJobRequest) =>
+    api.post<FollowUpPrintEligibilityPreview>('/follow-up-print/jobs/preview', data),
+  createJob: (data: CreateFollowUpPrintJobRequest) =>
+    api.post<FollowUpPrintJob>('/follow-up-print/jobs', data),
+  listJobs: (params?: { page?: number; pageSize?: number; status?: FollowUpPrintJobListStatusFilter }) =>
+    api.get<PagedFollowUpPrintJobs>('/follow-up-print/jobs', { params }),
+  getJob: (id: number) => api.get<FollowUpPrintJob>(`/follow-up-print/jobs/${id}`),
+  cancelJob: (id: number) => api.post<FollowUpPrintJob>(`/follow-up-print/jobs/${id}/cancel`),
+  retryJob: (id: number) => api.post<FollowUpPrintJob>(`/follow-up-print/jobs/${id}/retry`),
+  getPartPrintView: (jobId: number, partNumber: number) =>
+    api.get<string>(`/follow-up-print/jobs/${jobId}/parts/${partNumber}/print-view`, {
+      responseType: 'text',
+      headers: { Accept: 'text/html' },
+    }),
+  markPartPrintRequested: (jobId: number, partNumber: number) =>
+    api.post<FollowUpLetterPrintRecord[]>(
+      `/follow-up-print/jobs/${jobId}/parts/${partNumber}/mark-print-requested`,
+    ),
+  getTransactionPrintView: (
+    transactionId: number,
+    data?: { targetEntity?: string; content?: string; templateId?: number },
+  ) =>
+    api.post<string>(`/follow-up-print/transactions/${transactionId}/print-view`, data ?? {}, {
+      responseType: 'text',
+      headers: { Accept: 'text/html' },
+    }),
+  registerDirectPrintRequest: (transactionId: number, data: CreateDirectPrintRequest) =>
+    api.post<FollowUpLetterPrintRecord>(`/follow-up-print/transactions/${transactionId}/print-requests`, data),
+  confirmRecord: (id: number) => api.post<FollowUpLetterPrintRecord>(`/follow-up-print/records/${id}/confirm`),
+  getRecordPrintView: (id: number) =>
+    api.get<FollowUpPrintRecordPrintView>(`/follow-up-print/records/${id}/print-view`),
+  cancelRecord: (id: number, reason: string) =>
+    api.post<FollowUpLetterPrintRecord>(`/follow-up-print/records/${id}/cancel`, { reason }),
+  linkFollowUp: (id: number, followUpId: number) =>
+    api.post<FollowUpLetterPrintRecord>(`/follow-up-print/records/${id}/link-follow-up`, { followUpId }),
+  reprintRecord: (id: number, idempotencyKey?: string) =>
+    api.post<FollowUpLetterPrintRecord>(`/follow-up-print/records/${id}/reprint`, { idempotencyKey }),
+};
+
+export const notificationsApi = {
+  list: (params?: { unreadOnly?: boolean; since?: string }) =>
+    api.get<UserNotification[]>('/notifications', { params }),
+  markRead: (id: number) => api.post<UserNotification>(`/notifications/${id}/read`),
 };
 
 export const securityApi = {

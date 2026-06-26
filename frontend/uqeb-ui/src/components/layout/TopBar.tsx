@@ -1,7 +1,8 @@
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/useAuth';
 import { roleLabels } from '../../utils/labels';
 import { getRouteMeta } from './navConfig';
+import { usePendingPrintSummary } from '../../hooks/usePendingPrintSummary';
 import Breadcrumbs from '../ui/Breadcrumbs';
 import { IconMenu } from '../ui/icons';
 
@@ -17,10 +18,11 @@ function getInitials(name: string): string {
 }
 
 export default function TopBar({ onMenuToggle, mobileOpen = false }: TopBarProps) {
-  const { user, logout } = useAuth();
+  const { user, logout, canClose } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const meta = getRouteMeta(location.pathname, location.search);
+  const { pendingTotal } = usePendingPrintSummary(canClose);
 
   const handleLogout = () => {
     logout();
@@ -44,6 +46,12 @@ export default function TopBar({ onMenuToggle, mobileOpen = false }: TopBarProps
       </div>
 
       <div className="topbar-end">
+        {canClose && pendingTotal > 0 && (
+          <Link to="/follow-up-print/pending" className="topbar-pending-badge" title="خطابات بانتظار التسجيل">
+            <span className="badge badge-orange">{pendingTotal}</span>
+            <span className="topbar-pending-label">بانتظار التسجيل</span>
+          </Link>
+        )}
         {user?.departmentName && (
           <span className="text-muted topbar-dept">{user.departmentName}</span>
         )}

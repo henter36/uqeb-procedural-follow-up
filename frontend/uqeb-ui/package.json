@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "lint:css": "stylelint \"src/styles/institutional-report/report.css\" \"../../backend/Uqeb.Api/Reporting/Rendering/institutional-report.css\"",
+    "lint:css": "stylelint \"src/**/*.css\" \"../../backend/Uqeb.Api/Reporting/Rendering/institutional-report.css\"",
     "preview": "vite preview",
     "test": "vitest run"
   },

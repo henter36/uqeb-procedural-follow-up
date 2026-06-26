@@ -9,26 +9,26 @@ namespace Uqeb.Api.Controllers;
 [ApiController]
 [Route("api/letter-templates")]
 [Authorize]
-public class LetterTemplatesController : ControllerBase
+public class FollowUpLetterTemplateAdminController : ControllerBase
 {
-    private readonly ILetterTemplateService _templates;
+    private readonly ILetterTemplateAdminService _admin;
+    private readonly ICurrentUserService _currentUser;
 
-    public LetterTemplatesController(ILetterTemplateService templates) => _templates = templates;
-
-    [HttpGet("follow-up")]
-    public async Task<IActionResult> GetFollowUp()
+    public FollowUpLetterTemplateAdminController(
+        ILetterTemplateAdminService admin,
+        ICurrentUserService currentUser)
     {
-        var result = await _templates.GetFollowUpTemplateAsync();
-        return result == null ? NotFound() : Ok(result);
+        _admin = admin;
+        _currentUser = currentUser;
     }
 
     [HttpPut("follow-up")]
-    [Authorize(Policy = Policies.CanCloseTransactions)]
+    [Authorize(Policy = Policies.ManageLetterTemplates)]
     public async Task<IActionResult> UpdateFollowUp([FromBody] UpdateLetterTemplateRequest request)
     {
         try
         {
-            var result = await _templates.UpdateFollowUpTemplateAsync(request.Content);
+            var result = await _admin.UpdateDefaultFollowUpTemplateAsync(request.Content, _currentUser.UserId);
             return result == null ? NotFound() : Ok(result);
         }
         catch (InvalidOperationException ex)

@@ -334,17 +334,239 @@ export type ReferenceDataListParams = {
   pageSize?: number;
 };
 
+export type LetterTemplateType =
+  | 'FollowUp'
+  | 'FirstFollowUp'
+  | 'SecondFollowUp'
+  | 'UrgentFollowUp'
+  | 'FinalFollowUp'
+  | 'LateReply'
+  | 'CompletionRequest'
+  | 'InternalFollowUp'
+  | 'ExternalFollowUp';
+
 export interface LetterTemplate {
   id: number;
   code: string;
   name: string;
+  description?: string;
+  templateType: LetterTemplateType;
   content: string;
   isActive: boolean;
+  isDefault: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface LetterTemplateVariable {
+  name: string;
+  arabicDescription: string;
+  example: string;
+  mayBeEmpty: boolean;
+}
+
+export interface LetterTemplateValidationResult {
+  unknownVariables: string[];
+  isValid: boolean;
+}
+
+export interface LetterTemplatePreviewResponse {
+  html: string;
+}
+
+export interface CreateLetterTemplateRequest {
+  name: string;
+  description?: string;
+  templateType?: LetterTemplateType;
+  content: string;
+  isActive?: boolean;
+  isDefault?: boolean;
+}
+
+export interface UpdateLetterTemplateRequest {
+  name: string;
+  description?: string;
+  templateType?: LetterTemplateType;
+  content: string;
+  isActive?: boolean;
 }
 
 export interface FollowUpLetterPreview {
   content: string;
   targetEntity: string;
+}
+
+export type FollowUpPrintJobStatus =
+  | 'Queued'
+  | 'Claimed'
+  | 'Processing'
+  | 'ReadyToPrint'
+  | 'PartiallyPrinted'
+  | 'Completed'
+  | 'Failed'
+  | 'Cancelled'
+  | 'Expired';
+
+export type FollowUpPrintJobListStatusFilter =
+  | 'Active'
+  | 'ReadyToPrint'
+  | 'Completed'
+  | 'Failed'
+  | 'Cancelled'
+  | 'All';
+
+export type FollowUpPrintJobPartStatus =
+  | 'Pending'
+  | 'Processing'
+  | 'ReadyToPrint'
+  | 'PartiallyReady'
+  | 'Printed'
+  | 'Failed'
+  | 'Cancelled';
+
+export interface FollowUpPrintFilter {
+  daysSinceLastFollowUp?: number;
+  excludeRecentlyPrinted?: boolean;
+  printedLetterExclusionDays?: number;
+  departmentId?: number;
+  categoryId?: number;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface EligibleTransaction {
+  transactionId: number;
+  incomingNumber: string;
+  subject: string;
+  incomingDate: string;
+  referenceDate: string;
+  daysSinceReference: number;
+  expectedFollowUpSequence: number;
+  recentlyPrintedExcluded: boolean;
+  lastPrintRequestedAt?: string;
+  primaryTargetEntity?: string;
+}
+
+export interface PagedEligibleTransactions {
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  items: EligibleTransaction[];
+}
+
+export interface FollowUpPrintEligibilityPreview {
+  matchedCount: number;
+  eligibleTransactionCount: number;
+  recentlyPrintedExcludedCount: number;
+  notDueYetCount: number;
+  noTargetCount: number;
+  estimatedLetterCount: number;
+  estimatedPartCount: number;
+}
+
+export interface CreateFollowUpPrintJobRequest {
+  filter: FollowUpPrintFilter;
+  templateId?: number;
+  responseDeadlineDays?: number;
+  batchSize?: number;
+  idempotencyKey?: string;
+}
+
+export interface CreateDirectPrintRequest {
+  templateId?: number;
+  targetDepartmentId?: number;
+  targetEntityId?: number;
+  targetEntityName?: string;
+  followUpSequence?: number;
+  responseDeadlineDays?: number;
+  idempotencyKey: string;
+}
+
+export interface FollowUpPrintJobPart {
+  id: number;
+  jobId: number;
+  partNumber: number;
+  status: FollowUpPrintJobPartStatus;
+  letterCount: number;
+  estimatedPages: number;
+  createdAt: string;
+  readyAt?: string;
+  printedAt?: string;
+  failureReason?: string;
+}
+
+export interface FollowUpPrintJob {
+  id: number;
+  status: FollowUpPrintJobStatus;
+  templateId: number;
+  totalTransactions: number;
+  totalLetters: number;
+  processedLetters: number;
+  readyLetters: number;
+  failedLetters: number;
+  skippedLetters: number;
+  totalParts: number;
+  readyParts: number;
+  printedParts: number;
+  currentPart: number;
+  createdAt: string;
+  startedAt?: string;
+  readyAt?: string;
+  completedAt?: string;
+  failedAt?: string;
+  cancelledAt?: string;
+  failureReason?: string;
+  parts: FollowUpPrintJobPart[];
+}
+
+export interface PagedFollowUpPrintJobs {
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  items: FollowUpPrintJob[];
+}
+
+export interface FollowUpLetterPrintRecord {
+  id: number;
+  transactionId: number;
+  incomingNumber: string;
+  subject: string;
+  targetDepartmentId?: number;
+  targetEntityId?: number;
+  targetEntityNameSnapshot?: string;
+  templateId: number;
+  followUpSequence: number;
+  responseDeadlineDays?: number;
+  hasDocumentSnapshot: boolean;
+  printRequestedAt: string;
+  printConfirmedAt?: string;
+  registeredFollowUpId?: number;
+  isCancelled: boolean;
+  reprintOfId?: number;
+}
+
+export interface FollowUpPrintPendingSummary {
+  total: number;
+  withinExclusionDays: number;
+  olderThanExclusionDays: number;
+}
+
+export interface FollowUpPrintRecordPrintView {
+  html: string;
+  usedStoredSnapshot: boolean;
+  warning?: string;
+}
+
+export interface UserNotification {
+  id: number;
+  type: string;
+  title: string;
+  body: string;
+  link?: string;
+  isRead: boolean;
+  createdAt: string;
 }
 
 export interface LoginAttemptLog {

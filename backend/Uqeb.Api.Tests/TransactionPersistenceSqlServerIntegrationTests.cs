@@ -11,6 +11,7 @@ using Xunit;
 
 namespace Uqeb.Api.Tests;
 
+[Trait("Category", "SqlServer")]
 public class TransactionPersistenceSqlServerIntegrationTests
 {
     private const string InternalTrackingNumberIndexName = "IX_Transactions_InternalTrackingNumber";

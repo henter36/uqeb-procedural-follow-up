@@ -12,20 +12,19 @@ public static class LetterTemplateRenderer
         string? targetEntity,
         DateTime today)
     {
-        var number = incomingNumber?.Trim() ?? "";
-        var dateStr = incomingDate.HasValue ? incomingDate.Value.ToString("yyyy-MM-dd") : "";
-        var subjectText = subject?.Trim() ?? "";
-        var target = targetEntity?.Trim() ?? "";
-        var todayStr = today.ToString("yyyy-MM-dd");
+        var ctx = new FollowUpLetterRenderContext
+        {
+            TransactionId = 0,
+            IncomingNumber = incomingNumber,
+            IncomingDateLocal = incomingDate,
+            Subject = subject,
+            TargetEntity = targetEntity,
+            TodayLocal = today,
+            FollowUpSequence = 1,
+            FollowUpSequenceText = FollowUpSequenceCalculator.ToArabicText(1),
+        };
 
-        var content = template
-            .Replace("{IncomingNumber}", number)
-            .Replace("{IncomingDate}", dateStr)
-            .Replace("{Subject}", subjectText)
-            .Replace("{TargetEntity}", target)
-            .Replace("{TodayDate}", todayStr);
-
-        return CleanupEmptyReferencePatterns(content);
+        return FollowUpLetterVariableReplacer.Render(template, FollowUpLetterVariableReplacer.BuildValues(ctx));
     }
 
     internal static string CleanupEmptyReferencePatterns(string content)

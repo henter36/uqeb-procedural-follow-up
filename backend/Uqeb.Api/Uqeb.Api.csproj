@@ -27,6 +27,7 @@
 
   <ItemGroup>
     <Content Include="Reporting\Assets\Fonts\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Assets\Brand\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <EmbeddedResource Include="Reporting\Rendering\institutional-report.css" />
   </ItemGroup>
 
