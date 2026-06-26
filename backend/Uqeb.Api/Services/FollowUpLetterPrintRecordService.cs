@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
 using Uqeb.Api.Configuration;
@@ -31,6 +32,7 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
     private readonly IFollowUpLetterRenderService _renderService;
     private readonly FollowUpLettersOptions _options;
     private readonly IAuditService _audit;
+    private readonly ILogger<FollowUpLetterPrintRecordService> _logger;
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     public FollowUpLetterPrintRecordService(
@@ -38,13 +40,15 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
         IFollowUpLetterTimeZone timeZone,
         IFollowUpLetterRenderService renderService,
         IOptions<FollowUpLettersOptions> options,
-        IAuditService audit)
+        IAuditService audit,
+        ILogger<FollowUpLetterPrintRecordService> logger)
     {
         _db = db;
         _timeZone = timeZone;
         _renderService = renderService;
         _options = options.Value;
         _audit = audit;
+        _logger = logger;
     }
 
     public async Task<FollowUpLetterPrintRecordDto?> ConfirmPrintAsync(
@@ -191,14 +195,24 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
 
         if (!string.IsNullOrWhiteSpace(record.DocumentSnapshotJson))
         {
-            var snapshot = JsonSerializer.Deserialize<FollowUpLetterDocumentModel>(record.DocumentSnapshotJson, JsonOptions);
-            if (snapshot != null)
+            try
             {
-                return new FollowUpPrintRecordPrintViewDto
+                var snapshot = JsonSerializer.Deserialize<FollowUpLetterDocumentModel>(record.DocumentSnapshotJson, JsonOptions);
+                if (snapshot != null)
                 {
-                    Html = FollowUpLetterPrintViewRenderer.Render([snapshot], _options, $"عرض خطاب #{recordId}"),
-                    UsedStoredSnapshot = true,
-                };
+                    return new FollowUpPrintRecordPrintViewDto
+                    {
+                        Html = FollowUpLetterPrintViewRenderer.Render([snapshot], _options, $"عرض خطاب #{recordId}"),
+                        UsedStoredSnapshot = true,
+                    };
+                }
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "تعذر قراءة snapshot سجل الطباعة {RecordId}. سيتم إعادة بناء الخطاب من البيانات الحالية.",
+                    recordId);
             }
         }
 
@@ -358,6 +372,9 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
         if (existing != null)
             return existing;
 
+        if (request.TargetDepartmentId.HasValue && request.TargetEntityId.HasValue)
+            throw new FollowUpPrintValidationException("يجب اختيار جهة واحدة فقط للطباعة.");
+
         var transaction = await _db.Transactions.AsNoTracking()
             .FirstOrDefaultAsync(t => t.Id == transactionId, cancellationToken)
             ?? throw new FollowUpPrintNotFoundException("المعاملة غير موجودة.");
@@ -390,6 +407,8 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
             ResponseDeadlineDays = request.ResponseDeadlineDays,
             CancellationToken = cancellationToken,
         });
+        if (document == null)
+            throw new FollowUpPrintValidationException("تعذر إنشاء خطاب الطباعة.");
 
         var now = DateTime.UtcNow;
         var record = new FollowUpLetterPrintRecord
@@ -401,7 +420,7 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
             TemplateId = template.Id,
             FollowUpSequence = request.FollowUpSequence,
             ResponseDeadlineDays = request.ResponseDeadlineDays,
-            DocumentSnapshotJson = document == null ? null : JsonSerializer.Serialize(document, JsonOptions),
+            DocumentSnapshotJson = JsonSerializer.Serialize(document, JsonOptions),
             PrintRequestedAt = now,
             PrintRequestedById = currentUser.UserId,
             CreatedAt = now,
@@ -498,8 +517,11 @@ public sealed class FollowUpLetterPrintRecordService : IFollowUpLetterPrintRecor
         ICurrentUserService currentUser,
         CancellationToken cancellationToken)
     {
-        if (currentUser.Role != UserRole.DepartmentUser || !currentUser.DepartmentId.HasValue)
+        if (currentUser.Role != UserRole.DepartmentUser)
             return true;
+
+        if (!currentUser.DepartmentId.HasValue)
+            return false;
 
         return await _db.Assignments.AsNoTracking().AnyAsync(
             a => a.TransactionId == record.TransactionId && a.DepartmentId == currentUser.DepartmentId.Value,

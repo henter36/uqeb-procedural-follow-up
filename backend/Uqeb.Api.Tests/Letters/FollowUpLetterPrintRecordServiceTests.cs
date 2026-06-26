@@ -1,9 +1,14 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.AspNetCore.Mvc;
+using Uqeb.Api.Controllers;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.FollowUpPrint;
 using Uqeb.Api.Exceptions;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
+using Uqeb.Api.Models.Letters;
 using Uqeb.Api.Services;
 using Xunit;
 
@@ -13,8 +18,18 @@ public class FollowUpLetterPrintRecordServiceTests
 {
     private static readonly DateTime Today = new(2025, 6, 25);
 
-    private static FollowUpLetterPrintRecordService CreateService(AppDbContext db, DateTime today) =>
-        new(db, new FixedTimeZone(today), new StubRenderService(), LettersTestInfrastructure.CreateOptions(), new NoOpAuditService());
+    private static FollowUpLetterPrintRecordService CreateService(
+        AppDbContext db,
+        DateTime today,
+        IFollowUpLetterRenderService? renderService = null,
+        IAuditService? audit = null) =>
+        new(
+            db,
+            new FixedTimeZone(today),
+            renderService ?? new StubRenderService(),
+            LettersTestInfrastructure.CreateOptions(),
+            audit ?? new NoOpAuditService(),
+            NullLogger<FollowUpLetterPrintRecordService>.Instance);
 
     private static async Task<(Transaction Transaction, FollowUp FollowUp)> SeedTransactionWithFollowUpAsync(AppDbContext db)
     {
@@ -63,6 +78,36 @@ public class FollowUpLetterPrintRecordServiceTests
             PrintRequestedById = 1,
             CreatedAt = printRequestedAt,
         };
+
+    private static FollowUpLetterPrintRecord CreatePendingRecordWithSnapshot(
+        int transactionId,
+        DateTime printRequestedAt,
+        string? documentSnapshotJson)
+    {
+        var record = CreatePendingRecord(transactionId, printRequestedAt);
+        record.DocumentSnapshotJson = documentSnapshotJson;
+        return record;
+    }
+
+    private static string SnapshotJson(string body = "نص محفوظ") =>
+        JsonSerializer.Serialize(new FollowUpLetterDocumentModel
+        {
+            TransactionId = 1,
+            TemplateId = 1,
+            Recipient = "جهة محفوظة",
+            Subject = "موضوع محفوظ",
+            Body = body,
+            LetterNumber = "LET-1",
+            GregorianDate = "2026/06/26",
+            HijriDate = "1448/01/01",
+        }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+
+    private static async Task SeedDirectPrintTargetsAsync(AppDbContext db)
+    {
+        db.Departments.Add(new Department { Id = 10, Name = "إدارة داخلية", NameNormalized = "إدارة داخلية" });
+        db.ExternalParties.Add(new ExternalParty { Id = 20, Name = "جهة خارجية", NameNormalized = "جهة خارجية" });
+        await db.SaveChangesAsync();
+    }
 
     [Fact]
     public async Task GetPendingSummaryAsync_CountsWithinAndOlderThanExclusionWindow()
@@ -278,6 +323,267 @@ public class FollowUpLetterPrintRecordServiceTests
             }, user));
     }
 
+    [Theory]
+    [InlineData(UserRole.Admin, null)]
+    [InlineData(UserRole.Supervisor, null)]
+    [InlineData(UserRole.DepartmentUser, 10)]
+    public async Task GetPrintViewAsync_AllowsAuthorizedRolesAndAssignedDepartment(UserRole role, int? departmentId)
+    {
+        await using var db = LettersTestInfrastructure.CreateDb($"{nameof(GetPrintViewAsync_AllowsAuthorizedRolesAndAssignedDepartment)}_{role}_{departmentId}");
+        var service = CreateService(db, Today);
+        var (transaction, _) = await SeedTransactionWithFollowUpAsync(db);
+        db.Departments.Add(new Department { Id = 10, Name = "إدارة", NameNormalized = "إدارة" });
+        db.Assignments.Add(new Assignment
+        {
+            TransactionId = transaction.Id,
+            DepartmentId = 10,
+            AssignedDate = Today,
+            CreatedById = 1,
+            CreatedAt = Today,
+        });
+        db.FollowUpLetterPrintRecords.Add(CreatePendingRecordWithSnapshot(
+            transaction.Id,
+            Today.AddDays(-1),
+            SnapshotJson()));
+        await db.SaveChangesAsync();
+
+        var recordId = await db.FollowUpLetterPrintRecords.Select(r => r.Id).SingleAsync();
+
+        var view = await service.GetPrintViewAsync(recordId, new TestCurrentUser(1, role, departmentId));
+
+        Assert.NotNull(view);
+        Assert.True(view!.UsedStoredSnapshot);
+    }
+
+    [Theory]
+    [InlineData(11)]
+    [InlineData(null)]
+    public async Task GetPrintViewAsync_RejectsDepartmentUserWithoutMatchingDepartment(int? departmentId)
+    {
+        await using var db = LettersTestInfrastructure.CreateDb($"{nameof(GetPrintViewAsync_RejectsDepartmentUserWithoutMatchingDepartment)}_{departmentId}");
+        var service = CreateService(db, Today);
+        var (transaction, _) = await SeedTransactionWithFollowUpAsync(db);
+        db.Departments.Add(new Department { Id = 10, Name = "إدارة", NameNormalized = "إدارة" });
+        db.Assignments.Add(new Assignment
+        {
+            TransactionId = transaction.Id,
+            DepartmentId = 10,
+            AssignedDate = Today,
+            CreatedById = 1,
+            CreatedAt = Today,
+        });
+        db.FollowUpLetterPrintRecords.Add(CreatePendingRecordWithSnapshot(
+            transaction.Id,
+            Today.AddDays(-1),
+            SnapshotJson()));
+        await db.SaveChangesAsync();
+
+        var recordId = await db.FollowUpLetterPrintRecords.Select(r => r.Id).SingleAsync();
+
+        await Assert.ThrowsAsync<FollowUpPrintForbiddenException>(() =>
+            service.GetPrintViewAsync(recordId, new TestCurrentUser(1, UserRole.DepartmentUser, departmentId)));
+    }
+
+    [Fact]
+    public async Task GetRecordPrintView_ReturnsForbiddenForDepartmentUserWithoutDepartmentId()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(GetRecordPrintView_ReturnsForbiddenForDepartmentUserWithoutDepartmentId));
+        var service = CreateService(db, Today);
+        var (transaction, _) = await SeedTransactionWithFollowUpAsync(db);
+        db.FollowUpLetterPrintRecords.Add(CreatePendingRecordWithSnapshot(
+            transaction.Id,
+            Today.AddDays(-1),
+            SnapshotJson()));
+        await db.SaveChangesAsync();
+
+        var recordId = await db.FollowUpLetterPrintRecords.Select(r => r.Id).SingleAsync();
+        var controller = new FollowUpPrintController(
+            eligibility: null!,
+            jobs: null!,
+            records: service,
+            render: null!,
+            currentUser: new TestCurrentUser(1, UserRole.DepartmentUser));
+
+        var result = await controller.GetRecordPrintView(recordId, CancellationToken.None);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(403, objectResult.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(nameof(CreateDirectPrintRequest.TargetDepartmentId))]
+    [InlineData(nameof(CreateDirectPrintRequest.TargetEntityId))]
+    [InlineData(nameof(CreateDirectPrintRequest.TargetEntityName))]
+    public async Task RegisterDirectPrintRequestAsync_AcceptsSingleTargetShape(string targetShape)
+    {
+        await using var db = LettersTestInfrastructure.CreateDb($"{nameof(RegisterDirectPrintRequestAsync_AcceptsSingleTargetShape)}_{targetShape}");
+        var service = CreateService(db, Today);
+        var (transaction, _) = await SeedTransactionWithFollowUpAsync(db);
+        await SeedDirectPrintTargetsAsync(db);
+        var request = new CreateDirectPrintRequest
+        {
+            FollowUpSequence = 1,
+            IdempotencyKey = $"direct-{targetShape}",
+        };
+
+        if (targetShape == nameof(CreateDirectPrintRequest.TargetDepartmentId))
+            request.TargetDepartmentId = 10;
+        else if (targetShape == nameof(CreateDirectPrintRequest.TargetEntityId))
+            request.TargetEntityId = 20;
+        else
+            request.TargetEntityName = "جهة حرة";
+
+        var record = await service.RegisterDirectPrintRequestAsync(transaction.Id, request, new TestCurrentUser(1));
+
+        Assert.True(record.Id > 0);
+        Assert.Equal(1, await db.FollowUpLetterPrintRecords.CountAsync());
+        Assert.Equal(1, await db.FollowUpPrintIdempotencyKeys.CountAsync());
+    }
+
+    [Fact]
+    public async Task RegisterDirectPrintRequestAsync_RejectsDepartmentAndEntityTogetherBeforePersistence()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(RegisterDirectPrintRequestAsync_RejectsDepartmentAndEntityTogetherBeforePersistence));
+        var service = CreateService(db, Today);
+        var (transaction, _) = await SeedTransactionWithFollowUpAsync(db);
+        await SeedDirectPrintTargetsAsync(db);
+
+        var ex = await Assert.ThrowsAsync<FollowUpPrintValidationException>(() =>
+            service.RegisterDirectPrintRequestAsync(transaction.Id, new CreateDirectPrintRequest
+            {
+                TargetDepartmentId = 10,
+                TargetEntityId = 20,
+                FollowUpSequence = 1,
+                IdempotencyKey = "invalid-shape",
+            }, new TestCurrentUser(1)));
+
+        Assert.Equal("يجب اختيار جهة واحدة فقط للطباعة.", ex.Message);
+        Assert.Equal(0, await db.FollowUpLetterPrintRecords.CountAsync());
+        Assert.Equal(0, await db.FollowUpPrintIdempotencyKeys.CountAsync());
+    }
+
+    [Fact]
+    public async Task RegisterDirectPrintRequestAsync_WhenDocumentBuildFails_DoesNotPersistOrReserveIdempotencyKey()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(RegisterDirectPrintRequestAsync_WhenDocumentBuildFails_DoesNotPersistOrReserveIdempotencyKey));
+        var audit = new CapturingAuditService();
+        var service = CreateService(db, Today, new NullDocumentRenderService(), audit);
+        var (transaction, _) = await SeedTransactionWithFollowUpAsync(db);
+        var request = new CreateDirectPrintRequest
+        {
+            TargetEntityName = "جهة",
+            FollowUpSequence = 1,
+            IdempotencyKey = "null-document-key",
+        };
+
+        var ex = await Assert.ThrowsAsync<FollowUpPrintValidationException>(() =>
+            service.RegisterDirectPrintRequestAsync(transaction.Id, request, new TestCurrentUser(1)));
+
+        Assert.Equal("تعذر إنشاء خطاب الطباعة.", ex.Message);
+        Assert.Equal(0, await db.FollowUpLetterPrintRecords.CountAsync());
+        Assert.Equal(0, await db.FollowUpPrintIdempotencyKeys.CountAsync());
+        Assert.DoesNotContain(audit.Entries, e => e.Action == AuditAction.FollowUpLetterPrintRequested);
+
+        var recovered = await CreateService(db, Today).RegisterDirectPrintRequestAsync(
+            transaction.Id,
+            request,
+            new TestCurrentUser(1));
+
+        Assert.True(recovered.Id > 0);
+        Assert.Equal(1, await db.FollowUpLetterPrintRecords.CountAsync());
+        Assert.Equal(1, await db.FollowUpPrintIdempotencyKeys.CountAsync());
+    }
+
+    [Fact]
+    public async Task GetPrintViewAsync_UsesValidStoredSnapshotWithoutRebuild()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(GetPrintViewAsync_UsesValidStoredSnapshotWithoutRebuild));
+        var render = new TrackingRenderService();
+        var service = CreateService(db, Today, render);
+        var (transaction, _) = await SeedTransactionWithFollowUpAsync(db);
+        db.FollowUpLetterPrintRecords.Add(CreatePendingRecordWithSnapshot(
+            transaction.Id,
+            Today.AddDays(-1),
+            SnapshotJson("نص snapshot صالح")));
+        await db.SaveChangesAsync();
+
+        var recordId = await db.FollowUpLetterPrintRecords.Select(r => r.Id).SingleAsync();
+
+        var view = await service.GetPrintViewAsync(recordId, new TestCurrentUser(1));
+
+        Assert.NotNull(view);
+        Assert.True(view!.UsedStoredSnapshot);
+        Assert.Contains("نص snapshot صالح", view.Html);
+        Assert.Equal(0, render.BuildDocumentCalls);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public async Task GetPrintViewAsync_RebuildsWhenSnapshotIsMissing(string? snapshotJson)
+    {
+        await using var db = LettersTestInfrastructure.CreateDb($"{nameof(GetPrintViewAsync_RebuildsWhenSnapshotIsMissing)}_{snapshotJson ?? "null"}");
+        var render = new TrackingRenderService("نص معاد البناء");
+        var service = CreateService(db, Today, render);
+        var (transaction, _) = await SeedTransactionWithFollowUpAsync(db);
+        db.FollowUpLetterPrintRecords.Add(CreatePendingRecordWithSnapshot(
+            transaction.Id,
+            Today.AddDays(-1),
+            snapshotJson));
+        await db.SaveChangesAsync();
+
+        var recordId = await db.FollowUpLetterPrintRecords.Select(r => r.Id).SingleAsync();
+
+        var view = await service.GetPrintViewAsync(recordId, new TestCurrentUser(1));
+
+        Assert.NotNull(view);
+        Assert.False(view!.UsedStoredSnapshot);
+        Assert.Contains("نص معاد البناء", view.Html);
+        Assert.Equal(1, render.BuildDocumentCalls);
+    }
+
+    [Fact]
+    public async Task GetPrintViewAsync_RebuildsWhenSnapshotJsonIsInvalid()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(GetPrintViewAsync_RebuildsWhenSnapshotJsonIsInvalid));
+        var render = new TrackingRenderService("نص بعد snapshot تالف");
+        var service = CreateService(db, Today, render);
+        var (transaction, _) = await SeedTransactionWithFollowUpAsync(db);
+        db.FollowUpLetterPrintRecords.Add(CreatePendingRecordWithSnapshot(
+            transaction.Id,
+            Today.AddDays(-1),
+            "{not-json"));
+        await db.SaveChangesAsync();
+
+        var recordId = await db.FollowUpLetterPrintRecords.Select(r => r.Id).SingleAsync();
+
+        var view = await service.GetPrintViewAsync(recordId, new TestCurrentUser(1));
+
+        Assert.NotNull(view);
+        Assert.False(view!.UsedStoredSnapshot);
+        Assert.Contains("نص بعد snapshot تالف", view.Html);
+        Assert.Equal(1, render.BuildDocumentCalls);
+    }
+
+    [Fact]
+    public async Task GetPrintViewAsync_WhenSnapshotInvalidAndRebuildFails_ReturnsFunctionalNotFound()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(GetPrintViewAsync_WhenSnapshotInvalidAndRebuildFails_ReturnsFunctionalNotFound));
+        var service = CreateService(db, Today, new NullDocumentRenderService());
+        var (transaction, _) = await SeedTransactionWithFollowUpAsync(db);
+        db.FollowUpLetterPrintRecords.Add(CreatePendingRecordWithSnapshot(
+            transaction.Id,
+            Today.AddDays(-1),
+            "{not-json"));
+        await db.SaveChangesAsync();
+
+        var recordId = await db.FollowUpLetterPrintRecords.Select(r => r.Id).SingleAsync();
+
+        var view = await service.GetPrintViewAsync(recordId, new TestCurrentUser(1));
+
+        Assert.Null(view);
+    }
+
     [Fact]
     public async Task GetPendingListAsync_ReturnsOnlyUnlinkedNonCancelledRecords()
     {
@@ -328,5 +634,32 @@ public class FollowUpLetterPrintRecordServiceTests
         Assert.Single(pending);
         Assert.False(pending[0].IsCancelled);
         Assert.Null(pending[0].RegisteredFollowUpId);
+    }
+
+    private sealed class NullDocumentRenderService : StubRenderService
+    {
+        public override Task<FollowUpLetterDocumentModel?> BuildDocumentAsync(FollowUpLetterBuildRequest request) =>
+            Task.FromResult<FollowUpLetterDocumentModel?>(null);
+    }
+
+    private sealed class TrackingRenderService(string body = "نص معاد البناء") : StubRenderService
+    {
+        public int BuildDocumentCalls { get; private set; }
+
+        public override Task<FollowUpLetterDocumentModel?> BuildDocumentAsync(FollowUpLetterBuildRequest request)
+        {
+            BuildDocumentCalls++;
+            return Task.FromResult<FollowUpLetterDocumentModel?>(new FollowUpLetterDocumentModel
+            {
+                TransactionId = request.TransactionId,
+                TemplateId = request.TemplateId,
+                Recipient = request.Target.Name,
+                Subject = "موضوع",
+                Body = body,
+                LetterNumber = "LET-R",
+                GregorianDate = "2026/06/26",
+                HijriDate = "1448/01/01",
+            });
+        }
     }
 }

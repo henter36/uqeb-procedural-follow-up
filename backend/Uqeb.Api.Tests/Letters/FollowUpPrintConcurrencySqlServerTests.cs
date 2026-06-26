@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Uqeb.Api.Configuration;
 using Uqeb.Api.Data;
@@ -385,7 +386,8 @@ public class FollowUpPrintConcurrencySqlServerTests
                     new FixedTimeZone(DateTime.UtcNow.Date),
                     new StubRenderService(),
                     Options.Create(new FollowUpLettersOptions()),
-                    new NoOpAuditService());
+                    new NoOpAuditService(),
+                    NullLogger<FollowUpLetterPrintRecordService>.Instance);
 
                 try
                 {

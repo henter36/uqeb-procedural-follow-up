@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.FollowUpPrint;
 using Uqeb.Api.Models.Entities;
@@ -149,7 +150,8 @@ public class FollowUpPrintAuditTests
             new FixedTimeZone(new DateTime(2025, 6, 25)),
             new StubRenderService(),
             LettersTestInfrastructure.CreateOptions(),
-            audit);
+            audit,
+            NullLogger<FollowUpLetterPrintRecordService>.Instance);
 
         await service.ConfirmPrintAsync(recordId, new TestCurrentUser(1));
         await service.LinkToFollowUpAsync(recordId, followUpId, new TestCurrentUser(1));
