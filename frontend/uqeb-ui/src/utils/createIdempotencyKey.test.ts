@@ -32,11 +32,9 @@ describe('createIdempotencyKey', () => {
     expect(key).toBe('00010203-0405-4607-8809-0a0b0c0d0e0f');
   });
 
-  it('falls back when crypto APIs are unavailable', () => {
+  it('throws when crypto APIs are unavailable', () => {
     vi.stubGlobal('crypto', undefined);
 
-    const key = createIdempotencyKey();
-    expect(key).toMatch(/^[a-z0-9]+-[a-z0-9]+$/i);
-    expect(key).not.toMatch(UUID_V4_PATTERN);
+    expect(() => createIdempotencyKey()).toThrow('Web Crypto API');
   });
 });

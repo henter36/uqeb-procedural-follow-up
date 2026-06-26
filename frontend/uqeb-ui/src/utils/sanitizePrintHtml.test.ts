@@ -23,11 +23,15 @@ describe('sanitizePrintHtml', () => {
       </html>
     `);
 
-    expect(result).toContain('lang="ar"');
-    expect(result).toContain('dir="rtl"');
+    // Document-level wrappers are stripped (WHOLE_DOCUMENT: false — fragment mode).
+    expect(result).not.toContain('<html');
+    expect(result).not.toContain('<head');
+    expect(result).not.toContain('<body');
+    // Content inside body is preserved.
     expect(result).toContain('<style>.letter { color: #111; }</style>');
     expect(result).toContain('/api/branding/organization-logo');
     expect(result).toContain('<p>نص</p>');
+    // Executable markup is removed.
     expect(result).not.toContain('<script');
     expect(result).not.toContain('<iframe');
     expect(result).not.toContain('onload');

@@ -23,7 +23,7 @@ describe('openHtmlPrintWindow', () => {
     openHtmlPrintWindow('<html><body>print</body></html>');
 
     expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
-    await expect((createObjectURL.mock.calls[0]?.[0] as Blob).text()).resolves.toContain('<body>print</body>');
+    await expect((createObjectURL.mock.calls[0]?.[0] as Blob).text()).resolves.toContain('print');
     expect(open).toHaveBeenCalledWith('blob:print-test', '_blank', 'noopener,noreferrer');
     expect(addEventListener).toHaveBeenCalledWith('load', expect.any(Function), { once: true });
     expect(focus).toHaveBeenCalled();
