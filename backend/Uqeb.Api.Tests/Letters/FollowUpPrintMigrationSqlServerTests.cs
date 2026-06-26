@@ -317,7 +317,9 @@ public class FollowUpPrintMigrationSqlServerTests
             """
             SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH
             FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE TABLE_NAME = @tableName AND COLUMN_NAME = @columnName
+            WHERE TABLE_SCHEMA = 'dbo'
+              AND TABLE_NAME = @tableName
+              AND COLUMN_NAME = @columnName
             """;
         var tableParameter = command.CreateParameter();
         tableParameter.ParameterName = "@tableName";
@@ -347,7 +349,9 @@ public class FollowUpPrintMigrationSqlServerTests
             """
             SELECT COUNT(1)
             FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE TABLE_NAME = @tableName AND COLUMN_NAME = @columnName
+            WHERE TABLE_SCHEMA = 'dbo'
+              AND TABLE_NAME = @tableName
+              AND COLUMN_NAME = @columnName
             """;
         var tableParameter = command.CreateParameter();
         tableParameter.ParameterName = "@tableName";
@@ -373,7 +377,9 @@ public class FollowUpPrintMigrationSqlServerTests
             """
             SELECT IS_NULLABLE
             FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE TABLE_NAME = @tableName AND COLUMN_NAME = @columnName
+            WHERE TABLE_SCHEMA = 'dbo'
+              AND TABLE_NAME = @tableName
+              AND COLUMN_NAME = @columnName
             """;
         var tableParameter = command.CreateParameter();
         tableParameter.ParameterName = "@tableName";
