@@ -11,6 +11,42 @@ import {
 import { useDeferredEffect } from '../hooks/useDeferredEffect';
 import { usePendingPrintSummary } from '../hooks/usePendingPrintSummary';
 
+type RecordHandlers = {
+  onConfirm: (record: FollowUpLetterPrintRecord) => void;
+  onCancel: (record: FollowUpLetterPrintRecord) => void;
+  onReprint: (record: FollowUpLetterPrintRecord) => void;
+  onLinkFollowUp: (record: FollowUpLetterPrintRecord) => void;
+  actingId: number | null;
+};
+
+function PendingRecordRow({ record, handlers }: Readonly<{ record: FollowUpLetterPrintRecord; handlers: RecordHandlers }>) {
+  const busy = handlers.actingId === record.id;
+  return (
+    <tr>
+      <td>{record.incomingNumber}</td>
+      <td>{record.subject}</td>
+      <td>{record.targetEntityNameSnapshot ?? '—'}</td>
+      <td>{record.followUpSequence}</td>
+      <td><DateDisplay date={record.printRequestedAt} /></td>
+      <td className="btn-group">
+        <Link to={`/transactions/${record.transactionId}`} className="btn btn-sm btn-outline">المعاملة</Link>
+        <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => handlers.onConfirm(record)}>
+          تأكيد
+        </button>
+        <button type="button" className="btn btn-sm btn-secondary" disabled={busy} onClick={() => handlers.onLinkFollowUp(record)}>
+          ربط تعقيب
+        </button>
+        <button type="button" className="btn btn-sm btn-outline" disabled={busy} onClick={() => handlers.onReprint(record)}>
+          إعادة طباعة
+        </button>
+        <button type="button" className="btn btn-sm btn-outline" disabled={busy} onClick={() => handlers.onCancel(record)}>
+          إلغاء
+        </button>
+      </td>
+    </tr>
+  );
+}
+
 export default function FollowUpPrintPendingPage() {
   const [records, setRecords] = useState<FollowUpLetterPrintRecord[]>([]);
   const [summaryTotal, setSummaryTotal] = useState(0);
@@ -115,6 +151,14 @@ export default function FollowUpPrintPendingPage() {
     }
   };
 
+  const handlers: RecordHandlers = {
+    onConfirm: (r) => { handleConfirm(r).catch(() => undefined); },
+    onCancel: (r) => { handleCancel(r).catch(() => undefined); },
+    onReprint: (r) => { handleReprint(r).catch(() => undefined); },
+    onLinkFollowUp: (r) => { handleLinkFollowUp(r).catch(() => undefined); },
+    actingId,
+  };
+
   const renderRecordsContent = () => {
     if (loading) {
       return <LoadingInline label="جاري التحميل..." />;
@@ -138,48 +182,7 @@ export default function FollowUpPrintPendingPage() {
             </thead>
             <tbody>
               {records.map((record) => (
-                <tr key={record.id}>
-                  <td>{record.incomingNumber}</td>
-                  <td>{record.subject}</td>
-                  <td>{record.targetEntityNameSnapshot ?? '—'}</td>
-                  <td>{record.followUpSequence}</td>
-                  <td><DateDisplay date={record.printRequestedAt} /></td>
-                  <td className="btn-group">
-                    <Link to={`/transactions/${record.transactionId}`} className="btn btn-sm btn-outline">المعاملة</Link>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-primary"
-                      disabled={actingId === record.id}
-                      onClick={() => { handleConfirm(record).catch(() => undefined); }}
-                    >
-                      تأكيد
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-secondary"
-                      disabled={actingId === record.id}
-                      onClick={() => { handleLinkFollowUp(record).catch(() => undefined); }}
-                    >
-                      ربط تعقيب
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-outline"
-                      disabled={actingId === record.id}
-                      onClick={() => { handleReprint(record).catch(() => undefined); }}
-                    >
-                      إعادة طباعة
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-outline"
-                      disabled={actingId === record.id}
-                      onClick={() => { handleCancel(record).catch(() => undefined); }}
-                    >
-                      إلغاء
-                    </button>
-                  </td>
-                </tr>
+                <PendingRecordRow key={record.id} record={record} handlers={handlers} />
               ))}
             </tbody>
           </table>

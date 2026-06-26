@@ -7,8 +7,15 @@ namespace Uqeb.Api.Helpers;
 
 public static class FollowUpLetterPrintViewRenderer
 {
-    public static string Render(IReadOnlyList<FollowUpLetterDocumentModel> documents, string? title = null)
+    public static string Render(
+        IReadOnlyList<FollowUpLetterDocumentModel> documents,
+        FollowUpLettersOptions options,
+        string? title = null)
     {
+        if (documents.Count > options.MaxLettersPerPrintView)
+            throw new ArgumentException(
+                $"عدد الخطابات ({documents.Count}) يتجاوز الحد الأقصى المسموح به ({options.MaxLettersPerPrintView}) لعرض الطباعة.");
+
         if (documents.Count == 0)
             return BuildShell(title ?? "طباعة خطابات التعقيب", string.Empty);
 
@@ -18,22 +25,32 @@ public static class FollowUpLetterPrintViewRenderer
             if (i > 0)
                 body.Append("<div class=\"page-break\"></div>");
 
-            body.Append(RenderDocument(documents[i]));
+            body.Append(RenderDocument(documents[i], options.MaxBodyLinesPerLetter, options.MaxBodyCharactersPerLetter));
         }
 
         return BuildShell(title ?? "طباعة خطابات التعقيب", body.ToString());
     }
 
-    private static string RenderDocument(FollowUpLetterDocumentModel document)
+    private static string RenderDocument(FollowUpLetterDocumentModel document, int maxBodyLines, int maxBodyChars)
     {
         var logo = $"<img class=\"logo\" src=\"{OrganizationBrandingPaths.LogoApiUrl}\" alt=\"\" />";
 
-        var lines = WebUtility.HtmlEncode(document.Body)
+        var rawBody = document.Body;
+        if (rawBody.Length > maxBodyChars)
+            throw new ArgumentException(
+                $"نص الخطاب يتجاوز الحد الأقصى ({maxBodyChars} حرف).");
+
+        var bodyLines = rawBody
             .Replace("\r\n", "\n", StringComparison.Ordinal)
-            .Split('\n')
-            .Select(line => string.IsNullOrWhiteSpace(line)
-                ? "<p class=\"spacer\">&nbsp;</p>"
-                : $"<p>{line}</p>");
+            .Split('\n');
+
+        if (bodyLines.Length > maxBodyLines)
+            throw new ArgumentException(
+                $"عدد أسطر الخطاب ({bodyLines.Length}) يتجاوز الحد الأقصى ({maxBodyLines} سطر).");
+
+        var lines = bodyLines.Select(line => string.IsNullOrWhiteSpace(line)
+            ? "<p class=\"spacer\">&nbsp;</p>"
+            : $"<p>{WebUtility.HtmlEncode(line)}</p>");
 
         return $"""
             <article class="letter">
@@ -62,6 +79,10 @@ public static class FollowUpLetterPrintViewRenderer
             </article>
             """;
     }
+
+    // Overload kept for call sites that provide documents without options (defaults to safe limits).
+    public static string Render(IReadOnlyList<FollowUpLetterDocumentModel> documents, string? title = null)
+        => Render(documents, new FollowUpLettersOptions(), title);
 
     private static string BuildShell(string title, string content)
     {

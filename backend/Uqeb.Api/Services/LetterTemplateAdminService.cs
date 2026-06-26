@@ -77,12 +77,15 @@ public sealed class LetterTemplateAdminService : ILetterTemplateAdminService
     {
         ValidateTemplateContent(request.Content);
         var name = RequireName(request.Name);
-        if (request.IsDefault && !request.IsActive)
+        var isActive = request.IsActive ?? true;
+        var isDefault = request.IsDefault == true;
+        var templateType = request.TemplateType ?? LetterTemplateType.FollowUp;
+        if (isDefault && !isActive)
             throw new InvalidOperationException("القالب الافتراضي يجب أن يكون نشطًا.");
 
         var code = await GenerateUniqueCodeAsync(name, cancellationToken);
         var sortOrder = await _db.LetterTemplates
-            .Where(t => t.TemplateType == request.TemplateType)
+            .Where(t => t.TemplateType == templateType)
             .Select(t => (int?)t.SortOrder)
             .MaxAsync(cancellationToken) ?? -1;
 
@@ -91,10 +94,10 @@ public sealed class LetterTemplateAdminService : ILetterTemplateAdminService
             Code = code,
             Name = name,
             Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim(),
-            TemplateType = request.TemplateType,
+            TemplateType = templateType,
             Content = request.Content.Trim(),
-            IsActive = request.IsActive,
-            IsDefault = request.IsDefault,
+            IsActive = isActive,
+            IsDefault = isDefault,
             SortOrder = sortOrder + 1,
             CreatedById = actorUserId,
             CreatedAt = DateTime.UtcNow,
@@ -131,17 +134,19 @@ public sealed class LetterTemplateAdminService : ILetterTemplateAdminService
         if (template == null)
             return null;
 
-        if (template.IsDefault && !request.IsActive)
+        var updateIsActive = request.IsActive ?? true;
+        var updateTemplateType = request.TemplateType ?? template.TemplateType;
+        if (template.IsDefault && !updateIsActive)
             throw new InvalidOperationException("لا يمكن إلغاء تفعيل القالب الافتراضي.");
 
-        if (template.IsDefault && template.TemplateType != request.TemplateType)
+        if (template.IsDefault && template.TemplateType != updateTemplateType)
             throw new InvalidOperationException("لا يمكن تغيير نوع القالب الافتراضي مباشرة.");
 
         template.Name = RequireName(request.Name);
         template.Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
-        template.TemplateType = request.TemplateType;
+        template.TemplateType = updateTemplateType;
         template.Content = request.Content.Trim();
-        template.IsActive = request.IsActive;
+        template.IsActive = updateIsActive;
         template.UpdatedById = actorUserId;
         template.UpdatedAt = DateTime.UtcNow;
 

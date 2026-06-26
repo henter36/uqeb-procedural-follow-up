@@ -9,7 +9,7 @@ import { PendingPrintSummaryContext } from './pendingPrintSummaryContextValue';
 
 const POLL_INTERVAL_MS = 60_000;
 
-export function PendingPrintSummaryProvider({ children }: { children: ReactNode }) {
+export function PendingPrintSummaryProvider({ children }: Readonly<{ children: ReactNode }>) {
   const { canClose, user } = useAuth();
   const [summary, setSummary] = useState<FollowUpPrintPendingSummary | null>(null);
   const [loading, setLoading] = useState(false);

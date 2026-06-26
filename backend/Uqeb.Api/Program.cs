@@ -166,7 +166,8 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy(Policies.CreateFollowUpPrintJob, p => p.RequireRole(
         UserRole.Admin.ToString(), UserRole.Supervisor.ToString()));
     options.AddPolicy(Policies.ViewFollowUpPrintJobs, p => p.RequireRole(
-        UserRole.Admin.ToString(), UserRole.Supervisor.ToString(), UserRole.DataEntry.ToString()));
+        UserRole.Admin.ToString(), UserRole.Supervisor.ToString(),
+        UserRole.DataEntry.ToString(), UserRole.DepartmentUser.ToString()));
     options.AddPolicy(Policies.CancelFollowUpPrintJob, p => p.RequireRole(
         UserRole.Admin.ToString(), UserRole.Supervisor.ToString()));
     options.AddPolicy(Policies.RetryFollowUpPrintJob, p => p.RequireRole(

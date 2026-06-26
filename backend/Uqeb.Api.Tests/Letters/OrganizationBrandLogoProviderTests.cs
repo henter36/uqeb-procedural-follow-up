@@ -104,8 +104,8 @@ public class OrganizationBrandLogoProviderTests : IDisposable
         File.WriteAllBytes(logoPath, [1]);
         _ = _provider.TryGetLogoBytes("refresh.png");
 
-        Thread.Sleep(1100);
         File.WriteAllBytes(logoPath, [2, 3]);
+        File.SetLastWriteTimeUtc(logoPath, File.GetLastWriteTimeUtc(logoPath).AddSeconds(2));
         var refreshed = _provider.TryGetLogoBytes("refresh.png");
 
         Assert.NotNull(refreshed);

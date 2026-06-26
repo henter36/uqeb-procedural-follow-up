@@ -1,7 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Uqeb.Api.Authorization;
-using Uqeb.Api.DTOs.LetterTemplates;
 using Uqeb.Api.Helpers;
 using Uqeb.Api.Services;
 
@@ -13,17 +11,10 @@ namespace Uqeb.Api.Controllers;
 public class FollowUpLetterTemplateController : ControllerBase
 {
     private readonly ILetterTemplateService _templates;
-    private readonly ILetterTemplateAdminService _admin;
-    private readonly ICurrentUserService _currentUser;
 
-    public FollowUpLetterTemplateController(
-        ILetterTemplateService templates,
-        ILetterTemplateAdminService admin,
-        ICurrentUserService currentUser)
+    public FollowUpLetterTemplateController(ILetterTemplateService templates)
     {
         _templates = templates;
-        _admin = admin;
-        _currentUser = currentUser;
     }
 
     [HttpGet("follow-up")]
@@ -31,21 +22,6 @@ public class FollowUpLetterTemplateController : ControllerBase
     {
         var result = await _templates.GetFollowUpTemplateAsync();
         return result == null ? NotFound() : Ok(result);
-    }
-
-    [HttpPut("follow-up")]
-    [Authorize(Policy = Policies.ManageLetterTemplates)]
-    public async Task<IActionResult> UpdateFollowUp([FromBody] UpdateLetterTemplateRequest request)
-    {
-        try
-        {
-            var result = await _admin.UpdateDefaultFollowUpTemplateAsync(request.Content, _currentUser.UserId);
-            return result == null ? NotFound() : Ok(result);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
     }
 
     [HttpGet("variables")]

@@ -28,19 +28,19 @@ public class CreateLetterTemplateRequest
 {
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
-    public LetterTemplateType TemplateType { get; set; } = LetterTemplateType.FollowUp;
+    public LetterTemplateType? TemplateType { get; set; }
     public string Content { get; set; } = string.Empty;
-    public bool IsActive { get; set; } = true;
-    public bool IsDefault { get; set; }
+    public bool? IsActive { get; set; }
+    public bool? IsDefault { get; set; }
 }
 
 public class UpdateLetterTemplateAdminRequest
 {
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
-    public LetterTemplateType TemplateType { get; set; } = LetterTemplateType.FollowUp;
+    public LetterTemplateType? TemplateType { get; set; }
     public string Content { get; set; } = string.Empty;
-    public bool IsActive { get; set; } = true;
+    public bool? IsActive { get; set; }
 }
 
 public class ReorderLetterTemplatesRequest

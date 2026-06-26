@@ -14,10 +14,6 @@ function createUuidFromRandomValues(): string | null {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-function createFallbackKey(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 11)}`;
-}
-
 export function createIdempotencyKey(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -28,5 +24,7 @@ export function createIdempotencyKey(): string {
     return uuid;
   }
 
-  return createFallbackKey();
+  throw new Error(
+    'Web Crypto API غير متوفر في هذه البيئة. لا يمكن إنشاء مفتاح idempotency آمن.',
+  );
 }

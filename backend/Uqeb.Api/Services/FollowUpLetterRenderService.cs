@@ -70,19 +70,22 @@ public sealed class FollowUpLetterRenderService : IFollowUpLetterRenderService
     private readonly IFollowUpLetterPdfExporter _pdfExporter;
     private readonly IFollowUpLetterTimeZone _timeZone;
     private readonly OrganizationBrandingOptions _branding;
+    private readonly FollowUpLettersOptions _printOptions;
 
     public FollowUpLetterRenderService(
         AppDbContext db,
         IFollowUpLetterDocumentBuilder documentBuilder,
         IFollowUpLetterPdfExporter pdfExporter,
         IFollowUpLetterTimeZone timeZone,
-        IOptions<OrganizationBrandingOptions> branding)
+        IOptions<OrganizationBrandingOptions> branding,
+        IOptions<FollowUpLettersOptions> printOptions)
     {
         _db = db;
         _documentBuilder = documentBuilder;
         _pdfExporter = pdfExporter;
         _timeZone = timeZone;
         _branding = branding.Value;
+        _printOptions = printOptions.Value;
     }
 
     public async Task<FollowUpLetterPreviewDto?> RenderFollowUpLetterAsync(
@@ -212,7 +215,7 @@ public sealed class FollowUpLetterRenderService : IFollowUpLetterRenderService
             CancellationToken = cancellationToken,
         });
 
-        return document == null ? null : FollowUpLetterPrintViewRenderer.Render([document]);
+        return document == null ? null : FollowUpLetterPrintViewRenderer.Render([document], _printOptions);
     }
 
     public async Task<IReadOnlyList<FollowUpLetterTargetEntity>> ResolveTargetEntitiesAsync(
@@ -280,88 +283,97 @@ public sealed class FollowUpLetterRenderService : IFollowUpLetterRenderService
         var distinctIds = transactionIds.Distinct().ToList();
         var result = new Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>>();
 
-        var outgoingDepartments = await _db.TransactionOutgoingDepartments.AsNoTracking()
-            .Where(x => distinctIds.Contains(x.TransactionId))
-            .OrderBy(x => x.TransactionId)
-            .ThenBy(x => x.Id)
-            .Select(x => new
-            {
-                x.TransactionId,
-                Target = new FollowUpLetterTargetEntity(x.Department.Name, x.DepartmentId, null),
-            })
-            .ToListAsync(cancellationToken);
+        await FillOutgoingDepartmentsAsync(result, distinctIds, cancellationToken);
+        await FillOutgoingPartiesAsync(result, distinctIds, cancellationToken);
+        await FillAssignmentDepartmentsAsync(result, distinctIds, cancellationToken);
+        await FillFallbackNamesAsync(result, distinctIds, cancellationToken);
 
-        foreach (var group in outgoingDepartments.GroupBy(x => x.TransactionId))
-            result[group.Key] = group.Select(x => x.Target).ToList();
-
-        var remainingIds = distinctIds.Where(id => !result.ContainsKey(id)).ToList();
-        if (remainingIds.Count > 0)
-        {
-            var outgoingParties = await _db.TransactionOutgoingParties.AsNoTracking()
-                .Where(x => remainingIds.Contains(x.TransactionId))
-                .OrderBy(x => x.TransactionId)
-                .ThenBy(x => x.Id)
-                .Select(x => new
-                {
-                    x.TransactionId,
-                    Target = new FollowUpLetterTargetEntity(x.ExternalParty.Name, null, x.ExternalPartyId),
-                })
-                .ToListAsync(cancellationToken);
-
-            foreach (var group in outgoingParties.GroupBy(x => x.TransactionId))
-                result[group.Key] = group.Select(x => x.Target).ToList();
-
-            remainingIds = remainingIds.Where(id => !result.ContainsKey(id)).ToList();
-        }
-
-        if (remainingIds.Count > 0)
-        {
-            var assignmentDepartments = await _db.Assignments.AsNoTracking()
-                .Where(a => remainingIds.Contains(a.TransactionId) && a.Status == AssignmentStatus.Active)
-                .OrderBy(a => a.TransactionId)
-                .ThenBy(a => a.CreatedAt)
-                .Select(a => new
-                {
-                    a.TransactionId,
-                    Target = new FollowUpLetterTargetEntity(a.Department.Name, a.DepartmentId, null),
-                })
-                .ToListAsync(cancellationToken);
-
-            foreach (var group in assignmentDepartments.GroupBy(x => x.TransactionId))
-                result[group.Key] = group.Select(x => x.Target).ToList();
-
-            remainingIds = remainingIds.Where(id => !result.ContainsKey(id)).ToList();
-        }
-
-        if (remainingIds.Count > 0)
-        {
-            var fallbackTransactions = await _db.Transactions.AsNoTracking()
-                .Include(t => t.IncomingFromParty)
-                .Include(t => t.IncomingFromDepartment)
-                .Where(t => remainingIds.Contains(t.Id))
-                .ToListAsync(cancellationToken);
-
-            foreach (var transaction in fallbackTransactions)
-            {
-                var fallbackName = transaction.IncomingSourceType switch
-                {
-                    IncomingSourceType.Internal => transaction.IncomingFromDepartment?.Name ?? transaction.IncomingFrom ?? string.Empty,
-                    IncomingSourceType.External => transaction.IncomingFromParty?.Name ?? transaction.IncomingFrom ?? string.Empty,
-                    _ => transaction.IncomingFrom ?? string.Empty,
-                };
-
-                if (!string.IsNullOrWhiteSpace(fallbackName))
-                    result[transaction.Id] = [new FollowUpLetterTargetEntity(fallbackName)];
-            }
-        }
-
-        foreach (var transactionId in distinctIds)
-        {
-            if (!result.ContainsKey(transactionId))
-                result[transactionId] = [];
-        }
+        foreach (var transactionId in distinctIds.Where(id => !result.ContainsKey(id)))
+            result[transactionId] = [];
 
         return result;
+    }
+
+    private async Task FillOutgoingDepartmentsAsync(
+        Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>> result,
+        List<int> distinctIds,
+        CancellationToken cancellationToken)
+    {
+        var rows = await _db.TransactionOutgoingDepartments.AsNoTracking()
+            .Where(x => distinctIds.Contains(x.TransactionId))
+            .OrderBy(x => x.TransactionId).ThenBy(x => x.Id)
+            .Select(x => new { x.TransactionId, Target = new FollowUpLetterTargetEntity(x.Department.Name, x.DepartmentId, null) })
+            .ToListAsync(cancellationToken);
+
+        foreach (var group in rows.GroupBy(x => x.TransactionId))
+            result[group.Key] = group.Select(x => x.Target).ToList();
+    }
+
+    private async Task FillOutgoingPartiesAsync(
+        Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>> result,
+        List<int> distinctIds,
+        CancellationToken cancellationToken)
+    {
+        var remaining = distinctIds.Where(id => !result.ContainsKey(id)).ToList();
+        if (remaining.Count == 0)
+            return;
+
+        var rows = await _db.TransactionOutgoingParties.AsNoTracking()
+            .Where(x => remaining.Contains(x.TransactionId))
+            .OrderBy(x => x.TransactionId).ThenBy(x => x.Id)
+            .Select(x => new { x.TransactionId, Target = new FollowUpLetterTargetEntity(x.ExternalParty.Name, null, x.ExternalPartyId) })
+            .ToListAsync(cancellationToken);
+
+        foreach (var group in rows.GroupBy(x => x.TransactionId))
+            result[group.Key] = group.Select(x => x.Target).ToList();
+    }
+
+    private async Task FillAssignmentDepartmentsAsync(
+        Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>> result,
+        List<int> distinctIds,
+        CancellationToken cancellationToken)
+    {
+        var remaining = distinctIds.Where(id => !result.ContainsKey(id)).ToList();
+        if (remaining.Count == 0)
+            return;
+
+        var rows = await _db.Assignments.AsNoTracking()
+            .Where(a => remaining.Contains(a.TransactionId) && a.Status == AssignmentStatus.Active)
+            .OrderBy(a => a.TransactionId).ThenBy(a => a.CreatedAt)
+            .Select(a => new { a.TransactionId, Target = new FollowUpLetterTargetEntity(a.Department.Name, a.DepartmentId, null) })
+            .ToListAsync(cancellationToken);
+
+        foreach (var group in rows.GroupBy(x => x.TransactionId))
+            result[group.Key] = group.Select(x => x.Target).ToList();
+    }
+
+    private async Task FillFallbackNamesAsync(
+        Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>> result,
+        List<int> distinctIds,
+        CancellationToken cancellationToken)
+    {
+        var remaining = distinctIds.Where(id => !result.ContainsKey(id)).ToList();
+        if (remaining.Count == 0)
+            return;
+
+        var transactions = await _db.Transactions.AsNoTracking()
+            .Include(t => t.IncomingFromParty)
+            .Include(t => t.IncomingFromDepartment)
+            .Where(t => remaining.Contains(t.Id))
+            .ToListAsync(cancellationToken);
+
+        foreach (var transaction in transactions)
+        {
+            var fallbackName = transaction.IncomingSourceType switch
+            {
+                IncomingSourceType.Internal => transaction.IncomingFromDepartment?.Name ?? transaction.IncomingFrom ?? string.Empty,
+                IncomingSourceType.External => transaction.IncomingFromParty?.Name ?? transaction.IncomingFrom ?? string.Empty,
+                _ => transaction.IncomingFrom ?? string.Empty,
+            };
+
+            if (!string.IsNullOrWhiteSpace(fallbackName))
+                result[transaction.Id] = [new FollowUpLetterTargetEntity(fallbackName)];
+        }
     }
 
     public Task<bool> CanAccessTransactionAsync(

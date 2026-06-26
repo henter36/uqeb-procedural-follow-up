@@ -1,7 +1,6 @@
 import DOMPurify from 'dompurify';
 
 const PRINT_HTML_ALLOWED_TAGS = [
-  'html', 'head', 'body', 'meta', 'title', 'style',
   'article', 'header', 'section', 'footer', 'div', 'span',
   'h1', 'h2', 'h3', 'p', 'strong', 'em', 'b', 'i', 'br',
   'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td',
@@ -9,7 +8,7 @@ const PRINT_HTML_ALLOWED_TAGS = [
 ] as const;
 
 const PRINT_HTML_ALLOWED_ATTR = [
-  'class', 'id', 'dir', 'lang', 'charset', 'name', 'content',
+  'class', 'id', 'dir', 'lang',
   'aria-hidden', 'alt', 'src', 'width', 'height', 'style',
   'colspan', 'rowspan', 'scope',
 ] as const;
@@ -18,7 +17,7 @@ export function sanitizePrintHtml(html: string): string {
   if (!html) return '';
 
   return DOMPurify.sanitize(html, {
-    WHOLE_DOCUMENT: true,
+    WHOLE_DOCUMENT: false,
     ALLOWED_TAGS: [...PRINT_HTML_ALLOWED_TAGS],
     ALLOWED_ATTR: [...PRINT_HTML_ALLOWED_ATTR],
     ALLOW_DATA_ATTR: false,

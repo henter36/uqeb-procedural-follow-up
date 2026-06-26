@@ -420,7 +420,7 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
                 documents.Add(document);
         }
 
-        return documents.Count == 0 ? null : FollowUpLetterPrintViewRenderer.Render(documents, $"مهمة طباعة #{jobId} — الجزء {partNumber}");
+        return documents.Count == 0 ? null : FollowUpLetterPrintViewRenderer.Render(documents, _options, $"مهمة طباعة #{jobId} — الجزء {partNumber}");
     }
 
     internal static List<FollowUpPrintJobLetterPayload> DeserializePayload(string payloadJson)
