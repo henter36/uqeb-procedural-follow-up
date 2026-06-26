@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { sanitizePrintHtml } from '../../utils/sanitizePrintHtml';
+import { sanitizeFullDocumentHtml } from '../../utils/sanitizePrintHtml';
 
 type FollowUpLetterPrintViewProps = Readonly<{
   html: string;
@@ -20,7 +20,7 @@ export default function FollowUpLetterPrintView({
 }: FollowUpLetterPrintViewProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const printedRef = useRef(false);
-  const sanitizedHtml = useMemo(() => sanitizePrintHtml(html), [html]);
+  const sanitizedHtml = useMemo(() => sanitizeFullDocumentHtml(html), [html]);
 
   const handlePrint = useCallback(async () => {
     if (printDisabled) return;

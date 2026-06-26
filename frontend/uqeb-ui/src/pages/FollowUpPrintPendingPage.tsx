@@ -4,7 +4,7 @@ import { followUpPrintApi } from '../api/services';
 import type { FollowUpLetterPrintRecord } from '../api/types';
 import { getApiErrorMessage } from '../utils/apiHelpers';
 import { createIdempotencyKey } from '../utils/createIdempotencyKey';
-import { sanitizePrintHtml } from '../utils/sanitizePrintHtml';
+import { sanitizeFullDocumentHtml } from '../utils/sanitizePrintHtml';
 import DateDisplay from '../components/DateDisplay';
 import {
   Alert, EmptyState, LoadingInline, PageHeader, Pagination,
@@ -125,7 +125,7 @@ export default function FollowUpPrintPendingPage() {
     setPreviewWarning('');
     try {
       const res = await followUpPrintApi.getRecordPrintView(record.id);
-      setPreviewHtml(sanitizePrintHtml(res.data.html));
+      setPreviewHtml(sanitizeFullDocumentHtml(res.data.html));
       setPreviewWarning(res.data.warning ?? '');
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
@@ -269,7 +269,7 @@ export default function FollowUpPrintPendingPage() {
             title="عرض الخطاب"
             className="letter-template-preview-frame"
             srcDoc={previewHtml}
-            sandbox="allow-same-origin"
+            sandbox="allow-same-origin allow-modals"
           />
         </div>
       )}

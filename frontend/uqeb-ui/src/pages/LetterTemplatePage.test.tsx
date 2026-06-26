@@ -9,6 +9,7 @@ vi.mock('../api/services', () => ({
   letterTemplatesApi: {
     list: vi.fn(),
     getVariables: vi.fn(),
+    preview: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
     copy: vi.fn(),
@@ -36,6 +37,9 @@ describe('LetterTemplatePage', () => {
     vi.mocked(services.letterTemplatesApi.getVariables).mockResolvedValue({
       data: [{ name: 'TargetEntity', arabicDescription: 'الجهة', example: 'إدارة', mayBeEmpty: false }],
     } as never);
+    vi.mocked(services.letterTemplatesApi.preview).mockResolvedValue({
+      data: { html: '<p>معاينة القالب</p>' },
+    } as never);
   });
 
   it('loads templates and shows unsaved warning after edit', async () => {
@@ -52,15 +56,22 @@ describe('LetterTemplatePage', () => {
   });
 
   it('shows variables sidebar', async () => {
+    const user = userEvent.setup();
     render(
       <MemoryRouter>
         <LetterTemplatePage />
       </MemoryRouter>,
     );
 
+    // Wait for the variables summary to appear (collapsed by default)
+    const summary = await screen.findByText('المتغيرات المتاحة', { exact: false });
+    expect(summary).toBeInTheDocument();
+
+    // Open the details to reveal the variables list
+    await user.click(summary);
     await waitFor(() => {
-      expect(screen.getByText('المتغيرات')).toBeInTheDocument();
-      expect(screen.getByText('{TargetEntity}')).toBeInTheDocument();
+      // getAllByText handles the case where the variable name also appears in the editor textarea
+      expect(screen.getAllByText('{TargetEntity}').length).toBeGreaterThan(0);
     });
   });
 });

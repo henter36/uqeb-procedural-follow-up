@@ -3,7 +3,7 @@ import { letterTemplatesApi } from '../api/services';
 import type { LetterTemplate, LetterTemplateVariable } from '../api/types';
 import { getApiErrorMessage } from '../utils/apiHelpers';
 import { letterTemplateTypeLabels } from '../utils/followUpPrintLabels';
-import { sanitizePrintHtml } from '../utils/sanitizePrintHtml';
+import { sanitizeFullDocumentHtml } from '../utils/sanitizePrintHtml';
 import {
   Alert, LoadingInline, PageHeader, EmptyState, ErrorState,
 } from '../components/ui';
@@ -38,26 +38,27 @@ export default function LetterTemplatePage() {
   const [saving, setSaving] = useState(false);
   const [previewHtml, setPreviewHtml] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [showVariables, setShowVariables] = useState(false);
 
   const isDirty = snapshotEditor(editor) !== savedSnapshot;
 
   const loadPreview = useCallback(async () => {
     if (selectedId == null) return;
     setPreviewLoading(true);
-    setError('');
+    setPreviewError('');
     try {
       const res = await letterTemplatesApi.preview({
         name: editor.name.trim() || 'قالب جديد',
         description: editor.description.trim() || undefined,
         content: editor.content,
-        isActive: editor.isActive,
         templateType: editor.templateType,
       });
-      setPreviewHtml(sanitizePrintHtml(res.data.html));
+      setPreviewHtml(sanitizeFullDocumentHtml(res.data.html));
     } catch (err: unknown) {
-      setError(getApiErrorMessage(err));
+      setPreviewError(getApiErrorMessage(err) || 'تعذر بناء معاينة الخطاب.');
     } finally {
       setPreviewLoading(false);
     }
@@ -82,11 +83,12 @@ export default function LetterTemplatePage() {
     return listRes.data;
   }, []);
 
+  // Auto-refresh preview after user stops typing
   useEffect(() => {
     if (selectedId == null) return undefined;
     const timer = globalThis.setTimeout(() => {
       loadPreview().catch(() => undefined);
-    }, 500);
+    }, 800);
     return () => globalThis.clearTimeout(timer);
   }, [loadPreview, selectedId]);
 
@@ -142,6 +144,8 @@ export default function LetterTemplatePage() {
     setSavedSnapshot(snapshotEditor(nextEditor));
     setMessage('');
     setError('');
+    setPreviewHtml('');
+    setPreviewError('');
   };
 
   const startNewTemplate = () => {
@@ -157,11 +161,17 @@ export default function LetterTemplatePage() {
     setSavedSnapshot(snapshotEditor(nextEditor));
     setMessage('');
     setError('');
+    setPreviewHtml('');
+    setPreviewError('');
   };
 
   const handleSave = async () => {
-    if (!editor.name.trim() || !editor.content.trim()) {
-      setError('اسم القالب ومحتواه مطلوبان');
+    if (!editor.name.trim()) {
+      setError('اسم القالب مطلوب');
+      return;
+    }
+    if (!editor.content.trim()) {
+      setError('محتوى القالب مطلوب');
       return;
     }
     setSaving(true);
@@ -209,7 +219,7 @@ export default function LetterTemplatePage() {
         setMessage('تم حفظ القالب بنجاح.');
       }
     } catch (err: unknown) {
-      setError(getApiErrorMessage(err));
+      setError(getApiErrorMessage(err) || 'تعذر إنشاء القالب لأن نوع القالب غير صالح أو البيانات ناقصة.');
     } finally {
       setSaving(false);
     }
@@ -312,7 +322,10 @@ export default function LetterTemplatePage() {
       {error && <Alert variant="error">{error}</Alert>}
       {isDirty && <Alert variant="warning">لديك تغييرات غير محفوظة.</Alert>}
 
+      {/* Main 3-panel layout: قائمة | محرر | معاينة */}
       <div className="letter-template-layout">
+
+        {/* Panel 1: قائمة القوالب */}
         <aside className="letter-template-list">
           <h3>القوالب</h3>
           {templates.length === 0 ? (
@@ -338,6 +351,7 @@ export default function LetterTemplatePage() {
           )}
         </aside>
 
+        {/* Panel 2: محرر القالب */}
         <div className="letter-template-editor">
           {selectedId == null ? (
             <EmptyState title="اختر قالباً" description="اختر قالباً من القائمة أو أنشئ قالباً جديداً." />
@@ -398,12 +412,30 @@ export default function LetterTemplatePage() {
                 </div>
               </div>
 
+              {/* المتغيرات — قائمة مضغوطة أسفل المحرر */}
+              <details className="letter-variables-details" open={showVariables} onToggle={(e) => setShowVariables((e.target as HTMLDetailsElement).open)}>
+                <summary className="letter-variables-summary">
+                  المتغيرات المتاحة
+                  <span className="text-muted"> — انقر لإدراج في نص القالب</span>
+                </summary>
+                <ul className="letter-variable-list letter-variable-list-compact">
+                  {variables.map((variable) => (
+                    <li key={variable.name}>
+                      <button type="button" className="letter-variable-btn letter-variable-btn-sm" onClick={() => insertVariable(variable.name)}>
+                        <code>{`{${variable.name}}`}</code>
+                        <span>{variable.arabicDescription}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+
               <div className="form-actions">
                 <button type="button" className="btn btn-primary" disabled={saving || !isDirty} onClick={() => { handleSave().catch(() => undefined); }}>
                   {saving ? 'جاري الحفظ...' : 'حفظ'}
                 </button>
                 <button type="button" className="btn btn-secondary" disabled={previewLoading} onClick={() => { loadPreview().catch(() => undefined); }}>
-                  {previewLoading ? 'جاري المعاينة...' : 'معاينة القالب'}
+                  {previewLoading ? 'جاري التحديث...' : 'تحديث المعاينة'}
                 </button>
                 {typeof selectedId === 'number' && (
                   <>
@@ -425,30 +457,14 @@ export default function LetterTemplatePage() {
           )}
         </div>
 
-        <aside className="letter-template-variables">
-          <h3>المتغيرات</h3>
-          <p className="text-muted">انقر لإدراج المتغير في نص القالب.</p>
-          <ul className="letter-variable-list">
-            {variables.map((variable) => (
-              <li key={variable.name}>
-                <button type="button" className="letter-variable-btn" onClick={() => insertVariable(variable.name)}>
-                  <code>{`{${variable.name}}`}</code>
-                  <span>{variable.arabicDescription}</span>
-                  <small className="text-muted">مثال: {variable.example}</small>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </aside>
-      </div>
-
-      {selectedId != null && (
-        <section className="letter-template-preview-panel" aria-label="معاينة القالب">
+        {/* Panel 3: معاينة القالب */}
+        <aside className="letter-template-preview-panel" aria-label="معاينة القالب">
           <div className="preview-panel-header">
-            <h3>معاينة القالب</h3>
-            <span className="text-muted">تستخدم نفس نموذج المستند وتنسيق الطباعة.</span>
+            <h3>معاينة الخطاب</h3>
+            {previewLoading && <span className="text-muted">جاري التحديث...</span>}
           </div>
-          {previewHtml ? (
+          {previewError && <Alert variant="error">{previewError}</Alert>}
+          {previewHtml && !previewLoading ? (
             <iframe
               title="معاينة القالب"
               className="letter-template-preview-frame"
@@ -456,11 +472,21 @@ export default function LetterTemplatePage() {
               sandbox="allow-same-origin"
             />
           ) : (
-            <EmptyState title="لا توجد معاينة" description="اضغط معاينة القالب لعرض شكل الخطاب الرسمي." />
+            !previewLoading && (
+              <EmptyState
+                title="لا توجد معاينة"
+                description={selectedId != null ? 'ستظهر المعاينة تلقائياً أو اضغط «تحديث المعاينة».' : 'اختر قالباً لعرض المعاينة.'}
+              />
+            )
           )}
-        </section>
-      )}
+          {previewLoading && (
+            <div className="preview-loading-overlay">
+              <LoadingInline label="جاري بناء معاينة الخطاب..." />
+            </div>
+          )}
+        </aside>
 
+      </div>
     </div>
   );
 }

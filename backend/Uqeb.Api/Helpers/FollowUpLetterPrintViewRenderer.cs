@@ -56,24 +56,47 @@ public static class FollowUpLetterPrintViewRenderer
             ? "<p class=\"letter-paragraph spacer\">&nbsp;</p>"
             : $"<p class=\"letter-paragraph\">{WebUtility.HtmlEncode(line)}</p>");
 
-        var title = string.IsNullOrWhiteSpace(document.Title)
+        // Optional footer
+        var footerContent = string.IsNullOrWhiteSpace(document.Footer)
             ? string.Empty
-            : $"<h1 class=\"letter-title\">{WebUtility.HtmlEncode(document.Title)}</h1>";
+            : $"<footer class=\"letter-footer\">{WebUtility.HtmlEncode(document.Footer)}</footer>";
+
+        // Signature: simple block without the large empty rectangle
+        var signatoryName = !string.IsNullOrWhiteSpace(document.SignatoryName)
+            ? $"<div class=\"signatory-name\">{WebUtility.HtmlEncode(document.SignatoryName)}</div>"
+            : string.Empty;
+        var signatoryTitle = !string.IsNullOrWhiteSpace(document.SignatoryTitle)
+            ? $"<div class=\"signatory-title\">{WebUtility.HtmlEncode(document.SignatoryTitle)}</div>"
+            : string.Empty;
+
+        // Formal organization header (right side of header)
+        var orgName = !string.IsNullOrWhiteSpace(document.OrganizationName)
+            ? $"<div class=\"brand-dept\">{WebUtility.HtmlEncode(document.OrganizationName)}</div>"
+            : string.Empty;
+
+        // Hijri date row is optional
+        var hijriRow = !string.IsNullOrWhiteSpace(document.HijriDate)
+            ? $"<div><span>التاريخ الهجري</span><strong>{WebUtility.HtmlEncode(document.HijriDate)}</strong></div>"
+            : string.Empty;
 
         return $"""
             <article class="official-letter">
               <header class="letter-header">
                 <div class="brand">
                   {logo}
-                  <div class="brand-name">{WebUtility.HtmlEncode(document.OrganizationName)}</div>
+                  <div class="brand-text">
+                    <div class="brand-kingdom">المملكة العربية السعودية</div>
+                    <div class="brand-ministry">وزارة الداخلية</div>
+                    <div class="brand-org">المديرية العامة للسجون</div>
+                    {orgName}
+                  </div>
                 </div>
                 <div class="meta-panel">
                   <div><span>رقم الخطاب</span><strong>{WebUtility.HtmlEncode(document.LetterNumber)}</strong></div>
                   <div><span>التاريخ الميلادي</span><strong>{WebUtility.HtmlEncode(document.GregorianDate)}</strong></div>
-                  <div><span>التاريخ الهجري</span><strong>{WebUtility.HtmlEncode(document.HijriDate)}</strong></div>
+                  {hijriRow}
                 </div>
               </header>
-              {title}
               <section class="letter-recipient block">
                 <div class="block-label">المخاطب</div>
                 <div class="block-value">{WebUtility.HtmlEncode(document.Recipient)}</div>
@@ -87,13 +110,11 @@ public static class FollowUpLetterPrintViewRenderer
               </section>
               <footer class="letter-signature">
                 <div class="signature-label">التوقيع</div>
-                <div class="signature-space" aria-hidden="true"></div>
-                <div class="signatory-name">{WebUtility.HtmlEncode(document.SignatoryName)}</div>
-                <div class="signatory-title">{WebUtility.HtmlEncode(document.SignatoryTitle)}</div>
+                <div class="signature-line" aria-hidden="true"></div>
+                {signatoryName}
+                {signatoryTitle}
               </footer>
-              <footer class="letter-footer">
-                {WebUtility.HtmlEncode(document.Footer)}
-              </footer>
+              {footerContent}
             </article>
             """;
     }
@@ -120,12 +141,17 @@ public static class FollowUpLetterPrintViewRenderer
         "body{font-family:Tahoma,'Segoe UI',Arial,sans-serif;color:var(--uqeb-ink);background:#f4f6f4;}" +
         ".official-letter{width:210mm;min-height:297mm;margin:0 auto 18px;background:#fff;border:1.5px solid var(--uqeb-green);outline:5px solid rgba(179,139,46,.16);padding:18mm 17mm 16mm;break-after:page;page-break-after:always;position:relative;}" +
         ".official-letter:last-child{break-after:auto;page-break-after:auto;}" +
-        ".letter-header{display:flex;align-items:flex-start;justify-content:space-between;gap:18mm;border-bottom:2px solid var(--uqeb-green);padding-bottom:8mm;margin-bottom:9mm;break-inside:avoid;page-break-inside:avoid;}" +
-        ".brand{display:flex;align-items:center;gap:12px;min-width:45%;}" +
-        ".logo{width:120px;max-width:120px;max-height:64px;object-fit:contain;}" +
-        ".brand-name{font-size:17px;font-weight:700;color:var(--uqeb-green);line-height:1.6;}" +
-        ".meta-panel{min-width:68mm;border:1px solid var(--uqeb-line);border-top:4px solid var(--uqeb-gold);padding:9px 12px;background:#fbfcfb;}" +
-        ".meta-panel div{display:flex;justify-content:space-between;gap:16px;font-size:12px;line-height:1.8;border-bottom:1px solid #edf0ec;}" +
+        // Header: logo + org hierarchy on right, meta panel on left
+        ".letter-header{display:flex;align-items:flex-start;justify-content:space-between;gap:14mm;border-bottom:2px solid var(--uqeb-green);padding-bottom:8mm;margin-bottom:9mm;break-inside:avoid;page-break-inside:avoid;}" +
+        ".brand{display:flex;align-items:flex-start;gap:10px;min-width:50%;}" +
+        ".logo{width:80px;max-width:80px;max-height:80px;object-fit: contain;flex-shrink:0;}" +
+        ".brand-text{display:flex;flex-direction:column;gap:1px;}" +
+        ".brand-kingdom{font-size:13px;font-weight:700;color:var(--uqeb-ink);line-height:1.7;}" +
+        ".brand-ministry{font-size:12px;color:var(--uqeb-muted);line-height:1.7;}" +
+        ".brand-org{font-size:12px;color:var(--uqeb-muted);line-height:1.7;}" +
+        ".brand-dept{font-size:13px;font-weight:700;color:var(--uqeb-green);line-height:1.7;margin-top:3px;}" +
+        ".meta-panel{min-width:62mm;border:1px solid var(--uqeb-line);border-top:4px solid var(--uqeb-gold);padding:9px 12px;background:#fbfcfb;}" +
+        ".meta-panel div{display:flex;justify-content:space-between;gap:12px;font-size:12px;line-height:1.8;border-bottom:1px solid #edf0ec;}" +
         ".meta-panel div:last-child{border-bottom:0;}" +
         ".meta-panel span{color:var(--uqeb-muted);}" +
         ".meta-panel strong{font-weight:700;color:var(--uqeb-ink);text-align:left;}" +
@@ -136,11 +162,12 @@ public static class FollowUpLetterPrintViewRenderer
         ".letter-body{font-size:16px;line-height:2.05;margin:10mm 0 14mm;}" +
         ".letter-paragraph{margin:0 0 4.5mm;white-space:pre-wrap;}" +
         ".letter-paragraph.spacer{height:4mm;margin:0;}" +
-        ".letter-signature{width:72mm;margin-right:auto;text-align:center;break-inside:avoid;page-break-inside:avoid;}" +
-        ".signature-label{color:var(--uqeb-muted);font-size:12px;margin-bottom:3mm;}" +
-        ".signature-space{height:24mm;border-bottom:1px solid var(--uqeb-line);margin-bottom:4mm;}" +
-        ".signatory-name{font-weight:700;min-height:8mm;}" +
-        ".signatory-title{color:var(--uqeb-muted);font-size:13px;min-height:7mm;}" +
+        // Signature: simple block with just a thin line (no large empty rectangle)
+        ".letter-signature{width:72mm;margin-right:auto;text-align:center;border-top:1.5px solid var(--uqeb-ink);padding-top:5mm;margin-top:18mm;break-inside:avoid;page-break-inside:avoid;}" +
+        ".signature-label{color:var(--uqeb-muted);font-size:11px;margin-bottom:2mm;}" +
+        ".signature-line{display:none;}" +
+        ".signatory-name{font-weight:700;font-size:14px;}" +
+        ".signatory-title{color:var(--uqeb-muted);font-size:12px;margin-top:2px;}" +
         ".letter-footer{position:absolute;left:17mm;right:17mm;bottom:9mm;border-top:1px solid var(--uqeb-line);padding-top:4mm;color:var(--uqeb-muted);font-size:11px;text-align:center;}" +
         ".page-break{break-before:page;page-break-before:always;}" +
         ".no-print{display:none!important;}" +

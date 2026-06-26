@@ -143,9 +143,21 @@ export default function FollowUpPrintJobDetailPage() {
 
       {message && <Alert variant="success">{message}</Alert>}
       {error && <Alert variant="error">{error}</Alert>}
-      <Alert variant="info">
-        تقوم المهمة بتحضير الخطابات فقط. لا تتم الطباعة تلقائيًا، ويجب فتح الجزء الجاهز والضغط على طباعة.
-      </Alert>
+
+      {/* دليل الخطوات للمستخدم */}
+      {job.status === 'ReadyToPrint' || job.status === 'PartiallyPrinted' ? (
+        <Alert variant="success">
+          تم تجهيز الخطابات ويمكن طباعتها الآن — افتح الجزء الجاهز وانقر «طباعة الآن».
+        </Alert>
+      ) : job.status === 'Completed' ? (
+        <Alert variant="info">
+          اكتملت المهمة. يمكن مراجعة سجلات الطباعة من صفحة «بانتظار التسجيل».
+        </Alert>
+      ) : (
+        <Alert variant="info">
+          تقوم المهمة بتحضير الخطابات. عند اكتمال الجزء ستظهر زر «طباعة الآن».
+        </Alert>
+      )}
 
       <div className="card">
         <div className="details-banner-row">
@@ -208,7 +220,16 @@ export default function FollowUpPrintJobDetailPage() {
                         target="_blank"
                         rel="noreferrer"
                       >
-                        فتح للطباعة
+                        طباعة الآن
+                      </Link>
+                    ) : part.status === 'Printed' ? (
+                      <Link
+                        to={`/follow-up-print/parts/${job.id}/${part.partNumber}/print`}
+                        className="btn btn-sm btn-outline"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        عرض (مطبوع)
                       </Link>
                     ) : (
                       <span className="text-muted">{getUnavailablePrintReason(part.status)}</span>

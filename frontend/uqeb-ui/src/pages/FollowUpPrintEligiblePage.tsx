@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { categoriesApi, departmentsApi, followUpPrintApi, letterTemplatesApi } from '../api/services';
 import type {
   Category, Department, EligibleTransaction, FollowUpPrintEligibilityPreview, LetterTemplate,
@@ -24,6 +24,7 @@ const DEFAULT_FILTER = {
 };
 
 export default function FollowUpPrintEligiblePage() {
+  const navigate = useNavigate();
   const [draftFilters, setDraftFilters] = useState(DEFAULT_FILTER);
   const [appliedFilters, setAppliedFilters] = useState(DEFAULT_FILTER);
   const [items, setItems] = useState<EligibleTransaction[]>([]);
@@ -173,9 +174,10 @@ export default function FollowUpPrintEligiblePage() {
         responseDeadlineDays: responseDeadlineDays ? Number(responseDeadlineDays) : undefined,
         idempotencyKey: createIdempotencyKey(),
       });
-      setMessage(`تم إنشاء مهمة الطباعة رقم ${res.data.id}.`);
+      // Navigate to the job detail page so the user can track progress and print
+      navigate(`/follow-up-print/jobs/${res.data.id}`);
     } catch (err: unknown) {
-      setError(getApiErrorMessage(err));
+      setError(getApiErrorMessage(err) || 'تعذر إنشاء مهمة الطباعة.');
     } finally {
       setCreating(false);
     }
