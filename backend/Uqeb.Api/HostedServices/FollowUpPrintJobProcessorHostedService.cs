@@ -82,7 +82,7 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
         }
         catch (FollowUpPrintLeaseExpiredException ex)
         {
-            _logger.LogWarning("توقف عامل الطباعة عن مهمة {JobId} بعد انتهاء الـlease.", ex.JobId);
+            _logger.LogWarning(ex, "توقف عامل الطباعة عن مهمة {JobId} بعد انتهاء الـlease.", ex.JobId);
         }
         catch (Exception ex)
         {

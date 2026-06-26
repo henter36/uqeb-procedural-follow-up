@@ -19,7 +19,9 @@ namespace Uqeb.Api.Tests.Letters;
 /// Full 10k run: set REQUIRE_FOLLOWUP_PRINT_BENCHMARK=1.
 /// CI uses 1k rows with the same per-query bounds scaled proportionally.
 /// </summary>
-public class FollowUpPrintEligibilityBenchmarkSqlServerTests : FollowUpPrintSqlServerTestBase
+[Trait("Category", "SqlServer")]
+public class FollowUpPrintEligibilityBenchmarkSqlServerTests
+    : FollowUpPrintSqlServerTestBase
 {
     private const int FullBenchmarkRows = 10_000;
     private const int CiBenchmarkRows = 1_000;

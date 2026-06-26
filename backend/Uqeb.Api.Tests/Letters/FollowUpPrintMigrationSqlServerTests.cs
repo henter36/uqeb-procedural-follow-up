@@ -7,7 +7,9 @@ using Xunit;
 
 namespace Uqeb.Api.Tests.Letters;
 
-public class FollowUpPrintMigrationSqlServerTests : FollowUpPrintSqlServerTestBase
+[Trait("Category", "SqlServer")]
+public class FollowUpPrintMigrationSqlServerTests
+    : FollowUpPrintSqlServerTestBase
 {
     [Fact]
     public async Task MigrateFromEmpty_CreatesFollowUpPrintTablesAndIndexes()

@@ -13,7 +13,9 @@ using Xunit;
 
 namespace Uqeb.Api.Tests.Letters;
 
-public class FollowUpPrintJobResumeSqlServerTests : FollowUpPrintSqlServerTestBase
+[Trait("Category", "SqlServer")]
+public class FollowUpPrintJobResumeSqlServerTests
+    : FollowUpPrintSqlServerTestBase
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 

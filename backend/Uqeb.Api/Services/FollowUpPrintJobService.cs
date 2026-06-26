@@ -63,6 +63,14 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
             _options.AbsoluteMaxBatchPrintSize);
         request.IdempotencyKey = NormalizeIdempotencyKey(request.IdempotencyKey);
 
+        // DepartmentUser may only filter by their own department; prevent cross-department access.
+        if (currentUser.Role == UserRole.DepartmentUser &&
+            request.Filter.DepartmentId.HasValue &&
+            request.Filter.DepartmentId != currentUser.DepartmentId)
+        {
+            throw new FollowUpPrintValidationException("لا يمكن تحديد إدارة مختلفة عن إدارتك.");
+        }
+
         var requestHash = FollowUpPrintRequestHash.Compute(request, batchSize);
         var existingJob = await TryResolveExistingIdempotentJobAsync(
             request,
@@ -534,7 +542,8 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         var job = new FollowUpPrintJob
         {
             RequestedById = currentUser.UserId,
-            ScopeDepartmentId = request.Filter.DepartmentId,
+            ScopeDepartmentId = request.Filter.DepartmentId
+                ?? (currentUser.Role == UserRole.DepartmentUser ? currentUser.DepartmentId : null),
             Status = FollowUpPrintJobStatus.Queued,
             FilterSnapshotJson = JsonSerializer.Serialize(snapshot, JsonOptions),
             TemplateId = template.Id,

@@ -11,7 +11,9 @@ using Xunit;
 
 namespace Uqeb.Api.Tests.Letters;
 
-public class FollowUpPrintIdempotencySqlServerTests : FollowUpPrintSqlServerTestBase
+[Trait("Category", "SqlServer")]
+public class FollowUpPrintIdempotencySqlServerTests
+    : FollowUpPrintSqlServerTestBase
 {
     [Fact]
     public async Task CreateJobAsync_ConcurrentSameKey_ReturnsSameJob()

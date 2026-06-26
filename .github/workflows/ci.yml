@@ -168,10 +168,22 @@ jobs:
       - run: dotnet restore backend/Uqeb.Api/Uqeb.Api.csproj
       - run: dotnet restore backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj
       - run: dotnet build backend/Uqeb.Api/Uqeb.Api.csproj -c Release --no-restore
-      - run: dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName~TransactionPersistenceSqlServerIntegrationTests|FullyQualifiedName~FollowUpPrintJobResumeSqlServerTests|FullyQualifiedName~FollowUpPrintIdempotencySqlServerTests|FullyQualifiedName~FollowUpPrintConcurrencySqlServerTests|FullyQualifiedName~FollowUpPrintMigrationSqlServerTests|FullyQualifiedName~FollowUpPrintAuthorizationSqlServerTests|FullyQualifiedName~FollowUpPrintEligibilityBenchmarkSqlServerTests"
+      - run: dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj -c Release --no-restore --filter "Category=SqlServer"
         env:
           REQUIRE_TRANSACTION_SQLSERVER_TESTS: "1"
           REQUIRE_FOLLOWUP_PRINT_SQLSERVER_TESTS: "1"
+
+  build-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet restore backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj
+      - run: dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --no-restore --filter "Category=BuildIntegration"
 
   zizmor:
     runs-on: ubuntu-latest

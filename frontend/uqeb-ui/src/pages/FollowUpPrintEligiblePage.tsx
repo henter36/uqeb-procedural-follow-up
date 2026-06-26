@@ -290,6 +290,9 @@ export default function FollowUpPrintEligiblePage() {
             </div>
           </div>
           <div className="form-actions">
+            <p className="text-muted text-sm mt-0 mb-2">
+              سيشمل إنشاء المهمة جميع المعاملات المستحقة ({preview.eligibleTransactionCount}) المطابقة للفلاتر الحالية، وليس الصفحة المعروضة فقط.
+            </p>
             <button
               type="button"
               className="btn btn-primary"

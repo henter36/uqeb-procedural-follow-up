@@ -250,7 +250,7 @@ public class AppDbContext : DbContext
                 .HasDatabaseName("IX_FollowUpLetterPrintRecords_Part_Tx_Entity_Seq");
             e.ToTable(t => t.HasCheckConstraint(
                 "CK_FollowUpLetterPrintRecords_TargetShape",
-                "([TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NULL) OR ([TargetEntityId] IS NOT NULL AND [TargetDepartmentId] IS NULL)"));
+                "NOT ([TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NOT NULL)"));
             e.HasIndex(r => r.RegisteredFollowUpId).HasFilter("[RegisteredFollowUpId] IS NULL");
             e.Property(r => r.RowVersion).IsRowVersion();
             e.HasOne(r => r.Transaction).WithMany().HasForeignKey(r => r.TransactionId).OnDelete(DeleteBehavior.Cascade);

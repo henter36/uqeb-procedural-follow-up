@@ -13,7 +13,9 @@ using Xunit;
 
 namespace Uqeb.Api.Tests.Letters;
 
-public class FollowUpPrintAuthorizationSqlServerTests : IClassFixture<FollowUpPrintAuthorizationWebApplicationFactory>
+[Trait("Category", "SqlServer")]
+public class FollowUpPrintAuthorizationSqlServerTests
+    : IClassFixture<FollowUpPrintAuthorizationWebApplicationFactory>
 {
     private readonly FollowUpPrintAuthorizationWebApplicationFactory _factory;
     private readonly HttpClient _client;

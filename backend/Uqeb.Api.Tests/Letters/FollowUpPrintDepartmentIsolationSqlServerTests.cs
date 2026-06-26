@@ -19,6 +19,7 @@ namespace Uqeb.Api.Tests.Letters;
 /// ScopeDepartmentId equality — not substring matching or JSON sniffing.
 /// Key invariant: department 1 must never see department 10's jobs, and vice versa.
 /// </summary>
+[Trait("Category", "SqlServer")]
 public class FollowUpPrintDepartmentIsolationSqlServerTests
     : IClassFixture<FollowUpPrintDepartmentIsolationFactory>
 {
@@ -41,14 +42,32 @@ public class FollowUpPrintDepartmentIsolationSqlServerTests
 
     // ─── List isolation ────────────────────────────────────────────────────────
 
+    private static async Task<List<int>> GetJobIdsAsync(HttpResponseMessage response)
+    {
+        var body = await response.Content.ReadAsStringAsync();
+        var paged = JsonSerializer.Deserialize<PagedJobsEnvelope>(body,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        return paged?.Items?.Select(j => j.Id).ToList() ?? [];
+    }
+
+    private sealed class PagedJobsEnvelope
+    {
+        public List<JobIdEnvelope> Items { get; set; } = [];
+    }
+
+    private sealed class JobIdEnvelope
+    {
+        public int Id { get; set; }
+    }
+
     [Fact]
     public async Task ListJobs_Dept1User_DoesNotSeeDept10Job()
     {
         using var client = MakeClient("DepartmentUser", _factory.Dept1UserId, departmentId: 1);
         var response = await client.GetAsync("/api/follow-up-print/jobs");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = await response.Content.ReadAsStringAsync();
-        Assert.DoesNotContain(_factory.Dept10JobId.ToString(), body);
+        var ids = await GetJobIdsAsync(response);
+        Assert.DoesNotContain(_factory.Dept10JobId, ids);
     }
 
     [Fact]
@@ -57,8 +76,8 @@ public class FollowUpPrintDepartmentIsolationSqlServerTests
         using var client = MakeClient("DepartmentUser", _factory.Dept10UserId, departmentId: 10);
         var response = await client.GetAsync("/api/follow-up-print/jobs");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = await response.Content.ReadAsStringAsync();
-        Assert.DoesNotContain(_factory.Dept1JobId.ToString(), body);
+        var ids = await GetJobIdsAsync(response);
+        Assert.DoesNotContain(_factory.Dept1JobId, ids);
     }
 
     [Fact]
@@ -67,8 +86,8 @@ public class FollowUpPrintDepartmentIsolationSqlServerTests
         using var client = MakeClient("DepartmentUser", _factory.Dept1UserId, departmentId: 1);
         var response = await client.GetAsync("/api/follow-up-print/jobs");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = await response.Content.ReadAsStringAsync();
-        Assert.Contains(_factory.Dept1JobId.ToString(), body);
+        var ids = await GetJobIdsAsync(response);
+        Assert.Contains(_factory.Dept1JobId, ids);
     }
 
     // ─── Direct access isolation ───────────────────────────────────────────────

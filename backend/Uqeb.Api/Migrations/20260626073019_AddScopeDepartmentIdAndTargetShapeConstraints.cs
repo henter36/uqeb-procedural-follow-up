@@ -61,17 +61,15 @@ namespace Uqeb.Api.Migrations
                 table: "FollowUpPrintJobPayloads",
                 sql: "([TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NULL) OR ([TargetEntityId] IS NOT NULL AND [TargetDepartmentId] IS NULL)");
 
-            // 4. Verify no existing FollowUpLetterPrintRecords violate the XOR target shape rule.
+            // 4. Verify no existing FollowUpLetterPrintRecords have both IDs set (disallowed).
+            //    Both-null (free-text name only, used by direct print) is permitted.
             migrationBuilder.Sql("""
                 IF EXISTS (
                     SELECT 1 FROM [FollowUpLetterPrintRecords]
-                    WHERE NOT (
-                        ([TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NULL) OR
-                        ([TargetEntityId] IS NOT NULL AND [TargetDepartmentId] IS NULL)
-                    )
+                    WHERE [TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NOT NULL
                 )
                 BEGIN
-                    THROW 51031, 'Cannot add XOR target shape constraint to FollowUpLetterPrintRecords: existing rows have both or neither target field set.', 1;
+                    THROW 51031, 'Cannot add target shape constraint to FollowUpLetterPrintRecords: existing rows have both TargetDepartmentId and TargetEntityId set.', 1;
                 END
                 """);
 
@@ -95,10 +93,12 @@ namespace Uqeb.Api.Migrations
                 unique: true,
                 filter: "[BatchJobPartId] IS NOT NULL AND [TargetEntityId] IS NOT NULL AND [TargetDepartmentId] IS NULL");
 
+            // Mutex constraint: at most one of the two ID columns may be set.
+            // Both-null is allowed (direct print with free-text name only).
             migrationBuilder.AddCheckConstraint(
                 name: "CK_FollowUpLetterPrintRecords_TargetShape",
                 table: "FollowUpLetterPrintRecords",
-                sql: "([TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NULL) OR ([TargetEntityId] IS NOT NULL AND [TargetDepartmentId] IS NULL)");
+                sql: "NOT ([TargetDepartmentId] IS NOT NULL AND [TargetEntityId] IS NOT NULL)");
         }
 
         /// <inheritdoc />
