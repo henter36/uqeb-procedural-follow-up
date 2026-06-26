@@ -322,8 +322,65 @@ public class FollowUpPrintMigrationSqlServerTests
         if (!await reader.ReadAsync())
             return false;
 
-        return reader.GetBoolean(0)
-            && reader.GetBoolean(1)
-            && string.Equals(reader.GetString(2), expectedFilter, StringComparison.OrdinalIgnoreCase);
+        var isUnique = reader.GetBoolean(0);
+        var hasFilter = reader.GetBoolean(1);
+        var actualFilter = reader.GetString(2);
+        var matches = isUnique
+            && hasFilter
+            && string.Equals(
+                NormalizeFilterDefinition(actualFilter),
+                NormalizeFilterDefinition(expectedFilter),
+                StringComparison.OrdinalIgnoreCase);
+
+        Assert.True(
+            matches,
+            $"""
+            Filtered unique index assertion failed.
+            Index: {indexName}
+            Expected filter: {expectedFilter}
+            Actual filter_definition: {actualFilter}
+            is_unique: {isUnique}
+            has_filter: {hasFilter}
+            """);
+
+        return true;
+    }
+
+    private static string NormalizeFilterDefinition(string definition)
+    {
+        var normalized = string.Join(
+            " ",
+            definition.Split(
+                [' ', '\r', '\n', '\t'],
+                StringSplitOptions.RemoveEmptyEntries));
+
+        while (HasSingleOuterParentheses(normalized))
+            normalized = normalized[1..^1].Trim();
+
+        return normalized;
+    }
+
+    private static bool HasSingleOuterParentheses(string value)
+    {
+        if (value.Length < 2 || value[0] != '(' || value[^1] != ')')
+            return false;
+
+        var depth = 0;
+
+        for (var index = 0; index < value.Length; index++)
+        {
+            if (value[index] == '(')
+                depth++;
+            else if (value[index] == ')')
+                depth--;
+
+            if (depth == 0 && index < value.Length - 1)
+                return false;
+
+            if (depth < 0)
+                return false;
+        }
+
+        return depth == 0;
     }
 }

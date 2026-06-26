@@ -29,6 +29,8 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
+    private readonly record struct FollowUpPrintJobCounts(int Transactions, int Letters);
+
     private readonly AppDbContext _db;
     private readonly IFollowUpPrintEligibilityService _eligibility;
     private readonly IFollowUpLetterRenderService _renderService;
@@ -87,13 +89,11 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
             currentUser,
             cancellationToken);
 
-        if (eligibleCandidates.Count == 0)
-            throw new InvalidOperationException("لا توجد معاملات مستحقة للتعقيب ضمن الفلاتر المحددة.");
+        var counts = new FollowUpPrintJobCounts(
+            eligibleCandidates.Count,
+            eligibleCandidates.Sum(candidate => candidate.Targets.Count));
 
-        var totalTransactions = eligibleCandidates.Count;
-        var totalLetters = eligibleCandidates.Sum(candidate => candidate.Targets.Count);
-
-        if (totalLetters == 0)
+        if (counts.Transactions == 0 || counts.Letters == 0)
             throw new InvalidOperationException("لا توجد معاملات مستحقة للتعقيب ضمن الفلاتر المحددة.");
 
         var template = await ResolveActiveTemplateAsync(request.TemplateId, cancellationToken);
@@ -111,8 +111,7 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
                 template,
                 snapshot,
                 batchSize,
-                totalTransactions,
-                totalLetters,
+                counts,
                 cancellationToken);
 
             ordinal = await AddPayloadsForCandidatesAsync(
@@ -546,8 +545,7 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         LetterTemplate template,
         FollowUpPrintFilterSnapshot snapshot,
         int batchSize,
-        int totalTransactions,
-        int totalLetters,
+        FollowUpPrintJobCounts counts,
         CancellationToken cancellationToken)
     {
         var job = new FollowUpPrintJob
@@ -564,8 +562,8 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
             DaysSinceLastFollowUp = request.Filter.DaysSinceLastFollowUp,
             BatchSize = batchSize,
             NextPayloadOrdinal = 0,
-            TotalTransactions = totalTransactions,
-            TotalLetters = totalLetters,
+            TotalTransactions = counts.Transactions,
+            TotalLetters = counts.Letters,
             CreatedAt = DateTime.UtcNow,
         };
 
