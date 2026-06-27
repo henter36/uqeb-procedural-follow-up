@@ -1,5 +1,7 @@
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Reporting.Configuration;
+using Uqeb.Api.Reporting.DTOs;
+using Uqeb.Api.Reporting.Enums;
 using Uqeb.Api.Reporting.Models;
 using Uqeb.Api.Reporting.Services;
 using Xunit;
@@ -93,6 +95,78 @@ public class InstitutionalReportThresholdTests
     {
         var opts = new ReportingAnalysisOptions { RecommendationTargetDays = 0 };
         Assert.Throws<InvalidOperationException>(opts.Validate);
+    }
+
+    [Fact]
+    public void BottleneckReason_UsesStaleTransactionDays_NotHardcoded7()
+    {
+        // Snapshot updated 4 days ago — open, no pending reply, not partial, not waiting on external.
+        var updatedAt = Today.AddDays(-4);
+        var snap = new TransactionReportSnapshot
+        {
+            TransactionId = 99,
+            IncomingDate = Today.AddDays(-10),
+            Status = TransactionStatus.InProgress,
+            IsClosed = false,
+            IsOpen = true,
+            IsPartialReply = false,
+            RequiresResponse = false,
+            PendingReplyAssignmentCount = 0,
+            UpdatedAt = updatedAt,
+            CreatedAt = Today.AddDays(-10),
+            CategoryName = "تصنيف",
+            ResponsibleDepartment = "إدارة",
+        };
+
+        var input = BuildBottleneckInput([snap], Today, staleDays: 3);
+        var result = InstitutionalReportAnalysisService.Build(input);
+
+        // With staleDays=3, 4 days since update → stale → should appear as stale_without_update
+        Assert.Contains(result.Bottlenecks, b => b.ReasonCode == "stale_without_update");
+
+        var input2 = BuildBottleneckInput([snap], Today, staleDays: 10);
+        var result2 = InstitutionalReportAnalysisService.Build(input2);
+
+        // With staleDays=10, 4 days since update → not stale → falls to missing_information or unknown
+        Assert.DoesNotContain(result2.Bottlenecks, b => b.ReasonCode == "stale_without_update");
+    }
+
+    private static InstitutionalReportAnalysisService.InstitutionalReportAnalysisInput BuildBottleneckInput(
+        IReadOnlyList<TransactionReportSnapshot> snapshots,
+        DateTime today,
+        int staleDays)
+    {
+        var metrics = InstitutionalReportMetricsCalculator.Calculate(snapshots, today);
+        return new InstitutionalReportAnalysisService.InstitutionalReportAnalysisInput
+        {
+            Request = new ReportBuildRequestDto
+            {
+                ReportType = InstitutionalReportType.ExecutiveComprehensive,
+                SectionIds = [ReportSectionId.DelayAndBottleneckAnalysis],
+                IncludeBottleneckAnalysis = true,
+                Filters = new ReportFiltersDto(),
+            },
+            Metadata = new ReportMetadataDto
+            {
+                GeneratedAt = today,
+                PeriodFrom = today.AddDays(-30),
+                PeriodTo = today,
+                Title = "test",
+                ReportNumber = "T-1",
+            },
+            Filters = new ReportFiltersDto(),
+            CurrentMetrics = metrics,
+            CurrentSnapshots = snapshots,
+            PreviousMetrics = null,
+            PreviousSnapshots = [],
+            Options = new ReportingAnalysisOptions
+            {
+                StaleTransactionDays = staleDays,
+                MinimumRankingSampleSize = 1,
+            },
+            DetailLimit = 100,
+            DetailRowsTruncated = false,
+        };
     }
 
     private static bool IsStaleForRisk(TransactionReportSnapshot snap, int staleDays)

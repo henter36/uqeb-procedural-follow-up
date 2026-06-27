@@ -8,4 +8,5 @@ public sealed class DepartmentRatingCriteria
     public int CriticalOldestOpenDaysThreshold { get; init; } = 30;
     public int CriticalPartialResponsesThreshold { get; init; } = 3;
     public int CriticalStaleUpdateDaysThreshold { get; init; } = 14;
+    public int CriticalStaleUpdateCountThreshold { get; init; } = 5;
 }

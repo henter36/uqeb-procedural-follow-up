@@ -131,7 +131,7 @@ internal static class InstitutionalReportAnalysisService
                 "bottlenecks",
                 reportType,
                 snapshotCount,
-                () => BuildBottlenecks(currentSnapshots, referenceDate));
+                () => BuildBottlenecks(currentSnapshots, referenceDate, options.StaleTransactionDays));
         var dataQuality = request.IncludeDataQuality == false
             ? []
             : MeasureStage(
@@ -752,9 +752,9 @@ internal static class InstitutionalReportAnalysisService
             .ThenByDescending(p => p.Count)
             .ToList();
 
-    private static List<BottleneckRowDto> BuildBottlenecks(IReadOnlyList<TransactionReportSnapshot> snapshots, DateTime referenceDate)
+    private static List<BottleneckRowDto> BuildBottlenecks(IReadOnlyList<TransactionReportSnapshot> snapshots, DateTime referenceDate, int staleDays)
     {
-        var rows = snapshots.Where(s => s.IsOpen).Select(s => new { Snapshot = s, Reason = BottleneckReason(s, referenceDate) }).ToList();
+        var rows = snapshots.Where(s => s.IsOpen).Select(s => new { Snapshot = s, Reason = BottleneckReason(s, referenceDate, staleDays) }).ToList();
         var total = rows.Count == 0 ? 1 : rows.Count;
         return rows
             .GroupBy(row => row.Reason)
@@ -773,7 +773,7 @@ internal static class InstitutionalReportAnalysisService
             .ToList();
     }
 
-    private static (string Code, string Label) BottleneckReason(TransactionReportSnapshot snapshot, DateTime referenceDate)
+    private static (string Code, string Label) BottleneckReason(TransactionReportSnapshot snapshot, DateTime referenceDate, int staleDays)
     {
         if (snapshot.PendingReplyAssignmentCount > 0)
             return ("pending_department_assignment", "إفادة أو تكليف إدارة معلق");
@@ -781,7 +781,7 @@ internal static class InstitutionalReportAnalysisService
             return ("external_response_delay", "معاملة منتظرة من الجهة");
         if (snapshot.IsPartialReply)
             return ("partial_response", "رد جزئي غير مكتمل");
-        if (ReportingTemporalCalculator.IsStale(snapshot, referenceDate, 7))
+        if (ReportingTemporalCalculator.IsStale(snapshot, referenceDate, staleDays))
             return ("stale_without_update", "بلا تحديث حديث");
         if (string.IsNullOrWhiteSpace(snapshot.CategoryName) || string.IsNullOrWhiteSpace(snapshot.ResponsibleDepartment))
             return ("missing_information", "بيانات تشغيلية ناقصة");

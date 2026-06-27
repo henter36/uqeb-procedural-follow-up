@@ -241,7 +241,7 @@ public class InstitutionalReportPreviewIntegrationTests : IClassFixture<Institut
             DateFrom = DateTime.UtcNow.Date.AddDays(-30),
             DateTo = DateTime.UtcNow.Date,
             IncludeJointDepartmentTransactions = true,
-            IncludeOverdue = true,
+            IncludeOverdue = false,
             IncludeDetails = true,
             IncludeRisks = true,
             IncludeRecommendations = true,

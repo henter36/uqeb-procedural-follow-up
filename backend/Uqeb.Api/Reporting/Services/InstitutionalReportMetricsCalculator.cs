@@ -67,7 +67,7 @@ public static class InstitutionalReportMetricsCalculator
             || metrics.OverdueCount >= criteria.CriticalOverdueCountThreshold
             || metrics.OldestOpenDays >= criteria.CriticalOldestOpenDaysThreshold
             || metrics.PartialResponses >= criteria.CriticalPartialResponsesThreshold
-            || metrics.StaleUpdates >= criteria.CriticalStaleUpdateDaysThreshold)
+            || metrics.StaleUpdates >= criteria.CriticalStaleUpdateCountThreshold)
         {
             return DepartmentRatingLevel.Critical;
         }

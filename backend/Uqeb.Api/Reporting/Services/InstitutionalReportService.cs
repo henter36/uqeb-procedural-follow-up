@@ -211,11 +211,18 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         var referenceDate = ReportingTemporalCalculator.RiyadhBusinessDate();
 
         var metricSnapshots = await LoadSnapshotsAsync(request, ct, takeLimit: null, referenceDate);
+        if (request.Filters.IncludeOverdue)
+        {
+            metricSnapshots = metricSnapshots.Where(s => s.IsOverdue).ToList();
+            totalMatched = metricSnapshots.Count;
+        }
         var metrics = InstitutionalReportMetricsCalculator.Calculate(metricSnapshots, referenceDate);
         var comparisonRequest = InstitutionalReportAnalysisService.CreateComparisonRequest(request);
         var comparisonSnapshots = comparisonRequest is null
             ? []
             : await LoadSnapshotsAsync(comparisonRequest, ct, takeLimit: null, referenceDate);
+        if (request.Filters.IncludeOverdue && comparisonSnapshots.Count > 0)
+            comparisonSnapshots = comparisonSnapshots.Where(s => s.IsOverdue).ToList();
         var comparisonMetrics = comparisonRequest is null
             ? null
             : InstitutionalReportMetricsCalculator.Calculate(comparisonSnapshots, referenceDate);

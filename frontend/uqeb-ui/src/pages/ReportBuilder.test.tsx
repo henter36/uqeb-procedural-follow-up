@@ -44,6 +44,12 @@ vi.mock('../api/services', () => ({
   departmentsApi: {
     lookup: vi.fn().mockResolvedValue({ data: [] }),
   },
+  categoriesApi: {
+    lookup: vi.fn().mockResolvedValue({ data: [] }),
+  },
+  externalPartiesApi: {
+    lookup: vi.fn().mockResolvedValue({ data: [] }),
+  },
 }));
 
 const mockManifest = {
@@ -503,6 +509,41 @@ describe('ReportBuilderPage export dialog', () => {
     });
     const request = vi.mocked(services.institutionalReportsApi.preview).mock.calls[0][0];
     expect(request.filters?.includeOverdue).toBe(true);
+  });
+
+  it('does not include SingleTransaction in report type options', () => {
+    render(<ReportBuilderPage />);
+    const select = screen.getByLabelText('نوع التقرير');
+    const optionTexts = Array.from(select.querySelectorAll('option')).map((o) => o.textContent);
+    expect(optionTexts).not.toContain('تقرير معاملة واحدة');
+  });
+
+  it('sends search term in filters when provided', async () => {
+    vi.mocked(services.institutionalReportsApi.preview).mockResolvedValue({ data: mockManifest } as never);
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+    await user.type(screen.getByLabelText('بحث'), 'VAR-001');
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+    await waitFor(() => expect(services.institutionalReportsApi.preview).toHaveBeenCalled());
+    const request = vi.mocked(services.institutionalReportsApi.preview).mock.calls[0][0];
+    expect(request.filters?.search).toBe('VAR-001');
+  });
+
+  it('sends null search when field is empty', async () => {
+    vi.mocked(services.institutionalReportsApi.preview).mockResolvedValue({ data: mockManifest } as never);
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+    await waitFor(() => expect(services.institutionalReportsApi.preview).toHaveBeenCalled());
+    const request = vi.mocked(services.institutionalReportsApi.preview).mock.calls[0][0];
+    expect(request.filters?.search).toBeNull();
+  });
+
+  it('max attributes on limit inputs match backend defaults', () => {
+    render(<ReportBuilderPage />);
+    expect(screen.getByLabelText('الحد الأقصى للنتائج')).toHaveAttribute('max', '5');
+    expect(screen.getByLabelText('الحد الأقصى للحالات الحرجة')).toHaveAttribute('max', '10');
+    expect(screen.getByLabelText('الحد الأقصى للتوصيات')).toHaveAttribute('max', '10');
   });
 
   it('shows export correlation id from response header when blob body omits it', async () => {

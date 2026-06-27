@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { institutionalReportsApi, departmentsApi, type InstitutionalReportManifest, type ReportBuildRequest } from '../api/services';
+import { institutionalReportsApi, departmentsApi, categoriesApi, externalPartiesApi, type InstitutionalReportManifest, type ReportBuildRequest } from '../api/services';
 import type { LookupItem } from '../api/types';
 import {
   DetailOverflowAction,
@@ -31,7 +31,6 @@ const REPORT_TYPES = [
   { value: InstitutionalReportType.OverdueTransactions, label: 'تقرير المعاملات المتأخرة' },
   { value: InstitutionalReportType.JointDepartmentTransactions, label: 'تقرير معاملات الإدارات المشتركة' },
   { value: InstitutionalReportType.PartialResponses, label: 'تقرير الإفادات والردود الجزئية' },
-  { value: InstitutionalReportType.SingleTransaction, label: 'تقرير معاملة واحدة' },
 ] as const;
 
 const SECTIONS = [
@@ -92,10 +91,15 @@ export default function ReportBuilderPage() {
 
   // Filters
   const [filterDepartmentIds, setFilterDepartmentIds] = useState<number[]>([]);
+  const [filterCategoryIds, setFilterCategoryIds] = useState<number[]>([]);
+  const [filterPartyIds, setFilterPartyIds] = useState<number[]>([]);
   const [filterPriorities, setFilterPriorities] = useState<string[]>([]);
   const [filterStatuses, setFilterStatuses] = useState<string[]>([]);
   const [filterOnlyOverdue, setFilterOnlyOverdue] = useState(false);
+  const [filterSearch, setFilterSearch] = useState('');
   const [departments, setDepartments] = useState<LookupItem[]>([]);
+  const [categories, setCategories] = useState<LookupItem[]>([]);
+  const [parties, setParties] = useState<LookupItem[]>([]);
 
   const includesTransactionDetails = sectionIds.includes(ReportSectionId.TransactionDetails);
 
@@ -106,6 +110,28 @@ export default function ReportBuilderPage() {
     departmentsApi.lookup('', true, 200)
       .then(({ data }) => { if (isMounted) setDepartments(data); })
       .catch(() => { if (isMounted) setDepartments([]); });
+
+    return () => { isMounted = false; };
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+
+    let isMounted = true;
+    categoriesApi.lookup('', true, 200)
+      .then(({ data }) => { if (isMounted) setCategories(data); })
+      .catch(() => { if (isMounted) setCategories([]); });
+
+    return () => { isMounted = false; };
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+
+    let isMounted = true;
+    externalPartiesApi.lookup('', true, 200)
+      .then(({ data }) => { if (isMounted) setParties(data); })
+      .catch(() => { if (isMounted) setParties([]); });
 
     return () => { isMounted = false; };
   }, [isAdmin]);
@@ -154,10 +180,11 @@ export default function ReportBuilderPage() {
       includeRisks: true,
       includeRecommendations: true,
       departmentIds: filterDepartmentIds,
-      partyIds: [],
-      categoryIds: [],
+      partyIds: filterPartyIds,
+      categoryIds: filterCategoryIds,
       priorities: filterPriorities,
       statuses: filterStatuses,
+      search: filterSearch || null,
     },
   }), [
     reportType,
@@ -173,9 +200,12 @@ export default function ReportBuilderPage() {
     dateFrom,
     dateTo,
     filterDepartmentIds,
+    filterCategoryIds,
+    filterPartyIds,
     filterPriorities,
     filterStatuses,
     filterOnlyOverdue,
+    filterSearch,
   ]);
 
   const {
@@ -366,6 +396,15 @@ export default function ReportBuilderPage() {
 
           <h3 style={{ marginTop: '1rem' }}>الفلاتر</h3>
 
+          <label htmlFor="filter-search">بحث</label>
+          <input
+            id="filter-search"
+            type="text"
+            placeholder="رقم الوارد / رقم التتبع / الموضوع"
+            value={filterSearch}
+            onChange={(e) => { invalidatePreview(); setFilterSearch(e.target.value); }}
+          />
+
           {departments.length > 0 && (
             <>
               <label htmlFor="filter-departments">الإدارات</label>
@@ -381,6 +420,44 @@ export default function ReportBuilderPage() {
                 }}
               >
                 {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </>
+          )}
+
+          {categories.length > 0 && (
+            <>
+              <label htmlFor="filter-categories">التصنيفات</label>
+              <select
+                id="filter-categories"
+                multiple
+                size={Math.min(categories.length, 6)}
+                value={filterCategoryIds.map(String)}
+                onChange={(e) => {
+                  invalidatePreview();
+                  const ids = Array.from(e.target.selectedOptions).map((o) => Number(o.value));
+                  setFilterCategoryIds(ids);
+                }}
+              >
+                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </>
+          )}
+
+          {parties.length > 0 && (
+            <>
+              <label htmlFor="filter-parties">الجهات الخارجية</label>
+              <select
+                id="filter-parties"
+                multiple
+                size={Math.min(parties.length, 6)}
+                value={filterPartyIds.map(String)}
+                onChange={(e) => {
+                  invalidatePreview();
+                  const ids = Array.from(e.target.selectedOptions).map((o) => Number(o.value));
+                  setFilterPartyIds(ids);
+                }}
+              >
+                {parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </>
           )}
@@ -485,7 +562,7 @@ export default function ReportBuilderPage() {
             id="max-findings"
             type="number"
             min="1"
-            max="20"
+            max="5"
             value={maxFindings}
             onChange={(e) => {
               invalidatePreview();
@@ -497,7 +574,7 @@ export default function ReportBuilderPage() {
             id="max-critical-cases"
             type="number"
             min="1"
-            max="50"
+            max="10"
             value={maxCriticalCases}
             onChange={(e) => {
               invalidatePreview();
@@ -509,7 +586,7 @@ export default function ReportBuilderPage() {
             id="max-recommendations"
             type="number"
             min="1"
-            max="30"
+            max="10"
             value={maxRecommendations}
             onChange={(e) => {
               invalidatePreview();

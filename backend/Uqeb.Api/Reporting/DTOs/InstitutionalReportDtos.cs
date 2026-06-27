@@ -34,7 +34,7 @@ public sealed class ReportFiltersDto
     public List<string> Priorities { get; set; } = [];
     public List<string> Statuses { get; set; } = [];
     public bool IncludeJointDepartmentTransactions { get; set; } = true;
-    public bool IncludeOverdue { get; set; } = true;
+    public bool IncludeOverdue { get; set; } = false;
     public bool IncludeDetails { get; set; } = true;
     public bool IncludeRisks { get; set; } = true;
     public bool IncludeRecommendations { get; set; } = true;
