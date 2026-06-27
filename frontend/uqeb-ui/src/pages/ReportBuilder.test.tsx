@@ -41,6 +41,9 @@ vi.mock('../api/services', () => ({
     preview: vi.fn(),
     export: vi.fn(),
   },
+  departmentsApi: {
+    lookup: vi.fn().mockResolvedValue({ data: [] }),
+  },
 }));
 
 const mockManifest = {

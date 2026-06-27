@@ -121,6 +121,13 @@ public sealed class ReportingAnalysisOptions
     public decimal SignificantChangeThresholdPercent { get; set; } = 10;
     public int CriticalOverdueDays { get; set; } = 10;
     public int StaleTransactionDays { get; set; } = 7;
+
+    /// <summary>Days window used to detect "no recent update" in risk counters (was hardcoded 14).</summary>
+    public int StaleRiskWindowDays { get; set; } = 14;
+
+    /// <summary>Days ahead used for recommendation target dates (was hardcoded 7).</summary>
+    public int RecommendationTargetDays { get; set; } = 7;
+
     public int MinimumComparisonSampleSize { get; set; } = 10;
     public int MinimumRankingSampleSize { get; set; } = 5;
     public int MaxExecutiveFindings { get; set; } = 5;
@@ -143,6 +150,12 @@ public sealed class ReportingAnalysisOptions
 
         if (StaleTransactionDays <= 0)
             throw new InvalidOperationException("Reporting:Analysis:StaleTransactionDays must be greater than zero.");
+
+        if (StaleRiskWindowDays <= 0)
+            throw new InvalidOperationException("Reporting:Analysis:StaleRiskWindowDays must be greater than zero.");
+
+        if (RecommendationTargetDays <= 0)
+            throw new InvalidOperationException("Reporting:Analysis:RecommendationTargetDays must be greater than zero.");
 
         if (MinimumComparisonSampleSize <= 0)
             throw new InvalidOperationException("Reporting:Analysis:MinimumComparisonSampleSize must be greater than zero.");

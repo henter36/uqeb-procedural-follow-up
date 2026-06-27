@@ -283,8 +283,8 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             Charts = BuildCharts(metrics, metricSnapshots),
             DepartmentPerformance = BuildDepartmentPerformance(metrics.Snapshots, referenceDate),
             Risks = BuildRisks(metrics.Snapshots),
-            Recommendations = BuildRecommendations(metrics.Snapshots, referenceDate),
-            RiskCounters = BuildRiskCounters(metrics.Snapshots, referenceDate),
+            Recommendations = BuildRecommendations(metrics.Snapshots, referenceDate, _reportingOptions.Analysis),
+            RiskCounters = BuildRiskCounters(metrics.Snapshots, referenceDate, _reportingOptions.Analysis),
             Transactions = BuildTransactionDetails(detailSnapshots),
             IntegrityWarnings = ValidateIntegrity(metrics)
         };
@@ -559,7 +559,10 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         return risks.Take(20).Select((r, i) => { r.Sequence = i + 1; return r; }).ToList();
     }
 
-    private static List<RecommendationRowDto> BuildRecommendations(IReadOnlyList<TransactionReportSnapshot> snapshots, DateTime today)
+    private static List<RecommendationRowDto> BuildRecommendations(
+        IReadOnlyList<TransactionReportSnapshot> snapshots,
+        DateTime today,
+        ReportingAnalysisOptions analysisOptions)
     {
         var recs = new List<RecommendationRowDto>();
         var overdueDept = snapshots.Where(s => s.IsOverdue)
@@ -574,7 +577,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
                 RequiredAction = "عقد اجتماع متابعة أسبوعي وتحديد خطة إغلاق",
                 ResponsibleDepartment = overdueDept.Key,
                 Priority = "عالية",
-                TargetDate = today.AddDays(7).ToString(IsoDateFormat, CultureInfo.InvariantCulture),
+                TargetDate = today.AddDays(analysisOptions.RecommendationTargetDays).ToString(IsoDateFormat, CultureInfo.InvariantCulture),
                 Source = RecommendationSource.Automated,
                 SourceLabel = "مولّد آليًا"
             });
@@ -582,9 +585,12 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         return recs;
     }
 
-    private static RiskSummaryCountersDto BuildRiskCounters(IReadOnlyList<TransactionReportSnapshot> snapshots, DateTime today)
+    private static RiskSummaryCountersDto BuildRiskCounters(
+        IReadOnlyList<TransactionReportSnapshot> snapshots,
+        DateTime today,
+        ReportingAnalysisOptions analysisOptions)
     {
-        var staleThreshold = today.AddDays(-14);
+        var staleThreshold = today.AddDays(-analysisOptions.StaleRiskWindowDays);
         return new RiskSummaryCountersDto
         {
             DepartmentsNeedingFollowUp = snapshots.Where(s => s.IsOpen && s.IsOverdue).Select(s => s.ResponsibleDepartment).Distinct().Count(),

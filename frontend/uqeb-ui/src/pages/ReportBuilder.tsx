@@ -1,6 +1,7 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { institutionalReportsApi, type InstitutionalReportManifest, type ReportBuildRequest } from '../api/services';
+import { institutionalReportsApi, departmentsApi, type InstitutionalReportManifest, type ReportBuildRequest } from '../api/services';
+import type { LookupItem } from '../api/types';
 import {
   DetailOverflowAction,
   ExportFormat,
@@ -13,6 +14,7 @@ import {
   ReportTimeGrouping,
 } from '../api/institutionalReports.constants';
 import { getApiErrorDetails } from '../utils/apiHelpers';
+import { statusLabels, priorityLabels } from '../utils/labels';
 import {
   defaultDate,
   exportFormatLabels,
@@ -86,10 +88,26 @@ export default function ReportBuilderPage() {
   const [errorCorrelationId, setErrorCorrelationId] = useState('');
   const [correlationCopied, setCorrelationCopied] = useState(false);
   const previewRequestIdRef = useRef(0);
+  const previewAbortRef = useRef<AbortController | null>(null);
+
+  // Filters
+  const [filterDepartmentIds, setFilterDepartmentIds] = useState<number[]>([]);
+  const [filterPriorities, setFilterPriorities] = useState<string[]>([]);
+  const [filterStatuses, setFilterStatuses] = useState<string[]>([]);
+  const [filterOnlyOverdue, setFilterOnlyOverdue] = useState(false);
+  const [departments, setDepartments] = useState<LookupItem[]>([]);
 
   const includesTransactionDetails = sectionIds.includes(ReportSectionId.TransactionDetails);
 
+  useEffect(() => {
+    departmentsApi.lookup('', true, 200)
+      .then(({ data }) => setDepartments(data))
+      .catch(() => setDepartments([]));
+  }, []);
+
   const invalidatePreview = useCallback(() => {
+    previewAbortRef.current?.abort();
+    previewAbortRef.current = null;
     previewRequestIdRef.current += 1;
     setManifest(null);
     setLoading(false);
@@ -126,15 +144,15 @@ export default function ReportBuilderPage() {
       dateFrom: dateFrom || null,
       dateTo: dateTo || null,
       includeJointDepartmentTransactions: true,
-      includeOverdue: true,
+      includeOverdue: filterOnlyOverdue ? true : true,
       includeDetails: true,
       includeRisks: true,
       includeRecommendations: true,
-      departmentIds: [],
+      departmentIds: filterDepartmentIds,
       partyIds: [],
       categoryIds: [],
-      priorities: [],
-      statuses: [],
+      priorities: filterPriorities,
+      statuses: filterStatuses,
     },
   }), [
     reportType,
@@ -149,6 +167,10 @@ export default function ReportBuilderPage() {
     maxRecommendations,
     dateFrom,
     dateTo,
+    filterDepartmentIds,
+    filterPriorities,
+    filterStatuses,
+    filterOnlyOverdue,
   ]);
 
   const {
@@ -187,19 +209,27 @@ export default function ReportBuilderPage() {
     if (!isAdmin)
       return;
 
+    // Cancel any in-flight preview request before starting a new one.
+    previewAbortRef.current?.abort();
+    const controller = new AbortController();
+    previewAbortRef.current = controller;
+
     const requestId = previewRequestIdRef.current + 1;
     previewRequestIdRef.current = requestId;
+    setManifest(null);
     setLoading(true);
     setError('');
     setErrorCorrelationId('');
     setCorrelationCopied(false);
     try {
-      const { data } = await institutionalReportsApi.preview(buildRequest());
+      const { data } = await institutionalReportsApi.preview(buildRequest(), controller.signal);
       if (requestId !== previewRequestIdRef.current) return;
       setManifest(data);
       setCurrentPage(1);
       setSelectedPages([]);
     } catch (error) {
+      // Ignore aborted requests — a newer request is already in flight.
+      if ((error as { name?: string })?.name === 'CanceledError' || (error as { name?: string })?.name === 'AbortError') return;
       if (requestId !== previewRequestIdRef.current) return;
       const apiError = getApiErrorDetails(error);
 
@@ -328,6 +358,65 @@ export default function ReportBuilderPage() {
           <input id="date-to" type="date" value={dateTo} onChange={(e) => { invalidatePreview(); setDateTo(e.target.value); }} />
           <label htmlFor="report-title">عنوان التقرير</label>
           <input id="report-title" value={title} onChange={(e) => { invalidatePreview(); setTitle(e.target.value); }} />
+
+          <h3 style={{ marginTop: '1rem' }}>الفلاتر</h3>
+
+          {departments.length > 0 && (
+            <>
+              <label htmlFor="filter-departments">الإدارات</label>
+              <select
+                id="filter-departments"
+                multiple
+                size={Math.min(departments.length, 6)}
+                value={filterDepartmentIds.map(String)}
+                onChange={(e) => {
+                  invalidatePreview();
+                  const ids = Array.from(e.target.selectedOptions).map((o) => Number(o.value));
+                  setFilterDepartmentIds(ids);
+                }}
+              >
+                {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </>
+          )}
+
+          <label htmlFor="filter-priorities">الأولويات</label>
+          <select
+            id="filter-priorities"
+            multiple
+            size={3}
+            value={filterPriorities}
+            onChange={(e) => {
+              invalidatePreview();
+              setFilterPriorities(Array.from(e.target.selectedOptions).map((o) => o.value));
+            }}
+          >
+            {Object.entries(priorityLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+
+          <label htmlFor="filter-statuses">الحالات</label>
+          <select
+            id="filter-statuses"
+            multiple
+            size={Math.min(Object.keys(statusLabels).length, 6)}
+            value={filterStatuses}
+            onChange={(e) => {
+              invalidatePreview();
+              setFilterStatuses(Array.from(e.target.selectedOptions).map((o) => o.value));
+            }}
+          >
+            {Object.entries(statusLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+
+          <label htmlFor="filter-only-overdue">
+            <input
+              id="filter-only-overdue"
+              type="checkbox"
+              checked={filterOnlyOverdue}
+              onChange={(e) => { invalidatePreview(); setFilterOnlyOverdue(e.target.checked); }}
+            />
+            {' '}المتأخرة فقط
+          </label>
 
           <h3 style={{ marginTop: '1rem' }}>المحتوى التحليلي</h3>
           <label htmlFor="content-level">مستوى المحتوى</label>
