@@ -92,15 +92,17 @@ public static class FollowUpLetterPrintViewRenderer
                 </div>
                 <div class="header-empty"></div>
               </header>
-              {title}
-              <section class="letter-body">
-                {string.Concat(lines)}
-              </section>
-              <footer class="letter-signature">
-                {signatoryPosition}
-                {signatoryRank}
-                {signatoryName}
-              </footer>
+              <div class="letter-frame">
+                {title}
+                <section class="letter-body">
+                  {string.Concat(lines)}
+                </section>
+                <footer class="letter-signature">
+                  {signatoryPosition}
+                  {signatoryRank}
+                  {signatoryName}
+                </footer>
+              </div>
               {footerContent}
             </article>
             """;
@@ -126,9 +128,10 @@ public static class FollowUpLetterPrintViewRenderer
         "*{box-sizing:border-box;}" +
         "html,body{margin:0;padding:0;direction:rtl;text-align:right;}" +
         "body{font-family:Tahoma,'Segoe UI',Arial,sans-serif;color:var(--uqeb-ink);background:#f4f6f4;}" +
-        ".official-letter{width:210mm;min-height:297mm;margin:0 auto 18px;background:#fff;border:1.5px solid var(--uqeb-green);outline:5px solid rgba(179,139,46,.16);padding:10mm 17mm 14mm;break-after:page;page-break-after:always;position:relative;text-align:right;}" +
+        ".official-letter{width:210mm;min-height:297mm;margin:0 auto 18px;background:#fff;outline:5px solid rgba(179,139,46,.16);padding:10mm 17mm 0;break-after:page;page-break-after:always;position:relative;text-align:right;}" +
         ".official-letter:last-child{break-after:auto;page-break-after:auto;}" +
-        ".letter-header{display:grid;grid-template-columns:1fr auto 1fr;align-items:start;border-bottom:2px solid var(--uqeb-green);padding-bottom:4mm;margin-bottom:4mm;break-inside:avoid;page-break-inside:avoid;}" +
+        ".letter-header{display:grid;grid-template-columns:1fr auto 1fr;align-items:start;padding-bottom:4mm;margin-bottom:0;break-inside:avoid;page-break-inside:avoid;}" +
+        ".letter-frame{border:1.5px solid var(--uqeb-green);margin:0 -17mm;padding:4mm 17mm 14mm;}" +
         ".header-identity{font-size:13px;line-height:1.8;color:var(--uqeb-ink);}" +
         ".kingdom-text,.ministry-text{font-weight:700;}" +
         ".org-text{color:var(--uqeb-green);font-weight:700;}" +
@@ -148,5 +151,5 @@ public static class FollowUpLetterPrintViewRenderer
         ".page-break{break-before:page;page-break-before:always;}" +
         ".no-print{display:none!important;}" +
         "@media screen{body{padding:18px;}.official-letter{box-shadow:0 16px 40px rgba(0,0,0,.10);}}" +
-        "@media print{body{background:#fff;padding:0;}.official-letter{width:auto;min-height:265mm;margin:0;border:1.5px solid var(--uqeb-green);outline:0;box-shadow:none;}.no-print{display:none!important;}}";
+        "@media print{body{background:#fff;padding:0;}.official-letter{width:auto;min-height:265mm;margin:0;outline:0;box-shadow:none;}.no-print{display:none!important;}}";
 }
