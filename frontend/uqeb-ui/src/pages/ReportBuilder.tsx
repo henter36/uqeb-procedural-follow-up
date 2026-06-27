@@ -100,10 +100,15 @@ export default function ReportBuilderPage() {
   const includesTransactionDetails = sectionIds.includes(ReportSectionId.TransactionDetails);
 
   useEffect(() => {
+    if (!isAdmin) return;
+
+    let isMounted = true;
     departmentsApi.lookup('', true, 200)
-      .then(({ data }) => setDepartments(data))
-      .catch(() => setDepartments([]));
-  }, []);
+      .then(({ data }) => { if (isMounted) setDepartments(data); })
+      .catch(() => { if (isMounted) setDepartments([]); });
+
+    return () => { isMounted = false; };
+  }, [isAdmin]);
 
   const invalidatePreview = useCallback(() => {
     previewAbortRef.current?.abort();
@@ -144,7 +149,7 @@ export default function ReportBuilderPage() {
       dateFrom: dateFrom || null,
       dateTo: dateTo || null,
       includeJointDepartmentTransactions: true,
-      includeOverdue: filterOnlyOverdue ? true : true,
+      includeOverdue: filterOnlyOverdue,
       includeDetails: true,
       includeRisks: true,
       includeRecommendations: true,

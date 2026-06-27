@@ -208,7 +208,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         ReportingOptions.ValidateDetailLimit(detailLimit);
         var totalMatched = options.TotalMatchedOverride ?? await CountMatchingTransactionsAsync(request, ct);
         var generatedAt = DateTime.UtcNow;
-        var referenceDate = generatedAt.Date;
+        var referenceDate = ReportingTemporalCalculator.RiyadhBusinessDate();
 
         var metricSnapshots = await LoadSnapshotsAsync(request, ct, takeLimit: null, referenceDate);
         var metrics = InstitutionalReportMetricsCalculator.Calculate(metricSnapshots, referenceDate);
@@ -507,8 +507,8 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
                     WaitingForStatementCount = open.Count(s => s.IsWaitingForStatement),
                     OverdueCount = open.Count(s => s.IsOverdue),
                     JointDepartmentCount = items.Count(s => s.IsJointDepartment),
-                    AverageCompletionDays = closed.Count == 0 ? 0 :
-                        Math.Round(closed.Average(s => (s.ClosedAt!.Value - s.IncomingDate).TotalDays), 1),
+                    AverageCompletionDays = closed.Count(s => s.ClosedAt.HasValue) == 0 ? 0 :
+                        Math.Round(closed.Where(s => s.ClosedAt.HasValue).Average(s => (s.ClosedAt!.Value - s.IncomingDate).TotalDays), 1),
                     OnTimeCompletionRate = onTimeRate,
                     Rating = rating,
                     RatingLabel = InstitutionalReportMetricsCalculator.RatingLabel(rating)

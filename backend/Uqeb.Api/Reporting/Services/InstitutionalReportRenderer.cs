@@ -694,7 +694,9 @@ public sealed class InstitutionalReportRenderer
             <td>—</td><td>—</td><td>—</td>
           </tr></tbody>
         </table>
-        <p class="section-footnote">* عمود "إدارات مشتركة" يُظهر عدد المعاملات المُشارَك فيها مع إدارات أخرى، وتُحتسب كل معاملة تحت إدارتها المسؤولة فقط.</p>
+        <p class="section-footnote">{(model.DepartmentTotalsAreAdditive
+            ? "* عمود \"إدارات مشتركة\" يُظهر عدد المعاملات المُشارَك فيها مع إدارات أخرى، وتُحتسب كل معاملة تحت إدارتها المسؤولة فقط."
+            : $"* {Esc(model.DepartmentAggregationDescription)}")}</p>
         """;
     }
 

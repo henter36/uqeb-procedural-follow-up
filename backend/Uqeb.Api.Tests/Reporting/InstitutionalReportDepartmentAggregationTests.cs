@@ -174,6 +174,55 @@ public class InstitutionalReportDepartmentAggregationTests
         Assert.NotNull(warnCell);
     }
 
+    // ── ClosedAt.HasValue guard ──────────────────────────────────────────────
+
+    [Fact]
+    public void FixtureModel_ClosedRowWithNoClosedAt_DoesNotCrash()
+    {
+        // A DepartmentPerformanceRowDto with ClosedCount > 0 but AverageCompletionDays = 0
+        // represents a closed transaction with missing ClosedAt — must not throw.
+        var model = BuildModelWithRows(
+            new DepartmentPerformanceRowDto
+            {
+                DepartmentId = 1,
+                DepartmentName = "إدارة بلا تاريخ إغلاق",
+                TotalTransactions = 3,
+                ClosedCount = 3,
+                OpenCount = 0,
+                AverageCompletionDays = 0, // ClosedAt was null — guarded to 0
+            });
+
+        var manifest = InstitutionalReportVisualFixtures.RenderSections(model, ReportSectionId.DepartmentPerformance);
+        // Just rendering must not throw.
+        Assert.NotNull(manifest);
+        var html = manifest.Pages.Single().HtmlContent;
+        Assert.Contains("إدارة بلا تاريخ إغلاق", html);
+    }
+
+    // ── Renderer footnote is mode-aware ─────────────────────────────────────
+
+    [Fact]
+    public void HtmlRenderer_Footnote_ContainsAdditiveDescription_WhenAdditive()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        var manifest = InstitutionalReportVisualFixtures.RenderSections(model, ReportSectionId.DepartmentPerformance);
+        var html = manifest.Pages.Single().HtmlContent;
+        Assert.Contains("إدارتها المسؤولة فقط", html);
+        Assert.DoesNotContain(model.DepartmentAggregationDescription, html.Replace("مجمَّع حسب الإدارة المسؤولة", ""));
+    }
+
+    [Fact]
+    public void HtmlRenderer_Footnote_ContainsAggregationDescription_WhenNonAdditive()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        model.DepartmentTotalsAreAdditive = false;
+        model.DepartmentAggregationDescription = "توزيع غير قابل للجمع — اختبار";
+        var manifest = InstitutionalReportVisualFixtures.RenderSections(model, ReportSectionId.DepartmentPerformance);
+        var html = manifest.Pages.Single().HtmlContent;
+        Assert.Contains("توزيع غير قابل للجمع — اختبار", html);
+        Assert.DoesNotContain("إدارتها المسؤولة فقط", html);
+    }
+
     // ── Helper ──────────────────────────────────────────────────────────────
 
     private static InstitutionalReportModel BuildModelWithRows(
