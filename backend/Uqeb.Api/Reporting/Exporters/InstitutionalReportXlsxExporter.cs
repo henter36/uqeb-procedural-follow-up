@@ -179,6 +179,22 @@ public static class InstitutionalReportXlsxExporter
         ws.Range(1, 1, row - 1, headers.Length).SetAutoFilter();
         ws.SheetView.FreezeRows(1);
         ws.Columns().AdjustToContents();
+        // Aggregation metadata note — written AFTER AdjustToContents so it is then re-sized below.
+        var noteRow = row + 1;
+        var noteCell = ws.Cell(noteRow, 1);
+        if (model.DepartmentTotalsAreAdditive)
+        {
+            noteCell.Value = $"ملاحظة منهجية: {model.DepartmentAggregationDescription}";
+            noteCell.Style.Font.Italic = true;
+            noteCell.Style.Font.FontColor = XLColor.Gray;
+        }
+        else
+        {
+            noteCell.Value = $"تحذير: المجاميع غير قابلة للجمع — {model.DepartmentAggregationDescription}";
+            noteCell.Style.Font.FontColor = XLColor.DarkRed;
+        }
+        noteCell.Style.Alignment.WrapText = true;
+        ws.Column(1).AdjustToContents();
     }
 
     private static void AddExternalPartiesSheet(XLWorkbook workbook, InstitutionalReportModel model)

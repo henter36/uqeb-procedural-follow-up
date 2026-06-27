@@ -176,9 +176,12 @@ internal static class InstitutionalReportSnapshotQuery
     private static IQueryable<Transaction> ApplyDateFilter(IQueryable<Transaction> query, ReportFilterRequest legacy)
     {
         if (legacy.DateFrom.HasValue)
-            query = query.Where(t => t.IncomingDate >= legacy.DateFrom);
+            query = query.Where(t => t.IncomingDate >= legacy.DateFrom.Value.Date);
         if (legacy.DateTo.HasValue)
-            query = query.Where(t => t.IncomingDate <= legacy.DateTo);
+        {
+            var toExclusive = legacy.DateTo.Value.Date.AddDays(1);
+            query = query.Where(t => t.IncomingDate < toExclusive);
+        }
         return query;
     }
 

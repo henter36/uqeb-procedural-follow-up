@@ -268,8 +268,8 @@ export type {
 } from './institutionalReports.types';
 
 export const institutionalReportsApi = {
-  preview: (payload: ReportBuildRequest) =>
-    api.post<InstitutionalReportManifest>('/institutional-reports/preview', payload),
+  preview: (payload: ReportBuildRequest, signal?: AbortSignal) =>
+    api.post<InstitutionalReportManifest>('/institutional-reports/preview', payload, { signal }),
   export: (payload: ReportExportRequest) =>
     api.post('/institutional-reports/export', payload, { responseType: 'blob' }),
   getTemplates: () => api.get<ReportTemplate[]>('/institutional-reports/templates'),

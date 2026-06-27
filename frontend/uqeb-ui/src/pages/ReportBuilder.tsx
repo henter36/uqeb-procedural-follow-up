@@ -1,6 +1,7 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { institutionalReportsApi, type InstitutionalReportManifest, type ReportBuildRequest } from '../api/services';
+import { institutionalReportsApi, departmentsApi, categoriesApi, externalPartiesApi, type InstitutionalReportManifest, type ReportBuildRequest } from '../api/services';
+import type { LookupItem } from '../api/types';
 import {
   DetailOverflowAction,
   ExportFormat,
@@ -13,6 +14,7 @@ import {
   ReportTimeGrouping,
 } from '../api/institutionalReports.constants';
 import { getApiErrorDetails } from '../utils/apiHelpers';
+import { statusLabels, priorityLabels } from '../utils/labels';
 import {
   defaultDate,
   exportFormatLabels,
@@ -29,7 +31,6 @@ const REPORT_TYPES = [
   { value: InstitutionalReportType.OverdueTransactions, label: 'تقرير المعاملات المتأخرة' },
   { value: InstitutionalReportType.JointDepartmentTransactions, label: 'تقرير معاملات الإدارات المشتركة' },
   { value: InstitutionalReportType.PartialResponses, label: 'تقرير الإفادات والردود الجزئية' },
-  { value: InstitutionalReportType.SingleTransaction, label: 'تقرير معاملة واحدة' },
 ] as const;
 
 const SECTIONS = [
@@ -86,10 +87,58 @@ export default function ReportBuilderPage() {
   const [errorCorrelationId, setErrorCorrelationId] = useState('');
   const [correlationCopied, setCorrelationCopied] = useState(false);
   const previewRequestIdRef = useRef(0);
+  const previewAbortRef = useRef<AbortController | null>(null);
+
+  // Filters
+  const [filterDepartmentIds, setFilterDepartmentIds] = useState<number[]>([]);
+  const [filterCategoryIds, setFilterCategoryIds] = useState<number[]>([]);
+  const [filterPartyIds, setFilterPartyIds] = useState<number[]>([]);
+  const [filterPriorities, setFilterPriorities] = useState<string[]>([]);
+  const [filterStatuses, setFilterStatuses] = useState<string[]>([]);
+  const [filterOnlyOverdue, setFilterOnlyOverdue] = useState(false);
+  const [filterSearch, setFilterSearch] = useState('');
+  const [departments, setDepartments] = useState<LookupItem[]>([]);
+  const [categories, setCategories] = useState<LookupItem[]>([]);
+  const [parties, setParties] = useState<LookupItem[]>([]);
 
   const includesTransactionDetails = sectionIds.includes(ReportSectionId.TransactionDetails);
 
+  useEffect(() => {
+    if (!isAdmin) return;
+
+    let isMounted = true;
+    departmentsApi.lookup('', true, 200)
+      .then(({ data }) => { if (isMounted) setDepartments(data); })
+      .catch(() => { if (isMounted) setDepartments([]); });
+
+    return () => { isMounted = false; };
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+
+    let isMounted = true;
+    categoriesApi.lookup('', true, 200)
+      .then(({ data }) => { if (isMounted) setCategories(data); })
+      .catch(() => { if (isMounted) setCategories([]); });
+
+    return () => { isMounted = false; };
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+
+    let isMounted = true;
+    externalPartiesApi.lookup('', true, 200)
+      .then(({ data }) => { if (isMounted) setParties(data); })
+      .catch(() => { if (isMounted) setParties([]); });
+
+    return () => { isMounted = false; };
+  }, [isAdmin]);
+
   const invalidatePreview = useCallback(() => {
+    previewAbortRef.current?.abort();
+    previewAbortRef.current = null;
     previewRequestIdRef.current += 1;
     setManifest(null);
     setLoading(false);
@@ -126,15 +175,16 @@ export default function ReportBuilderPage() {
       dateFrom: dateFrom || null,
       dateTo: dateTo || null,
       includeJointDepartmentTransactions: true,
-      includeOverdue: true,
+      includeOverdue: filterOnlyOverdue,
       includeDetails: true,
       includeRisks: true,
       includeRecommendations: true,
-      departmentIds: [],
-      partyIds: [],
-      categoryIds: [],
-      priorities: [],
-      statuses: [],
+      departmentIds: filterDepartmentIds,
+      partyIds: filterPartyIds,
+      categoryIds: filterCategoryIds,
+      priorities: filterPriorities,
+      statuses: filterStatuses,
+      search: filterSearch || null,
     },
   }), [
     reportType,
@@ -149,6 +199,13 @@ export default function ReportBuilderPage() {
     maxRecommendations,
     dateFrom,
     dateTo,
+    filterDepartmentIds,
+    filterCategoryIds,
+    filterPartyIds,
+    filterPriorities,
+    filterStatuses,
+    filterOnlyOverdue,
+    filterSearch,
   ]);
 
   const {
@@ -187,19 +244,27 @@ export default function ReportBuilderPage() {
     if (!isAdmin)
       return;
 
+    // Cancel any in-flight preview request before starting a new one.
+    previewAbortRef.current?.abort();
+    const controller = new AbortController();
+    previewAbortRef.current = controller;
+
     const requestId = previewRequestIdRef.current + 1;
     previewRequestIdRef.current = requestId;
+    setManifest(null);
     setLoading(true);
     setError('');
     setErrorCorrelationId('');
     setCorrelationCopied(false);
     try {
-      const { data } = await institutionalReportsApi.preview(buildRequest());
+      const { data } = await institutionalReportsApi.preview(buildRequest(), controller.signal);
       if (requestId !== previewRequestIdRef.current) return;
       setManifest(data);
       setCurrentPage(1);
       setSelectedPages([]);
     } catch (error) {
+      // Ignore aborted requests — a newer request is already in flight.
+      if ((error as { name?: string })?.name === 'CanceledError' || (error as { name?: string })?.name === 'AbortError') return;
       if (requestId !== previewRequestIdRef.current) return;
       const apiError = getApiErrorDetails(error);
 
@@ -329,6 +394,112 @@ export default function ReportBuilderPage() {
           <label htmlFor="report-title">عنوان التقرير</label>
           <input id="report-title" value={title} onChange={(e) => { invalidatePreview(); setTitle(e.target.value); }} />
 
+          <h3 style={{ marginTop: '1rem' }}>الفلاتر</h3>
+
+          <label htmlFor="filter-search">بحث</label>
+          <input
+            id="filter-search"
+            type="text"
+            placeholder="رقم الوارد / رقم التتبع / الموضوع"
+            value={filterSearch}
+            onChange={(e) => { invalidatePreview(); setFilterSearch(e.target.value); }}
+          />
+
+          {departments.length > 0 && (
+            <>
+              <label htmlFor="filter-departments">الإدارات</label>
+              <select
+                id="filter-departments"
+                multiple
+                size={Math.min(departments.length, 6)}
+                value={filterDepartmentIds.map(String)}
+                onChange={(e) => {
+                  invalidatePreview();
+                  const ids = Array.from(e.target.selectedOptions).map((o) => Number(o.value));
+                  setFilterDepartmentIds(ids);
+                }}
+              >
+                {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </>
+          )}
+
+          {categories.length > 0 && (
+            <>
+              <label htmlFor="filter-categories">التصنيفات</label>
+              <select
+                id="filter-categories"
+                multiple
+                size={Math.min(categories.length, 6)}
+                value={filterCategoryIds.map(String)}
+                onChange={(e) => {
+                  invalidatePreview();
+                  const ids = Array.from(e.target.selectedOptions).map((o) => Number(o.value));
+                  setFilterCategoryIds(ids);
+                }}
+              >
+                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </>
+          )}
+
+          {parties.length > 0 && (
+            <>
+              <label htmlFor="filter-parties">الجهات الخارجية</label>
+              <select
+                id="filter-parties"
+                multiple
+                size={Math.min(parties.length, 6)}
+                value={filterPartyIds.map(String)}
+                onChange={(e) => {
+                  invalidatePreview();
+                  const ids = Array.from(e.target.selectedOptions).map((o) => Number(o.value));
+                  setFilterPartyIds(ids);
+                }}
+              >
+                {parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </>
+          )}
+
+          <label htmlFor="filter-priorities">الأولويات</label>
+          <select
+            id="filter-priorities"
+            multiple
+            size={3}
+            value={filterPriorities}
+            onChange={(e) => {
+              invalidatePreview();
+              setFilterPriorities(Array.from(e.target.selectedOptions).map((o) => o.value));
+            }}
+          >
+            {Object.entries(priorityLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+
+          <label htmlFor="filter-statuses">الحالات</label>
+          <select
+            id="filter-statuses"
+            multiple
+            size={Math.min(Object.keys(statusLabels).length, 6)}
+            value={filterStatuses}
+            onChange={(e) => {
+              invalidatePreview();
+              setFilterStatuses(Array.from(e.target.selectedOptions).map((o) => o.value));
+            }}
+          >
+            {Object.entries(statusLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+
+          <label htmlFor="filter-only-overdue">
+            <input
+              id="filter-only-overdue"
+              type="checkbox"
+              checked={filterOnlyOverdue}
+              onChange={(e) => { invalidatePreview(); setFilterOnlyOverdue(e.target.checked); }}
+            />
+            {' '}المتأخرة فقط
+          </label>
+
           <h3 style={{ marginTop: '1rem' }}>المحتوى التحليلي</h3>
           <label htmlFor="content-level">مستوى المحتوى</label>
           <select
@@ -391,7 +562,7 @@ export default function ReportBuilderPage() {
             id="max-findings"
             type="number"
             min="1"
-            max="20"
+            max="5"
             value={maxFindings}
             onChange={(e) => {
               invalidatePreview();
@@ -403,7 +574,7 @@ export default function ReportBuilderPage() {
             id="max-critical-cases"
             type="number"
             min="1"
-            max="50"
+            max="10"
             value={maxCriticalCases}
             onChange={(e) => {
               invalidatePreview();
@@ -415,7 +586,7 @@ export default function ReportBuilderPage() {
             id="max-recommendations"
             type="number"
             min="1"
-            max="30"
+            max="10"
             value={maxRecommendations}
             onChange={(e) => {
               invalidatePreview();

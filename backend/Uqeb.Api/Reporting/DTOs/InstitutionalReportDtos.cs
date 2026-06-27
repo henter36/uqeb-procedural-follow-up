@@ -34,7 +34,7 @@ public sealed class ReportFiltersDto
     public List<string> Priorities { get; set; } = [];
     public List<string> Statuses { get; set; } = [];
     public bool IncludeJointDepartmentTransactions { get; set; } = true;
-    public bool IncludeOverdue { get; set; } = true;
+    public bool IncludeOverdue { get; set; } = false;
     public bool IncludeDetails { get; set; } = true;
     public bool IncludeRisks { get; set; } = true;
     public bool IncludeRecommendations { get; set; } = true;
@@ -364,6 +364,13 @@ public sealed class InstitutionalReportModel
     public ExecutiveSummaryDto Summary { get; set; } = new();
     public List<ChartDto> Charts { get; set; } = [];
     public List<DepartmentPerformanceRowDto> DepartmentPerformance { get; set; } = [];
+
+    /// <summary>Each transaction is counted exactly once under its ResponsibleDepartment — sums are additive.</summary>
+    public string DepartmentAggregationMode { get; set; } = "ResponsibleDepartment";
+    public bool DepartmentTotalsAreAdditive { get; set; } = true;
+    public string DepartmentAggregationDescription { get; set; } =
+        "مجمَّع حسب الإدارة المسؤولة — كل معاملة تُحتسب مرة واحدة — المجاميع قابلة للجمع.";
+
     public List<RiskAlertRowDto> Risks { get; set; } = [];
     public List<RecommendationRowDto> Recommendations { get; set; } = [];
     public RiskSummaryCountersDto RiskCounters { get; set; } = new();

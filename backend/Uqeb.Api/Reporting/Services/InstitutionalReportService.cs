@@ -208,38 +208,27 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         ReportingOptions.ValidateDetailLimit(detailLimit);
         var totalMatched = options.TotalMatchedOverride ?? await CountMatchingTransactionsAsync(request, ct);
         var generatedAt = DateTime.UtcNow;
-        var referenceDate = generatedAt.Date;
+        var referenceDate = ReportingTemporalCalculator.RiyadhBusinessDate();
 
         var metricSnapshots = await LoadSnapshotsAsync(request, ct, takeLimit: null, referenceDate);
+        if (request.Filters.IncludeOverdue)
+        {
+            metricSnapshots = metricSnapshots.Where(s => s.IsOverdue).ToList();
+            totalMatched = metricSnapshots.Count;
+        }
         var metrics = InstitutionalReportMetricsCalculator.Calculate(metricSnapshots, referenceDate);
         var comparisonRequest = InstitutionalReportAnalysisService.CreateComparisonRequest(request);
         var comparisonSnapshots = comparisonRequest is null
             ? []
             : await LoadSnapshotsAsync(comparisonRequest, ct, takeLimit: null, referenceDate);
+        if (request.Filters.IncludeOverdue && comparisonSnapshots.Count > 0)
+            comparisonSnapshots = comparisonSnapshots.Where(s => s.IsOverdue).ToList();
         var comparisonMetrics = comparisonRequest is null
             ? null
             : InstitutionalReportMetricsCalculator.Calculate(comparisonSnapshots, referenceDate);
 
-        List<TransactionReportSnapshot> detailSnapshots;
-        int exportedDetailRows;
-
-        if (options.OmitDetailRows)
-        {
-            detailSnapshots = [];
-            exportedDetailRows = options.ExportedDetailRowsOverride ?? 0;
-        }
-        else if (options.DetailRowsToLoad.HasValue)
-        {
-            exportedDetailRows = options.ExportedDetailRowsOverride ?? Math.Min(totalMatched, options.DetailRowsToLoad.Value);
-            detailSnapshots = exportedDetailRows >= metricSnapshots.Count
-                ? metricSnapshots
-                : await LoadSnapshotsAsync(request, ct, takeLimit: exportedDetailRows);
-        }
-        else
-        {
-            exportedDetailRows = options.ExportedDetailRowsOverride ?? totalMatched;
-            detailSnapshots = metricSnapshots;
-        }
+        var (detailSnapshots, exportedDetailRows) = await ResolveDetailRowsAsync(
+            request, options, totalMatched, metricSnapshots, ct);
 
         var detailRowsTruncated = options.DetailRowsTruncated || totalMatched > exportedDetailRows || options.DetailPartsCount > 1;
         string reportNumber;
@@ -283,8 +272,8 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             Charts = BuildCharts(metrics, metricSnapshots),
             DepartmentPerformance = BuildDepartmentPerformance(metrics.Snapshots, referenceDate),
             Risks = BuildRisks(metrics.Snapshots),
-            Recommendations = BuildRecommendations(metrics.Snapshots, referenceDate),
-            RiskCounters = BuildRiskCounters(metrics.Snapshots, referenceDate),
+            Recommendations = BuildRecommendations(metrics.Snapshots, referenceDate, _reportingOptions.Analysis),
+            RiskCounters = BuildRiskCounters(metrics.Snapshots, referenceDate, _reportingOptions.Analysis),
             Transactions = BuildTransactionDetails(detailSnapshots),
             IntegrityWarnings = ValidateIntegrity(metrics)
         };
@@ -316,6 +305,28 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         }
 
         return model;
+    }
+
+    private async Task<(List<TransactionReportSnapshot> Snapshots, int ExportedCount)> ResolveDetailRowsAsync(
+        ReportBuildRequestDto request,
+        ReportAssemblyOptions options,
+        int totalMatched,
+        List<TransactionReportSnapshot> metricSnapshots,
+        CancellationToken ct)
+    {
+        if (options.OmitDetailRows)
+            return ([], options.ExportedDetailRowsOverride ?? 0);
+
+        if (options.DetailRowsToLoad.HasValue)
+        {
+            var exportedCount = options.ExportedDetailRowsOverride ?? Math.Min(totalMatched, options.DetailRowsToLoad.Value);
+            var snapshots = exportedCount >= metricSnapshots.Count
+                ? metricSnapshots
+                : await LoadSnapshotsAsync(request, ct, takeLimit: exportedCount);
+            return (snapshots, exportedCount);
+        }
+
+        return (metricSnapshots, options.ExportedDetailRowsOverride ?? totalMatched);
     }
 
     async Task<int> IInstitutionalReportBuildSupport.CountMatchingTransactionsAsync(
@@ -468,32 +479,24 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
 
     private List<DepartmentPerformanceRowDto> BuildDepartmentPerformance(IReadOnlyList<TransactionReportSnapshot> snapshots, DateTime today)
     {
+        // Aggregate by ResponsibleDepartment so each transaction is counted exactly once.
+        // TotalsAreAdditive = true. JointDepartmentCount signals how many rows are also
+        // assigned to additional departments (IsJointDepartment), but the transaction is
+        // attributed to its single ResponsibleDepartment for counting purposes.
         var staleThreshold = today.AddDays(-_ratingCriteria.CriticalStaleUpdateDaysThreshold);
-        var deptMap = new Dictionary<int, (string Name, List<TransactionReportSnapshot> Items)>();
 
-        foreach (var snapshot in snapshots)
-        {
-            var pairs = snapshot.AssignmentDepartmentIds.Count > 0
-                ? snapshot.AssignmentDepartmentIds.Zip(snapshot.AssignmentDepartmentNames).ToList()
-                : [(0, snapshot.ResponsibleDepartment)];
-
-            foreach (var (deptId, deptName) in pairs)
+        return snapshots
+            .GroupBy(s => new
             {
-                if (!deptMap.TryGetValue(deptId, out var bucket))
-                    bucket = (deptName, []);
-
-                bucket.Items.Add(snapshot);
-                deptMap[deptId] = bucket;
-            }
-        }
-
-        return deptMap
-            .Where(kv => kv.Key > 0 || kv.Value.Items.Count > 0)
-            .Select(kv =>
+                Id = s.ResponsibleDepartmentId ?? 0,
+                Name = string.IsNullOrWhiteSpace(s.ResponsibleDepartment) ? "غير محددة" : s.ResponsibleDepartment
+            })
+            .Select(g =>
             {
-                var unique = kv.Value.Items.GroupBy(s => s.TransactionId).Select(g => g.First()).ToList();
-                var closed = unique.Where(s => s.IsClosed).ToList();
-                var open = unique.Where(s => s.IsOpen).ToList();
+                var items = g.ToList();
+                var closed = items.Where(s => s.IsClosed).ToList();
+                var open = items.Where(s => s.IsOpen).ToList();
+                var closedWithDates = closed.Where(s => s.ClosedAt.HasValue).ToList();
                 var measurable = closed.Where(s => s.ResponseDueDate.HasValue && s.ClosedAt.HasValue).ToList();
                 var onTime = measurable.Count(s => s.ClosedAt!.Value <= s.ResponseDueDate!.Value);
                 var onTimeRate = measurable.Count == 0 ? 0 : Math.Round(onTime * 100.0 / measurable.Count, 1);
@@ -508,16 +511,16 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
                 var rating = InstitutionalReportMetricsCalculator.RateDepartment(ratingMetrics, _ratingCriteria);
                 return new DepartmentPerformanceRowDto
                 {
-                    DepartmentId = kv.Key,
-                    DepartmentName = kv.Value.Name,
-                    TotalTransactions = unique.Count,
+                    DepartmentId = g.Key.Id,
+                    DepartmentName = g.Key.Name,
+                    TotalTransactions = items.Count,
                     ClosedCount = closed.Count,
                     OpenCount = open.Count,
                     WaitingForStatementCount = open.Count(s => s.IsWaitingForStatement),
                     OverdueCount = open.Count(s => s.IsOverdue),
-                    JointDepartmentCount = unique.Count(s => s.IsJointDepartment),
-                    AverageCompletionDays = closed.Count == 0 ? 0 :
-                        Math.Round(closed.Average(s => (s.ClosedAt!.Value - s.IncomingDate).TotalDays), 1),
+                    JointDepartmentCount = items.Count(s => s.IsJointDepartment),
+                    AverageCompletionDays = closedWithDates.Count == 0 ? 0 :
+                        Math.Round(closedWithDates.Average(s => (s.ClosedAt!.Value - s.IncomingDate).TotalDays), 1),
                     OnTimeCompletionRate = onTimeRate,
                     Rating = rating,
                     RatingLabel = InstitutionalReportMetricsCalculator.RatingLabel(rating)
@@ -559,7 +562,10 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         return risks.Take(20).Select((r, i) => { r.Sequence = i + 1; return r; }).ToList();
     }
 
-    private static List<RecommendationRowDto> BuildRecommendations(IReadOnlyList<TransactionReportSnapshot> snapshots, DateTime today)
+    private static List<RecommendationRowDto> BuildRecommendations(
+        IReadOnlyList<TransactionReportSnapshot> snapshots,
+        DateTime today,
+        ReportingAnalysisOptions analysisOptions)
     {
         var recs = new List<RecommendationRowDto>();
         var overdueDept = snapshots.Where(s => s.IsOverdue)
@@ -574,7 +580,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
                 RequiredAction = "عقد اجتماع متابعة أسبوعي وتحديد خطة إغلاق",
                 ResponsibleDepartment = overdueDept.Key,
                 Priority = "عالية",
-                TargetDate = today.AddDays(7).ToString(IsoDateFormat, CultureInfo.InvariantCulture),
+                TargetDate = today.AddDays(analysisOptions.RecommendationTargetDays).ToString(IsoDateFormat, CultureInfo.InvariantCulture),
                 Source = RecommendationSource.Automated,
                 SourceLabel = "مولّد آليًا"
             });
@@ -582,9 +588,12 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         return recs;
     }
 
-    private static RiskSummaryCountersDto BuildRiskCounters(IReadOnlyList<TransactionReportSnapshot> snapshots, DateTime today)
+    private static RiskSummaryCountersDto BuildRiskCounters(
+        IReadOnlyList<TransactionReportSnapshot> snapshots,
+        DateTime today,
+        ReportingAnalysisOptions analysisOptions)
     {
-        var staleThreshold = today.AddDays(-14);
+        var staleThreshold = today.AddDays(-analysisOptions.StaleRiskWindowDays);
         return new RiskSummaryCountersDto
         {
             DepartmentsNeedingFollowUp = snapshots.Where(s => s.IsOpen && s.IsOverdue).Select(s => s.ResponsibleDepartment).Distinct().Count(),
