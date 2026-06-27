@@ -129,15 +129,16 @@ public static class FollowUpLetterPrintViewRenderer
         "*{box-sizing:border-box;}" +
         "html,body{margin:0;padding:0;direction:rtl;text-align:right;}" +
         "body{font-family:Tahoma,'Segoe UI',Arial,sans-serif;color:var(--uqeb-ink);background:#f4f6f4;}" +
-        // Fixed A4 height so the frame is always page-sized regardless of content length.
-        // overflow:hidden clips content that overruns the page boundary.
-        ".official-letter{width:210mm;height:297mm;margin:0 auto 18px;background:#fff;position:relative;padding:10mm 14mm 0;overflow:hidden;break-after:page;page-break-after:always;text-align:right;}" +
-        ".official-letter:last-child{break-after:auto;page-break-after:auto;}" +
-        // border-bottom acts as the visible top line of the letter frame below.
-        ".letter-header{position:relative;z-index:2;display:grid;grid-template-columns:1fr 42mm 1fr;align-items:start;padding-bottom:4mm;margin-bottom:0;border-bottom:1.5px solid var(--uqeb-green);break-inside:avoid;page-break-inside:avoid;}" +
-        // Decorative frame: absolutely positioned, never contains text.
-        // top ≈ 62mm based on actual header render height; adjust if header font/size changes.
-        ".letter-frame{position:absolute;top:62mm;right:8mm;left:8mm;bottom:14mm;border:1.5px solid var(--uqeb-green);box-sizing:border-box;pointer-events:none;z-index:1;}" +
+        // Fixed A4 height; margin moved to screen-only rule so print never inherits 18px bottom.
+        // overflow:hidden clips any content that overruns the fixed page boundary.
+        // No break-after on the article itself — page breaks are handled by .page-break only,
+        // so the last letter never generates a trailing blank page.
+        ".official-letter{width:210mm;height:297mm;margin:0 auto;background:#fff;position:relative;padding:10mm 14mm 0;overflow:hidden;text-align:right;}" +
+        // No border-bottom here: the frame's top border at 48mm IS the separator line.
+        ".letter-header{position:relative;z-index:2;display:grid;grid-template-columns:1fr 42mm 1fr;align-items:start;padding-bottom:4mm;margin-bottom:0;break-inside:avoid;page-break-inside:avoid;}" +
+        // Decorative frame: top = padding-top(10mm) + logo(34mm) + header-pb(4mm) = 48mm,
+        // aligning the frame's top border exactly with the header's bottom edge.
+        ".letter-frame{position:absolute;top:48mm;right:8mm;left:8mm;bottom:14mm;border:1.5px solid var(--uqeb-green);box-sizing:border-box;pointer-events:none;z-index:1;}" +
         ".letter-content{position:relative;z-index:2;padding:8mm 4mm 0;}" +
         ".header-identity{font-size:13px;line-height:1.8;color:var(--uqeb-ink);}" +
         ".kingdom-text,.ministry-text{font-weight:700;}" +
@@ -157,7 +158,8 @@ public static class FollowUpLetterPrintViewRenderer
         ".letter-print-meta{position:absolute;right:10mm;left:10mm;bottom:6mm;font-size:10px;color:#555;line-height:1.4;text-align:center;z-index:2;}" +
         ".page-break{break-before:page;page-break-before:always;}" +
         ".no-print{display:none!important;}" +
-        "@media screen{body{padding:18px;}.official-letter{box-shadow:0 16px 40px rgba(0,0,0,.10);}}" +
-        // In print the article fills the printable area: A4(297mm) - top(16mm) - bottom(16mm) = 265mm.
-        "@media print{body{background:#fff;padding:0;}.official-letter{width:auto;height:265mm;margin:0;box-shadow:none;}.no-print{display:none!important;}}";
+        "@media screen{body{padding:18px;}.official-letter{margin-bottom:18px;box-shadow:0 16px 40px rgba(0,0,0,.10);}}" +
+        // Print: fill printable area exactly — A4(297mm) - top(16mm) - bottom(16mm) = 265mm.
+        // margin:0 and overflow:hidden prevent any blank trailing page.
+        "@media print{body{background:#fff;padding:0;margin:0;}.official-letter{width:auto;height:265mm;margin:0;overflow:hidden;box-shadow:none;}.no-print{display:none!important;}}";
 }
