@@ -16,8 +16,10 @@ import {
 import { useDeferredEffect } from '../hooks/useDeferredEffect';
 
 function getUnavailablePrintReason(status: string): string {
+  if (status === 'Queued') return 'في انتظار بدء المعالجة.';
+  if (status === 'Processing') return 'جارٍ التجهيز — يرجى الانتظار.';
+  if (status === 'Failed') return 'فشل تجهيز الجزء. أعد محاولة المهمة.';
   if (status === 'Cancelled') return 'الجزء ملغى ولا يمكن طباعته.';
-  if (status === 'Failed') return 'فشل تجهيز الجزء.';
   if (status === 'Printed') return 'تم طلب الطباعة لهذا الجزء؛ يمكن فتحه للمراجعة فقط.';
   return 'الجزء غير جاهز للطباعة بعد.';
 }
@@ -50,7 +52,7 @@ function renderPartAction(jobId: number, part: { status: string; partNumber: num
   return <span className="text-muted">{getUnavailablePrintReason(part.status)}</span>;
 }
 
-function getJobGuidanceAlert(status: FollowUpPrintJobStatus): { variant: 'success' | 'info'; message: string } {
+function getJobGuidanceAlert(status: FollowUpPrintJobStatus): { variant: 'success' | 'info' | 'error'; message: string } {
   if (status === 'ReadyToPrint' || status === 'PartiallyPrinted') {
     return {
       variant: 'success',
@@ -62,6 +64,30 @@ function getJobGuidanceAlert(status: FollowUpPrintJobStatus): { variant: 'succes
       variant: 'info',
       message: 'اكتملت المهمة. يمكن مراجعة سجلات الطباعة من صفحة «بانتظار التسجيل».',
     };
+  }
+  if (status === 'Queued') {
+    return {
+      variant: 'info',
+      message: 'المهمة في طابور الانتظار — ستبدأ المعالجة قريبًا. يمكنك تحديث الحالة يدويًا.',
+    };
+  }
+  if (status === 'Processing') {
+    return {
+      variant: 'info',
+      message: 'جارٍ تجهيز الخطابات — سيظهر زر «طباعة الآن» عند اكتمال الجزء.',
+    };
+  }
+  if (status === 'Failed') {
+    return {
+      variant: 'error',
+      message: 'فشلت المهمة. اضغط «إعادة المحاولة» للمحاولة مجددًا، أو راجع سبب الفشل أدناه.',
+    };
+  }
+  if (status === 'Cancelled') {
+    return { variant: 'info', message: 'تم إلغاء المهمة.' };
+  }
+  if (status === 'Expired') {
+    return { variant: 'info', message: 'انتهت صلاحية المهمة ولم تُطبع.' };
   }
   return {
     variant: 'info',

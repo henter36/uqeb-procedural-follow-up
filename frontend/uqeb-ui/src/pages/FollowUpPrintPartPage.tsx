@@ -67,7 +67,27 @@ export default function FollowUpPrintPartPage() {
   }
 
   if (loadError) {
-    return <ErrorState title="تعذر تحضير الطباعة" description={loadError} />;
+    return (
+      <div dir="rtl">
+        <div className="no-print mb-3">
+          <div className="follow-up-print-top-bar">
+            <Link to={`/follow-up-print/jobs/${parsedJobId}`} className="btn btn-outline">
+              ← العودة للمهمة
+            </Link>
+          </div>
+        </div>
+        <ErrorState title="تعذر تحضير الطباعة" description={loadError} />
+        <div className="form-actions mt-4">
+          <button
+            type="button"
+            className="btn btn-outline"
+            onClick={() => { loadPrintView(() => true).catch(() => undefined); }}
+          >
+            تحديث الحالة
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (

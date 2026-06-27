@@ -63,7 +63,9 @@ public sealed class FollowUpLetterRenderService : IFollowUpLetterRenderService
     public const string FollowUpTemplateCode = "follow_up_letter";
 
     public static readonly string DefaultFollowUpContent =
+        "سعادة/ {TargetEntity}\n\n" +
         "السلام عليكم ورحمة الله وبركاته،،\n\n" +
+        "الموضوع: {Subject}\n\n" +
         "إشارةً إلى المعاملة رقم {IncomingNumber} وتاريخ {IncomingDate} بشأن: {Subject}\n\n" +
         "والمحالة إلى: {TargetEntity}\n\n" +
         "نأمل سرعة الإفادة عما تم حيال الموضوع، وتزويدنا بما لديكم من مرئيات أو إجراءات أو مستندات ذات علاقة، وذلك خلال المدة النظامية، مع التأكيد على أهمية استكمال اللازم والرفع بما يتم حيالها.\n\n" +
@@ -252,7 +254,7 @@ public sealed class FollowUpLetterRenderService : IFollowUpLetterRenderService
                 Priority = "عاجل",
                 Category = "تصنيف تجريبي",
                 TodayLocal = today,
-                SenderDepartment = "الإدارة العامة للمتابعة",
+                SenderDepartment = "المتابعة الإجرائية",
                 PreparedBy = "اسم معد الخطاب",
                 FollowUpNumber = "تعقيب-تجريبي-001",
                 FollowUpDateLocal = today.AddDays(-7),
@@ -266,20 +268,21 @@ public sealed class FollowUpLetterRenderService : IFollowUpLetterRenderService
             TransactionId = 1001,
             TemplateId = null,
             LogoPath = OrganizationBrandingPaths.LogoApiUrl,
-            OrganizationName = "الإدارة العامة للمتابعة",
+            OrganizationName = "المتابعة الإجرائية",
             LetterNumber = "خطاب-تجريبي-001",
             GregorianDate = HijriDateFormatter.FormatGregorianArabic(today),
             HijriDate = HijriDateFormatter.Format(today) ?? string.Empty,
             Recipient = "إدارة تجريبية",
             Subject = "موضوع تجريبي لمعاينة خطاب التعقيب",
             Body = body,
-            SenderDepartment = "الإدارة العامة للمتابعة",
+            SenderDepartment = "المتابعة الإجرائية",
             FollowUpSequence = 2,
             FollowUpSequenceText = "التعقيب الثاني",
             ResponseDeadlineDays = 5,
             Footer = "هذه معاينة تجريبية لا تعتمد كسجل رسمي.",
-            SignatoryName = "اسم صاحب الصلاحية",
-            SignatoryTitle = "مدير المتابعة",
+            SignatoryName = string.IsNullOrWhiteSpace(request.DefaultSignatoryName) ? string.Empty : request.DefaultSignatoryName.Trim(),
+            SignatoryTitle = string.IsNullOrWhiteSpace(request.DefaultSignatoryPosition) ? string.Empty : request.DefaultSignatoryPosition.Trim(),
+            SignatoryRank = string.IsNullOrWhiteSpace(request.DefaultSignatoryRank) ? string.Empty : request.DefaultSignatoryRank.Trim(),
         };
 
         return Task.FromResult(FollowUpLetterPrintViewRenderer.Render([document], _printOptions, "معاينة القالب"));

@@ -75,6 +75,9 @@ public class LetterTemplatePreviewRequest
     public string? Description { get; set; }
     public LetterTemplateType? TemplateType { get; set; }
     public string Content { get; set; } = string.Empty;
+    public string? DefaultSignatoryPosition { get; set; }
+    public string? DefaultSignatoryName { get; set; }
+    public string? DefaultSignatoryRank { get; set; }
 }
 
 public class LetterTemplatePreviewResponse

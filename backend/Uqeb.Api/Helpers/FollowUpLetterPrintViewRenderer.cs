@@ -93,11 +93,6 @@ public static class FollowUpLetterPrintViewRenderer
                 <div class="header-empty"></div>
               </header>
               {title}
-              <section class="letter-salutation">
-                <p class="salutation-line">سعادة/ {WebUtility.HtmlEncode(document.Recipient)}</p>
-                <p class="salutation-greeting">السلام عليكم ورحمة الله وبركاته،،</p>
-              </section>
-              <p class="letter-subject-line"><strong>الموضوع: {WebUtility.HtmlEncode(document.Subject)}</strong></p>
               <section class="letter-body">
                 {string.Concat(lines)}
               </section>
@@ -131,21 +126,17 @@ public static class FollowUpLetterPrintViewRenderer
         "*{box-sizing:border-box;}" +
         "html,body{margin:0;padding:0;direction:rtl;text-align:right;}" +
         "body{font-family:Tahoma,'Segoe UI',Arial,sans-serif;color:var(--uqeb-ink);background:#f4f6f4;}" +
-        ".official-letter{width:210mm;min-height:297mm;margin:0 auto 18px;background:#fff;border:1.5px solid var(--uqeb-green);outline:5px solid rgba(179,139,46,.16);padding:14mm 17mm 14mm;break-after:page;page-break-after:always;position:relative;text-align:right;}" +
+        ".official-letter{width:210mm;min-height:297mm;margin:0 auto 18px;background:#fff;border:1.5px solid var(--uqeb-green);outline:5px solid rgba(179,139,46,.16);padding:10mm 17mm 14mm;break-after:page;page-break-after:always;position:relative;text-align:right;}" +
         ".official-letter:last-child{break-after:auto;page-break-after:auto;}" +
-        ".letter-header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:2px solid var(--uqeb-green);padding-bottom:5mm;margin-bottom:5mm;break-inside:avoid;page-break-inside:avoid;}" +
+        ".letter-header{display:grid;grid-template-columns:1fr auto 1fr;align-items:start;border-bottom:2px solid var(--uqeb-green);padding-bottom:4mm;margin-bottom:4mm;break-inside:avoid;page-break-inside:avoid;}" +
         ".header-identity{font-size:13px;line-height:1.8;color:var(--uqeb-ink);}" +
         ".kingdom-text,.ministry-text{font-weight:700;}" +
         ".org-text{color:var(--uqeb-green);font-weight:700;}" +
         ".org-sub-text{color:var(--uqeb-muted);font-size:12px;}" +
         ".header-logo{display:flex;justify-content:center;}" +
-        ".logo{width:80px;max-width:80px;max-height:64px;object-fit: contain;}" +
+        ".logo{width:34mm;height:34mm;max-width:34mm;max-height:34mm;object-fit: contain;}" +
         ".header-empty{}" +
         ".letter-title{font-size:19px;text-align:center;color:var(--uqeb-green);margin:0 0 6mm;}" +
-        ".letter-salutation{margin:0 0 3mm;text-align:right;}" +
-        ".salutation-line{font-weight:700;margin:0 0 1.5mm;text-align:right;}" +
-        ".salutation-greeting{margin:0;text-align:right;}" +
-        ".letter-subject-line{margin:0 0 3.5mm;text-align:right;}" +
         ".letter-body{font-size:15px;line-height:1.55;margin:4mm 0 7mm;text-align:right;}" +
         ".letter-paragraph{margin:0 0 1.8mm;white-space:pre-wrap;text-align:right;}" +
         ".letter-paragraph.spacer{height:2mm;margin:0;}" +

@@ -127,9 +127,9 @@ public sealed class FollowUpLetterDocumentBuilder : IFollowUpLetterDocumentBuild
             ResponseDeadlineDays = request.ResponseDeadlineDays ?? transaction.ResponseDueDays,
             Footer = string.Empty,
             Title = string.Empty,
-            SignatoryName = request.SignatoryNameOverride ?? request.PreparedBy ?? string.Empty,
-            SignatoryTitle = request.SignatoryPosition ?? request.SenderDepartment ?? string.Empty,
-            SignatoryRank = request.SignatoryRank ?? string.Empty,
+            SignatoryName = string.IsNullOrWhiteSpace(request.SignatoryNameOverride) ? string.Empty : request.SignatoryNameOverride.Trim(),
+            SignatoryTitle = string.IsNullOrWhiteSpace(request.SignatoryPosition) ? string.Empty : request.SignatoryPosition.Trim(),
+            SignatoryRank = string.IsNullOrWhiteSpace(request.SignatoryRank) ? string.Empty : request.SignatoryRank.Trim(),
         };
     }
 

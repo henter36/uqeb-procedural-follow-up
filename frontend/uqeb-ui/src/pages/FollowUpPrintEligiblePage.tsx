@@ -70,6 +70,9 @@ export default function FollowUpPrintEligiblePage() {
           filter,
           templateId: templateId ? Number(templateId) : undefined,
           responseDeadlineDays: responseDeadlineDays ? Number(responseDeadlineDays) : undefined,
+          signatoryPosition: signatoryPosition.trim() || undefined,
+          signatoryRank: signatoryRank.trim() || undefined,
+          signatoryNameOverride: signatoryNameOverride.trim() || undefined,
         }),
       ]);
       if (!active()) return;
@@ -82,7 +85,7 @@ export default function FollowUpPrintEligiblePage() {
     } finally {
       if (active()) setLoading(false);
     }
-  }, [buildFilter, responseDeadlineDays, templateId]);
+  }, [buildFilter, responseDeadlineDays, signatoryNameOverride, signatoryPosition, signatoryRank, templateId]);
 
   useEffect(() => {
     let cancelled = false;

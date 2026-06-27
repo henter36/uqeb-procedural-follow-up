@@ -69,6 +69,9 @@ export default function LetterTemplatePage() {
         description: editor.description.trim() || undefined,
         content: editor.content,
         templateType: editor.templateType,
+        defaultSignatoryPosition: editor.defaultSignatoryPosition.trim() || undefined,
+        defaultSignatoryName: editor.defaultSignatoryName.trim() || undefined,
+        defaultSignatoryRank: editor.defaultSignatoryRank.trim() || undefined,
       });
       if (previewIdRef.current !== thisId) return;
       setPreviewHtml(sanitizeFullDocumentHtml(res.data.html));
