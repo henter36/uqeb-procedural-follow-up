@@ -21,10 +21,20 @@ const OPTIONS: Config = {
   ALLOW_DATA_ATTR: false,
   ALLOWED_TAGS: [...PRINT_HTML_ALLOWED_TAGS],
   ALLOWED_ATTR: [...PRINT_HTML_ALLOWED_ATTR],
-  FORBID_TAGS: ['style', 'script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'link', 'base'],
-  FORBID_ATTR: ['style', 'srcdoc', 'xlink:href',
+  // SVG elements (svg, use, animate, set) are blocked to eliminate the xlink:href attack vector entirely.
+  // Navigation-capable and execution-capable tags are also blocked.
+  FORBID_TAGS: [
+    'style', 'script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'link', 'base',
+    'svg', 'use', 'animate', 'set', 'animateTransform', 'animateMotion',
+    'math', 'template', 'slot', 'shadow',
+  ],
+  FORBID_ATTR: [
+    'style', 'srcdoc',
+    'xlink:href', 'href', 'action', 'formaction', 'ping',
     'onerror', 'onclick', 'onload', 'onmouseover', 'onfocus', 'onblur',
-    'onchange', 'onsubmit', 'onkeydown', 'onkeyup', 'onkeypress'],
+    'onchange', 'onsubmit', 'onkeydown', 'onkeyup', 'onkeypress',
+    'onpointerdown', 'onpointerup', 'onpointermove',
+  ],
   ALLOWED_URI_REGEXP: SAFE_URI_REGEXP,
 };
 

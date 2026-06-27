@@ -141,11 +141,19 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
 
     private async Task ExpireStaleJobsAsync(AppDbContext db, CancellationToken cancellationToken)
     {
-        var threshold = DateTime.UtcNow.AddHours(-_options.JobExpirationHours);
+        var now = DateTime.UtcNow;
+        var threshold = now.AddHours(-_options.JobExpirationHours);
+
+        // Queued jobs: no active lease by definition — expire by CreatedAt alone.
+        // Claimed/Processing jobs: only expire when the lease has also lapsed AND the job is old enough.
+        // A job with a future LeaseExpiresAt is actively being processed by another worker.
         var staleJobs = await db.FollowUpPrintJobs
             .Where(j =>
-                ClaimableStatuses.Contains(j.Status) &&
-                j.CreatedAt < threshold)
+                (j.Status == FollowUpPrintJobStatus.Queued && j.CreatedAt < threshold) ||
+                (j.Status != FollowUpPrintJobStatus.Queued &&
+                 ClaimableStatuses.Contains(j.Status) &&
+                 j.CreatedAt < threshold &&
+                 (j.LeaseExpiresAt == null || j.LeaseExpiresAt < now)))
             .ToListAsync(cancellationToken);
 
         if (staleJobs.Count == 0) return;

@@ -317,6 +317,58 @@ public class FollowUpPrintJobProcessorTests : FollowUpPrintSqlServerTestBase
         }
     }
 
+    // Test 5 (البند 2): Processing job with old CreatedAt but future LeaseExpiresAt must NOT be expired.
+    [Fact]
+    public async Task ExpireStaleJobs_ProcessingJobWithActiveLease_NotExpired()
+    {
+        if (!ShouldRunSqlServerTest()) return;
+
+        var context = await CreateMigratedContextAsync();
+        try
+        {
+            await using var scope = context.Provider.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var (user, template) = await SeedUserAndTemplateAsync(db);
+
+            // Job: old CreatedAt (25h ago) but LeaseExpiresAt is 2 minutes in the future.
+            var job = new FollowUpPrintJob
+            {
+                RequestedById = user.Id,
+                Status = FollowUpPrintJobStatus.Processing,
+                FilterSnapshotJson = "{}",
+                TemplateId = template.Id,
+                BatchSize = 5,
+                TotalTransactions = 1,
+                TotalLetters = 1,
+                CreatedAt = DateTime.UtcNow.AddHours(-25),
+                StartedAt = DateTime.UtcNow.AddMinutes(-1),
+                LeaseOwner = "active-worker:abc123",
+                LeaseExpiresAt = DateTime.UtcNow.AddMinutes(2),
+            };
+            db.FollowUpPrintJobs.Add(job);
+            await db.SaveChangesAsync();
+
+            // Call ExpireStaleJobsAsync via ProcessOnceAsync — but there's no claimable job
+            // (Processing + active lease), so it should only run expire check and not touch this job.
+            var processor = scope.ServiceProvider.GetRequiredService<FollowUpPrintJobProcessorHostedService>();
+            await processor.ProcessOnceAsync(CancellationToken.None);
+
+            await using var verifyScope = context.Provider.CreateAsyncScope();
+            var verifyDb = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var finalJob = await verifyDb.FollowUpPrintJobs.FindAsync(job.Id);
+            Assert.NotNull(finalJob);
+            // Active lease protects the job — it must NOT become Expired.
+            Assert.Equal(FollowUpPrintJobStatus.Processing, finalJob.Status);
+            Assert.Null(finalJob.FailureReason);
+        }
+        finally
+        {
+            await CleanupAsync(context);
+        }
+    }
+
     private static async Task<(User User, LetterTemplate Template)> SeedUserAndTemplateAsync(AppDbContext db)
     {
         var user = new User

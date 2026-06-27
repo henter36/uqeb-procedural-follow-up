@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Uqeb.Api.Configuration;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.LetterTemplates;
@@ -398,5 +399,66 @@ public class LetterTemplateAdminServiceTests
         Assert.Null(loaded!.DefaultSignatoryPosition);
         Assert.Null(loaded.DefaultSignatoryName);
         Assert.Null(loaded.DefaultSignatoryRank);
+    }
+
+    [Theory]
+    [InlineData(nameof(CreateLetterTemplateRequest.DefaultSignatoryPosition))]
+    [InlineData(nameof(CreateLetterTemplateRequest.DefaultSignatoryName))]
+    [InlineData(nameof(CreateLetterTemplateRequest.DefaultSignatoryRank))]
+    public void CreateLetterTemplateRequest_SignatoryField_FailsValidationWhenOver200Chars(string fieldName)
+    {
+        var request = new CreateLetterTemplateRequest
+        {
+            Name = "قالب",
+            Content = "محتوى",
+            TemplateType = LetterTemplateType.FollowUp,
+        };
+        typeof(CreateLetterTemplateRequest).GetProperty(fieldName)!.SetValue(request, new string('أ', 201));
+
+        var results = new List<ValidationResult>();
+        var valid = Validator.TryValidateObject(request, new ValidationContext(request), results, validateAllProperties: true);
+
+        Assert.False(valid, $"{fieldName} يجب أن يفشل التحقق عند تجاوز 200 حرف.");
+        Assert.Contains(results, r => r.MemberNames.Contains(fieldName));
+    }
+
+    [Theory]
+    [InlineData(nameof(UpdateLetterTemplateAdminRequest.DefaultSignatoryPosition))]
+    [InlineData(nameof(UpdateLetterTemplateAdminRequest.DefaultSignatoryName))]
+    [InlineData(nameof(UpdateLetterTemplateAdminRequest.DefaultSignatoryRank))]
+    public void UpdateLetterTemplateAdminRequest_SignatoryField_FailsValidationWhenOver200Chars(string fieldName)
+    {
+        var request = new UpdateLetterTemplateAdminRequest
+        {
+            Name = "قالب",
+            Content = "محتوى",
+        };
+        typeof(UpdateLetterTemplateAdminRequest).GetProperty(fieldName)!.SetValue(request, new string('أ', 201));
+
+        var results = new List<ValidationResult>();
+        var valid = Validator.TryValidateObject(request, new ValidationContext(request), results, validateAllProperties: true);
+
+        Assert.False(valid, $"{fieldName} يجب أن يفشل التحقق عند تجاوز 200 حرف.");
+        Assert.Contains(results, r => r.MemberNames.Contains(fieldName));
+    }
+
+    [Theory]
+    [InlineData(nameof(CreateLetterTemplateRequest.DefaultSignatoryPosition))]
+    [InlineData(nameof(CreateLetterTemplateRequest.DefaultSignatoryName))]
+    [InlineData(nameof(CreateLetterTemplateRequest.DefaultSignatoryRank))]
+    public void CreateLetterTemplateRequest_SignatoryField_PassesValidationAt200Chars(string fieldName)
+    {
+        var request = new CreateLetterTemplateRequest
+        {
+            Name = "قالب",
+            Content = "محتوى",
+            TemplateType = LetterTemplateType.FollowUp,
+        };
+        typeof(CreateLetterTemplateRequest).GetProperty(fieldName)!.SetValue(request, new string('أ', 200));
+
+        var results = new List<ValidationResult>();
+        var valid = Validator.TryValidateObject(request, new ValidationContext(request), results, validateAllProperties: true);
+
+        Assert.True(valid, $"{fieldName} يجب أن ينجح التحقق عند 200 حرف بالضبط.");
     }
 }
