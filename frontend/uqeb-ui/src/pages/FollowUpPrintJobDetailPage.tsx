@@ -319,7 +319,7 @@ export default function FollowUpPrintJobDetailPage() {
       </div>
 
       <div className="card mt-4">
-        <h3>أجزاء الطباعة</h3>
+        <div className="card-header"><h3 className="card-title">أجزاء الطباعة</h3></div>
         <div className="table-wrapper table-wrapper-spaced">
           <table className="data-table">
             <thead>

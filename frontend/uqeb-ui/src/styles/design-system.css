@@ -1346,10 +1346,46 @@
 .status-extra { margin-right: var(--space-2); }
 .overdue-text { color: var(--color-danger); }
 
+/* KPI strip — 4 fixed cols on large screens */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+/* 2-column section grid for dashboard cards */
 .dashboard-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(2, 1fr);
   gap: var(--space-4);
+}
+
+/* Card title (h3/h4 inside a card) */
+.card-title {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+  margin: 0;
+}
+
+/* Outline green button variant */
+.btn-outline-primary {
+  background: transparent;
+  border: 1px solid var(--color-primary);
+  color: var(--color-primary);
+}
+
+.btn-outline-primary:hover:not(:disabled) {
+  background: var(--color-primary-light);
+}
+
+@media (width <= 1200px) {
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (width <= 1024px) {
+  .dashboard-grid { grid-template-columns: 1fr; }
 }
 
 .section-card { margin-bottom: 0; }

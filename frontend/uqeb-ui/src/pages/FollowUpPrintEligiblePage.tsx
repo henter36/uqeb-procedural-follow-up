@@ -372,6 +372,10 @@ export default function FollowUpPrintEligiblePage() {
       )}
 
       <div className="card mt-4">
+        <div className="card-header">
+          <h3 className="card-title">المعاملات المستحقة</h3>
+          <span className="badge badge-yellow">الطباعة لا تعني تسجيل التعقيب</span>
+        </div>
         {renderTransactionsContent()}
       </div>
     </div>

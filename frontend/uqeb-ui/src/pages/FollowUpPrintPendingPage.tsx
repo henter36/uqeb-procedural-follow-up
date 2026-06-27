@@ -250,19 +250,19 @@ export default function FollowUpPrintPendingPage() {
       {message && <Alert variant="success">{message}</Alert>}
       {error && <Alert variant="error">{error}</Alert>}
 
-      <div className="card mb-4">
-        <strong>إجمالي المعلق:</strong> {summaryTotal}
-      </div>
-
       <div className="card">
+        <div className="card-header">
+          <h3 className="card-title">سجلات بانتظار التسجيل</h3>
+          <span className="badge badge-orange">{summaryTotal} معلق</span>
+        </div>
         {renderRecordsContent()}
       </div>
 
       {previewHtml && (
         <div className="card mt-4">
-          <div className="details-banner-row">
-            <h3>عرض الخطاب</h3>
-            <button type="button" className="btn btn-outline" onClick={() => setPreviewHtml('')}>إغلاق</button>
+          <div className="card-header">
+            <h3 className="card-title">عرض الخطاب</h3>
+            <button type="button" className="btn btn-outline btn-sm" onClick={() => setPreviewHtml('')}>إغلاق</button>
           </div>
           {previewWarning && <Alert variant="warning">{previewWarning}</Alert>}
           <iframe
