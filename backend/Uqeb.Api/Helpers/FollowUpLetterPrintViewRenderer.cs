@@ -69,13 +69,13 @@ public static class FollowUpLetterPrintViewRenderer
             : string.Empty;
 
         var signatoryPosition = !string.IsNullOrWhiteSpace(document.SignatoryTitle)
-            ? $"<div class=\"signatory-position\">{WebUtility.HtmlEncode(document.SignatoryTitle)}</div>"
+            ? $"<div class=\"signature-title\">{WebUtility.HtmlEncode(document.SignatoryTitle)}</div>"
             : string.Empty;
         var signatoryRank = !string.IsNullOrWhiteSpace(document.SignatoryRank)
-            ? $"<div class=\"signatory-rank\">{WebUtility.HtmlEncode(document.SignatoryRank)}</div>"
+            ? $"<div class=\"signature-rank\">{WebUtility.HtmlEncode(document.SignatoryRank)}</div>"
             : string.Empty;
         var signatoryName = !string.IsNullOrWhiteSpace(document.SignatoryName)
-            ? $"<div class=\"signatory-name\">{WebUtility.HtmlEncode(document.SignatoryName)}</div>"
+            ? $"<div class=\"signature-name\">{WebUtility.HtmlEncode(document.SignatoryName)}</div>"
             : string.Empty;
 
         return $"""
@@ -98,11 +98,13 @@ public static class FollowUpLetterPrintViewRenderer
                 <section class="letter-body">
                   {string.Concat(lines)}
                 </section>
-                <footer class="letter-signature">
-                  {signatoryPosition}
-                  {signatoryRank}
-                  {signatoryName}
-                </footer>
+                <section class="letter-signature">
+                  <div class="signature-box">
+                    {signatoryPosition}
+                    {signatoryRank}
+                    {signatoryName}
+                  </div>
+                </section>
               </div>
               {footerContent}
             </article>
@@ -151,10 +153,11 @@ public static class FollowUpLetterPrintViewRenderer
         ".letter-body{font-size:15px;line-height:1.55;margin:4mm 0 7mm;text-align:right;}" +
         ".letter-paragraph{margin:0 0 1.8mm;white-space:pre-wrap;text-align:right;}" +
         ".letter-paragraph.spacer{height:2mm;margin:0;}" +
-        ".letter-signature{width:62mm;margin-right:auto;margin-left:0;margin-top:10mm;text-align:right;break-inside:avoid;page-break-inside:avoid;}" +
-        ".signatory-position{color:var(--uqeb-muted);font-size:13px;}" +
-        ".signatory-rank{color:var(--uqeb-muted);font-size:13px;}" +
-        ".signatory-name{font-weight:700;}" +
+        ".letter-signature{width:70mm;margin-right:auto;margin-left:0;margin-top:10mm;text-align:right;break-inside:avoid;page-break-inside:avoid;}" +
+        ".signature-box{display:inline-grid;grid-template-columns:1fr;width:max-content;max-width:70mm;direction:rtl;row-gap:1.5mm;}" +
+        ".signature-title{font-weight:700;font-size:14px;line-height:1.6;white-space:nowrap;justify-self:stretch;text-align:right;}" +
+        ".signature-rank{font-weight:700;font-size:14px;line-height:1.6;white-space:nowrap;justify-self:start;text-align:right;}" +
+        ".signature-name{font-weight:700;font-size:14px;line-height:1.6;white-space:nowrap;justify-self:center;text-align:center;}" +
         ".letter-print-meta{position:absolute;right:10mm;left:10mm;bottom:6mm;font-size:10px;color:#555;line-height:1.4;text-align:center;z-index:2;}" +
         ".page-break{break-before:page;page-break-before:always;}" +
         ".no-print{display:none!important;}" +
