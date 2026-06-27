@@ -366,8 +366,8 @@ export default function TransactionsList() {
       />
 
       <div className="card filter-card">
-        <div className="filter-bar-header">
-          <span className="filter-bar-title">البحث والفلاتر</span>
+        <div className="card-header">
+          <h3 className="card-title">البحث والفلاتر</h3>
           <div className="btn-group">
             <button type="button" className="btn btn-ghost btn-sm" onClick={() => setFiltersExpanded((e) => !e)}>
               {filtersExpanded ? 'إخفاء الفلاتر المتقدمة' : 'فلاتر متقدمة'}
@@ -473,7 +473,9 @@ export default function TransactionsList() {
         </form>
       </div>
 
-      {listContent}
+      <div className="card mt-4">
+        {listContent}
+      </div>
     </div>
   );
 }
