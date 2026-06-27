@@ -227,26 +227,8 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             ? null
             : InstitutionalReportMetricsCalculator.Calculate(comparisonSnapshots, referenceDate);
 
-        List<TransactionReportSnapshot> detailSnapshots;
-        int exportedDetailRows;
-
-        if (options.OmitDetailRows)
-        {
-            detailSnapshots = [];
-            exportedDetailRows = options.ExportedDetailRowsOverride ?? 0;
-        }
-        else if (options.DetailRowsToLoad.HasValue)
-        {
-            exportedDetailRows = options.ExportedDetailRowsOverride ?? Math.Min(totalMatched, options.DetailRowsToLoad.Value);
-            detailSnapshots = exportedDetailRows >= metricSnapshots.Count
-                ? metricSnapshots
-                : await LoadSnapshotsAsync(request, ct, takeLimit: exportedDetailRows);
-        }
-        else
-        {
-            exportedDetailRows = options.ExportedDetailRowsOverride ?? totalMatched;
-            detailSnapshots = metricSnapshots;
-        }
+        var (detailSnapshots, exportedDetailRows) = await ResolveDetailRowsAsync(
+            request, options, totalMatched, metricSnapshots, ct);
 
         var detailRowsTruncated = options.DetailRowsTruncated || totalMatched > exportedDetailRows || options.DetailPartsCount > 1;
         string reportNumber;
@@ -323,6 +305,28 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         }
 
         return model;
+    }
+
+    private async Task<(List<TransactionReportSnapshot> Snapshots, int ExportedCount)> ResolveDetailRowsAsync(
+        ReportBuildRequestDto request,
+        ReportAssemblyOptions options,
+        int totalMatched,
+        List<TransactionReportSnapshot> metricSnapshots,
+        CancellationToken ct)
+    {
+        if (options.OmitDetailRows)
+            return ([], options.ExportedDetailRowsOverride ?? 0);
+
+        if (options.DetailRowsToLoad.HasValue)
+        {
+            var exportedCount = options.ExportedDetailRowsOverride ?? Math.Min(totalMatched, options.DetailRowsToLoad.Value);
+            var snapshots = exportedCount >= metricSnapshots.Count
+                ? metricSnapshots
+                : await LoadSnapshotsAsync(request, ct, takeLimit: exportedCount);
+            return (snapshots, exportedCount);
+        }
+
+        return (metricSnapshots, options.ExportedDetailRowsOverride ?? totalMatched);
     }
 
     async Task<int> IInstitutionalReportBuildSupport.CountMatchingTransactionsAsync(
@@ -492,6 +496,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
                 var items = g.ToList();
                 var closed = items.Where(s => s.IsClosed).ToList();
                 var open = items.Where(s => s.IsOpen).ToList();
+                var closedWithDates = closed.Where(s => s.ClosedAt.HasValue).ToList();
                 var measurable = closed.Where(s => s.ResponseDueDate.HasValue && s.ClosedAt.HasValue).ToList();
                 var onTime = measurable.Count(s => s.ClosedAt!.Value <= s.ResponseDueDate!.Value);
                 var onTimeRate = measurable.Count == 0 ? 0 : Math.Round(onTime * 100.0 / measurable.Count, 1);
@@ -514,8 +519,8 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
                     WaitingForStatementCount = open.Count(s => s.IsWaitingForStatement),
                     OverdueCount = open.Count(s => s.IsOverdue),
                     JointDepartmentCount = items.Count(s => s.IsJointDepartment),
-                    AverageCompletionDays = closed.Count(s => s.ClosedAt.HasValue) == 0 ? 0 :
-                        Math.Round(closed.Where(s => s.ClosedAt.HasValue).Average(s => (s.ClosedAt!.Value - s.IncomingDate).TotalDays), 1),
+                    AverageCompletionDays = closedWithDates.Count == 0 ? 0 :
+                        Math.Round(closedWithDates.Average(s => (s.ClosedAt!.Value - s.IncomingDate).TotalDays), 1),
                     OnTimeCompletionRate = onTimeRate,
                     Rating = rating,
                     RatingLabel = InstitutionalReportMetricsCalculator.RatingLabel(rating)
