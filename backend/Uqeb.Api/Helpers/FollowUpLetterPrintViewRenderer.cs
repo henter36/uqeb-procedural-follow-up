@@ -119,7 +119,7 @@ public static class FollowUpLetterPrintViewRenderer
                "<meta charset=\"utf-8\" />" +
                "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />" +
                $"<title>{WebUtility.HtmlEncode(title)}</title>" +
-               "<style>" + OfficialLetterCss + "</style>" +
+               "<style id=\"uqeb-official-letter-css\">" + OfficialLetterCss + "</style>" +
                "</head>" +
                $"<body>{content}</body>" +
                "</html>";

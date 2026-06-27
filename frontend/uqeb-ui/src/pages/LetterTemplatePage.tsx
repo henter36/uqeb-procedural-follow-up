@@ -42,7 +42,10 @@ export default function LetterTemplatePage() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [showVariables, setShowVariables] = useState(false);
+  // Tracks which request is current — stale responses are discarded
   const previewIdRef = useRef<number | 'new' | null>(null);
+  // Tracks which template the currently-displayed previewHtml belongs to
+  const previewTemplateIdRef = useRef<number | 'new' | null>(null);
 
   const isDirty = snapshotEditor(editor) !== savedSnapshot;
 
@@ -59,14 +62,16 @@ export default function LetterTemplatePage() {
         content: editor.content,
         templateType: editor.templateType,
       });
-      // Only update if this is still the latest request
-      if (previewIdRef.current === thisId) {
-        setPreviewHtml(sanitizeFullDocumentHtml(res.data.html));
-      }
+      if (previewIdRef.current !== thisId) return;
+      setPreviewHtml(sanitizeFullDocumentHtml(res.data.html));
+      previewTemplateIdRef.current = thisId;
     } catch (err: unknown) {
-      if (previewIdRef.current === thisId) {
-        setPreviewError(getApiErrorMessage(err) || 'تعذر بناء معاينة الخطاب.');
+      if (previewIdRef.current !== thisId) return;
+      // If preview is for a different template, clear it to avoid showing wrong content
+      if (previewTemplateIdRef.current !== thisId) {
+        setPreviewHtml('');
       }
+      setPreviewError(getApiErrorMessage(err) || 'تعذر بناء معاينة الخطاب.');
     } finally {
       if (previewIdRef.current === thisId) {
         setPreviewLoading(false);
@@ -154,7 +159,7 @@ export default function LetterTemplatePage() {
     setSavedSnapshot(snapshotEditor(nextEditor));
     setMessage('');
     setError('');
-    setPreviewHtml('');
+    // Don't clear preview immediately — the loading overlay will cover it while the new preview loads
     setPreviewError('');
   };
 
@@ -481,13 +486,11 @@ export default function LetterTemplatePage() {
               srcDoc={previewHtml}
               sandbox="allow-same-origin"
             />
-          ) : (
-            !previewLoading && (
-              <EmptyState
-                title="لا توجد معاينة"
-                description={selectedId != null ? 'ستظهر المعاينة تلقائياً أو اضغط «تحديث المعاينة».' : 'اختر قالباً لعرض المعاينة.'}
-              />
-            )
+          ) : previewLoading ? null : (
+            <EmptyState
+              title="لا توجد معاينة"
+              description={selectedId != null ? 'ستظهر المعاينة تلقائياً أو اضغط «تحديث المعاينة».' : 'اختر قالباً لعرض المعاينة.'}
+            />
           )}
           {previewLoading && (
             <div className="preview-loading-overlay">

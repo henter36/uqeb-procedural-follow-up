@@ -31,33 +31,43 @@ export function sanitizePrintHtml(html: string): string {
   return DOMPurify.sanitize(doc.body.innerHTML, OPTIONS);
 }
 
+/**
+ * Reconstructs a safe HTML document from trusted server-generated print HTML.
+ * ONLY call this with HTML produced by the server's FollowUpLetterPrintViewRenderer.
+ * Do NOT use for user-generated or third-party HTML.
+ *
+ * Security strategy:
+ * 1. Extract only the officially-marked CSS (id="uqeb-official-letter-css") — we own every <head> element.
+ * 2. Sanitize body.innerHTML with strict DOMPurify (WHOLE_DOCUMENT:false, no style/meta/script/on*).
+ * 3. Reconstruct the document ourselves — no untrusted tags ever reach <head>.
+ */
 export function sanitizeFullDocumentHtml(html: string): string {
   if (!html) return '';
 
-  // First pass: DOMPurify removes scripts, xlink:href, on* attributes, javascript: URIs
-  const sanitized = DOMPurify.sanitize(html, {
-    WHOLE_DOCUMENT: true,
-    FORCE_BODY: false,
-    ALLOWED_TAGS: [
-      'html', 'head', 'body', 'meta', 'style', 'title',
-      'article', 'header', 'section', 'footer', 'div', 'span',
-      'h1', 'h2', 'h3', 'h4', 'p', 'strong', 'em', 'b', 'i', 'br',
-      'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'img',
-    ],
-    ALLOWED_ATTR: [
-      'class', 'id', 'dir', 'lang',
-      'aria-hidden', 'alt', 'src', 'width', 'height',
-      'colspan', 'rowspan', 'scope',
-      'charset', 'name', 'content', 'http-equiv',
-    ],
-  });
+  const doc = new DOMParser().parseFromString(html, 'text/html');
 
-  // Second pass: strip remaining navigation-capable head elements
-  const doc = new DOMParser().parseFromString(sanitized, 'text/html');
-  Array.from(doc.head.children).forEach((el) => {
-    const keep = el.matches('style, title, meta[charset], meta[name="viewport"]');
-    if (!keep) el.remove();
-  });
+  // Extract only the server-marked official CSS; discard everything else from <head>
+  const officialStyleEl = doc.head.querySelector('style#uqeb-official-letter-css');
+  const rawCss = officialStyleEl?.textContent ?? '';
+  // Prevent premature </style> closing via injected content
+  const officialCss = rawCss.replace(/<\/style/gi, '<\\/style');
 
-  return `<!DOCTYPE html>${doc.documentElement.outerHTML}`;
+  const docTitle = DOMPurify.sanitize(doc.title);
+
+  // Sanitize body content with strict rules — no style, meta, script, or dangerous attrs allowed
+  const safeBody = DOMPurify.sanitize(doc.body.innerHTML, OPTIONS);
+
+  // Reconstruct document — we own every element in <head>
+  const parts: string[] = [
+    '<!DOCTYPE html>',
+    '<html lang="ar" dir="rtl">',
+    '<head>',
+    '<meta charset="utf-8" />',
+    '<meta name="viewport" content="width=device-width, initial-scale=1" />',
+  ];
+  if (docTitle) parts.push(`<title>${docTitle}</title>`);
+  if (officialCss) parts.push(`<style id="uqeb-official-letter-css">${officialCss}</style>`);
+  parts.push('</head>', `<body>${safeBody}</body>`, '</html>');
+
+  return parts.join('');
 }

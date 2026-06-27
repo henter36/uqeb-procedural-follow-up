@@ -25,6 +25,15 @@ public interface IFollowUpPrintJobService
     Task<string?> GetPartPrintViewHtmlAsync(int jobId, int partNumber, ICurrentUserService currentUser, CancellationToken cancellationToken = default);
 }
 
+internal sealed record SignatoryOptions(
+    string? Position,
+    string? Rank,
+    string? NameOverride)
+{
+    public static SignatoryOptions FromRequest(CreateFollowUpPrintJobRequest r) =>
+        new(r.SignatoryPosition, r.SignatoryRank, r.SignatoryNameOverride);
+}
+
 public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
@@ -136,9 +145,7 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
                 template,
                 currentUser,
                 request.ResponseDeadlineDays,
-                request.SignatoryPosition,
-                request.SignatoryRank,
-                request.SignatoryNameOverride,
+                SignatoryOptions.FromRequest(request),
                 cancellationToken);
 
             await PersistIdempotencyKeyAsync(request, currentUser, requestHash, job.Id, cancellationToken);
@@ -676,9 +683,7 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         LetterTemplate template,
         ICurrentUserService currentUser,
         int? responseDeadlineDays,
-        string? signatoryPosition,
-        string? signatoryRank,
-        string? signatoryNameOverride,
+        SignatoryOptions signatoryOptions,
         CancellationToken cancellationToken)
     {
         var ordinal = 0;
@@ -696,9 +701,9 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
                     TemplateId = template.Id,
                     FollowUpSequenceOverride = sequence,
                     ResponseDeadlineDays = responseDeadlineDays,
-                    SignatoryPosition = signatoryPosition,
-                    SignatoryRank = signatoryRank,
-                    SignatoryNameOverride = signatoryNameOverride,
+                    SignatoryPosition = signatoryOptions.Position,
+                    SignatoryRank = signatoryOptions.Rank,
+                    SignatoryNameOverride = signatoryOptions.NameOverride,
                     CancellationToken = cancellationToken,
                 });
 

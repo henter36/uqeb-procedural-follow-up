@@ -97,13 +97,21 @@ public sealed class FollowUpPrintEligibilityService : IFollowUpPrintEligibilityS
             .Take(pageSize)
             .ToListAsync(cancellationToken);
 
+        var targetsByTransaction = await _renderService.ResolveTargetEntitiesBulkAsync(
+            rows.Select(r => r.TransactionId).ToList(),
+            cancellationToken);
+
         return new PagedEligibleTransactionsDto
         {
             TotalCount = totalCount,
             Page = page,
             PageSize = pageSize,
             Items = rows
-                .Select(row => MapEligible(row, today, snapshot.ExcludeRecentlyPrinted, exclusionCutoff, _timeZone))
+                .Select(row =>
+                {
+                    targetsByTransaction.TryGetValue(row.TransactionId, out var targets);
+                    return MapEligible(row, today, snapshot.ExcludeRecentlyPrinted, exclusionCutoff, _timeZone, targets ?? []);
+                })
                 .ToList(),
         };
     }
@@ -379,9 +387,19 @@ public sealed class FollowUpPrintEligibilityService : IFollowUpPrintEligibilityS
         DateTime today,
         bool excludeRecentlyPrinted,
         DateTime exclusionCutoff,
-        IFollowUpLetterTimeZone timeZone)
+        IFollowUpLetterTimeZone timeZone,
+        IReadOnlyList<FollowUpLetterTargetEntity> targets)
     {
         var referenceDate = row.ReferenceDate;
+        var primaryTarget = targets.Count switch
+        {
+            0 => null,
+            1 => targets[0].Name,
+            _ => string.Join("، ", targets
+                .Select(x => x.Name)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)),
+        };
         return new EligibleTransactionDto
         {
             TransactionId = row.TransactionId,
@@ -395,6 +413,7 @@ public sealed class FollowUpPrintEligibilityService : IFollowUpPrintEligibilityS
                 row.LastPrintRequestedAt.HasValue &&
                 timeZone.ToDisplayTime(row.LastPrintRequestedAt.Value).Date >= exclusionCutoff.Date,
             LastPrintRequestedAt = row.LastPrintRequestedAt,
+            PrimaryTargetEntity = primaryTarget,
         };
     }
 

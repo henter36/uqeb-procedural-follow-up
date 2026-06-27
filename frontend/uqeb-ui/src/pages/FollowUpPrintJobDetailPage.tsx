@@ -135,6 +135,29 @@ export default function FollowUpPrintJobDetailPage() {
     return 'الجزء غير جاهز للطباعة بعد.';
   };
 
+  const jobGuidanceAlert = (() => {
+    const isReady = job.status === 'ReadyToPrint' || job.status === 'PartiallyPrinted';
+    if (isReady) {
+      return (
+        <Alert variant="success">
+          تم تجهيز الخطابات ويمكن طباعتها الآن — افتح الجزء الجاهز وانقر «طباعة الآن».
+        </Alert>
+      );
+    }
+    if (job.status === 'Completed') {
+      return (
+        <Alert variant="info">
+          اكتملت المهمة. يمكن مراجعة سجلات الطباعة من صفحة «بانتظار التسجيل».
+        </Alert>
+      );
+    }
+    return (
+      <Alert variant="info">
+        تقوم المهمة بتحضير الخطابات. عند اكتمال الجزء سيظهر زر «طباعة الآن».
+      </Alert>
+    );
+  })();
+
   return (
     <div dir="rtl">
       <PageHeader
@@ -146,20 +169,7 @@ export default function FollowUpPrintJobDetailPage() {
       {message && <Alert variant="success">{message}</Alert>}
       {error && <Alert variant="error">{error}</Alert>}
 
-      {/* دليل الخطوات للمستخدم */}
-      {job.status === 'ReadyToPrint' || job.status === 'PartiallyPrinted' ? (
-        <Alert variant="success">
-          تم تجهيز الخطابات ويمكن طباعتها الآن — افتح الجزء الجاهز وانقر «طباعة الآن».
-        </Alert>
-      ) : job.status === 'Completed' ? (
-        <Alert variant="info">
-          اكتملت المهمة. يمكن مراجعة سجلات الطباعة من صفحة «بانتظار التسجيل».
-        </Alert>
-      ) : (
-        <Alert variant="info">
-          تقوم المهمة بتحضير الخطابات. عند اكتمال الجزء سيظهر زر «طباعة الآن».
-        </Alert>
-      )}
+      {jobGuidanceAlert}
 
       {(() => {
         const readyParts = job.parts.filter((p) => ['ReadyToPrint', 'PartiallyReady'].includes(p.status));
