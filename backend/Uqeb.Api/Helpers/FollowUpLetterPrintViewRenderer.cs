@@ -58,7 +58,7 @@ public static class FollowUpLetterPrintViewRenderer
 
         var footerContent = string.IsNullOrWhiteSpace(document.Footer)
             ? string.Empty
-            : $"<footer class=\"letter-footer\">{WebUtility.HtmlEncode(document.Footer)}</footer>";
+            : $"<footer class=\"letter-print-meta\">{WebUtility.HtmlEncode(document.Footer)}</footer>";
 
         var title = string.IsNullOrWhiteSpace(document.Title)
             ? string.Empty
@@ -136,8 +136,8 @@ public static class FollowUpLetterPrintViewRenderer
         // border-bottom acts as the visible top line of the letter frame below.
         ".letter-header{position:relative;z-index:2;display:grid;grid-template-columns:1fr 42mm 1fr;align-items:start;padding-bottom:4mm;margin-bottom:0;border-bottom:1.5px solid var(--uqeb-green);break-inside:avoid;page-break-inside:avoid;}" +
         // Decorative frame: absolutely positioned, never contains text.
-        // top = article-top-padding(10mm) + logo-height(34mm) + header-padding-bottom(4mm) = 48mm.
-        ".letter-frame{position:absolute;top:48mm;right:5mm;left:5mm;bottom:5mm;border-right:1.5px solid var(--uqeb-green);border-left:1.5px solid var(--uqeb-green);border-bottom:1.5px solid var(--uqeb-green);border-top:none;pointer-events:none;z-index:1;}" +
+        // top ≈ 62mm based on actual header render height; adjust if header font/size changes.
+        ".letter-frame{position:absolute;top:62mm;right:8mm;left:8mm;bottom:14mm;border:1.5px solid var(--uqeb-green);box-sizing:border-box;pointer-events:none;z-index:1;}" +
         ".letter-content{position:relative;z-index:2;padding:8mm 4mm 0;}" +
         ".header-identity{font-size:13px;line-height:1.8;color:var(--uqeb-ink);}" +
         ".kingdom-text,.ministry-text{font-weight:700;}" +
@@ -154,7 +154,7 @@ public static class FollowUpLetterPrintViewRenderer
         ".signatory-position{color:var(--uqeb-muted);font-size:13px;}" +
         ".signatory-rank{color:var(--uqeb-muted);font-size:13px;}" +
         ".signatory-name{font-weight:700;}" +
-        ".letter-footer{position:absolute;left:14mm;right:14mm;bottom:9mm;border-top:1px solid var(--uqeb-line);padding-top:4mm;color:var(--uqeb-muted);font-size:11px;text-align:center;z-index:3;}" +
+        ".letter-print-meta{position:absolute;right:10mm;left:10mm;bottom:6mm;font-size:10px;color:#555;line-height:1.4;text-align:center;z-index:2;}" +
         ".page-break{break-before:page;page-break-before:always;}" +
         ".no-print{display:none!important;}" +
         "@media screen{body{padding:18px;}.official-letter{box-shadow:0 16px 40px rgba(0,0,0,.10);}}" +
