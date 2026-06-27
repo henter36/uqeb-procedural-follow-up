@@ -677,6 +677,9 @@ public sealed class InstitutionalReportRenderer
             (Total: 0, Closed: 0, Open: 0, Waiting: 0, Overdue: 0, Joint: 0),
             (acc, row) => (acc.Total + row.TotalTransactions, acc.Closed + row.ClosedCount, acc.Open + row.OpenCount,
                 acc.Waiting + row.WaitingForStatementCount, acc.Overdue + row.OverdueCount, acc.Joint + row.JointDepartmentCount));
+        var totalsNote = model.DepartmentTotalsAreAdditive
+            ? $"الإجمالي — قابل للجمع (مجمَّع حسب {Esc(model.DepartmentAggregationDescription)})"
+            : $"الإجمالي — ملاحظة: المجاميع قد تتجاوز إجمالي المعاملات ({Esc(model.DepartmentAggregationDescription)})";
         return $"""
         <h2 class="section-title">أداء الإدارات</h2>
         <table class="report-table report-table--departments">
@@ -686,11 +689,12 @@ public sealed class InstitutionalReportRenderer
           </tr></thead>
           <tbody>{rows}
           <tr class="report-table__total-row">
-            <td>الإجمالي</td><td class="cell--number">{totals.Total}</td><td class="cell--number">{totals.Closed}</td><td class="cell--number">{totals.Open}</td>
+            <td>{totalsNote}</td><td class="cell--number">{totals.Total}</td><td class="cell--number">{totals.Closed}</td><td class="cell--number">{totals.Open}</td>
             <td class="cell--number">{totals.Waiting}</td><td class="cell--number">{totals.Overdue}</td><td class="cell--number">{totals.Joint}</td>
             <td>—</td><td>—</td><td>—</td>
           </tr></tbody>
         </table>
+        <p class="section-footnote">* عمود "إدارات مشتركة" يُظهر عدد المعاملات المُشارَك فيها مع إدارات أخرى، وتُحتسب كل معاملة تحت إدارتها المسؤولة فقط.</p>
         """;
     }
 

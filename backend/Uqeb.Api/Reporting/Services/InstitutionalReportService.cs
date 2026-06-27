@@ -468,32 +468,23 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
 
     private List<DepartmentPerformanceRowDto> BuildDepartmentPerformance(IReadOnlyList<TransactionReportSnapshot> snapshots, DateTime today)
     {
+        // Aggregate by ResponsibleDepartment so each transaction is counted exactly once.
+        // TotalsAreAdditive = true. JointDepartmentCount signals how many rows are also
+        // assigned to additional departments (IsJointDepartment), but the transaction is
+        // attributed to its single ResponsibleDepartment for counting purposes.
         var staleThreshold = today.AddDays(-_ratingCriteria.CriticalStaleUpdateDaysThreshold);
-        var deptMap = new Dictionary<int, (string Name, List<TransactionReportSnapshot> Items)>();
 
-        foreach (var snapshot in snapshots)
-        {
-            var pairs = snapshot.AssignmentDepartmentIds.Count > 0
-                ? snapshot.AssignmentDepartmentIds.Zip(snapshot.AssignmentDepartmentNames).ToList()
-                : [(0, snapshot.ResponsibleDepartment)];
-
-            foreach (var (deptId, deptName) in pairs)
+        return snapshots
+            .GroupBy(s => new
             {
-                if (!deptMap.TryGetValue(deptId, out var bucket))
-                    bucket = (deptName, []);
-
-                bucket.Items.Add(snapshot);
-                deptMap[deptId] = bucket;
-            }
-        }
-
-        return deptMap
-            .Where(kv => kv.Key > 0 || kv.Value.Items.Count > 0)
-            .Select(kv =>
+                Id = s.ResponsibleDepartmentId ?? 0,
+                Name = string.IsNullOrWhiteSpace(s.ResponsibleDepartment) ? "غير محددة" : s.ResponsibleDepartment
+            })
+            .Select(g =>
             {
-                var unique = kv.Value.Items.GroupBy(s => s.TransactionId).Select(g => g.First()).ToList();
-                var closed = unique.Where(s => s.IsClosed).ToList();
-                var open = unique.Where(s => s.IsOpen).ToList();
+                var items = g.ToList();
+                var closed = items.Where(s => s.IsClosed).ToList();
+                var open = items.Where(s => s.IsOpen).ToList();
                 var measurable = closed.Where(s => s.ResponseDueDate.HasValue && s.ClosedAt.HasValue).ToList();
                 var onTime = measurable.Count(s => s.ClosedAt!.Value <= s.ResponseDueDate!.Value);
                 var onTimeRate = measurable.Count == 0 ? 0 : Math.Round(onTime * 100.0 / measurable.Count, 1);
@@ -508,14 +499,14 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
                 var rating = InstitutionalReportMetricsCalculator.RateDepartment(ratingMetrics, _ratingCriteria);
                 return new DepartmentPerformanceRowDto
                 {
-                    DepartmentId = kv.Key,
-                    DepartmentName = kv.Value.Name,
-                    TotalTransactions = unique.Count,
+                    DepartmentId = g.Key.Id,
+                    DepartmentName = g.Key.Name,
+                    TotalTransactions = items.Count,
                     ClosedCount = closed.Count,
                     OpenCount = open.Count,
                     WaitingForStatementCount = open.Count(s => s.IsWaitingForStatement),
                     OverdueCount = open.Count(s => s.IsOverdue),
-                    JointDepartmentCount = unique.Count(s => s.IsJointDepartment),
+                    JointDepartmentCount = items.Count(s => s.IsJointDepartment),
                     AverageCompletionDays = closed.Count == 0 ? 0 :
                         Math.Round(closed.Average(s => (s.ClosedAt!.Value - s.IncomingDate).TotalDays), 1),
                     OnTimeCompletionRate = onTimeRate,

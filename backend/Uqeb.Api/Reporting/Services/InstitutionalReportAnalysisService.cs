@@ -1023,7 +1023,10 @@ internal static class InstitutionalReportAnalysisService
         {
             "AverageFirstActionHours: يحتاج حدث أول إجراء موثوق.",
             "ReopenedTransactionsRate: لا توجد حالة إعادة فتح مستقلة.",
-            "Outgoing external-party causality: بيانات الجهات الصادرة غير مكتملة الاستخدام."
+            "Outgoing external-party causality: بيانات الجهات الصادرة غير مكتملة الاستخدام.",
+            "AverageResponseDays (تقديري): لا يوجد حقل ResponseCompletedAt مستقل في النموذج الحالي. " +
+            "يُستخدم ClosedAt كبديل تقريبي للمعاملات ذات ResponseCompleted=true. " +
+            "التحسين المستقبلي يتطلب حقل ResponseCompletedAt أو مصدر رد مكتمل من التكليفات.",
         };
         if (detailRowsTruncated)
             deferred.Add("Detail rows truncated: بعض الجداول التفصيلية محدودة حسب إعدادات التصدير.");
