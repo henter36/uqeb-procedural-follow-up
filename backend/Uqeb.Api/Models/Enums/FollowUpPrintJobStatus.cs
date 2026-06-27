@@ -1,5 +1,8 @@
+using System.Text.Json.Serialization;
+
 namespace Uqeb.Api.Models.Enums;
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum FollowUpPrintJobStatus
 {
     Queued = 1,
@@ -10,5 +13,5 @@ public enum FollowUpPrintJobStatus
     Completed = 6,
     Failed = 7,
     Cancelled = 8,
-    Expired = 9
+    Expired = 9,
 }
