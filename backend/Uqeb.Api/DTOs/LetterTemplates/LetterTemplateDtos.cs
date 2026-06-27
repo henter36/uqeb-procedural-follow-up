@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Uqeb.Api.Models.Enums;
 
 namespace Uqeb.Api.DTOs.LetterTemplates;
@@ -13,6 +14,9 @@ public class LetterTemplateDto
     public bool IsActive { get; set; }
     public bool IsDefault { get; set; }
     public int SortOrder { get; set; }
+    public string? DefaultSignatoryPosition { get; set; }
+    public string? DefaultSignatoryName { get; set; }
+    public string? DefaultSignatoryRank { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }
@@ -32,6 +36,12 @@ public class CreateLetterTemplateRequest
     public string Content { get; set; } = string.Empty;
     public bool? IsActive { get; set; }
     public bool? IsDefault { get; set; }
+    [MaxLength(200, ErrorMessage = "المنصب الوظيفي للموقّع لا يتجاوز 200 حرف.")]
+    public string? DefaultSignatoryPosition { get; set; }
+    [MaxLength(200, ErrorMessage = "اسم الموقّع لا يتجاوز 200 حرف.")]
+    public string? DefaultSignatoryName { get; set; }
+    [MaxLength(200, ErrorMessage = "رتبة الموقّع لا تتجاوز 200 حرف.")]
+    public string? DefaultSignatoryRank { get; set; }
 }
 
 public class UpdateLetterTemplateAdminRequest
@@ -41,6 +51,12 @@ public class UpdateLetterTemplateAdminRequest
     public LetterTemplateType? TemplateType { get; set; }
     public string Content { get; set; } = string.Empty;
     public bool? IsActive { get; set; }
+    [MaxLength(200, ErrorMessage = "المنصب الوظيفي للموقّع لا يتجاوز 200 حرف.")]
+    public string? DefaultSignatoryPosition { get; set; }
+    [MaxLength(200, ErrorMessage = "اسم الموقّع لا يتجاوز 200 حرف.")]
+    public string? DefaultSignatoryName { get; set; }
+    [MaxLength(200, ErrorMessage = "رتبة الموقّع لا تتجاوز 200 حرف.")]
+    public string? DefaultSignatoryRank { get; set; }
 }
 
 public class ReorderLetterTemplatesRequest
@@ -66,6 +82,9 @@ public class LetterTemplatePreviewRequest
     public string? Description { get; set; }
     public LetterTemplateType? TemplateType { get; set; }
     public string Content { get; set; } = string.Empty;
+    public string? DefaultSignatoryPosition { get; set; }
+    public string? DefaultSignatoryName { get; set; }
+    public string? DefaultSignatoryRank { get; set; }
 }
 
 public class LetterTemplatePreviewResponse

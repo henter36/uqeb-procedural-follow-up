@@ -141,16 +141,16 @@ body {
   line-height: 1.8;
 }
 
+/* 3-panel layout: القائمة | المحرر | المعاينة */
 .letter-template-layout {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr) 270px;
+  grid-template-columns: 220px minmax(0, 1fr) minmax(0, 1fr);
   gap: 1rem;
   align-items: start;
 }
 
 .letter-template-list,
 .letter-template-editor,
-.letter-template-variables,
 .letter-template-preview-panel {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -191,10 +191,32 @@ body {
   margin-top: 0.35rem;
 }
 
+/* Variables — compact inline list inside the editor panel */
+.letter-variables-details {
+  margin-top: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0.5rem 0.75rem;
+}
+
+.letter-variables-summary {
+  cursor: pointer;
+  font-weight: 600;
+  user-select: none;
+  padding: 0.25rem 0;
+}
+
 .letter-variable-list {
   list-style: none;
   padding: 0;
   margin: 0;
+}
+
+.letter-variable-list-compact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
 }
 
 .letter-variable-btn {
@@ -208,13 +230,26 @@ body {
   cursor: pointer;
 }
 
+.letter-variable-btn-sm {
+  width: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.8rem;
+  margin-bottom: 0;
+}
+
 .letter-variable-btn code {
   display: block;
   margin-bottom: 0.25rem;
 }
 
 .letter-template-preview-panel {
-  margin-top: 1rem;
+  position: sticky;
+  top: 1rem;
+  min-height: 500px;
 }
 
 .preview-panel-header {
@@ -225,9 +260,16 @@ body {
   margin-bottom: 0.75rem;
 }
 
+.preview-loading-overlay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+}
+
 .letter-template-preview-frame {
   width: 100%;
-  min-height: 760px;
+  min-height: 700px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: #fff;
@@ -259,9 +301,26 @@ body {
   margin-inline-start: auto;
 }
 
-@media (width <= 1100px) {
+.follow-up-print-top-bar {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+@media (width <= 1300px) {
+  .letter-template-layout {
+    grid-template-columns: 200px minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+@media (width <= 900px) {
   .letter-template-layout {
     grid-template-columns: 1fr;
+  }
+
+  .letter-template-preview-panel {
+    position: static;
   }
 }
 

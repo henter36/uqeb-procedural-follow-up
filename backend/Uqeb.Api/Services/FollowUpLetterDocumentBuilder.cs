@@ -27,6 +27,9 @@ public sealed class FollowUpLetterDocumentBuildRequest
     public string? SenderDepartment { get; init; }
     public string? LogoPath { get; init; }
     public DateTime TodayLocal { get; init; }
+    public string? SignatoryPosition { get; init; }
+    public string? SignatoryRank { get; init; }
+    public string? SignatoryNameOverride { get; init; }
 }
 
 public interface IFollowUpLetterDocumentBuilder
@@ -124,8 +127,9 @@ public sealed class FollowUpLetterDocumentBuilder : IFollowUpLetterDocumentBuild
             ResponseDeadlineDays = request.ResponseDeadlineDays ?? transaction.ResponseDueDays,
             Footer = string.Empty,
             Title = string.Empty,
-            SignatoryName = request.PreparedBy ?? string.Empty,
-            SignatoryTitle = request.SenderDepartment ?? string.Empty,
+            SignatoryName = string.IsNullOrWhiteSpace(request.SignatoryNameOverride) ? string.Empty : request.SignatoryNameOverride.Trim(),
+            SignatoryTitle = string.IsNullOrWhiteSpace(request.SignatoryPosition) ? string.Empty : request.SignatoryPosition.Trim(),
+            SignatoryRank = string.IsNullOrWhiteSpace(request.SignatoryRank) ? string.Empty : request.SignatoryRank.Trim(),
         };
     }
 

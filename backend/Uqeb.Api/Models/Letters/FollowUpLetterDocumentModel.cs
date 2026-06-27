@@ -20,4 +20,5 @@ public class FollowUpLetterDocumentModel
     public string Title { get; set; } = string.Empty;
     public string SignatoryName { get; set; } = string.Empty;
     public string SignatoryTitle { get; set; } = string.Empty;
+    public string SignatoryRank { get; set; } = string.Empty;
 }

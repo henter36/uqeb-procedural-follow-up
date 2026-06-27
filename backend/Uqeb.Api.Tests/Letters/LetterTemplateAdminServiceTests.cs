@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Uqeb.Api.Configuration;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.LetterTemplates;
@@ -261,5 +262,203 @@ public class LetterTemplateAdminServiceTests
         var items = await service.ListAsync(new LetterTemplateListRequest { Type = LetterTemplateType.FollowUp });
         Assert.Equal(second.Id, items[0].Id);
         Assert.Equal(first.Id, items[1].Id);
+    }
+
+    [Fact]
+    public async Task CreateAsync_PersistsSignatoryDefaults()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(CreateAsync_PersistsSignatoryDefaults));
+        var service = CreateService(db);
+
+        var created = await service.CreateAsync(new CreateLetterTemplateRequest
+        {
+            Name = "قالب موقّع",
+            Content = "محتوى {Subject}",
+            DefaultSignatoryPosition = "  مدير الإدارة  ",
+            DefaultSignatoryName = "أحمد محمد",
+            DefaultSignatoryRank = "عميد",
+        }, actorUserId: 1);
+
+        Assert.Equal("مدير الإدارة", created.DefaultSignatoryPosition);
+        Assert.Equal("أحمد محمد", created.DefaultSignatoryName);
+        Assert.Equal("عميد", created.DefaultSignatoryRank);
+    }
+
+    [Fact]
+    public async Task CreateAsync_EmptySignatoryDefaultsStoredAsNull()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(CreateAsync_EmptySignatoryDefaultsStoredAsNull));
+        var service = CreateService(db);
+
+        var created = await service.CreateAsync(new CreateLetterTemplateRequest
+        {
+            Name = "قالب بدون توقيع",
+            Content = "محتوى {Subject}",
+            DefaultSignatoryPosition = "   ",
+            DefaultSignatoryName = "",
+        }, actorUserId: 1);
+
+        Assert.Null(created.DefaultSignatoryPosition);
+        Assert.Null(created.DefaultSignatoryName);
+        Assert.Null(created.DefaultSignatoryRank);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_UpdatesSignatoryDefaults()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(UpdateAsync_UpdatesSignatoryDefaults));
+        var service = CreateService(db);
+
+        var template = await service.CreateAsync(new CreateLetterTemplateRequest
+        {
+            Name = "قالب",
+            Content = "محتوى {Subject}",
+            DefaultSignatoryPosition = "مدير قديم",
+        }, actorUserId: 1);
+
+        var updated = await service.UpdateAsync(template.Id, new UpdateLetterTemplateAdminRequest
+        {
+            Name = "قالب",
+            Content = "محتوى {Subject}",
+            DefaultSignatoryPosition = "مدير جديد",
+            DefaultSignatoryName = "علي أحمد",
+            DefaultSignatoryRank = "مقدم",
+        }, actorUserId: 1);
+
+        Assert.NotNull(updated);
+        Assert.Equal("مدير جديد", updated!.DefaultSignatoryPosition);
+        Assert.Equal("علي أحمد", updated.DefaultSignatoryName);
+        Assert.Equal("مقدم", updated.DefaultSignatoryRank);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ClearsSignatoryDefaultsWhenEmpty()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(UpdateAsync_ClearsSignatoryDefaultsWhenEmpty));
+        var service = CreateService(db);
+
+        var template = await service.CreateAsync(new CreateLetterTemplateRequest
+        {
+            Name = "قالب",
+            Content = "محتوى {Subject}",
+            DefaultSignatoryPosition = "مدير الإدارة",
+            DefaultSignatoryName = "اسم الموقّع",
+            DefaultSignatoryRank = "عميد",
+        }, actorUserId: 1);
+
+        var updated = await service.UpdateAsync(template.Id, new UpdateLetterTemplateAdminRequest
+        {
+            Name = "قالب",
+            Content = "محتوى {Subject}",
+            DefaultSignatoryPosition = "",
+        }, actorUserId: 1);
+
+        Assert.NotNull(updated);
+        Assert.Null(updated!.DefaultSignatoryPosition);
+        Assert.Null(updated.DefaultSignatoryName);
+        Assert.Null(updated.DefaultSignatoryRank);
+    }
+
+    [Fact]
+    public async Task CopyAsync_CopiesSignatoryDefaults()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(CopyAsync_CopiesSignatoryDefaults));
+        var service = CreateService(db);
+
+        var source = await service.CreateAsync(new CreateLetterTemplateRequest
+        {
+            Name = "أصل",
+            Content = "محتوى {Subject}",
+            DefaultSignatoryPosition = "مدير الإدارة",
+            DefaultSignatoryName = "محمد علي",
+            DefaultSignatoryRank = "عقيد",
+        }, actorUserId: 1);
+
+        var copy = await service.CopyAsync(source.Id, actorUserId: 1);
+
+        Assert.Equal("مدير الإدارة", copy.DefaultSignatoryPosition);
+        Assert.Equal("محمد علي", copy.DefaultSignatoryName);
+        Assert.Equal("عقيد", copy.DefaultSignatoryRank);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_OldTemplateWithoutSignatoryDefaultsReturnsNulls()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(GetByIdAsync_OldTemplateWithoutSignatoryDefaultsReturnsNulls));
+        var service = CreateService(db);
+
+        var created = await service.CreateAsync(new CreateLetterTemplateRequest
+        {
+            Name = "قالب قديم",
+            Content = "محتوى {Subject}",
+        }, actorUserId: 1);
+
+        var loaded = await service.GetByIdAsync(created.Id);
+
+        Assert.NotNull(loaded);
+        Assert.Null(loaded!.DefaultSignatoryPosition);
+        Assert.Null(loaded.DefaultSignatoryName);
+        Assert.Null(loaded.DefaultSignatoryRank);
+    }
+
+    [Theory]
+    [InlineData(nameof(CreateLetterTemplateRequest.DefaultSignatoryPosition))]
+    [InlineData(nameof(CreateLetterTemplateRequest.DefaultSignatoryName))]
+    [InlineData(nameof(CreateLetterTemplateRequest.DefaultSignatoryRank))]
+    public void CreateLetterTemplateRequest_SignatoryField_FailsValidationWhenOver200Chars(string fieldName)
+    {
+        var request = new CreateLetterTemplateRequest
+        {
+            Name = "قالب",
+            Content = "محتوى",
+            TemplateType = LetterTemplateType.FollowUp,
+        };
+        typeof(CreateLetterTemplateRequest).GetProperty(fieldName)!.SetValue(request, new string('أ', 201));
+
+        var results = new List<ValidationResult>();
+        var valid = Validator.TryValidateObject(request, new ValidationContext(request), results, validateAllProperties: true);
+
+        Assert.False(valid, $"{fieldName} يجب أن يفشل التحقق عند تجاوز 200 حرف.");
+        Assert.Contains(results, r => r.MemberNames.Contains(fieldName));
+    }
+
+    [Theory]
+    [InlineData(nameof(UpdateLetterTemplateAdminRequest.DefaultSignatoryPosition))]
+    [InlineData(nameof(UpdateLetterTemplateAdminRequest.DefaultSignatoryName))]
+    [InlineData(nameof(UpdateLetterTemplateAdminRequest.DefaultSignatoryRank))]
+    public void UpdateLetterTemplateAdminRequest_SignatoryField_FailsValidationWhenOver200Chars(string fieldName)
+    {
+        var request = new UpdateLetterTemplateAdminRequest
+        {
+            Name = "قالب",
+            Content = "محتوى",
+        };
+        typeof(UpdateLetterTemplateAdminRequest).GetProperty(fieldName)!.SetValue(request, new string('أ', 201));
+
+        var results = new List<ValidationResult>();
+        var valid = Validator.TryValidateObject(request, new ValidationContext(request), results, validateAllProperties: true);
+
+        Assert.False(valid, $"{fieldName} يجب أن يفشل التحقق عند تجاوز 200 حرف.");
+        Assert.Contains(results, r => r.MemberNames.Contains(fieldName));
+    }
+
+    [Theory]
+    [InlineData(nameof(CreateLetterTemplateRequest.DefaultSignatoryPosition))]
+    [InlineData(nameof(CreateLetterTemplateRequest.DefaultSignatoryName))]
+    [InlineData(nameof(CreateLetterTemplateRequest.DefaultSignatoryRank))]
+    public void CreateLetterTemplateRequest_SignatoryField_PassesValidationAt200Chars(string fieldName)
+    {
+        var request = new CreateLetterTemplateRequest
+        {
+            Name = "قالب",
+            Content = "محتوى",
+            TemplateType = LetterTemplateType.FollowUp,
+        };
+        typeof(CreateLetterTemplateRequest).GetProperty(fieldName)!.SetValue(request, new string('أ', 200));
+
+        var results = new List<ValidationResult>();
+        var valid = Validator.TryValidateObject(request, new ValidationContext(request), results, validateAllProperties: true);
+
+        Assert.True(valid, $"{fieldName} يجب أن ينجح التحقق عند 200 حرف بالضبط.");
     }
 }

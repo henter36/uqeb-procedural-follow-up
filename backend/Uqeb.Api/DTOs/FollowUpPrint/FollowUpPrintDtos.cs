@@ -67,6 +67,12 @@ public class CreateFollowUpPrintJobRequest
     public int? BatchSize { get; set; }
     [MaxLength(128)]
     public string? IdempotencyKey { get; set; }
+    [MaxLength(200)]
+    public string? SignatoryPosition { get; set; }
+    [MaxLength(100)]
+    public string? SignatoryRank { get; set; }
+    [MaxLength(200)]
+    public string? SignatoryNameOverride { get; set; }
 }
 
 public class FollowUpPrintJobDto

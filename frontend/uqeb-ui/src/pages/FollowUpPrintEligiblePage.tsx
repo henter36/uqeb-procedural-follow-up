@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { categoriesApi, departmentsApi, followUpPrintApi, letterTemplatesApi } from '../api/services';
 import type {
   Category, Department, EligibleTransaction, FollowUpPrintEligibilityPreview, LetterTemplate,
@@ -24,6 +24,7 @@ const DEFAULT_FILTER = {
 };
 
 export default function FollowUpPrintEligiblePage() {
+  const navigate = useNavigate();
   const [draftFilters, setDraftFilters] = useState(DEFAULT_FILTER);
   const [appliedFilters, setAppliedFilters] = useState(DEFAULT_FILTER);
   const [items, setItems] = useState<EligibleTransaction[]>([]);
@@ -34,6 +35,11 @@ export default function FollowUpPrintEligiblePage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [templateId, setTemplateId] = useState('');
   const [responseDeadlineDays, setResponseDeadlineDays] = useState('7');
+  const [signatoryPosition, setSignatoryPosition] = useState('');
+  const [signatoryRank, setSignatoryRank] = useState('');
+  const [signatoryNameOverride, setSignatoryNameOverride] = useState('');
+  // Tracks whether signatory fields were set by a template default or edited manually
+  const [signatoryEditedManually, setSignatoryEditedManually] = useState(false);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
@@ -64,6 +70,9 @@ export default function FollowUpPrintEligiblePage() {
           filter,
           templateId: templateId ? Number(templateId) : undefined,
           responseDeadlineDays: responseDeadlineDays ? Number(responseDeadlineDays) : undefined,
+          signatoryPosition: signatoryPosition.trim() || undefined,
+          signatoryRank: signatoryRank.trim() || undefined,
+          signatoryNameOverride: signatoryNameOverride.trim() || undefined,
         }),
       ]);
       if (!active()) return;
@@ -76,7 +85,7 @@ export default function FollowUpPrintEligiblePage() {
     } finally {
       if (active()) setLoading(false);
     }
-  }, [buildFilter, responseDeadlineDays, templateId]);
+  }, [buildFilter, responseDeadlineDays, signatoryNameOverride, signatoryPosition, signatoryRank, templateId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,7 +101,12 @@ export default function FollowUpPrintEligiblePage() {
         setDepartments(departmentsRes.data);
         setCategories(categoriesRes.data);
         const defaultTemplate = templatesRes.data.find((t) => t.isDefault) ?? templatesRes.data[0];
-        if (defaultTemplate) setTemplateId(String(defaultTemplate.id));
+        if (defaultTemplate) {
+          setTemplateId(String(defaultTemplate.id));
+          setSignatoryPosition(defaultTemplate.defaultSignatoryPosition ?? '');
+          setSignatoryRank(defaultTemplate.defaultSignatoryRank ?? '');
+          setSignatoryNameOverride(defaultTemplate.defaultSignatoryName ?? '');
+        }
       } catch {
         if (!cancelled) setError('تعذر تحميل بيانات الصفحة');
       }
@@ -172,10 +186,14 @@ export default function FollowUpPrintEligiblePage() {
         templateId: templateId ? Number(templateId) : undefined,
         responseDeadlineDays: responseDeadlineDays ? Number(responseDeadlineDays) : undefined,
         idempotencyKey: createIdempotencyKey(),
+        signatoryPosition: signatoryPosition.trim() || undefined,
+        signatoryRank: signatoryRank.trim() || undefined,
+        signatoryNameOverride: signatoryNameOverride.trim() || undefined,
       });
-      setMessage(`تم إنشاء مهمة الطباعة رقم ${res.data.id}.`);
+      // Navigate to the job detail page so the user can track progress and print
+      navigate(`/follow-up-print/jobs/${res.data.id}`);
     } catch (err: unknown) {
-      setError(getApiErrorMessage(err));
+      setError(getApiErrorMessage(err) || 'تعذر إنشاء مهمة الطباعة.');
     } finally {
       setCreating(false);
     }
@@ -274,7 +292,28 @@ export default function FollowUpPrintEligiblePage() {
           <div className="form-grid mt-4">
             <div className="form-group">
               <label htmlFor="job-template">قالب الخطاب</label>
-              <select id="job-template" value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
+              <select
+              id="job-template"
+              value={templateId}
+              onChange={(e) => {
+                const newId = e.target.value;
+                const tmpl = templates.find((t) => String(t.id) === newId);
+                if (!tmpl) { setTemplateId(newId); return; }
+                const hasDefaults = tmpl.defaultSignatoryPosition || tmpl.defaultSignatoryName || tmpl.defaultSignatoryRank;
+                const hasManualValues = signatoryEditedManually && (signatoryPosition || signatoryRank || signatoryNameOverride);
+                if (hasManualValues && hasDefaults && !globalThis.confirm('هل تريد استبدال بيانات التوقيع الحالية بالقيم الافتراضية للقالب الجديد؟')) {
+                  setTemplateId(newId);
+                  return;
+                }
+                setTemplateId(newId);
+                if (hasDefaults) {
+                  setSignatoryPosition(tmpl.defaultSignatoryPosition ?? '');
+                  setSignatoryRank(tmpl.defaultSignatoryRank ?? '');
+                  setSignatoryNameOverride(tmpl.defaultSignatoryName ?? '');
+                  setSignatoryEditedManually(false);
+                }
+              }}
+            >
                 {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </div>
@@ -286,6 +325,33 @@ export default function FollowUpPrintEligiblePage() {
                 min={1}
                 value={responseDeadlineDays}
                 onChange={(e) => setResponseDeadlineDays(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="signatory-position">المنصب الوظيفي (اختياري)</label>
+              <input
+                id="signatory-position"
+                value={signatoryPosition}
+                onChange={(e) => { setSignatoryPosition(e.target.value); setSignatoryEditedManually(true); }}
+                placeholder="مدير الإدارة"
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="signatory-rank">الرتبة (اختياري)</label>
+              <input
+                id="signatory-rank"
+                value={signatoryRank}
+                onChange={(e) => { setSignatoryRank(e.target.value); setSignatoryEditedManually(true); }}
+                placeholder="عميد"
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="signatory-name-override">اسم الموقّع (اختياري)</label>
+              <input
+                id="signatory-name-override"
+                value={signatoryNameOverride}
+                onChange={(e) => { setSignatoryNameOverride(e.target.value); setSignatoryEditedManually(true); }}
+                placeholder="اترك فارغاً لاستخدام اسم المستخدم الحالي"
               />
             </div>
           </div>

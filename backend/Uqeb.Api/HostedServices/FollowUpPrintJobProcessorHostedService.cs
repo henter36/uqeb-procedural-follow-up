@@ -44,22 +44,31 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        while (!stoppingToken.IsCancellationRequested)
+        _logger.LogInformation("بدأ عامل معالجة مهام طباعة التعقيب (دورة كل 5 ثوانٍ، انتهاء صلاحية المهمة بعد {Hours} ساعة).",
+            _options.JobExpirationHours);
+        try
         {
-            try
+            while (!stoppingToken.IsCancellationRequested)
             {
-                await ProcessOnceAsync(stoppingToken);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "فشلت دورة معالجة مهام طباعة التعقيب.");
-            }
+                try
+                {
+                    await ProcessOnceAsync(stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "فشلت دورة معالجة مهام طباعة التعقيب — سيُعاد المحاولة بعد 5 ثوانٍ.");
+                }
 
-            await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+            }
+        }
+        finally
+        {
+            _logger.LogInformation("توقف عامل معالجة مهام طباعة التعقيب.");
         }
     }
 
@@ -69,6 +78,8 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var notifications = scope.ServiceProvider.GetRequiredService<IUserNotificationService>();
         var audit = scope.ServiceProvider.GetRequiredService<IAuditService>();
+
+        await ExpireStaleJobsAsync(db, cancellationToken);
 
         var claim = await TryClaimNextJobAsync(db, cancellationToken);
         if (claim == null)
@@ -82,27 +93,85 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
         }
         catch (FollowUpPrintLeaseExpiredException ex)
         {
-            _logger.LogWarning(ex, "توقف عامل الطباعة عن مهمة {JobId} بعد انتهاء الـlease.", ex.JobId);
+            _logger.LogWarning(ex, "توقف عامل الطباعة عن مهمة {JobId} بعد انتهاء الـlease — ستُعاد المعالجة.", ex.JobId);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "فشلت معالجة مهمة الطباعة {JobId}", job.Id);
-            job.Status = FollowUpPrintJobStatus.Failed;
-            job.FailureReason = "تعذر إكمال مهمة الطباعة.";
-            job.FailedAt = DateTime.UtcNow;
-            job.LeaseOwner = null;
-            job.LeaseExpiresAt = null;
-            await db.SaveChangesAsync(cancellationToken);
-            await FollowUpPrintAuditWriter.LogJobFailedAsync(audit, job.RequestedById, job.Id, job.FailureReason);
+            var reason = $"تعذر إكمال مهمة الطباعة: {ex.GetType().Name} — {ex.Message}";
+            _logger.LogError(ex, "فشلت معالجة مهمة الطباعة {JobId}: {Message}", job.Id, ex.Message);
 
-            await notifications.CreateAsync(
-                job.RequestedById,
-                NotificationTypeJobFailed,
-                "فشلت مهمة طباعة التعقيب",
-                $"تعذر إكمال مهمة الطباعة رقم {job.Id}.",
-                $"/follow-up-print/jobs/{job.Id}",
-                cancellationToken);
+            // Use a fresh scope to save failure status — avoids stale EF context after exception.
+            try
+            {
+                await using var failScope = _scopeFactory.CreateAsyncScope();
+                var failDb = failScope.ServiceProvider.GetRequiredService<AppDbContext>();
+                await failDb.FollowUpPrintJobs
+                    .Where(j => j.Id == job.Id)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(j => j.Status, FollowUpPrintJobStatus.Failed)
+                        .SetProperty(j => j.FailureReason, reason)
+                        .SetProperty(j => j.FailedAt, DateTime.UtcNow)
+                        .SetProperty(j => j.LeaseOwner, (string?)null)
+                        .SetProperty(j => j.LeaseExpiresAt, (DateTime?)null),
+                        cancellationToken);
+            }
+            catch (Exception saveEx)
+            {
+                _logger.LogError(saveEx, "فشل حفظ حالة الفشل للمهمة {JobId}.", job.Id);
+                return;
+            }
+
+            try
+            {
+                await FollowUpPrintAuditWriter.LogJobFailedAsync(audit, job.RequestedById, job.Id, reason);
+                await notifications.CreateAsync(
+                    job.RequestedById,
+                    NotificationTypeJobFailed,
+                    "فشلت مهمة طباعة التعقيب",
+                    $"تعذر إكمال مهمة الطباعة رقم {job.Id}.",
+                    $"/follow-up-print/jobs/{job.Id}",
+                    cancellationToken);
+            }
+            catch (Exception notifyEx)
+            {
+                _logger.LogWarning(notifyEx, "فشل إرسال إشعار فشل المهمة {JobId}.", job.Id);
+            }
         }
+    }
+
+    private async Task ExpireStaleJobsAsync(AppDbContext db, CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        var threshold = now.AddHours(-_options.JobExpirationHours);
+
+        // Queued jobs: no active lease by definition — expire by CreatedAt alone.
+        // Claimed/Processing jobs: only expire when the lease has also lapsed AND the job is old enough.
+        // A job with a future LeaseExpiresAt is actively being processed by another worker.
+        var staleJobs = await db.FollowUpPrintJobs
+            .Where(j =>
+                (j.Status == FollowUpPrintJobStatus.Queued && j.CreatedAt < threshold) ||
+                (j.Status != FollowUpPrintJobStatus.Queued &&
+                 ClaimableStatuses.Contains(j.Status) &&
+                 j.CreatedAt < threshold &&
+                 (j.LeaseExpiresAt == null || j.LeaseExpiresAt < now)))
+            .ToListAsync(cancellationToken);
+
+        if (staleJobs.Count == 0) return;
+
+        foreach (var stale in staleJobs)
+        {
+            _logger.LogWarning(
+                "المهمة {JobId} عالقة في الحالة {Status} منذ {Created} — تم وضع علامة انتهاء الصلاحية.",
+                stale.Id, stale.Status, stale.CreatedAt);
+            stale.Status = FollowUpPrintJobStatus.Expired;
+            stale.FailureReason = $"انتهت مدة الصلاحية ({_options.JobExpirationHours} ساعة) دون إكمال التجهيز.";
+            stale.FailedAt = DateTime.UtcNow;
+            stale.LeaseOwner = null;
+            stale.LeaseExpiresAt = null;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("تم وضع علامة انتهاء الصلاحية على {Count} مهمة/مهام طباعة عالقة.", staleJobs.Count);
     }
 
     internal async Task<(FollowUpPrintJob Job, string LeaseOwner, bool IsLeaseRecovery)?> TryClaimNextJobAsync(
@@ -122,10 +191,17 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
             .FirstOrDefaultAsync(cancellationToken);
 
         if (candidate == null)
+        {
+            _logger.LogDebug("لا توجد مهام طباعة معلقة.");
             return null;
+        }
 
         var isLeaseRecovery = candidate.StartedAt.HasValue &&
                               candidate.Status == FollowUpPrintJobStatus.Processing;
+
+        _logger.LogInformation(
+            "التقاط مهمة الطباعة {JobId} (الحالة: {Status}، استرداد lease: {IsRecovery}).",
+            candidate.Id, candidate.Status, isLeaseRecovery);
 
         var claimed = await db.FollowUpPrintJobs
             .Where(j =>
@@ -141,7 +217,10 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
                 cancellationToken);
 
         if (claimed == 0)
+        {
+            _logger.LogDebug("فشل التقاط المهمة {JobId} — تم التقاطها بواسطة عامل آخر.", candidate.Id);
             return null;
+        }
 
         var job = await db.FollowUpPrintJobs.FirstAsync(j => j.Id == candidate.Id, cancellationToken);
         return (job, leaseOwner, isLeaseRecovery);
@@ -160,9 +239,15 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
         await db.Entry(job).ReloadAsync(cancellationToken);
 
         if (isLeaseRecovery)
+        {
+            _logger.LogInformation("استرداد lease للمهمة {JobId} — متابعة المعالجة.", job.Id);
             await FollowUpPrintAuditWriter.LogJobLeaseRecoveredAsync(audit, job.RequestedById, job.Id);
+        }
         else
+        {
+            _logger.LogInformation("بدء معالجة مهمة الطباعة {JobId}.", job.Id);
             await FollowUpPrintAuditWriter.LogJobStartedAsync(audit, job.RequestedById, job.Id);
+        }
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -198,6 +283,10 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
             cancellationToken);
 
         await FinalizeJobProcessingAsync(db, job, leaseOwner, pendingCount, unhandledFailures, cancellationToken);
+
+        _logger.LogInformation(
+            "اكتملت معالجة مهمة الطباعة {JobId}: الحالة = {Status}، أجزاء جاهزة = {ReadyParts}، سبب الفشل = {Reason}.",
+            job.Id, job.Status, job.ReadyParts, job.FailureReason ?? "—");
 
         if (job.Status == FollowUpPrintJobStatus.ReadyToPrint)
         {
@@ -266,9 +355,13 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
         string leaseOwner,
         CancellationToken cancellationToken)
     {
+        var partNumber = job.TotalParts + 1;
+        _logger.LogInformation(
+            "بدء تجهيز دفعة {PartNumber} من مهمة {JobId}: {BatchSize} خطاب/خطابات.",
+            partNumber, job.Id, batch.Count);
+
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
-        var partNumber = job.TotalParts + 1;
         var letterPayloads = new List<FollowUpPrintJobLetterPayload>();
         var documents = new List<FollowUpLetterDocumentModel>();
         var readyCount = 0;
@@ -283,8 +376,9 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
                 {
                     document = JsonSerializer.Deserialize<FollowUpLetterDocumentModel>(payload.SnapshotJson, JsonOptions);
                 }
-                catch (JsonException)
+                catch (JsonException ex)
                 {
+                    _logger.LogWarning(ex, "فشل تحليل SnapshotJson للمعاملة {TxId} في مهمة {JobId}.", payload.TransactionId, job.Id);
                     document = null;
                 }
             }
@@ -312,6 +406,9 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
 
         if (readyCount == 0)
         {
+            _logger.LogWarning(
+                "دفعة {PartNumber} من مهمة {JobId}: كل {FailedCount} خطاب/خطابات فشلت — لن يُنشأ جزء.",
+                partNumber, job.Id, failedCount);
             job.ProcessedLetters += batch.Count;
             job.FailedLetters += failedCount;
             job.CurrentPart = job.TotalParts;
@@ -362,6 +459,10 @@ public sealed class FollowUpPrintJobProcessorHostedService : BackgroundService
 
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "اكتمل الجزء {PartNumber} من مهمة {JobId}: {ReadyCount} جاهز، {FailedCount} فاشل، الحالة = {Status}.",
+            partNumber, job.Id, readyCount, failedCount, part.Status);
 
         await RenewLeaseIfOwnerAsync(db, job.Id, leaseOwner, cancellationToken);
     }

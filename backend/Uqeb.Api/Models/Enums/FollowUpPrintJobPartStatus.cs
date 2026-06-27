@@ -1,5 +1,8 @@
+using System.Text.Json.Serialization;
+
 namespace Uqeb.Api.Models.Enums;
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum FollowUpPrintJobPartStatus
 {
     Pending = 1,

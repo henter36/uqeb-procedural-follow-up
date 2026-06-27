@@ -157,7 +157,10 @@ public class FollowUpLetterDocumentBuilderTests
     [Fact]
     public void LetterTemplateTypeJson_AcceptsStringAndWritesCanonicalString()
     {
-        var request = JsonSerializer.Deserialize<CreateLetterTemplateRequest>("""{"name":"n","content":"c","templateType":"FollowUp"}""");
+        // ASP.NET Core uses PropertyNameCaseInsensitive = true; mirror that here so camelCase JSON keys resolve to PascalCase properties.
+        var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        var request = JsonSerializer.Deserialize<CreateLetterTemplateRequest>(
+            """{"name":"n","content":"c","templateType":"FollowUp"}""", opts);
 
         Assert.Equal(LetterTemplateType.FollowUp, request!.TemplateType);
         Assert.Contains(
@@ -170,7 +173,20 @@ public class FollowUpLetterDocumentBuilderTests
     [Fact]
     public void LetterTemplateTypeJson_AcceptsLegacyNumber()
     {
-        var request = JsonSerializer.Deserialize<CreateLetterTemplateRequest>("""{"name":"n","content":"c","templateType":1}""");
+        var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        var request = JsonSerializer.Deserialize<CreateLetterTemplateRequest>(
+            """{"name":"n","content":"c","templateType":1}""", opts);
+
+        Assert.Equal(LetterTemplateType.FollowUp, request!.TemplateType);
+    }
+
+    [Fact]
+    public void LetterTemplateTypeJson_AcceptsLowerCaseString()
+    {
+        // ignoreCase: true allows lowercase variants (e.g. from legacy or mixed-case clients).
+        var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        var request = JsonSerializer.Deserialize<CreateLetterTemplateRequest>(
+            """{"name":"n","content":"c","templateType":"followup"}""", opts);
 
         Assert.Equal(LetterTemplateType.FollowUp, request!.TemplateType);
     }
@@ -214,6 +230,140 @@ public class FollowUpLetterDocumentBuilderTests
         ]);
 
         Assert.Contains("خطاب", html);
-        Assert.Contains("موضوع", html);
+    }
+
+    [Fact]
+    public void RenderPrintView_NoHardcodedSalutation()
+    {
+        var html = FollowUpLetterPrintViewRenderer.Render([
+            new FollowUpLetterDocumentModel
+            {
+                Body = "نص الخطاب فقط",
+                Recipient = "الجهة المستلمة",
+                Subject = "موضوع اختبار",
+                LetterNumber = "1",
+                GregorianDate = "26/06/2026",
+                HijriDate = "هجري",
+            },
+        ]);
+
+        Assert.DoesNotContain("سعادة/ الجهة المستلمة", html);
+        Assert.DoesNotContain("السلام عليكم ورحمة الله وبركاته،،", html);
+    }
+
+    [Fact]
+    public void RenderPrintView_NoHardcodedSubjectLine()
+    {
+        var html = FollowUpLetterPrintViewRenderer.Render([
+            new FollowUpLetterDocumentModel
+            {
+                Body = "نص الخطاب فقط",
+                Recipient = "جهة",
+                Subject = "موضوع اختبار",
+                LetterNumber = "1",
+                GregorianDate = "26/06/2026",
+                HijriDate = "هجري",
+            },
+        ]);
+
+        Assert.DoesNotContain("الموضوع: موضوع اختبار", html);
+    }
+
+    [Fact]
+    public void RenderPrintView_BodyContentPassedThrough()
+    {
+        const string bodyContent = "محتوى التجربة الفريد لهذا الاختبار";
+
+        var html = FollowUpLetterPrintViewRenderer.Render([
+            new FollowUpLetterDocumentModel
+            {
+                Body = bodyContent,
+                Recipient = "جهة",
+                Subject = "موضوع",
+                LetterNumber = "1",
+                GregorianDate = "26/06/2026",
+                HijriDate = "هجري",
+            },
+        ]);
+
+        Assert.Contains(bodyContent, html);
+    }
+
+    [Fact]
+    public void Build_SignatoryNotFilledFromPreparedByWhenEmpty()
+    {
+        var builder = new FollowUpLetterDocumentBuilder(new FixedTimeZone(new DateTime(2026, 6, 26)));
+
+        var document = builder.Build(new FollowUpLetterDocumentBuildRequest
+        {
+            Transaction = new Models.Entities.Transaction
+            {
+                Id = 1,
+                IncomingNumber = "IN-1",
+                IncomingDate = new DateTime(2026, 6, 1),
+                Subject = "اختبار",
+                Priority = Models.Enums.Priority.Normal,
+            },
+            Template = new Models.Entities.LetterTemplate { Id = 1, Content = "test", Name = "test" },
+            Target = new FollowUpLetterTargetEntity("جهة"),
+            PreparedBy = "اسم معد الخطاب",
+            SignatoryNameOverride = null,
+            TodayLocal = new DateTime(2026, 6, 26),
+        });
+
+        Assert.Equal(string.Empty, document.SignatoryName);
+    }
+
+    [Fact]
+    public void Build_SignatoryNotFilledFromSenderDepartmentWhenEmpty()
+    {
+        var builder = new FollowUpLetterDocumentBuilder(new FixedTimeZone(new DateTime(2026, 6, 26)));
+
+        var document = builder.Build(new FollowUpLetterDocumentBuildRequest
+        {
+            Transaction = new Models.Entities.Transaction
+            {
+                Id = 1,
+                IncomingNumber = "IN-1",
+                IncomingDate = new DateTime(2026, 6, 1),
+                Subject = "اختبار",
+                Priority = Models.Enums.Priority.Normal,
+            },
+            Template = new Models.Entities.LetterTemplate { Id = 1, Content = "test", Name = "test" },
+            Target = new FollowUpLetterTargetEntity("جهة"),
+            SenderDepartment = "المتابعة الإجرائية",
+            SignatoryPosition = null,
+            TodayLocal = new DateTime(2026, 6, 26),
+        });
+
+        Assert.Equal(string.Empty, document.SignatoryTitle);
+    }
+
+    [Fact]
+    public void Build_ExplicitSignatoryValuesAreUsed()
+    {
+        var builder = new FollowUpLetterDocumentBuilder(new FixedTimeZone(new DateTime(2026, 6, 26)));
+
+        var document = builder.Build(new FollowUpLetterDocumentBuildRequest
+        {
+            Transaction = new Models.Entities.Transaction
+            {
+                Id = 1,
+                IncomingNumber = "IN-1",
+                IncomingDate = new DateTime(2026, 6, 1),
+                Subject = "اختبار",
+                Priority = Models.Enums.Priority.Normal,
+            },
+            Template = new Models.Entities.LetterTemplate { Id = 1, Content = "test", Name = "test" },
+            Target = new FollowUpLetterTargetEntity("جهة"),
+            SignatoryNameOverride = "  أحمد محمد  ",
+            SignatoryPosition = "  مدير الإدارة  ",
+            SignatoryRank = "  عميد  ",
+            TodayLocal = new DateTime(2026, 6, 26),
+        });
+
+        Assert.Equal("أحمد محمد", document.SignatoryName);
+        Assert.Equal("مدير الإدارة", document.SignatoryTitle);
+        Assert.Equal("عميد", document.SignatoryRank);
     }
 }

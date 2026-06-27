@@ -67,16 +67,52 @@ export default function FollowUpPrintPartPage() {
   }
 
   if (loadError) {
-    return <ErrorState title="تعذر تحضير الطباعة" description={loadError} />;
+    return (
+      <div dir="rtl">
+        <div className="no-print mb-3">
+          <div className="follow-up-print-top-bar">
+            <Link to={`/follow-up-print/jobs/${parsedJobId}`} className="btn btn-outline">
+              ← العودة للمهمة
+            </Link>
+          </div>
+        </div>
+        <ErrorState title="تعذر تحضير الطباعة" description={loadError} />
+        <div className="form-actions mt-4">
+          <button
+            type="button"
+            className="btn btn-outline"
+            onClick={() => { loadPrintView(() => true).catch(() => undefined); }}
+          >
+            تحديث الحالة
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div dir="rtl">
       <div className="no-print mb-3">
-        <Link to={`/follow-up-print/jobs/${parsedJobId}`} className="btn btn-outline">العودة للمهمة</Link>
-        <Alert variant="info">
-          فتح نافذة الطباعة أو اختيار Save as PDF يسجل طلب الطباعة فقط. يتم تأكيد الطباعة لاحقًا من شاشة بانتظار تسجيل التعقيب.
-        </Alert>
+        <div className="follow-up-print-top-bar">
+          <Link to={`/follow-up-print/jobs/${parsedJobId}`} className="btn btn-outline">
+            ← العودة للمهمة
+          </Link>
+          <Link to="/follow-up-print/pending" className="btn btn-outline">
+            بانتظار التسجيل
+          </Link>
+        </div>
+
+        {marked ? (
+          <Alert variant="success">
+            تم تسجيل طلب الطباعة. اذهب إلى «بانتظار التسجيل» لتأكيد الطباعة وتسجيل التعقيب.
+          </Alert>
+        ) : (
+          <Alert variant="info">
+            انقر «طباعة الآن» لفتح نافذة الطباعة، ثم اطبع أو احفظ PDF.
+            بعد الطباعة اذهب إلى «بانتظار التسجيل» لتأكيد الطباعة وتسجيل التعقيب.
+            {' '}قم بتعطيل «Headers and footers» من إعدادات الطباعة لمنع ظهور عنوان المتصفح وتاريخه على الخطاب.
+          </Alert>
+        )}
         {printError && <Alert variant="error">{printError}</Alert>}
       </div>
       <FollowUpLetterPrintView

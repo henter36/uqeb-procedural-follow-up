@@ -99,6 +99,9 @@ public sealed class LetterTemplateAdminService : ILetterTemplateAdminService
             IsActive = isActive,
             IsDefault = isDefault,
             SortOrder = sortOrder + 1,
+            DefaultSignatoryPosition = string.IsNullOrWhiteSpace(request.DefaultSignatoryPosition) ? null : request.DefaultSignatoryPosition.Trim(),
+            DefaultSignatoryName = string.IsNullOrWhiteSpace(request.DefaultSignatoryName) ? null : request.DefaultSignatoryName.Trim(),
+            DefaultSignatoryRank = string.IsNullOrWhiteSpace(request.DefaultSignatoryRank) ? null : request.DefaultSignatoryRank.Trim(),
             CreatedById = actorUserId,
             CreatedAt = DateTime.UtcNow,
         };
@@ -147,6 +150,9 @@ public sealed class LetterTemplateAdminService : ILetterTemplateAdminService
         template.TemplateType = updateTemplateType;
         template.Content = request.Content.Trim();
         template.IsActive = updateIsActive;
+        template.DefaultSignatoryPosition = string.IsNullOrWhiteSpace(request.DefaultSignatoryPosition) ? null : request.DefaultSignatoryPosition.Trim();
+        template.DefaultSignatoryName = string.IsNullOrWhiteSpace(request.DefaultSignatoryName) ? null : request.DefaultSignatoryName.Trim();
+        template.DefaultSignatoryRank = string.IsNullOrWhiteSpace(request.DefaultSignatoryRank) ? null : request.DefaultSignatoryRank.Trim();
         template.UpdatedById = actorUserId;
         template.UpdatedAt = DateTime.UtcNow;
 
@@ -179,6 +185,9 @@ public sealed class LetterTemplateAdminService : ILetterTemplateAdminService
             IsActive = source.IsActive,
             IsDefault = false,
             SortOrder = sortOrder + 1,
+            DefaultSignatoryPosition = source.DefaultSignatoryPosition,
+            DefaultSignatoryName = source.DefaultSignatoryName,
+            DefaultSignatoryRank = source.DefaultSignatoryRank,
             CreatedById = actorUserId,
             CreatedAt = DateTime.UtcNow,
         };
@@ -422,6 +431,9 @@ public sealed class LetterTemplateAdminService : ILetterTemplateAdminService
         IsActive = t.IsActive,
         IsDefault = t.IsDefault,
         SortOrder = t.SortOrder,
+        DefaultSignatoryPosition = t.DefaultSignatoryPosition,
+        DefaultSignatoryName = t.DefaultSignatoryName,
+        DefaultSignatoryRank = t.DefaultSignatoryRank,
         CreatedAt = t.CreatedAt,
         UpdatedAt = t.UpdatedAt,
     };

@@ -321,6 +321,80 @@ public class FollowUpPrintEligibilityServiceTests
         Assert.Equal(3, payloads[0].FollowUpSequence);
     }
 
+    [Fact]
+    public async Task GetEligibleAsync_PopulatesPrimaryTargetEntity_SingleTarget()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(GetEligibleAsync_PopulatesPrimaryTargetEntity_SingleTarget));
+        var renderService = new PerTransactionRenderService(new Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>>
+        {
+            [1] = [new FollowUpLetterTargetEntity("وزارة التعليم", DepartmentId: 5)],
+        });
+        var service = CreateService(db, Today, renderService);
+        await SeedEligibleTransactionAsync(db, 1, Today.AddDays(-15));
+
+        var result = await service.GetEligibleAsync(new FollowUpPrintFilterRequest { DaysSinceLastFollowUp = 10 }, new TestCurrentUser(1));
+
+        Assert.Single(result.Items);
+        Assert.Equal("وزارة التعليم", result.Items[0].PrimaryTargetEntity);
+    }
+
+    [Fact]
+    public async Task GetEligibleAsync_PopulatesPrimaryTargetEntity_MultipleTargets()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(GetEligibleAsync_PopulatesPrimaryTargetEntity_MultipleTargets));
+        var renderService = new PerTransactionRenderService(new Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>>
+        {
+            [1] = [
+                new FollowUpLetterTargetEntity("وزارة التعليم", DepartmentId: 5),
+                new FollowUpLetterTargetEntity("وزارة الصحة", DepartmentId: 6),
+            ],
+        });
+        var service = CreateService(db, Today, renderService);
+        await SeedEligibleTransactionAsync(db, 1, Today.AddDays(-15));
+
+        var result = await service.GetEligibleAsync(new FollowUpPrintFilterRequest { DaysSinceLastFollowUp = 10 }, new TestCurrentUser(1));
+
+        Assert.Single(result.Items);
+        Assert.Contains("وزارة التعليم", result.Items[0].PrimaryTargetEntity);
+        Assert.Contains("وزارة الصحة", result.Items[0].PrimaryTargetEntity);
+    }
+
+    [Fact]
+    public async Task GetEligibleAsync_NullPrimaryTargetEntity_WhenNoTarget()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(GetEligibleAsync_NullPrimaryTargetEntity_WhenNoTarget));
+        var renderService = new PerTransactionRenderService(new Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>>());
+        var service = CreateService(db, Today, renderService);
+        await SeedEligibleTransactionAsync(db, 1, Today.AddDays(-15));
+
+        var result = await service.GetEligibleAsync(new FollowUpPrintFilterRequest { DaysSinceLastFollowUp = 10 }, new TestCurrentUser(1));
+
+        Assert.Single(result.Items);
+        Assert.Null(result.Items[0].PrimaryTargetEntity);
+    }
+
+    [Fact]
+    public async Task GetEligibleAsync_SingleBulkTargetResolutionCall_NoPlusOneQuery()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(GetEligibleAsync_SingleBulkTargetResolutionCall_NoPlusOneQuery));
+        var callCount = 0;
+        var renderService = new CountingRenderService(() => callCount++,
+            new Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>>
+            {
+                [1] = [new FollowUpLetterTargetEntity("جهة أ", DepartmentId: 1)],
+                [2] = [new FollowUpLetterTargetEntity("جهة ب", DepartmentId: 2)],
+                [3] = [new FollowUpLetterTargetEntity("جهة ج", DepartmentId: 3)],
+            });
+        var service = CreateService(db, Today, renderService);
+        await SeedEligibleTransactionAsync(db, 1, Today.AddDays(-15));
+        await SeedEligibleTransactionAsync(db, 2, Today.AddDays(-16));
+        await SeedEligibleTransactionAsync(db, 3, Today.AddDays(-17));
+
+        await service.GetEligibleAsync(new FollowUpPrintFilterRequest { DaysSinceLastFollowUp = 10, PageSize = 10 }, new TestCurrentUser(1));
+
+        Assert.Equal(1, callCount);
+    }
+
     private sealed class PerTransactionRenderService : StubRenderService
     {
         private readonly Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>> _targetsByTransaction;
@@ -335,6 +409,34 @@ public class FollowUpPrintEligibilityServiceTests
             IReadOnlyList<int> transactionIds,
             CancellationToken cancellationToken = default)
         {
+            var result = transactionIds
+                .Distinct()
+                .ToDictionary(
+                    id => id,
+                    id => _targetsByTransaction.TryGetValue(id, out var targets)
+                        ? targets
+                        : (IReadOnlyList<FollowUpLetterTargetEntity>)[]);
+            return Task.FromResult(result);
+        }
+    }
+
+    private sealed class CountingRenderService : StubRenderService
+    {
+        private readonly Action _onCall;
+        private readonly Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>> _targetsByTransaction;
+
+        public CountingRenderService(Action onCall, Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>> targetsByTransaction)
+            : base(new FollowUpLetterTargetEntity("unused", 1, null))
+        {
+            _onCall = onCall;
+            _targetsByTransaction = targetsByTransaction;
+        }
+
+        public override Task<Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>>> ResolveTargetEntitiesBulkAsync(
+            IReadOnlyList<int> transactionIds,
+            CancellationToken cancellationToken = default)
+        {
+            _onCall();
             var result = transactionIds
                 .Distinct()
                 .ToDictionary(

@@ -1,5 +1,6 @@
 namespace Uqeb.Api.Models.Entities;
 
+using System.ComponentModel.DataAnnotations;
 using Uqeb.Api.Models.Enums;
 
 public class LetterTemplate
@@ -13,6 +14,16 @@ public class LetterTemplate
     public bool IsActive { get; set; } = true;
     public bool IsDefault { get; set; }
     public int SortOrder { get; set; }
+
+    [MaxLength(200)]
+    public string? DefaultSignatoryPosition { get; set; }
+
+    [MaxLength(200)]
+    public string? DefaultSignatoryName { get; set; }
+
+    [MaxLength(200)]
+    public string? DefaultSignatoryRank { get; set; }
+
     public int? CreatedById { get; set; }
     public int? UpdatedById { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
