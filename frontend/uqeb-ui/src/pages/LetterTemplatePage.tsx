@@ -8,6 +8,8 @@ import {
   Alert, LoadingInline, PageHeader, EmptyState, ErrorState,
 } from '../components/ui';
 
+type TemplateId = number | 'new' | null;
+
 type EditorState = {
   name: string;
   description: string;
@@ -31,7 +33,7 @@ function snapshotEditor(state: EditorState): string {
 export default function LetterTemplatePage() {
   const [templates, setTemplates] = useState<LetterTemplate[]>([]);
   const [variables, setVariables] = useState<LetterTemplateVariable[]>([]);
-  const [selectedId, setSelectedId] = useState<number | 'new' | null>(null);
+  const [selectedId, setSelectedId] = useState<TemplateId>(null);
   const [editor, setEditor] = useState<EditorState>(EMPTY_EDITOR);
   const [savedSnapshot, setSavedSnapshot] = useState(snapshotEditor(EMPTY_EDITOR));
   const [loading, setLoading] = useState(true);
@@ -43,9 +45,9 @@ export default function LetterTemplatePage() {
   const [error, setError] = useState('');
   const [showVariables, setShowVariables] = useState(false);
   // Tracks which request is current — stale responses are discarded
-  const previewIdRef = useRef<number | 'new' | null>(null);
+  const previewIdRef = useRef<TemplateId>(null);
   // Tracks which template the currently-displayed previewHtml belongs to
-  const previewTemplateIdRef = useRef<number | 'new' | null>(null);
+  const previewTemplateIdRef = useRef<TemplateId>(null);
 
   const isDirty = snapshotEditor(editor) !== savedSnapshot;
 
@@ -303,6 +305,26 @@ export default function LetterTemplatePage() {
     [selectedId, templates],
   );
 
+  function renderPreviewContent() {
+    if (previewHtml) {
+      return (
+        <iframe
+          title="معاينة القالب"
+          className="letter-template-preview-frame"
+          srcDoc={previewHtml}
+          sandbox="allow-same-origin"
+        />
+      );
+    }
+    if (previewLoading) return null;
+    return (
+      <EmptyState
+        title="لا توجد معاينة"
+        description={selectedId != null ? 'ستظهر المعاينة تلقائياً أو اضغط «تحديث المعاينة».' : 'اختر قالباً لعرض المعاينة.'}
+      />
+    );
+  }
+
   if (loading) {
     return (
       <div dir="rtl">
@@ -412,7 +434,7 @@ export default function LetterTemplatePage() {
                       checked={editor.isActive}
                       onChange={(e) => setEditor((prev) => ({ ...prev, isActive: e.target.checked }))}
                     />
-                    {' '}نشط
+                    {' نشط'}
                   </label>
                 </div>
                 <div className="form-group full-width">
@@ -431,7 +453,8 @@ export default function LetterTemplatePage() {
               <details className="letter-variables-details" open={showVariables} onToggle={(e) => setShowVariables((e.target as HTMLDetailsElement).open)}>
                 <summary className="letter-variables-summary">
                   المتغيرات المتاحة
-                  <span className="text-muted"> — انقر لإدراج في نص القالب</span>
+                  {' '}
+                  <span className="text-muted">— انقر لإدراج في نص القالب</span>
                 </summary>
                 <ul className="letter-variable-list letter-variable-list-compact">
                   {variables.map((variable) => (
@@ -479,19 +502,7 @@ export default function LetterTemplatePage() {
             {previewLoading && <span className="text-muted">جاري التحديث...</span>}
           </div>
           {previewError && <Alert variant="error">{previewError}</Alert>}
-          {previewHtml ? (
-            <iframe
-              title="معاينة القالب"
-              className="letter-template-preview-frame"
-              srcDoc={previewHtml}
-              sandbox="allow-same-origin"
-            />
-          ) : previewLoading ? null : (
-            <EmptyState
-              title="لا توجد معاينة"
-              description={selectedId != null ? 'ستظهر المعاينة تلقائياً أو اضغط «تحديث المعاينة».' : 'اختر قالباً لعرض المعاينة.'}
-            />
-          )}
+          {renderPreviewContent()}
           {previewLoading && (
             <div className="preview-loading-overlay">
               <LoadingInline label="جاري بناء معاينة الخطاب..." />

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { followUpPrintApi } from '../api/services';
-import type { FollowUpPrintJob } from '../api/types';
+import type { FollowUpPrintJob, FollowUpPrintJobStatus } from '../api/types';
 import { getApiErrorMessage } from '../utils/apiHelpers';
 import {
   followUpPrintJobStatusBadgeClass,
@@ -14,6 +14,25 @@ import {
   Alert, ErrorState, LoadingInline, PageHeader,
 } from '../components/ui';
 import { useDeferredEffect } from '../hooks/useDeferredEffect';
+
+function getJobGuidanceAlert(status: FollowUpPrintJobStatus): { variant: 'success' | 'info'; message: string } {
+  if (status === 'ReadyToPrint' || status === 'PartiallyPrinted') {
+    return {
+      variant: 'success',
+      message: 'تم تجهيز الخطابات ويمكن طباعتها الآن — افتح الجزء الجاهز وانقر «طباعة الآن».',
+    };
+  }
+  if (status === 'Completed') {
+    return {
+      variant: 'info',
+      message: 'اكتملت المهمة. يمكن مراجعة سجلات الطباعة من صفحة «بانتظار التسجيل».',
+    };
+  }
+  return {
+    variant: 'info',
+    message: 'تقوم المهمة بتحضير الخطابات. عند اكتمال الجزء سيظهر زر «طباعة الآن».',
+  };
+}
 
 export default function FollowUpPrintJobDetailPage() {
   const { id } = useParams();
@@ -135,28 +154,7 @@ export default function FollowUpPrintJobDetailPage() {
     return 'الجزء غير جاهز للطباعة بعد.';
   };
 
-  const jobGuidanceAlert = (() => {
-    const isReady = job.status === 'ReadyToPrint' || job.status === 'PartiallyPrinted';
-    if (isReady) {
-      return (
-        <Alert variant="success">
-          تم تجهيز الخطابات ويمكن طباعتها الآن — افتح الجزء الجاهز وانقر «طباعة الآن».
-        </Alert>
-      );
-    }
-    if (job.status === 'Completed') {
-      return (
-        <Alert variant="info">
-          اكتملت المهمة. يمكن مراجعة سجلات الطباعة من صفحة «بانتظار التسجيل».
-        </Alert>
-      );
-    }
-    return (
-      <Alert variant="info">
-        تقوم المهمة بتحضير الخطابات. عند اكتمال الجزء سيظهر زر «طباعة الآن».
-      </Alert>
-    );
-  })();
+  const { variant: guidanceVariant, message: guidanceMessage } = getJobGuidanceAlert(job.status);
 
   return (
     <div dir="rtl">
@@ -169,7 +167,7 @@ export default function FollowUpPrintJobDetailPage() {
       {message && <Alert variant="success">{message}</Alert>}
       {error && <Alert variant="error">{error}</Alert>}
 
-      {jobGuidanceAlert}
+      <Alert variant={guidanceVariant}>{guidanceMessage}</Alert>
 
       {(() => {
         const readyParts = job.parts.filter((p) => ['ReadyToPrint', 'PartiallyReady'].includes(p.status));

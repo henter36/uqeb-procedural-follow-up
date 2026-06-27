@@ -13,14 +13,22 @@ const PRINT_HTML_ALLOWED_ATTR = [
   'colspan', 'rowspan', 'scope',
 ] as const;
 
+// Permit only http(s) absolute URLs and root-relative paths; blocks javascript: and data: URIs.
+const SAFE_URI_REGEXP = new RegExp(
+  String.raw`^(?:(?:https?):|/|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))`,
+  'i',
+);
+
 const OPTIONS: Config = {
   WHOLE_DOCUMENT: false,
   ALLOW_DATA_ATTR: false,
   ALLOWED_TAGS: [...PRINT_HTML_ALLOWED_TAGS],
   ALLOWED_ATTR: [...PRINT_HTML_ALLOWED_ATTR],
   FORBID_TAGS: ['style', 'script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'link', 'base'],
-  FORBID_ATTR: ['style', 'onerror', 'onclick', 'onload', 'onmouseover', 'onfocus', 'onblur', 'srcdoc'],
-  ALLOWED_URI_REGEXP: /^(?:(?:https?):|\/|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
+  FORBID_ATTR: ['style', 'srcdoc', 'xlink:href',
+    'onerror', 'onclick', 'onload', 'onmouseover', 'onfocus', 'onblur',
+    'onchange', 'onsubmit', 'onkeydown', 'onkeyup', 'onkeypress'],
+  ALLOWED_URI_REGEXP: SAFE_URI_REGEXP,
 };
 
 export function sanitizePrintHtml(html: string): string {
@@ -31,16 +39,7 @@ export function sanitizePrintHtml(html: string): string {
   return DOMPurify.sanitize(doc.body.innerHTML, OPTIONS);
 }
 
-/**
- * Reconstructs a safe HTML document from trusted server-generated print HTML.
- * ONLY call this with HTML produced by the server's FollowUpLetterPrintViewRenderer.
- * Do NOT use for user-generated or third-party HTML.
- *
- * Security strategy:
- * 1. Extract only the officially-marked CSS (id="uqeb-official-letter-css") — we own every <head> element.
- * 2. Sanitize body.innerHTML with strict DOMPurify (WHOLE_DOCUMENT:false, no style/meta/script/on*).
- * 3. Reconstruct the document ourselves — no untrusted tags ever reach <head>.
- */
+// Only for trusted server-generated print HTML. Do not use for user-authored HTML.
 export function sanitizeFullDocumentHtml(html: string): string {
   if (!html) return '';
 
