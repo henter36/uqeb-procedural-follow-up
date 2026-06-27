@@ -13,6 +13,9 @@ public class LetterTemplateDto
     public bool IsActive { get; set; }
     public bool IsDefault { get; set; }
     public int SortOrder { get; set; }
+    public string? DefaultSignatoryPosition { get; set; }
+    public string? DefaultSignatoryName { get; set; }
+    public string? DefaultSignatoryRank { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }
@@ -32,6 +35,9 @@ public class CreateLetterTemplateRequest
     public string Content { get; set; } = string.Empty;
     public bool? IsActive { get; set; }
     public bool? IsDefault { get; set; }
+    public string? DefaultSignatoryPosition { get; set; }
+    public string? DefaultSignatoryName { get; set; }
+    public string? DefaultSignatoryRank { get; set; }
 }
 
 public class UpdateLetterTemplateAdminRequest
@@ -41,6 +47,9 @@ public class UpdateLetterTemplateAdminRequest
     public LetterTemplateType? TemplateType { get; set; }
     public string Content { get; set; } = string.Empty;
     public bool? IsActive { get; set; }
+    public string? DefaultSignatoryPosition { get; set; }
+    public string? DefaultSignatoryName { get; set; }
+    public string? DefaultSignatoryRank { get; set; }
 }
 
 public class ReorderLetterTemplatesRequest

@@ -355,6 +355,9 @@ export interface LetterTemplate {
   isActive: boolean;
   isDefault: boolean;
   sortOrder: number;
+  defaultSignatoryPosition?: string;
+  defaultSignatoryName?: string;
+  defaultSignatoryRank?: string;
   createdAt: string;
   updatedAt?: string;
 }
@@ -382,6 +385,9 @@ export interface CreateLetterTemplateRequest {
   content: string;
   isActive?: boolean;
   isDefault?: boolean;
+  defaultSignatoryPosition?: string;
+  defaultSignatoryName?: string;
+  defaultSignatoryRank?: string;
 }
 
 export interface UpdateLetterTemplateRequest {
@@ -390,6 +396,9 @@ export interface UpdateLetterTemplateRequest {
   templateType?: LetterTemplateType;
   content: string;
   isActive?: boolean;
+  defaultSignatoryPosition?: string;
+  defaultSignatoryName?: string;
+  defaultSignatoryRank?: string;
 }
 
 export interface FollowUpLetterPreview {

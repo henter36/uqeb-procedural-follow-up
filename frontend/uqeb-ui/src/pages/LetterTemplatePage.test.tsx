@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import LetterTemplatePage from './LetterTemplatePage';
@@ -28,9 +28,14 @@ const template = {
   isDefault: true,
   sortOrder: 1,
   createdAt: '2025-01-01T00:00:00Z',
+  defaultSignatoryPosition: 'مدير الإدارة',
+  defaultSignatoryName: 'أحمد محمد',
+  defaultSignatoryRank: 'عميد',
 };
 
 describe('LetterTemplatePage', () => {
+  afterEach(() => { cleanup(); });
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(services.letterTemplatesApi.list).mockResolvedValue({ data: [template] } as never);
@@ -53,6 +58,50 @@ describe('LetterTemplatePage', () => {
     await waitFor(() => expect(screen.getByDisplayValue('قالب افتراضي')).toBeInTheDocument());
     await user.type(screen.getByLabelText('نص القالب'), '!');
     expect(await screen.findByText('لديك تغييرات غير محفوظة.')).toBeInTheDocument();
+  });
+
+  it('shows default signatory fields with template values', async () => {
+    render(
+      <MemoryRouter>
+        <LetterTemplatePage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByDisplayValue('قالب افتراضي')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText('المنصب الوظيفي الافتراضي')).toHaveValue('مدير الإدارة'));
+    expect(screen.getByLabelText('اسم الموقّع الافتراضي')).toHaveValue('أحمد محمد');
+    expect(screen.getByLabelText('الرتبة الافتراضية')).toHaveValue('عميد');
+  });
+
+  it('includes signatory defaults in save payload', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.letterTemplatesApi.update).mockResolvedValue({
+      data: { ...template, defaultSignatoryPosition: 'مدير جديد' },
+    } as never);
+
+    render(
+      <MemoryRouter>
+        <LetterTemplatePage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByLabelText('المنصب الوظيفي الافتراضي')).toHaveValue('مدير الإدارة'));
+
+    const positionInput = screen.getByLabelText('المنصب الوظيفي الافتراضي');
+    await user.clear(positionInput);
+    await user.type(positionInput, 'مدير جديد');
+
+    const saveBtn = screen.getByRole('button', { name: 'حفظ' });
+    await user.click(saveBtn);
+
+    await waitFor(() => {
+      expect(services.letterTemplatesApi.update).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({
+          defaultSignatoryPosition: 'مدير جديد',
+        }),
+      );
+    });
   });
 
   it('shows variables sidebar', async () => {

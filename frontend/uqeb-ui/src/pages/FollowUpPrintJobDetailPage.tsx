@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { followUpPrintApi } from '../api/services';
 import type { FollowUpPrintJob, FollowUpPrintJobStatus } from '../api/types';
@@ -14,6 +14,41 @@ import {
   Alert, ErrorState, LoadingInline, PageHeader,
 } from '../components/ui';
 import { useDeferredEffect } from '../hooks/useDeferredEffect';
+
+function getUnavailablePrintReason(status: string): string {
+  if (status === 'Cancelled') return 'الجزء ملغى ولا يمكن طباعته.';
+  if (status === 'Failed') return 'فشل تجهيز الجزء.';
+  if (status === 'Printed') return 'تم طلب الطباعة لهذا الجزء؛ يمكن فتحه للمراجعة فقط.';
+  return 'الجزء غير جاهز للطباعة بعد.';
+}
+
+function renderPartAction(jobId: number, part: { status: string; partNumber: number }): ReactNode {
+  if (['ReadyToPrint', 'PartiallyReady'].includes(part.status)) {
+    return (
+      <Link
+        to={`/follow-up-print/parts/${jobId}/${part.partNumber}/print`}
+        className="btn btn-sm btn-primary"
+        target="_blank"
+        rel="noreferrer"
+      >
+        طباعة الآن
+      </Link>
+    );
+  }
+  if (part.status === 'Printed') {
+    return (
+      <Link
+        to={`/follow-up-print/parts/${jobId}/${part.partNumber}/print`}
+        className="btn btn-sm btn-outline"
+        target="_blank"
+        rel="noreferrer"
+      >
+        عرض (مطبوع)
+      </Link>
+    );
+  }
+  return <span className="text-muted">{getUnavailablePrintReason(part.status)}</span>;
+}
 
 function getJobGuidanceAlert(status: FollowUpPrintJobStatus): { variant: 'success' | 'info'; message: string } {
   if (status === 'ReadyToPrint' || status === 'PartiallyPrinted') {
@@ -147,12 +182,6 @@ export default function FollowUpPrintJobDetailPage() {
 
   const canCancel = !['Completed', 'Cancelled', 'Expired'].includes(job.status);
   const canRetry = job.status === 'Failed';
-  const getUnavailablePrintReason = (status: string) => {
-    if (status === 'Cancelled') return 'الجزء ملغى ولا يمكن طباعته.';
-    if (status === 'Failed') return 'فشل تجهيز الجزء.';
-    if (status === 'Printed') return 'تم طلب الطباعة لهذا الجزء؛ يمكن فتحه للمراجعة فقط.';
-    return 'الجزء غير جاهز للطباعة بعد.';
-  };
 
   const { variant: guidanceVariant, message: guidanceMessage } = getJobGuidanceAlert(job.status);
 
@@ -244,29 +273,7 @@ export default function FollowUpPrintJobDetailPage() {
                   <td>{part.estimatedPages}</td>
                   <td>{part.readyAt ? <DateDisplay date={part.readyAt} /> : '—'}</td>
                   <td>{part.printedAt ? <DateDisplay date={part.printedAt} /> : '—'}</td>
-                  <td>
-                    {['ReadyToPrint', 'PartiallyReady'].includes(part.status) ? (
-                      <Link
-                        to={`/follow-up-print/parts/${job.id}/${part.partNumber}/print`}
-                        className="btn btn-sm btn-primary"
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        طباعة الآن
-                      </Link>
-                    ) : part.status === 'Printed' ? (
-                      <Link
-                        to={`/follow-up-print/parts/${job.id}/${part.partNumber}/print`}
-                        className="btn btn-sm btn-outline"
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        عرض (مطبوع)
-                      </Link>
-                    ) : (
-                      <span className="text-muted">{getUnavailablePrintReason(part.status)}</span>
-                    )}
-                  </td>
+                  <td>{renderPartAction(job.id, part)}</td>
                 </tr>
               ))}
             </tbody>

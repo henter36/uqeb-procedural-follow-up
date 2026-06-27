@@ -14,10 +14,7 @@ const PRINT_HTML_ALLOWED_ATTR = [
 ] as const;
 
 // Permit only http(s) absolute URLs and root-relative paths; blocks javascript: and data: URIs.
-const SAFE_URI_REGEXP = new RegExp(
-  String.raw`^(?:(?:https?):|/|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))`,
-  'i',
-);
+const SAFE_URI_REGEXP = /^(?:(?:https?):|\/|[^a-z]|[a-z+.-]+(?:[^a-z+.:-]|$))/i;
 
 const OPTIONS: Config = {
   WHOLE_DOCUMENT: false,
@@ -49,7 +46,7 @@ export function sanitizeFullDocumentHtml(html: string): string {
   const officialStyleEl = doc.head.querySelector('style#uqeb-official-letter-css');
   const rawCss = officialStyleEl?.textContent ?? '';
   // Prevent premature </style> closing via injected content
-  const officialCss = rawCss.replace(/<\/style/gi, '<\\/style');
+  const officialCss = rawCss.replace(/<\/style/gi, String.raw`<\/style`);
 
   const docTitle = DOMPurify.sanitize(doc.title);
 

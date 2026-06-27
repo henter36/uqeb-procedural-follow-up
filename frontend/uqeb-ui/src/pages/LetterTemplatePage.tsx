@@ -16,6 +16,9 @@ type EditorState = {
   content: string;
   isActive: boolean;
   templateType: LetterTemplate['templateType'];
+  defaultSignatoryPosition: string;
+  defaultSignatoryName: string;
+  defaultSignatoryRank: string;
 };
 
 const EMPTY_EDITOR: EditorState = {
@@ -24,6 +27,9 @@ const EMPTY_EDITOR: EditorState = {
   content: '',
   isActive: true,
   templateType: 'FollowUp',
+  defaultSignatoryPosition: '',
+  defaultSignatoryName: '',
+  defaultSignatoryRank: '',
 };
 
 function snapshotEditor(state: EditorState): string {
@@ -130,6 +136,9 @@ export default function LetterTemplatePage() {
             content: initial.content,
             isActive: initial.isActive,
             templateType: initial.templateType,
+            defaultSignatoryPosition: initial.defaultSignatoryPosition ?? '',
+            defaultSignatoryName: initial.defaultSignatoryName ?? '',
+            defaultSignatoryRank: initial.defaultSignatoryRank ?? '',
           };
           setEditor(nextEditor);
           setSavedSnapshot(snapshotEditor(nextEditor));
@@ -156,6 +165,9 @@ export default function LetterTemplatePage() {
       content: template.content,
       isActive: template.isActive,
       templateType: template.templateType,
+      defaultSignatoryPosition: template.defaultSignatoryPosition ?? '',
+      defaultSignatoryName: template.defaultSignatoryName ?? '',
+      defaultSignatoryRank: template.defaultSignatoryRank ?? '',
     };
     setEditor(nextEditor);
     setSavedSnapshot(snapshotEditor(nextEditor));
@@ -202,6 +214,9 @@ export default function LetterTemplatePage() {
           content: editor.content,
           isActive: editor.isActive,
           templateType: editor.templateType,
+          defaultSignatoryPosition: editor.defaultSignatoryPosition.trim() || undefined,
+          defaultSignatoryName: editor.defaultSignatoryName.trim() || undefined,
+          defaultSignatoryRank: editor.defaultSignatoryRank.trim() || undefined,
         });
         await loadTemplates();
         setSelectedId(res.data.id);
@@ -211,6 +226,9 @@ export default function LetterTemplatePage() {
           content: res.data.content,
           isActive: res.data.isActive,
           templateType: res.data.templateType,
+          defaultSignatoryPosition: res.data.defaultSignatoryPosition ?? '',
+          defaultSignatoryName: res.data.defaultSignatoryName ?? '',
+          defaultSignatoryRank: res.data.defaultSignatoryRank ?? '',
         };
         setEditor(nextEditor);
         setSavedSnapshot(snapshotEditor(nextEditor));
@@ -222,6 +240,9 @@ export default function LetterTemplatePage() {
           content: editor.content,
           isActive: editor.isActive,
           templateType: editor.templateType,
+          defaultSignatoryPosition: editor.defaultSignatoryPosition.trim() || undefined,
+          defaultSignatoryName: editor.defaultSignatoryName.trim() || undefined,
+          defaultSignatoryRank: editor.defaultSignatoryRank.trim() || undefined,
         });
         await loadTemplates();
         const nextEditor: EditorState = {
@@ -230,6 +251,9 @@ export default function LetterTemplatePage() {
           content: res.data.content,
           isActive: res.data.isActive,
           templateType: res.data.templateType,
+          defaultSignatoryPosition: res.data.defaultSignatoryPosition ?? '',
+          defaultSignatoryName: res.data.defaultSignatoryName ?? '',
+          defaultSignatoryRank: res.data.defaultSignatoryRank ?? '',
         };
         setEditor(nextEditor);
         setSavedSnapshot(snapshotEditor(nextEditor));
@@ -320,7 +344,7 @@ export default function LetterTemplatePage() {
     return (
       <EmptyState
         title="لا توجد معاينة"
-        description={selectedId != null ? 'ستظهر المعاينة تلقائياً أو اضغط «تحديث المعاينة».' : 'اختر قالباً لعرض المعاينة.'}
+        description={selectedId == null ? 'اختر قالباً لعرض المعاينة.' : 'ستظهر المعاينة تلقائياً أو اضغط «تحديث المعاينة».'}
       />
     );
   }
@@ -466,6 +490,47 @@ export default function LetterTemplatePage() {
                     </li>
                   ))}
                 </ul>
+              </details>
+
+              {/* بيانات التوقيع الافتراضية */}
+              <details className="letter-variables-details">
+                <summary className="letter-variables-summary">
+                  بيانات التوقيع الافتراضية
+                  {' '}
+                  <span className="text-muted">— تُملأ تلقائياً عند إنشاء مهمة طباعة بهذا القالب (اختياري)</span>
+                </summary>
+                <div className="form-grid mt-2">
+                  <div className="form-group">
+                    <label htmlFor="default-signatory-position">المنصب الوظيفي الافتراضي</label>
+                    <input
+                      id="default-signatory-position"
+                      value={editor.defaultSignatoryPosition}
+                      maxLength={200}
+                      placeholder="مثال: مدير الإدارة"
+                      onChange={(e) => setEditor((prev) => ({ ...prev, defaultSignatoryPosition: e.target.value }))}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="default-signatory-rank">الرتبة الافتراضية</label>
+                    <input
+                      id="default-signatory-rank"
+                      value={editor.defaultSignatoryRank}
+                      maxLength={200}
+                      placeholder="مثال: عميد"
+                      onChange={(e) => setEditor((prev) => ({ ...prev, defaultSignatoryRank: e.target.value }))}
+                    />
+                  </div>
+                  <div className="form-group full-width">
+                    <label htmlFor="default-signatory-name">اسم الموقّع الافتراضي</label>
+                    <input
+                      id="default-signatory-name"
+                      value={editor.defaultSignatoryName}
+                      maxLength={200}
+                      placeholder="اتركه فارغاً لاستخدام اسم منشئ المهمة"
+                      onChange={(e) => setEditor((prev) => ({ ...prev, defaultSignatoryName: e.target.value }))}
+                    />
+                  </div>
+                </div>
               </details>
 
               <div className="form-actions">
