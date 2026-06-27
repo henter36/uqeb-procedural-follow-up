@@ -92,7 +92,8 @@ public static class FollowUpLetterPrintViewRenderer
                 </div>
                 <div class="header-empty"></div>
               </header>
-              <div class="letter-frame">
+              <div class="letter-frame" aria-hidden="true"></div>
+              <div class="letter-content">
                 {title}
                 <section class="letter-body">
                   {string.Concat(lines)}
@@ -128,16 +129,22 @@ public static class FollowUpLetterPrintViewRenderer
         "*{box-sizing:border-box;}" +
         "html,body{margin:0;padding:0;direction:rtl;text-align:right;}" +
         "body{font-family:Tahoma,'Segoe UI',Arial,sans-serif;color:var(--uqeb-ink);background:#f4f6f4;}" +
-        ".official-letter{width:210mm;min-height:297mm;margin:0 auto 18px;background:#fff;outline:5px solid rgba(179,139,46,.16);padding:10mm 17mm 0;break-after:page;page-break-after:always;position:relative;text-align:right;}" +
+        // Fixed A4 height so the frame is always page-sized regardless of content length.
+        // overflow:hidden clips content that overruns the page boundary.
+        ".official-letter{width:210mm;height:297mm;margin:0 auto 18px;background:#fff;position:relative;padding:10mm 14mm 0;overflow:hidden;break-after:page;page-break-after:always;text-align:right;}" +
         ".official-letter:last-child{break-after:auto;page-break-after:auto;}" +
-        ".letter-header{display:grid;grid-template-columns:1fr auto 1fr;align-items:start;padding-bottom:4mm;margin-bottom:0;break-inside:avoid;page-break-inside:avoid;}" +
-        ".letter-frame{border:1.5px solid var(--uqeb-green);margin:0 -17mm;padding:4mm 17mm 14mm;}" +
+        // border-bottom acts as the visible top line of the letter frame below.
+        ".letter-header{position:relative;z-index:2;display:grid;grid-template-columns:1fr 42mm 1fr;align-items:start;padding-bottom:4mm;margin-bottom:0;border-bottom:1.5px solid var(--uqeb-green);break-inside:avoid;page-break-inside:avoid;}" +
+        // Decorative frame: absolutely positioned, never contains text.
+        // top = article-top-padding(10mm) + logo-height(34mm) + header-padding-bottom(4mm) = 48mm.
+        ".letter-frame{position:absolute;top:48mm;right:5mm;left:5mm;bottom:5mm;border-right:1.5px solid var(--uqeb-green);border-left:1.5px solid var(--uqeb-green);border-bottom:1.5px solid var(--uqeb-green);border-top:none;pointer-events:none;z-index:1;}" +
+        ".letter-content{position:relative;z-index:2;padding:8mm 4mm 0;}" +
         ".header-identity{font-size:13px;line-height:1.8;color:var(--uqeb-ink);}" +
         ".kingdom-text,.ministry-text{font-weight:700;}" +
         ".org-text{color:var(--uqeb-green);font-weight:700;}" +
         ".org-sub-text{color:var(--uqeb-muted);font-size:12px;}" +
         ".header-logo{display:flex;justify-content:center;}" +
-        ".logo{width:34mm;height:34mm;max-width:34mm;max-height:34mm;object-fit: contain;}" +
+        ".logo{width:34mm;height:34mm;max-width:34mm;max-height:34mm;object-fit:contain;}" +
         ".header-empty{}" +
         ".letter-title{font-size:19px;text-align:center;color:var(--uqeb-green);margin:0 0 6mm;}" +
         ".letter-body{font-size:15px;line-height:1.55;margin:4mm 0 7mm;text-align:right;}" +
@@ -147,9 +154,10 @@ public static class FollowUpLetterPrintViewRenderer
         ".signatory-position{color:var(--uqeb-muted);font-size:13px;}" +
         ".signatory-rank{color:var(--uqeb-muted);font-size:13px;}" +
         ".signatory-name{font-weight:700;}" +
-        ".letter-footer{position:absolute;left:17mm;right:17mm;bottom:9mm;border-top:1px solid var(--uqeb-line);padding-top:4mm;color:var(--uqeb-muted);font-size:11px;text-align:center;}" +
+        ".letter-footer{position:absolute;left:14mm;right:14mm;bottom:9mm;border-top:1px solid var(--uqeb-line);padding-top:4mm;color:var(--uqeb-muted);font-size:11px;text-align:center;z-index:3;}" +
         ".page-break{break-before:page;page-break-before:always;}" +
         ".no-print{display:none!important;}" +
         "@media screen{body{padding:18px;}.official-letter{box-shadow:0 16px 40px rgba(0,0,0,.10);}}" +
-        "@media print{body{background:#fff;padding:0;}.official-letter{width:auto;min-height:265mm;margin:0;outline:0;box-shadow:none;}.no-print{display:none!important;}}";
+        // In print the article fills the printable area: A4(297mm) - top(16mm) - bottom(16mm) = 265mm.
+        "@media print{body{background:#fff;padding:0;}.official-letter{width:auto;height:265mm;margin:0;box-shadow:none;}.no-print{display:none!important;}}";
 }
