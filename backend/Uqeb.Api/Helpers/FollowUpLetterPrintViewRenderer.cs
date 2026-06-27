@@ -129,9 +129,9 @@ public static class FollowUpLetterPrintViewRenderer
         "@page{size:A4;margin:16mm 18mm;}" +
         ":root{--uqeb-green:#123f2f;--uqeb-gold:#b38b2e;--uqeb-ink:#17201c;--uqeb-muted:#66736d;--uqeb-line:#d9ded8;}" +
         "*{box-sizing:border-box;}" +
-        "html,body{margin:0;padding:0;direction:rtl;}" +
+        "html,body{margin:0;padding:0;direction:rtl;text-align:right;}" +
         "body{font-family:Tahoma,'Segoe UI',Arial,sans-serif;color:var(--uqeb-ink);background:#f4f6f4;}" +
-        ".official-letter{width:210mm;min-height:297mm;margin:0 auto 18px;background:#fff;border:1.5px solid var(--uqeb-green);outline:5px solid rgba(179,139,46,.16);padding:14mm 17mm 14mm;break-after:page;page-break-after:always;position:relative;}" +
+        ".official-letter{width:210mm;min-height:297mm;margin:0 auto 18px;background:#fff;border:1.5px solid var(--uqeb-green);outline:5px solid rgba(179,139,46,.16);padding:14mm 17mm 14mm;break-after:page;page-break-after:always;position:relative;text-align:right;}" +
         ".official-letter:last-child{break-after:auto;page-break-after:auto;}" +
         ".letter-header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:2px solid var(--uqeb-green);padding-bottom:5mm;margin-bottom:5mm;break-inside:avoid;page-break-inside:avoid;}" +
         ".header-identity{font-size:13px;line-height:1.8;color:var(--uqeb-ink);}" +
@@ -142,17 +142,17 @@ public static class FollowUpLetterPrintViewRenderer
         ".logo{width:80px;max-width:80px;max-height:64px;object-fit: contain;}" +
         ".header-empty{}" +
         ".letter-title{font-size:19px;text-align:center;color:var(--uqeb-green);margin:0 0 6mm;}" +
-        ".letter-salutation{margin:4mm 0;}" +
-        ".salutation-line{font-weight:700;margin:0 0 2mm;}" +
-        ".salutation-greeting{margin:0 0 3mm;}" +
-        ".letter-subject-line{margin:0 0 4mm;}" +
-        ".letter-body{font-size:15px;line-height:1.7;margin:6mm 0 8mm;}" +
-        ".letter-paragraph{margin:0 0 2.5mm;white-space:pre-wrap;}" +
-        ".letter-paragraph.spacer{height:4mm;margin:0;}" +
-        ".letter-signature{width:72mm;margin-right:auto;margin-top:12mm;text-align:center;break-inside:avoid;page-break-inside:avoid;}" +
-        ".signatory-position{color:var(--uqeb-muted);font-size:13px;min-height:7mm;}" +
-        ".signatory-rank{color:var(--uqeb-muted);font-size:13px;min-height:7mm;}" +
-        ".signatory-name{font-weight:700;min-height:8mm;}" +
+        ".letter-salutation{margin:0 0 3mm;text-align:right;}" +
+        ".salutation-line{font-weight:700;margin:0 0 1.5mm;text-align:right;}" +
+        ".salutation-greeting{margin:0;text-align:right;}" +
+        ".letter-subject-line{margin:0 0 3.5mm;text-align:right;}" +
+        ".letter-body{font-size:15px;line-height:1.55;margin:4mm 0 7mm;text-align:right;}" +
+        ".letter-paragraph{margin:0 0 1.8mm;white-space:pre-wrap;text-align:right;}" +
+        ".letter-paragraph.spacer{height:2mm;margin:0;}" +
+        ".letter-signature{width:62mm;margin-right:auto;margin-left:0;margin-top:10mm;text-align:right;break-inside:avoid;page-break-inside:avoid;}" +
+        ".signatory-position{color:var(--uqeb-muted);font-size:13px;}" +
+        ".signatory-rank{color:var(--uqeb-muted);font-size:13px;}" +
+        ".signatory-name{font-weight:700;}" +
         ".letter-footer{position:absolute;left:17mm;right:17mm;bottom:9mm;border-top:1px solid var(--uqeb-line);padding-top:4mm;color:var(--uqeb-muted);font-size:11px;text-align:center;}" +
         ".page-break{break-before:page;page-break-before:always;}" +
         ".no-print{display:none!important;}" +
