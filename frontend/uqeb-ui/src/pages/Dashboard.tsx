@@ -43,12 +43,12 @@ function DashboardCardHeader({
   subtitle,
   actionLabel,
   actionTo,
-}: {
+}: Readonly<{
   title: string;
   subtitle?: string;
   actionLabel?: string;
   actionTo?: string;
-}) {
+}>) {
   return (
     <div className="dashboard-card-header">
       <div className="dashboard-card-title-group">
@@ -65,7 +65,7 @@ function DashboardCardHeader({
   );
 }
 
-function StatusRows({ rows, total }: { rows: StatusDistribution[]; total: number }) {
+function StatusRows({ rows, total }: Readonly<{ rows: StatusDistribution[]; total: number }>) {
   if (rows.length === 0) {
     return <p className="text-muted" style={{ fontSize: '0.88rem' }}>لا يوجد</p>;
   }
@@ -90,7 +90,7 @@ function StatusRows({ rows, total }: { rows: StatusDistribution[]; total: number
   );
 }
 
-function ActionRequiredTable({ rows }: { rows: TransactionListItem[] }) {
+function ActionRequiredTable({ rows }: Readonly<{ rows: TransactionListItem[] }>) {
   if (rows.length === 0) {
     return <EmptyState title="لا توجد معاملات تحتاج إجراء" icon="✅" />;
   }
@@ -336,8 +336,8 @@ export default function DashboardPage() {
             <p className="text-muted" style={{ fontSize: '0.88rem' }}>لا يوجد</p>
           ) : (
             <div className="dashboard-incoming-list">
-              {(data.topIncomingParties ?? []).map((p, i) => (
-                <div key={i} className="dashboard-incoming-row">
+              {(data.topIncomingParties ?? []).map((p) => (
+                <div key={p.partyName} className="dashboard-incoming-row">
                   <span className="dashboard-incoming-name">{p.partyName}</span>
                   <span className="dashboard-incoming-count">{p.transactionCount}</span>
                 </div>
