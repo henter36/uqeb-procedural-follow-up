@@ -5,6 +5,9 @@ namespace Uqeb.Api.Data;
 
 public class AppDbContext : DbContext
 {
+    private const string SqliteRowVersionDefaultSql = "(randomblob(8))";
+    private const string SqliteProviderName = "Microsoft.EntityFrameworkCore.Sqlite";
+
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
     public DbSet<User> Users => Set<User>();
@@ -287,5 +290,22 @@ public class AppDbContext : DbContext
             e.HasIndex(n => new { n.UserId, n.IsRead, n.CreatedAt });
             e.HasOne(n => n.User).WithMany().HasForeignKey(n => n.UserId).OnDelete(DeleteBehavior.Cascade);
         });
+
+        if (Database.ProviderName == SqliteProviderName)
+        {
+            // SQLite does not auto-generate ROWVERSION values. Provide a column default so that
+            // EnsureCreated-based test fixtures can insert rows without explicitly supplying RowVersion.
+            // This block is unreachable in production (SQL Server).
+            modelBuilder.Entity<LetterTemplate>()
+                .Property(t => t.RowVersion).HasDefaultValueSql(SqliteRowVersionDefaultSql);
+            modelBuilder.Entity<FollowUpPrintJob>()
+                .Property(j => j.RowVersion).HasDefaultValueSql(SqliteRowVersionDefaultSql);
+            modelBuilder.Entity<FollowUpPrintJobPart>()
+                .Property(p => p.RowVersion).HasDefaultValueSql(SqliteRowVersionDefaultSql);
+            modelBuilder.Entity<FollowUpPrintJobPayload>()
+                .Property(p => p.RowVersion).HasDefaultValueSql(SqliteRowVersionDefaultSql);
+            modelBuilder.Entity<FollowUpLetterPrintRecord>()
+                .Property(r => r.RowVersion).HasDefaultValueSql(SqliteRowVersionDefaultSql);
+        }
     }
 }

@@ -55,3 +55,9 @@ coverage/
 artifacts/reporting-acceptance/*.json
 artifacts/performance-baseline/*
 !artifacts/performance-baseline/.gitkeep
+
+# Build-script output (build-production-package.ps1 / dotnet publish / EF migrations)
+artifacts/publish-api/
+artifacts/production/
+artifacts/production-staging-temp/
+artifacts/migrations-idempotent.sql
