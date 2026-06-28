@@ -5,7 +5,7 @@
 
 .report-builder-grid {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 360px 1fr;
   gap: 1rem;
 }
 
@@ -209,9 +209,256 @@
   font-size: 0.9rem;
 }
 
+/* ── Settings summary bar ── */
+.rb-summary-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  padding: 0.5rem 0.9rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  font-size: 0.82rem;
+  color: var(--color-primary-muted);
+  line-height: 1.5;
+}
+
+.rb-summary-type {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-primary);
+}
+
+.rb-summary-sep {
+  opacity: 0.4;
+  user-select: none;
+}
+
+.rb-summary-filter-active {
+  color: var(--color-gold);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* ── Filter section header with badge + clear button ── */
+.rb-filter-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 1.25rem 0 0.75rem;
+}
+
+.rb-filter-title {
+  margin: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.rb-filter-header .rb-filter-title {
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 0.4rem;
+  flex: 1;
+}
+
+.rb-filter-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  padding: 0 0.3rem;
+  background: var(--color-primary);
+  color: #fff;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.rb-sections-badge {
+  background: var(--color-primary-muted, #5a8a7a);
+  font-size: 0.7rem;
+  letter-spacing: 0.01em;
+}
+
+.rb-filter-count {
+  font-size: 0.75rem;
+  color: var(--color-primary);
+  font-weight: 600;
+  margin-inline-start: 0.35rem;
+}
+
+.rb-clear-btn {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  padding: 0.2rem 0.5rem;
+}
+
+.rb-no-filters {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  margin: 0.25rem 0 0.5rem;
+}
+
+/* ── Section groups ── */
+.rb-section-group {
+  margin-bottom: 0.25rem;
+}
+
+.rb-section-group-title {
+  font-size: 0.8rem;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-primary-muted);
+  margin: 0.6rem 0 0.3rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ── Section preset buttons ── */
+.rb-preset-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.6rem;
+}
+
+.rb-preset-buttons .btn {
+  font-size: 0.78rem;
+  padding: 0.2rem 0.55rem;
+}
+
+/* ── Preview empty / loading state ── */
+.rb-preview-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 3rem 1.5rem;
+  min-height: 40vh;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.rb-preview-empty-icon {
+  color: var(--color-border);
+  opacity: 0.7;
+}
+
+.rb-preview-empty-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.rb-preview-empty-desc {
+  margin: 0;
+  font-size: 0.88rem;
+  max-width: 28rem;
+}
+
+.rb-preview-spinner {
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: rb-spin 0.8s linear infinite;
+}
+
+@keyframes rb-spin {
+  to { transform: rotate(360deg); }
+}
+
+.rb-preview-loading-text {
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+}
+
+/* ── Sidebar form helpers ── */
+.rb-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  font-size: 0.92rem;
+}
+
+.rb-date-range {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.rb-date-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.rb-date-field label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.rb-date-field input {
+  font-size: 0.82rem;
+}
+
+/* ── Preview toolbar helpers ── */
+.rb-page-indicator {
+  font-size: 0.85rem;
+  color: var(--color-primary-muted);
+  white-space: nowrap;
+}
+
+.rb-selection-summary {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  margin-inline-start: auto;
+}
+
+.rb-zoom-control {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-inline-start: auto;
+}
+
+.rb-zoom-label {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* ── Export overflow options fieldset ── */
+.report-overflow-options {
+  margin: 0.75rem 0 0;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  display: grid;
+  gap: 0.5rem;
+}
+
+.report-overflow-options legend {
+  font-weight: var(--font-weight-semibold);
+  font-size: 0.9rem;
+  color: var(--color-primary);
+  padding-inline: 0.25rem;
+}
+
+/* ── Responsive overrides ── */
 @media (width <= 1100px) {
   .report-builder-grid {
-    grid-template-columns: 280px minmax(0, 1fr);
+    grid-template-columns: 300px minmax(0, 1fr);
   }
 }
 
