@@ -6,6 +6,7 @@ import { getApiErrorMessage } from '../utils/apiHelpers';
 import { createIdempotencyKey } from '../utils/createIdempotencyKey';
 import { sanitizeFullDocumentHtml } from '../utils/sanitizePrintHtml';
 import DateDisplay from '../components/DateDisplay';
+import FollowUpFormPanel from '../components/transaction-workspace/FollowUpFormPanel';
 import {
   Alert, EmptyState, LoadingInline, PageHeader, Pagination,
 } from '../components/ui';
@@ -17,6 +18,7 @@ type RecordHandlers = {
   onConfirm: (record: FollowUpLetterPrintRecord) => void;
   onCancel: (record: FollowUpLetterPrintRecord) => void;
   onReprint: (record: FollowUpLetterPrintRecord) => void;
+  onRegisterFollowUp: (record: FollowUpLetterPrintRecord) => void;
   onLinkFollowUp: (record: FollowUpLetterPrintRecord) => void;
   onViewLetter: (record: FollowUpLetterPrintRecord) => void;
   actingId: number | null;
@@ -71,8 +73,11 @@ function PendingRecordRow({ record, handlers }: Readonly<{ record: FollowUpLette
         <button type="button" className="btn btn-sm btn-primary" disabled={busy || confirmed} onClick={() => handlers.onConfirm(record)}>
           {confirmed ? 'تم التأكيد' : 'تأكيد'}
         </button>
-        <button type="button" className="btn btn-sm btn-secondary" disabled={busy} onClick={() => handlers.onLinkFollowUp(record)}>
-          ربط تعقيب
+        <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => handlers.onRegisterFollowUp(record)}>
+          تسجيل التعقيب
+        </button>
+        <button type="button" className="btn btn-sm btn-outline" disabled={busy} onClick={() => handlers.onLinkFollowUp(record)}>
+          ربط تعقيب موجود
         </button>
         <button type="button" className="btn btn-sm btn-outline" disabled={busy} onClick={() => handlers.onReprint(record)}>
           إعادة طباعة
@@ -102,6 +107,7 @@ export default function FollowUpPrintPendingPage() {
   const [linkLoading, setLinkLoading] = useState(false);
   const [linkError, setLinkError] = useState('');
   const [linkingFollowUpId, setLinkingFollowUpId] = useState<number | null>(null);
+  const [registerDialogRecord, setRegisterDialogRecord] = useState<FollowUpLetterPrintRecord | null>(null);
   const [cancelDialogRecord, setCancelDialogRecord] = useState<FollowUpLetterPrintRecord | null>(null);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelSubmitting, setCancelSubmitting] = useState(false);
@@ -135,6 +141,10 @@ export default function FollowUpPrintPendingPage() {
   const refreshRecords = useCallback(async () => {
     await loadRecords(() => true);
   }, [loadRecords]);
+
+  const closeRegisterDialog = useCallback(() => {
+    setRegisterDialogRecord(null);
+  }, []);
 
   const closeLinkDialog = useCallback(() => {
     setLinkDialogRecord(null);
@@ -217,6 +227,30 @@ export default function FollowUpPrintPendingPage() {
     }
   };
 
+  const handleOpenRegisterDialog = (record: FollowUpLetterPrintRecord) => {
+    setError('');
+    setMessage('');
+    setRegisterDialogRecord(record);
+  };
+
+  const handleFollowUpRegistered = async (followUp: FollowUp) => {
+    if (!registerDialogRecord) return;
+    const record = registerDialogRecord;
+    closeRegisterDialog();
+    setActingId(record.id);
+    try {
+      await followUpPrintApi.linkFollowUp(record.id, followUp.id);
+      setMessage('تم تسجيل التعقيب وربطه بسجل الخطاب.');
+      await refreshRecords();
+      await refreshPendingSummary();
+    } catch (err: unknown) {
+      setError(`تم إنشاء التعقيب لكن فشل ربطه بسجل الخطاب: ${getApiErrorMessage(err)}`);
+      await refreshRecords();
+    } finally {
+      setActingId(null);
+    }
+  };
+
   const handleOpenLinkDialog = async (record: FollowUpLetterPrintRecord) => {
     setActingId(record.id);
     setError('');
@@ -276,6 +310,7 @@ export default function FollowUpPrintPendingPage() {
     onConfirm: (r) => { handleConfirm(r).catch(() => undefined); },
     onCancel: (r) => { handleOpenCancelDialog(r); },
     onReprint: (r) => { handleReprint(r).catch(() => undefined); },
+    onRegisterFollowUp: (r) => { handleOpenRegisterDialog(r); },
     onLinkFollowUp: (r) => { handleOpenLinkDialog(r).catch(() => undefined); },
     onViewLetter: (r) => { handleViewLetter(r).catch(() => undefined); },
     actingId,
@@ -362,12 +397,29 @@ export default function FollowUpPrintPendingPage() {
         </div>
       )}
 
+      {registerDialogRecord && (
+        <div className="modal-overlay" role="presentation">
+          <div className="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="pending-register-dialog-title">
+            <h3 id="pending-register-dialog-title">تسجيل التعقيب</h3>
+            <p className="text-muted">
+              {registerDialogRecord.incomingNumber} — {registerDialogRecord.subject}
+            </p>
+            <FollowUpFormPanel
+              transactionId={registerDialogRecord.transactionId}
+              onDirtyChange={() => undefined}
+              onCancel={closeRegisterDialog}
+              onSuccess={(followUp) => { handleFollowUpRegistered(followUp).catch(() => undefined); }}
+            />
+          </div>
+        </div>
+      )}
+
       {linkDialogRecord && (
         <div className="modal-overlay" role="presentation">
           <div className="modal" role="dialog" aria-modal="true" aria-labelledby="pending-link-dialog-title">
-            <h3 id="pending-link-dialog-title">ربط تعقيب</h3>
+            <h3 id="pending-link-dialog-title">ربط تعقيب موجود</h3>
             <p className="text-muted">
-              اختر التعقيب المسجل لهذه المعاملة. لا يمكن إدخال معرف يدوي.
+              اختر التعقيب المسجل لهذه المعاملة.
             </p>
             <div className="form-group">
               <div className="text-muted">
@@ -381,7 +433,7 @@ export default function FollowUpPrintPendingPage() {
 
             {!linkLoading && !linkError && linkFollowUps.length === 0 && (
               <Alert variant="info">
-                لا توجد تعقيبات مسجلة لهذه المعاملة. سجّل تعقيبًا أولًا من صفحة المعاملة ثم ارجع للربط.
+                لا توجد تعقيبات مسجلة لهذه المعاملة. استخدم "تسجيل التعقيب" لتسجيل تعقيب جديد وربطه مباشرة.
               </Alert>
             )}
 
