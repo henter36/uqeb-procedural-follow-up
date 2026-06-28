@@ -350,7 +350,7 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
         }
 
         { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
-            Should -Throw "*database check 'fail' instead of 'pass'*"
+            Should -Throw "*database='fail' instead of 'pass'*"
     }
 
     It 'FAIL: summary missing required reporting check' {
@@ -365,7 +365,15 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
                         StatusCode = 200
                         Content = (@{
                             status = 'healthy'
-                            checks = @{ database = 'pass' }
+                            checks = @{
+                                database = 'pass'
+                                reportNumberSequence = 'pass'
+                                institutionalReporting = 'pass'
+                                followUpPrintSchema = 'pass'
+                                followUpDefaultTemplate = 'pass'
+                                followUpPrintOptions = 'pass'
+                                followUpPrintProcessor = 'pass'
+                            }
                         } | ConvertTo-Json -Compress)
                         Headers = @{ 'X-Correlation-ID' = 'abc123' }
                     }
