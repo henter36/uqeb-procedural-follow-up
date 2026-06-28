@@ -282,7 +282,124 @@ public class InstitutionalReportRendererTests
         Assert.Contains("إفادة أو تكليف إدارة معلق", html);
         Assert.Contains("نسبة اكتمال البيانات", html);
         Assert.Contains("مراجعة المعاملات المتأخرة حسب الإدارات الأعلى أثرًا", html);
-        Assert.Contains("AverageFirstActionHours", html);
+        Assert.Contains("متوسط ساعات أول إجراء", html);
+    }
+
+    [Fact]
+    public void RenderManifest_LocalizesApprovalStatusAndDoesNotRenderQrPlaceholder()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        model.Analysis.Methodology.ApprovalStatus = "Draft";
+
+        var manifest = _renderer.RenderManifest(model,
+        [
+            ReportSectionId.Cover,
+            ReportSectionId.MethodologyAndDefinitions,
+        ]);
+        var html = InstitutionalReportRenderer.RenderHtmlDocument(manifest);
+
+        Assert.Contains("مسودة", html);
+        Assert.DoesNotContain("Draft", html);
+        Assert.DoesNotContain(">QR", html);
+        Assert.DoesNotContain("qr-box", html);
+        Assert.DoesNotContain("تقرير رسمي", html);
+    }
+
+    [Fact]
+    public void RenderManifest_DoesNotExposeTechnicalCodesOrRawRecommendationEnums()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        model.Analysis.Recommendations.Add(new AnalyticalRecommendationDto
+        {
+            RecommendationId = "REC-CODES",
+            SourceFindingCode = "ISSUE_QUALITY_DATA",
+            Priority = "medium",
+            RecommendationText = "RESPONSES_PENDING_EXTERNAL",
+            ResponsibleScope = "إدارة المتابعة",
+            SuggestedDueDays = 5,
+            Status = "Proposed",
+        });
+        model.IntegrityWarnings.Add(new IntegrityWarningDto
+        {
+            Code = "CASES_CRITICAL",
+            Message = "ISSUE_QUALITY_DATA",
+        });
+
+        var manifest = _renderer.RenderManifest(model,
+        [
+            ReportSectionId.RecommendationsAndActionPlan,
+            ReportSectionId.ReportMetadata,
+            ReportSectionId.MethodologyAndDefinitions,
+        ]);
+        var html = InstitutionalReportRenderer.RenderHtmlDocument(manifest);
+
+        Assert.Contains("متوسطة", html);
+        Assert.Contains("مقترحة", html);
+        Assert.Contains("جودة البيانات", html);
+        Assert.Contains("متابعة الردود الخارجية", html);
+        Assert.Contains("مراجعة الحالات الحرجة", html);
+        Assert.DoesNotContain(">medium<", html);
+        Assert.DoesNotContain(">high<", html);
+        Assert.DoesNotContain("Proposed", html);
+        Assert.DoesNotContain("ISSUE_QUALITY_DATA", html);
+        Assert.DoesNotContain("RESPONSES_PENDING_EXTERNAL", html);
+        Assert.DoesNotContain("CASES_CRITICAL", html);
+    }
+
+    [Fact]
+    public void RenderManifest_RisksIncludeCriticalCasesInsteadOfShowingCriticalEmptyState()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        model.Risks.Clear();
+
+        var manifest = _renderer.RenderManifest(model, [ReportSectionId.CriticalCases, ReportSectionId.RisksAndAlerts]);
+        var html = InstitutionalReportRenderer.RenderHtmlDocument(manifest);
+
+        Assert.Contains("حالة حرجة: معاملة حرجة متأخرة", html);
+        Assert.Contains("""<div class="risk-group critical">""", html);
+        Assert.Contains("""<table class="report-table"><thead><tr><th>م</th><th>التنبيه</th>""", html);
+    }
+
+    [Fact]
+    public void RenderManifest_NormalizesUndefinedDepartmentAndAddsDataQualityNote()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        model.DepartmentPerformance =
+        [
+            new DepartmentPerformanceRowDto
+            {
+                DepartmentId = 0,
+                DepartmentName = "—",
+                TotalTransactions = 3,
+                Rating = DepartmentRatingLevel.NeedsFollowUp,
+                RatingLabel = "بحاجة متابعة",
+            },
+        ];
+
+        var manifest = _renderer.RenderManifest(model, [ReportSectionId.DepartmentPerformance]);
+        var html = InstitutionalReportRenderer.RenderHtmlDocument(manifest);
+
+        Assert.Contains("غير محدد", html);
+        Assert.Contains("ملاحظة جودة بيانات", html);
+        Assert.DoesNotContain("""<td class="cell--department">—</td>""", html);
+    }
+
+    [Fact]
+    public void RenderManifest_DoesNotCreateTitleOnlyContentPages()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        var manifest = InstitutionalReportVisualFixtures.RenderAllSections(model);
+
+        foreach (var page in manifest.Pages.Where(p => p.SectionId != ReportSectionId.Cover))
+        {
+            Assert.Contains("<h2 class=\"section-title\"", page.HtmlContent);
+            Assert.True(
+                page.HtmlContent.Contains("<table", StringComparison.Ordinal)
+                || page.HtmlContent.Contains("-card", StringComparison.Ordinal)
+                || page.HtmlContent.Contains("empty-state", StringComparison.Ordinal)
+                || page.HtmlContent.Contains("partial-note", StringComparison.Ordinal),
+                $"Page {page.OriginalPageNumber} ({page.SectionName}) appears to contain only a title.");
+        }
     }
 
     [Fact]

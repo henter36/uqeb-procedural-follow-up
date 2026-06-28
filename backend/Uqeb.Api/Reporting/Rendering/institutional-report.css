@@ -119,9 +119,20 @@ body {
 @media print {
   .report-page {
     break-after: page;
+    break-inside: auto;
     width: auto;
     min-height: auto;
+    overflow: visible;
     padding: 0;
+  }
+
+  .report-content {
+    overflow: visible;
+  }
+
+  .report-page:has(.cover) {
+    break-inside: avoid;
+    overflow: hidden;
   }
 
   .report-page:last-child {
@@ -246,6 +257,12 @@ body {
   color: var(--report-secondary);
 }
 
+.cover-type {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--report-primary);
+}
+
 .cover-badge {
   display: inline-block;
   background: #F4EBD7;
@@ -311,6 +328,52 @@ body {
   margin-top: 4px;
 }
 
+.kpi-section {
+  margin-bottom: 12px;
+  break-inside: avoid;
+}
+
+.kpi-section h3 {
+  margin: 0 0 8px;
+  color: var(--report-primary);
+  font-size: 14px;
+}
+
+.analytical-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.analytical-kpi-card {
+  border: 1px solid var(--report-border);
+  background: var(--report-surface);
+  border-radius: 8px;
+  padding: 10px;
+  min-height: 78px;
+  break-inside: avoid;
+}
+
+.analytical-kpi-card .label {
+  color: var(--report-secondary);
+  font-size: 11px;
+}
+
+.analytical-kpi-card .value {
+  color: var(--report-primary);
+  font-size: 20px;
+  font-weight: 800;
+  margin: 2px 0;
+}
+
+.analytical-kpi-card .meta,
+.analytical-kpi-card p {
+  margin: 0;
+  color: var(--report-secondary);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
 .narrative {
   background: var(--report-surface);
   border-radius: var(--report-card-radius);
@@ -354,6 +417,16 @@ body {
   border-radius: 4px 4px 0 0;
   min-width: 12px;
   position: relative;
+}
+
+.chart-value {
+  position: absolute;
+  inset-inline: 0;
+  top: -18px;
+  text-align: center;
+  color: var(--report-primary);
+  font-size: 10px;
+  font-weight: 700;
 }
 
 .chart-bar.gold {
@@ -411,7 +484,7 @@ body {
 .report-table--departments {
   width: 100%;
   border-collapse: collapse;
-  table-layout: auto;
+  table-layout: fixed;
 }
 
 .report-table--departments th,
@@ -422,11 +495,10 @@ body {
 }
 
 .report-table--departments .cell--department {
-  min-width: 38mm;
+  width: 32%;
 }
 
 .report-table--departments .cell--rating {
-  min-width: 22mm;
   white-space: nowrap;
 }
 
@@ -564,15 +636,13 @@ body {
   font-size: 12px;
 }
 
-.qr-box {
-  width: 88px;
-  height: 88px;
-  border: 1px dashed var(--report-warning);
-  display: grid;
-  place-items: center;
-  font-size: 10px;
-  color: var(--report-secondary);
-  flex-shrink: 0;
+.verification-block {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: auto;
+  border-top: 1px solid var(--report-border);
+  padding-top: 10px;
 }
 
 .recommendation-card {
