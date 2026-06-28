@@ -123,6 +123,124 @@ const parsePositiveInteger = (value: string) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 };
 
+function formatDateRangeSummary(dateFrom?: string, dateTo?: string): string {
+  if (dateFrom && dateTo) {
+    return `${dateFrom} – ${dateTo}`;
+  }
+
+  if (dateFrom) {
+    return `من ${dateFrom}`;
+  }
+
+  if (dateTo) {
+    return `إلى ${dateTo}`;
+  }
+
+  return 'بدون تقييد تاريخ';
+}
+
+function getActiveFilterCount(filters: {
+  search: string;
+  departmentIds: number[];
+  categoryIds: number[];
+  partyIds: number[];
+  priorities: string[];
+  statuses: string[];
+  onlyOverdue: boolean;
+}): number {
+  return (
+    (filters.search.trim() ? 1 : 0) +
+    filters.departmentIds.length +
+    filters.categoryIds.length +
+    filters.partyIds.length +
+    filters.priorities.length +
+    filters.statuses.length +
+    (filters.onlyOverdue ? 1 : 0)
+  );
+}
+
+function getMultiSelectSize(itemCount: number): number {
+  return Math.max(Math.min(itemCount, 5), 3);
+}
+
+function getContentLevelLabel(contentLevel: typeof ReportContentLevel[keyof typeof ReportContentLevel]): string {
+  if (contentLevel === ReportContentLevel.Executive) {
+    return 'تنفيذي';
+  }
+
+  if (contentLevel === ReportContentLevel.Analytical) {
+    return 'تحليلي';
+  }
+
+  return 'تفصيلي';
+}
+
+function getReportTypeLabel(reportType: typeof InstitutionalReportType[keyof typeof InstitutionalReportType]): string {
+  return REPORT_TYPES.find((t) => t.value === reportType)?.label ?? '';
+}
+
+function buildReportSummaryItems(options: {
+  reportTypeLabel: string;
+  contentLevelLabel: string;
+  dateRangeLabel: string;
+  includeComparison: boolean;
+  selectedSectionCount: number;
+  totalSectionCount: number;
+  activeFilterCount: number;
+}) {
+  const items = [
+    { key: 'type', label: options.reportTypeLabel, className: 'rb-summary-type' },
+    { key: 'level', label: options.contentLevelLabel },
+    { key: 'date', label: options.dateRangeLabel },
+    { key: 'comparison', label: `المقارنة: ${options.includeComparison ? 'مفعّلة' : 'معطّلة'}` },
+    { key: 'sections', label: `${options.selectedSectionCount} / ${options.totalSectionCount} قسم` },
+  ];
+
+  if (options.activeFilterCount > 0) {
+    items.push({
+      key: 'filters',
+      label: `فلاتر نشطة: ${options.activeFilterCount}`,
+      className: 'rb-summary-filter-active',
+    });
+  }
+
+  return items;
+}
+
+function getPreviewContentState(options: {
+  hasActivePage: boolean;
+  loading: boolean;
+  error: string;
+}): 'document' | 'loading' | 'error' | 'empty' {
+  if (options.hasActivePage) {
+    return 'document';
+  }
+
+  if (options.loading) {
+    return 'loading';
+  }
+
+  if (options.error) {
+    return 'error';
+  }
+
+  return 'empty';
+}
+
+function getReportThumbClass(options: { isActive: boolean; isSelected: boolean }): string {
+  const classes = ['report-thumb'];
+
+  if (options.isActive) {
+    classes.push('is-active');
+  }
+
+  if (options.isSelected) {
+    classes.push('is-selected');
+  }
+
+  return classes.join(' ');
+}
+
 export default function ReportBuilderPage() {
   const { isAdmin } = useAuth();
   const [reportType, setReportType] = useState<typeof InstitutionalReportType[keyof typeof InstitutionalReportType]>(
@@ -166,15 +284,15 @@ export default function ReportBuilderPage() {
 
   const includesTransactionDetails = sectionIds.includes(ReportSectionId.TransactionDetails);
 
-  // Computed: total number of active filter values
-  const activeFilterCount =
-    (filterSearch.trim() ? 1 : 0) +
-    filterDepartmentIds.length +
-    filterCategoryIds.length +
-    filterPartyIds.length +
-    filterPriorities.length +
-    filterStatuses.length +
-    (filterOnlyOverdue ? 1 : 0);
+  const activeFilterCount = getActiveFilterCount({
+    search: filterSearch,
+    departmentIds: filterDepartmentIds,
+    categoryIds: filterCategoryIds,
+    partyIds: filterPartyIds,
+    priorities: filterPriorities,
+    statuses: filterStatuses,
+    onlyOverdue: filterOnlyOverdue,
+  });
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -394,10 +512,34 @@ export default function ReportBuilderPage() {
     setPageRange(value);
   };
 
-  // Summary bar values
-  const reportTypeLabel = REPORT_TYPES.find((t) => t.value === reportType)?.label ?? '';
-  const contentLevelLabel = contentLevel === ReportContentLevel.Executive ? 'تنفيذي'
-    : contentLevel === ReportContentLevel.Analytical ? 'تحليلي' : 'تفصيلي';
+  const reportTypeLabel = getReportTypeLabel(reportType);
+  const contentLevelLabel = getContentLevelLabel(contentLevel);
+  const summaryItems = buildReportSummaryItems({
+    reportTypeLabel,
+    contentLevelLabel,
+    dateRangeLabel: formatDateRangeSummary(dateFrom, dateTo),
+    includeComparison,
+    selectedSectionCount: sectionIds.length,
+    totalSectionCount: SECTIONS.length,
+    activeFilterCount,
+  });
+  const previewContentState = getPreviewContentState({
+    hasActivePage: Boolean(activePage),
+    loading,
+    error,
+  });
+  const overflowTotal = manifest?.totalMatchedRows ?? manifest?.totalMatchingTransactions;
+  const overflowDisplayedRows = manifest?.exportedDetailRows ?? manifest?.includedTransactionCount;
+  const overflowTotalLabel = overflowTotal?.toLocaleString('ar-SA') ?? '—';
+  const overflowLimitLabel = manifest?.detailRowLimit?.toLocaleString('ar-SA') ?? '—';
+  const overflowDisplayedRowsLabel = overflowDisplayedRows?.toLocaleString('ar-SA') ?? '—';
+  const overflowPartsNote = manifest?.detailPartsCount && manifest.detailPartsCount > 1
+    ? ` (التصدير الكامل يتطلب ${manifest.detailPartsCount} ملفات PDF)`
+    : '';
+  const selectedPagesModeLabel =
+    pageSelectionMode === 'range' && pageRange.trim()
+      ? 'نطاق الصفحات'
+      : 'تحديد الصور المصغرة';
 
   if (!isAdmin)
     return <Navigate to="/" replace />;
@@ -423,23 +565,14 @@ export default function ReportBuilderPage() {
 
       {/* ── Settings Summary Bar ── */}
       <div className="rb-summary-bar" aria-label="ملخص الإعدادات الحالية">
-        <span className="rb-summary-item rb-summary-type">{reportTypeLabel}</span>
-        <span className="rb-summary-sep" aria-hidden="true">—</span>
-        <span className="rb-summary-item">{contentLevelLabel}</span>
-        <span className="rb-summary-sep" aria-hidden="true">—</span>
-        <span className="rb-summary-item">
-          {dateFrom && dateTo ? `${dateFrom} – ${dateTo}` : 'بدون تقييد تاريخ'}
-        </span>
-        <span className="rb-summary-sep" aria-hidden="true">—</span>
-        <span className="rb-summary-item">المقارنة: {includeComparison ? 'مفعّلة' : 'معطّلة'}</span>
-        <span className="rb-summary-sep" aria-hidden="true">—</span>
-        <span className="rb-summary-item">{sectionIds.length} / {SECTIONS.length} قسم</span>
-        {activeFilterCount > 0 && (
-          <>
-            <span className="rb-summary-sep" aria-hidden="true">—</span>
-            <span className="rb-summary-item rb-summary-filter-active">فلاتر نشطة: {activeFilterCount}</span>
-          </>
-        )}
+        {summaryItems.map((item, index) => (
+          <span key={item.key} className="rb-summary-entry">
+            {index > 0 && <span className="rb-summary-sep" aria-hidden="true">—</span>}
+            <span className={`rb-summary-item${item.className ? ` ${item.className}` : ''}`}>
+              {item.label}
+            </span>
+          </span>
+        ))}
       </div>
 
       {/* ── Alerts ── */}
@@ -459,12 +592,10 @@ export default function ReportBuilderPage() {
 
       {manifest?.requiresDetailOverflowAction && includesTransactionDetails && (
         <div className="alert alert-warning">
-          يتجاوز عدد المعاملات المطابقة ({manifest.totalMatchedRows?.toLocaleString('ar-SA') ?? manifest.totalMatchingTransactions?.toLocaleString('ar-SA') ?? '—'})
-          {' '}حد صفوف التفاصيل التشغيلي ({manifest.detailRowLimit?.toLocaleString('ar-SA') ?? '—'}).
-          {' '}بطاقات KPI والرسوم محسوبة من كامل النتائج؛ جدول التفاصيل يعرض {manifest.exportedDetailRows?.toLocaleString('ar-SA') ?? manifest.includedTransactionCount?.toLocaleString('ar-SA') ?? '—'} صفًا
-          {manifest.detailPartsCount && manifest.detailPartsCount > 1
-            ? ` (التصدير الكامل يتطلب ${manifest.detailPartsCount} ملفات PDF)`
-            : ''}.
+          يتجاوز عدد المعاملات المطابقة ({overflowTotalLabel})
+          {' '}حد صفوف التفاصيل التشغيلي ({overflowLimitLabel}).
+          {' '}بطاقات KPI والرسوم محسوبة من كامل النتائج؛ جدول التفاصيل يعرض {overflowDisplayedRowsLabel} صفًا
+          {overflowPartsNote}.
         </div>
       )}
 
@@ -533,7 +664,7 @@ export default function ReportBuilderPage() {
               checked={includeComparison}
               onChange={(e) => { invalidatePreview(); setIncludeComparison(e.target.checked); }}
             />
-            تضمين المقارنة بالفترة السابقة
+            <span>تضمين المقارنة بالفترة السابقة</span>
           </label>
 
           <label htmlFor="comparison-mode">نمط المقارنة</label>
@@ -585,7 +716,7 @@ export default function ReportBuilderPage() {
               <select
                 id="filter-departments"
                 multiple
-                size={Math.min(departments.length, 5)}
+                size={getMultiSelectSize(departments.length)}
                 value={filterDepartmentIds.map(String)}
                 onChange={(e) => {
                   invalidatePreview();
@@ -608,7 +739,7 @@ export default function ReportBuilderPage() {
               <select
                 id="filter-categories"
                 multiple
-                size={Math.min(categories.length, 5)}
+                size={getMultiSelectSize(categories.length)}
                 value={filterCategoryIds.map(String)}
                 onChange={(e) => {
                   invalidatePreview();
@@ -631,7 +762,7 @@ export default function ReportBuilderPage() {
               <select
                 id="filter-parties"
                 multiple
-                size={Math.min(parties.length, 5)}
+                size={getMultiSelectSize(parties.length)}
                 value={filterPartyIds.map(String)}
                 onChange={(e) => {
                   invalidatePreview();
@@ -652,7 +783,7 @@ export default function ReportBuilderPage() {
           <select
             id="filter-priorities"
             multiple
-            size={3}
+            size={getMultiSelectSize(Object.keys(priorityLabels).length)}
             value={filterPriorities}
             onChange={(e) => {
               invalidatePreview();
@@ -671,7 +802,7 @@ export default function ReportBuilderPage() {
           <select
             id="filter-statuses"
             multiple
-            size={Math.min(Object.keys(statusLabels).length, 5)}
+            size={getMultiSelectSize(Object.keys(statusLabels).length)}
             value={filterStatuses}
             onChange={(e) => {
               invalidatePreview();
@@ -688,7 +819,7 @@ export default function ReportBuilderPage() {
               checked={filterOnlyOverdue}
               onChange={(e) => { invalidatePreview(); setFilterOnlyOverdue(e.target.checked); }}
             />
-            المتأخرة فقط
+            <span>المتأخرة فقط</span>
           </label>
 
           {activeFilterCount === 0 && (
@@ -768,7 +899,7 @@ export default function ReportBuilderPage() {
                         checked={sectionIds.includes(id)}
                         onChange={() => toggleSection(id)}
                       />
-                      {label}
+                      <span>{label}</span>
                     </label>
                   );
                 })}
@@ -821,7 +952,10 @@ export default function ReportBuilderPage() {
                 return (
                   <div
                     key={page.originalPageNumber}
-                    className={`report-thumb${page.originalPageNumber === currentPage ? ' is-active' : ''}${selectedPages.includes(page.originalPageNumber) ? ' is-selected' : ''}`}
+                    className={getReportThumbClass({
+                      isActive: page.originalPageNumber === currentPage,
+                      isSelected: selectedPages.includes(page.originalPageNumber),
+                    })}
                   >
                     <input
                       id={checkboxId}
@@ -852,19 +986,33 @@ export default function ReportBuilderPage() {
                 </div>
               )}
 
-              {activePage ? (
+              {previewContentState === 'document' && activePage && (
                 <ReportPreviewDocument
                   htmlContent={activePage.htmlContent}
                   stylesheet={manifest?.stylesheet}
                   zoom={zoom}
                   title={`${activePage.sectionName} — صفحة ${activePage.renderedPageNumber}`}
                 />
-              ) : loading ? (
+              )}
+
+              {previewContentState === 'loading' && (
                 <div className="rb-preview-empty">
                   <div className="rb-preview-spinner" aria-hidden="true" />
                   <p className="rb-preview-loading-text">جاري إنشاء التقرير، الرجاء الانتظار...</p>
                 </div>
-              ) : error ? null : (
+              )}
+
+              {previewContentState === 'error' && (
+                <div className="rb-preview-empty" aria-live="polite">
+                  <h3 className="rb-preview-empty-title">فشل تحميل المعاينة</h3>
+                  <p className="rb-preview-empty-desc">{error}</p>
+                  <button type="button" className="btn btn-secondary" onClick={loadPreview}>
+                    إعادة المحاولة
+                  </button>
+                </div>
+              )}
+
+              {previewContentState === 'empty' && (
                 <div className="rb-preview-empty">
                   <div className="rb-preview-empty-icon" aria-hidden="true">
                     <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -920,7 +1068,7 @@ export default function ReportBuilderPage() {
           {exportMode === ExportMode.SelectedPages && (
             <>
               <p className="text-muted">
-                النمط النشط: {pageSelectionMode === 'range' && pageRange.trim() ? 'نطاق الصفحات' : 'تحديد الصور المصغرة'}
+                النمط النشط: {selectedPagesModeLabel}
               </p>
               <label htmlFor="page-range">نطاق الصفحات (مثال: 1,3-5,8)</label>
               <input
@@ -947,7 +1095,7 @@ export default function ReportBuilderPage() {
               checked={includePartialCover}
               onChange={(e) => setIncludePartialCover(e.target.checked)}
             />
-            إضافة غلاف للنسخة الجزئية
+            <span>إضافة غلاف للنسخة الجزئية</span>
           </label>
           <label htmlFor="include-partial-manifest" className="rb-checkbox-label">
             <input
@@ -956,7 +1104,7 @@ export default function ReportBuilderPage() {
               checked={includePartialManifest}
               onChange={(e) => setIncludePartialManifest(e.target.checked)}
             />
-            إدراج صفحة تعريف النسخة الجزئية
+            <span>إدراج صفحة تعريف النسخة الجزئية</span>
           </label>
           {(exportFormat === ExportFormat.Docx || exportFormat === ExportFormat.Xlsx) && exportMode === ExportMode.SelectedPages && (
             <p className="text-muted">اختيار الصفحات الفعلية يطبق بدقة على PDF. في Word/Excel سيتم تصدير الأقسام المقابلة لأن توزيع الصفحات قد يختلف.</p>
@@ -976,7 +1124,7 @@ export default function ReportBuilderPage() {
                   checked={detailOverflowAction === DetailOverflowAction.SummaryOnly}
                   onChange={() => setDetailOverflowAction(DetailOverflowAction.SummaryOnly)}
                 />
-                ملخص كامل بدون تفاصيل مضمّنة (PDF/DOCX/HTML)
+                <span>ملخص كامل بدون تفاصيل مضمّنة (PDF/DOCX/HTML)</span>
               </label>
               <label htmlFor="overflow-split-pdf" className="rb-checkbox-label">
                 <input
@@ -987,7 +1135,7 @@ export default function ReportBuilderPage() {
                   onChange={() => setDetailOverflowAction(DetailOverflowAction.SplitPdf)}
                   disabled={exportFormat !== ExportFormat.Pdf}
                 />
-                تقسيم التفاصيل إلى عدة ملفات PDF (ملف ZIP)
+                <span>تقسيم التفاصيل إلى عدة ملفات PDF (ملف ZIP)</span>
               </label>
               <label htmlFor="overflow-xlsx" className="rb-checkbox-label">
                 <input
@@ -997,7 +1145,7 @@ export default function ReportBuilderPage() {
                   checked={detailOverflowAction === DetailOverflowAction.FullDetailsXlsx}
                   onChange={() => setDetailOverflowAction(DetailOverflowAction.FullDetailsXlsx)}
                 />
-                تصدير التفاصيل كاملة إلى Excel (XLSX)
+                <span>تصدير التفاصيل كاملة إلى Excel (XLSX)</span>
               </label>
             </fieldset>
           )}
