@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { followUpPrintApi, transactionsApi } from '../api/services';
 import type { FollowUp, FollowUpLetterPrintRecord } from '../api/types';
@@ -112,6 +112,7 @@ export default function FollowUpPrintPendingPage() {
   const [cancelReason, setCancelReason] = useState('');
   const [cancelSubmitting, setCancelSubmitting] = useState(false);
   const [cancelError, setCancelError] = useState('');
+  const linkRequestSeq = useRef(0);
   const { refresh: refreshPendingSummary } = usePendingPrintSummary();
 
   const loadRecords = useCallback(async (active: () => boolean) => {
@@ -147,6 +148,7 @@ export default function FollowUpPrintPendingPage() {
   }, []);
 
   const closeLinkDialog = useCallback(() => {
+    linkRequestSeq.current += 1;
     setLinkDialogRecord(null);
     setLinkFollowUps([]);
     setLinkLoading(false);
@@ -250,6 +252,11 @@ export default function FollowUpPrintPendingPage() {
   };
 
   const handleOpenLinkDialog = async (record: FollowUpLetterPrintRecord) => {
+    const requestSeq = linkRequestSeq.current + 1;
+    linkRequestSeq.current = requestSeq;
+
+    const isCurrentRequest = () => linkRequestSeq.current === requestSeq;
+
     setActingId(record.id);
     setError('');
     setMessage('');
@@ -260,12 +267,18 @@ export default function FollowUpPrintPendingPage() {
 
     try {
       const res = await transactionsApi.getFollowUps(record.transactionId);
+      if (!isCurrentRequest()) return;
+
       setLinkFollowUps(res.data);
     } catch (err: unknown) {
+      if (!isCurrentRequest()) return;
+
       setLinkError(getApiErrorMessage(err));
     } finally {
-      setLinkLoading(false);
-      setActingId(null);
+      if (isCurrentRequest()) {
+        setLinkLoading(false);
+        setActingId(null);
+      }
     }
   };
 
