@@ -331,7 +331,10 @@ public class DepartmentResponseService : IDepartmentResponseService
             _ => "application/octet-stream",
         };
 
-        var storedName = $"{Guid.NewGuid()}{ext}";
+        // Use a pure GUID with no user-derived components so the stored path
+        // contains no tainted data. ContentType and OriginalFileName in the DB
+        // carry all information needed to serve the file correctly.
+        var storedName = Guid.NewGuid().ToString("N");
         var filePath = Path.Combine(_storagePath, storedName);
 
         string sha256;
