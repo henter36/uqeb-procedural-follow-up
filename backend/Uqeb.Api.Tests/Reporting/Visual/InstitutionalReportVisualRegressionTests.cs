@@ -153,9 +153,9 @@ public class InstitutionalReportVisualRegressionTests
                 """);
         Assert.True(wideTablesStayInsidePage);
 
-        var coverQrOnFirstPage = await page.Locator(".report-page").First
-            .EvaluateAsync<bool>("page => Boolean(page.querySelector('.qr-box'))");
-        Assert.True(coverQrOnFirstPage);
+        var coverHasNoQrPlaceholder = await page.Locator(".report-page").First
+            .EvaluateAsync<bool>("page => !page.querySelector('.qr-box') && !page.textContent.includes('QR')");
+        Assert.True(coverHasNoQrPlaceholder);
 
         var screenshot = await page.ScreenshotAsync(new PageScreenshotOptions
         {
