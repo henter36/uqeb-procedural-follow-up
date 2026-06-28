@@ -102,7 +102,7 @@ function ActionRequiredTable({ rows }: Readonly<{ rows: TransactionListItem[] }>
             <th>الموضوع</th>
             <th>الإدارة</th>
             <th>الحالة</th>
-            <th>التاريخ</th>
+            <th className="dashboard-date-cell">التاريخ</th>
           </tr>
         </thead>
         <tbody>
@@ -121,7 +121,7 @@ function ActionRequiredTable({ rows }: Readonly<{ rows: TransactionListItem[] }>
               </td>
               <td className="dashboard-cell-truncate"><DepartmentBadges names={t.outgoingDepartmentNames} /></td>
               <td><StatusBadge status={t.status} isOverdue={t.isOverdue} /></td>
-              <td>{formatHijriNumeric(t.incomingDate)}</td>
+              <td className="dashboard-date-cell">{formatHijriNumeric(t.incomingDate)}</td>
             </tr>
           ))}
         </tbody>
