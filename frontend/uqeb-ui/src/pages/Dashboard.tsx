@@ -50,11 +50,16 @@ export default function DashboardPage() {
     };
   }, [reloadKey]);
 
-  const cardItems = [
-    { label: 'معاملات مفتوحة', value: data?.totalOpen ?? 0, color: 'blue', link: '/reports?tab=open' },
-    { label: 'مطلوب إفادة', value: data?.requiresResponsePending ?? 0, color: 'purple', link: '/reports?tab=response-required' },
+  type StatItem = { label: string; value: number; color: string; link: string; suffix?: string };
+
+  const kpiItems: StatItem[] = [
+    { label: 'معاملات مفتوحة', value: data?.totalOpen ?? 0, color: 'green', link: '/reports?tab=open' },
     { label: 'متأخر في الإفادة', value: data?.responseOverdueCount ?? 0, color: 'red', link: '/reports?tab=overdue-responses' },
     { label: 'بانتظار رد', value: data?.waitingForReply ?? 0, color: 'orange', link: '/reports?tab=waiting' },
+    { label: 'مطلوب إفادة', value: data?.requiresResponsePending ?? 0, color: 'purple', link: '/reports?tab=response-required' },
+  ];
+
+  const secondaryItems: StatItem[] = [
     { label: 'رد جزئي', value: data?.partiallyReplied ?? 0, color: 'cyan', link: '/reports?tab=partial-replies' },
     { label: 'جاهزة للإفادة', value: data?.readyForResponse ?? 0, color: 'green', link: '/transactions?status=ReadyForResponse' },
     { label: 'مغلقة هذا الشهر', value: data?.closedThisMonth ?? 0, color: 'gray', link: '/transactions?status=Closed' },
@@ -117,8 +122,22 @@ export default function DashboardPage() {
         subtitle="نظرة تشغيلية على المعاملات والإجراءات المطلوبة"
       />
 
-      <div className="stats-grid">
-        {cardItems.map((c) => (
+      {/* صف KPI الرئيسي */}
+      <div className="kpi-grid">
+        {kpiItems.map((c) => (
+          <StatCard
+            key={c.label}
+            label={c.label}
+            value={`${c.value}${c.suffix ?? ''}`}
+            color={c.color}
+            link={c.link}
+          />
+        ))}
+      </div>
+
+      {/* المؤشرات الثانوية */}
+      <div className="stats-grid mb-4">
+        {secondaryItems.map((c) => (
           <StatCard
             key={c.label}
             label={c.label}
@@ -137,9 +156,12 @@ export default function DashboardPage() {
         )}
       </div>
 
-      <div className="dashboard-grid mt-4">
+      {/* بطاقات التوزيع والتحليل */}
+      <div className="dashboard-grid">
         <div className="card">
-          <h3>أكثر الإدارات تأخراً</h3>
+          <div className="card-header">
+            <h3 className="card-title">أكثر الإدارات تأخراً</h3>
+          </div>
           <div className="table-wrapper table-wrapper-spaced">
             <table className="data-table">
               <thead><tr><th>الإدارة</th><th>المتأخر</th></tr></thead>
@@ -161,7 +183,9 @@ export default function DashboardPage() {
         </div>
 
         <div className="card">
-          <h3>أكثر الجهات وارد منها</h3>
+          <div className="card-header">
+            <h3 className="card-title">أكثر الجهات وارد منها</h3>
+          </div>
           <div className="table-wrapper table-wrapper-spaced">
             <table className="data-table">
               <thead><tr><th>الجهة</th><th>العدد</th></tr></thead>
@@ -180,7 +204,9 @@ export default function DashboardPage() {
         </div>
 
         <div className="card">
-          <h3>حسب التصنيف</h3>
+          <div className="card-header">
+            <h3 className="card-title">حسب التصنيف</h3>
+          </div>
           <div className="table-wrapper table-wrapper-spaced">
             <table className="data-table">
               <thead><tr><th>التصنيف</th><th>العدد</th></tr></thead>
@@ -199,7 +225,9 @@ export default function DashboardPage() {
         </div>
 
         <div className="card">
-          <h3>حسب الحالة</h3>
+          <div className="card-header">
+            <h3 className="card-title">حسب الحالة</h3>
+          </div>
           <div className="table-wrapper table-wrapper-spaced">
             <table className="data-table">
               <thead><tr><th>الحالة</th><th>العدد</th></tr></thead>
@@ -218,8 +246,11 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* جدول المعاملات التي تحتاج إجراء */}
       <div className="card mt-4">
-        <h3>آخر المعاملات التي تحتاج إجراء</h3>
+        <div className="card-header">
+          <h3 className="card-title">آخر المعاملات التي تحتاج إجراء</h3>
+        </div>
         {actionRequiredView === 'empty' && (
           <EmptyState title="لا توجد معاملات تحتاج إجراء" icon="✅" />
         )}

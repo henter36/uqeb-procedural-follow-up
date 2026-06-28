@@ -17,13 +17,31 @@
 .report-builder-panel {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 1rem;
+  border-radius: var(--radius-xl);
+  padding: 1.25rem;
 }
 
-.report-builder-panel h3 {
+.report-export-card h3 {
+  margin-top: 0;
+  color: var(--color-primary);
+}
+
+.report-builder-panel h3:not(.report-builder-section-title) {
   margin: 0 0 0.75rem;
-  color: #123F32;
+  color: var(--color-primary);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.report-builder-section-title {
+  margin: 1.25rem 0 0.75rem;
+  color: var(--color-primary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .report-section-list {
@@ -54,10 +72,10 @@
 }
 
 .report-thumb {
-  border: 1px solid #D9E1DD;
-  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   padding: 0.5rem;
-  background: #F4F6F5;
+  background: var(--color-bg);
   font-size: 0.8rem;
   display: flex;
   gap: 0.35rem;
@@ -76,18 +94,18 @@
 }
 
 .report-thumb.is-active {
-  border-color: #123F32;
-  box-shadow: 0 0 0 2px #EAF2EE;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-light);
 }
 
 .report-thumb.is-selected {
-  background: #F4EBD7;
+  background: var(--color-gold-soft);
 }
 
 .report-preview-stage {
-  border: 1px solid #D9E1DD;
-  border-radius: 10px;
-  background: #eef1f0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  background: var(--color-bg);
   padding: 1rem;
   overflow: auto;
 }
@@ -122,7 +140,7 @@
   gap: 0.75rem;
   margin-bottom: 0.75rem;
   font-size: 0.85rem;
-  color: #2F6B58;
+  color: var(--color-primary-muted);
 }
 
 .report-preview-stats .text-warning {
@@ -167,11 +185,6 @@
   padding: 1.25rem;
   direction: rtl;
   box-shadow: 0 24px 70px rgb(0 0 0 / 22%);
-}
-
-.report-export-card h3 {
-  margin-top: 0;
-  color: #123F32;
 }
 
 .report-export-card label {

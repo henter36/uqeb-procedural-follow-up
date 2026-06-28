@@ -394,7 +394,7 @@ export default function ReportBuilderPage() {
           <label htmlFor="report-title">عنوان التقرير</label>
           <input id="report-title" value={title} onChange={(e) => { invalidatePreview(); setTitle(e.target.value); }} />
 
-          <h3 style={{ marginTop: '1rem' }}>الفلاتر</h3>
+          <h3 className="report-builder-section-title">الفلاتر</h3>
 
           <label htmlFor="filter-search">بحث</label>
           <input
@@ -500,7 +500,7 @@ export default function ReportBuilderPage() {
             {' '}المتأخرة فقط
           </label>
 
-          <h3 style={{ marginTop: '1rem' }}>المحتوى التحليلي</h3>
+          <h3 className="report-builder-section-title">المحتوى التحليلي</h3>
           <label htmlFor="content-level">مستوى المحتوى</label>
           <select
             id="content-level"
@@ -594,7 +594,7 @@ export default function ReportBuilderPage() {
             }}
           />
 
-          <h3 style={{ marginTop: '1rem' }}>الأقسام المراد تضمينها</h3>
+          <h3 className="report-builder-section-title">الأقسام المراد تضمينها</h3>
           <div className="report-section-list">
             <button type="button" className="btn btn-sm btn-outline" onClick={() => { invalidatePreview(); setSectionIds(SECTIONS.map((s) => s.id)); }}>تحديد الكل</button>
             <button type="button" className="btn btn-sm btn-outline" onClick={() => { invalidatePreview(); setSectionIds([]); }}>إلغاء تحديد الكل</button>

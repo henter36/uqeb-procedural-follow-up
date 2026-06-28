@@ -177,7 +177,7 @@ body {
 
 .letter-template-item.active {
   border-color: var(--color-primary);
-  background: var(--color-primary-bg, #eff6ff);
+  background: var(--color-primary-light);
 }
 
 .letter-template-item-name {

@@ -391,7 +391,7 @@ export default function LetterTemplatePage() {
 
         {/* Panel 1: قائمة القوالب */}
         <aside className="letter-template-list">
-          <h3>القوالب</h3>
+          <div className="card-header"><h3 className="card-title">القوالب</h3></div>
           {templates.length === 0 ? (
             <EmptyState title="لا توجد قوالب" description="أنشئ قالباً جديداً للبدء." />
           ) : (
@@ -565,9 +565,9 @@ export default function LetterTemplatePage() {
 
         {/* Panel 3: معاينة القالب */}
         <aside className="letter-template-preview-panel" aria-label="معاينة القالب">
-          <div className="preview-panel-header">
-            <h3>معاينة الخطاب</h3>
-            {previewLoading && <span className="text-muted">جاري التحديث...</span>}
+          <div className="card-header">
+            <h3 className="card-title">معاينة الخطاب</h3>
+            {previewLoading && <span className="text-muted text-sm">جاري التحديث...</span>}
           </div>
           {previewError && <Alert variant="error">{previewError}</Alert>}
           {renderPreviewContent()}

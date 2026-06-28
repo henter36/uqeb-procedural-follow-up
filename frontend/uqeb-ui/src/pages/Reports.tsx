@@ -9,6 +9,7 @@ import type {
 import { statusLabels, statusBadgeClass } from '../utils/labels';
 import DateDisplay from '../components/DateDisplay';
 import DepartmentBadges from '../components/DepartmentBadges';
+import { PageHeader } from '../components/ui';
 import { responseTimingBadgeClass } from '../utils/responseTiming';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { downloadBlob } from '../utils/downloadBlob';
@@ -430,27 +431,30 @@ export default function ReportsPage() {
 
   return (
     <div>
-      <div className="page-header">
-        <h2 className="page-title">التقارير</h2>
-        <div className="btn-group">
-          <button
-            type="button"
-            className="btn btn-outline"
-            onClick={() => exportExcel(true)}
-            disabled={currentState.loading || exporting}
-          >
-            تصدير الصفحة الحالية
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => exportExcel(false)}
-            disabled={currentState.loading || exporting}
-          >
-            تصدير جميع النتائج
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="التقارير"
+        subtitle="عرض وتصدير تقارير المعاملات"
+        actions={(
+          <div className="btn-group">
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={() => exportExcel(true)}
+              disabled={currentState.loading || exporting}
+            >
+              تصدير الصفحة الحالية
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => exportExcel(false)}
+              disabled={currentState.loading || exporting}
+            >
+              تصدير جميع النتائج
+            </button>
+          </div>
+        )}
+      />
 
       <div className="card filter-card mb-4">
         <div className="filter-form">
@@ -600,8 +604,8 @@ export default function ReportsPage() {
       )}
 
       <div className="card mt-4">
-        <div className="page-header" style={{ marginBottom: '0.5rem' }}>
-          <h3>التحليلات والتقارير التفصيلية</h3>
+        <div className="card-header">
+          <h3 className="card-title">التحليلات والتقارير التفصيلية</h3>
           <div className="btn-group">
             <button
               type="button"
@@ -667,21 +671,21 @@ export default function ReportsPage() {
 
       <div className="dashboard-grid mt-4">
         <div className="card">
-          <h3>حسب التصنيف</h3>
+          <div className="card-header"><h3 className="card-title">حسب التصنيف</h3></div>
           <table className="data-table">
             <thead><tr><th>التصنيف</th><th>العدد</th></tr></thead>
             <tbody>{categoryReport.map((c, i) => <tr key={i}><td>{c.categoryName}</td><td>{c.count}</td></tr>)}</tbody>
           </table>
         </div>
         <div className="card">
-          <h3>حسب الجهات الوارد منها</h3>
+          <div className="card-header"><h3 className="card-title">حسب الجهات الوارد منها</h3></div>
           <table className="data-table">
             <thead><tr><th>الجهة</th><th>العدد</th></tr></thead>
             <tbody>{incomingReport.map((p, i) => <tr key={i}><td>{p.partyName}</td><td>{p.transactionCount}</td></tr>)}</tbody>
           </table>
         </div>
         <div className="card">
-          <h3>حسب الإدارات الصادر لها</h3>
+          <div className="card-header"><h3 className="card-title">حسب الإدارات الصادر لها</h3></div>
           <table className="data-table">
             <thead>
               <tr><th>الإدارة</th><th>العدد</th><th>مفتوح</th><th>مغلق</th><th>متأخر</th></tr>
@@ -705,7 +709,7 @@ export default function ReportsPage() {
       </div>
 
       <div className="card mt-4" ref={monthlyRef}>
-        <h3>التقرير الشهري للوارد والصادر</h3>
+        <div className="card-header"><h3 className="card-title">التقرير الشهري للوارد والصادر</h3></div>
         <select value={year} onChange={(e) => setYear(+e.target.value)} className="mb-2">
           {[2024, 2025, 2026, 2027].map((y) => <option key={y} value={y}>{y}</option>)}
         </select>

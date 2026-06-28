@@ -147,7 +147,7 @@ public static class FollowUpLetterPrintViewRenderer
         ".org-text{color:var(--uqeb-green);font-weight:700;}" +
         ".org-sub-text{color:var(--uqeb-muted);font-size:12px;}" +
         ".header-logo{display:flex;justify-content:center;}" +
-        ".logo{width:34mm;height:34mm;max-width:34mm;max-height:34mm;object-fit:contain;}" +
+        ".logo{width:34mm;height:34mm;max-width:34mm;max-height:34mm;object-fit: contain;}" +
         ".header-empty{}" +
         ".letter-title{font-size:19px;text-align:center;color:var(--uqeb-green);margin:0 0 6mm;}" +
         ".letter-body{font-size:15px;line-height:1.55;margin:4mm 0 7mm;text-align:right;}" +

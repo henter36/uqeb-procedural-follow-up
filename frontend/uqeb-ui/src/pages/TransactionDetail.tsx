@@ -1031,7 +1031,7 @@ function TimelineAuditTabPanel({
   if (mode === 'timeline') {
     return (
       <div className="card">
-        <h3>الخط الزمني</h3>
+        <div className="card-header"><h3 className="card-title">الخط الزمني</h3></div>
         <ActivityTimeline events={timelineEvents} emptyLabel="لا توجد أحداث مسجلة" />
         {auditHasMore && (
           <div className="mt-4">
@@ -1051,7 +1051,7 @@ function TimelineAuditTabPanel({
 
   return (
     <div className="card">
-      <h3>سجل التدقيق</h3>
+      <div className="card-header"><h3 className="card-title">سجل التدقيق</h3></div>
       <div className="table-wrapper">
         <table className="data-table">
           <thead><tr><th>الإجراء</th><th>المستخدم</th><th>التاريخ</th><th>التفاصيل</th></tr></thead>
