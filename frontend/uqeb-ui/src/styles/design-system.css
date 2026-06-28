@@ -6,6 +6,7 @@
   --color-primary-hover: #0B3B2E;
   --color-primary-deep: #073326;
   --color-primary-light: #EAF6F1;
+  --color-primary-light-hover: #C0E5D7;
   --color-primary-muted: #2D7A60;
   --color-accent: #0E5A45;
 
@@ -249,7 +250,8 @@
   top: 4px;
   bottom: 4px;
   width: 3px;
-  border-radius: 0 2px 2px 0;
+  border-start-start-radius: 2px;
+  border-end-start-radius: 2px;
   background: var(--color-gold, #D4AF37);
 }
 
@@ -614,7 +616,7 @@
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background: #C0E5D7;
+  background: var(--color-primary-light-hover);
 }
 
 .btn-danger {
