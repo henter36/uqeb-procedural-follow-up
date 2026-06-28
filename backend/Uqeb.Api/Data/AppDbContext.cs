@@ -287,5 +287,22 @@ public class AppDbContext : DbContext
             e.HasIndex(n => new { n.UserId, n.IsRead, n.CreatedAt });
             e.HasOne(n => n.User).WithMany().HasForeignKey(n => n.UserId).OnDelete(DeleteBehavior.Cascade);
         });
+
+        if (Database.ProviderName == "Microsoft.EntityFrameworkCore.Sqlite")
+        {
+            // SQLite does not auto-generate ROWVERSION values. Provide a column default so that
+            // EnsureCreated-based test fixtures can insert rows without explicitly supplying RowVersion.
+            // This block is unreachable in production (SQL Server).
+            modelBuilder.Entity<LetterTemplate>()
+                .Property(t => t.RowVersion).HasDefaultValueSql("randomblob(8)");
+            modelBuilder.Entity<FollowUpPrintJob>()
+                .Property(j => j.RowVersion).HasDefaultValueSql("randomblob(8)");
+            modelBuilder.Entity<FollowUpPrintJobPart>()
+                .Property(p => p.RowVersion).HasDefaultValueSql("randomblob(8)");
+            modelBuilder.Entity<FollowUpPrintJobPayload>()
+                .Property(p => p.RowVersion).HasDefaultValueSql("randomblob(8)");
+            modelBuilder.Entity<FollowUpLetterPrintRecord>()
+                .Property(r => r.RowVersion).HasDefaultValueSql("randomblob(8)");
+        }
     }
 }
