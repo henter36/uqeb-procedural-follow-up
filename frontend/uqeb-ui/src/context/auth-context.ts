@@ -10,6 +10,7 @@ export interface AuthContextType {
   canClose: boolean;
   canOperateFollowUpPrint: boolean;
   isDepartmentUser: boolean;
+  canReviewDepartmentResponse: boolean;
 }
 
 export const AuthContext = createContext<AuthContextType | null>(null);

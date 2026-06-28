@@ -35,4 +35,12 @@ public enum AuditAction
     FollowUpPrintLinkedToRegisteredFollowUp = 31,
     FollowUpPrintJobLeaseRecovered = 32,
     FollowUpPrintJobRetryRequested = 33,
+    DepartmentResponseCreated = 34,
+    DepartmentResponseUpdated = 35,
+    DepartmentResponseSubmitted = 36,
+    DepartmentResponseApproved = 37,
+    DepartmentResponseReturned = 38,
+    DepartmentResponseRejected = 39,
+    DepartmentResponseAttachmentUploaded = 40,
+    DepartmentResponseAttachmentDeleted = 41,
 }

@@ -34,6 +34,8 @@ public class AppDbContext : DbContext
     public DbSet<SecurityAlert> SecurityAlerts => Set<SecurityAlert>();
     public DbSet<ReportExportTemplate> ReportExportTemplates => Set<ReportExportTemplate>();
     public DbSet<ReportNumberSequence> ReportNumberSequences => Set<ReportNumberSequence>();
+    public DbSet<DepartmentResponse> DepartmentResponses => Set<DepartmentResponse>();
+    public DbSet<DepartmentResponseAttachment> DepartmentResponseAttachments => Set<DepartmentResponseAttachment>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -291,6 +293,27 @@ public class AppDbContext : DbContext
             e.HasOne(n => n.User).WithMany().HasForeignKey(n => n.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<DepartmentResponse>(e =>
+        {
+            e.HasIndex(r => new { r.TransactionId, r.DepartmentId }).IsUnique();
+            e.HasIndex(r => r.DepartmentId);
+            e.HasIndex(r => new { r.Status, r.CreatedAt });
+            e.Property(r => r.RowVersion).IsRowVersion();
+            e.HasOne(r => r.Transaction).WithMany().HasForeignKey(r => r.TransactionId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(r => r.Department).WithMany().HasForeignKey(r => r.DepartmentId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(r => r.SubmittedBy).WithMany().HasForeignKey(r => r.SubmittedByUserId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(r => r.ReviewedBy).WithMany().HasForeignKey(r => r.ReviewedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        modelBuilder.Entity<DepartmentResponseAttachment>(e =>
+        {
+            e.HasIndex(a => a.DepartmentResponseId);
+            e.HasIndex(a => new { a.DepartmentResponseId, a.IsDeleted });
+            e.HasOne(a => a.DepartmentResponse).WithMany(r => r.Attachments).HasForeignKey(a => a.DepartmentResponseId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(a => a.UploadedBy).WithMany().HasForeignKey(a => a.UploadedByUserId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(a => a.DeletedBy).WithMany().HasForeignKey(a => a.DeletedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
+
         if (Database.ProviderName == SqliteProviderName)
         {
             // SQLite does not auto-generate ROWVERSION values. Provide a column default so that
@@ -305,6 +328,8 @@ public class AppDbContext : DbContext
             modelBuilder.Entity<FollowUpPrintJobPayload>()
                 .Property(p => p.RowVersion).HasDefaultValueSql(SqliteRowVersionDefaultSql);
             modelBuilder.Entity<FollowUpLetterPrintRecord>()
+                .Property(r => r.RowVersion).HasDefaultValueSql(SqliteRowVersionDefaultSql);
+            modelBuilder.Entity<DepartmentResponse>()
                 .Property(r => r.RowVersion).HasDefaultValueSql(SqliteRowVersionDefaultSql);
         }
     }

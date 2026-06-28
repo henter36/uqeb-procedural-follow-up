@@ -33,6 +33,12 @@ public static class FollowUpPrintAuthorizationExtensions
                 UserRole.Admin.ToString(), UserRole.Supervisor.ToString(), UserRole.DataEntry.ToString()));
             options.AddPolicy(Policies.CancelFollowUpPrintRecord, p => p.RequireRole(
                 UserRole.Admin.ToString(), UserRole.Supervisor.ToString()));
+            options.AddPolicy(Policies.SubmitDepartmentResponse, p => p.RequireRole(
+                UserRole.Admin.ToString(), UserRole.Supervisor.ToString(),
+                UserRole.DataEntry.ToString(), UserRole.DepartmentUser.ToString()));
+            options.AddPolicy(Policies.ReviewDepartmentResponse, p => p.RequireRole(
+                UserRole.Admin.ToString(), UserRole.Supervisor.ToString(),
+                UserRole.DataEntry.ToString()));
         });
 
         return services;

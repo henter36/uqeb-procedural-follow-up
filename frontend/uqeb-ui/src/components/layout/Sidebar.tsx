@@ -15,7 +15,7 @@ type SidebarProps = Readonly<{
 }>;
 
 export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
-  const { isAdmin, canClose, canOperateFollowUpPrint } = useAuth();
+  const { isAdmin, canClose, canOperateFollowUpPrint, isDepartmentUser, canReviewDepartmentResponse } = useAuth();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(() => getStorageItem(SIDEBAR_KEY) === 'true');
   const { pendingTotal } = usePendingPrintSummary(canOperateFollowUpPrint);
@@ -28,6 +28,8 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     if (item.adminOnly && !isAdmin) return false;
     if (item.supervisorOnly && !canClose) return false;
     if (item.followUpPrintOnly && !canOperateFollowUpPrint) return false;
+    if (item.departmentUserOnly && !isDepartmentUser) return false;
+    if (item.departmentResponseReviewOnly && !canReviewDepartmentResponse) return false;
     return true;
   };
 
