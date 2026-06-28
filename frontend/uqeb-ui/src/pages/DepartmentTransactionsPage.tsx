@@ -185,7 +185,7 @@ export default function DepartmentTransactionsPage() {
     return (
       <div className="page-container" dir="rtl">
         <PageHeader title="معاملات إدارتي" />
-        <ErrorState message={error} onRetry={loadList} />
+        <ErrorState description={error ?? undefined} action={<button className="btn btn-secondary" onClick={loadList}>إعادة المحاولة</button>} />
       </div>
     );
   }

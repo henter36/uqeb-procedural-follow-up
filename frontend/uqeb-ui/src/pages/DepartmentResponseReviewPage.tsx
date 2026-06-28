@@ -104,7 +104,7 @@ export default function DepartmentResponseReviewPage() {
     return (
       <div className="page-container" dir="rtl">
         <PageHeader title="إفادات بانتظار المراجعة" />
-        <ErrorState message={error} onRetry={loadList} />
+        <ErrorState description={error ?? undefined} action={<button className="btn btn-secondary" onClick={loadList}>إعادة المحاولة</button>} />
       </div>
     );
   }
