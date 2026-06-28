@@ -4,7 +4,7 @@ import { reportsApi } from '../api/services';
 import type { DashboardSummary, StatusDistribution, TransactionListItem } from '../api/types';
 import { useAuth } from '../context/useAuth';
 import { usePendingPrintSummary } from '../hooks/usePendingPrintSummary';
-import { priorityLabels, statusBadgeClass } from '../utils/labels';
+import { statusBadgeClass } from '../utils/labels';
 import { formatHijriNumeric } from '../utils/dateUtils';
 import DepartmentBadges from '../components/DepartmentBadges';
 import { PageHeader, StatsSkeleton, EmptyState, ErrorState } from '../components/ui';
@@ -20,14 +20,6 @@ type KpiItem = {
   tone: StatTone;
   link: string;
 };
-
-function priorityBadgeClass(priority: string): string {
-  switch (priority) {
-    case 'VeryUrgent': return 'badge badge-red';
-    case 'Urgent': return 'badge badge-orange';
-    default: return 'badge badge-blue';
-  }
-}
 
 function statusProgressColor(status: string): string {
   switch (status) {
@@ -102,9 +94,7 @@ function ActionRequiredTable({ rows }: Readonly<{ rows: TransactionListItem[] }>
           <col className="col-subject" />
           <col className="col-dept" />
           <col className="col-status" />
-          <col className="col-prio" />
           <col className="col-date" />
-          <col className="col-action" />
         </colgroup>
         <thead>
           <tr>
@@ -112,27 +102,26 @@ function ActionRequiredTable({ rows }: Readonly<{ rows: TransactionListItem[] }>
             <th>الموضوع</th>
             <th>الإدارة</th>
             <th>الحالة</th>
-            <th>الأولوية</th>
             <th>التاريخ</th>
-            <th>{' '}</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((t) => (
             <tr key={t.id} className={t.isOverdue ? 'row-overdue' : ''}>
               <td className="dashboard-cell-truncate" title={t.incomingNumber}>{t.incomingNumber}</td>
-              <td className="dashboard-cell-truncate" title={t.subject}>{t.subject}</td>
+              <td className="dashboard-subject-cell">
+                <Link
+                  to={`/transactions/${t.id}`}
+                  className="dashboard-subject-link"
+                  title={t.subject}
+                  aria-label={`عرض المعاملة: ${t.subject || t.incomingNumber}`}
+                >
+                  {t.subject || 'بدون موضوع'}
+                </Link>
+              </td>
               <td className="dashboard-cell-truncate"><DepartmentBadges names={t.outgoingDepartmentNames} /></td>
               <td><StatusBadge status={t.status} isOverdue={t.isOverdue} /></td>
-              <td>
-                <span className={priorityBadgeClass(t.priority)}>
-                  {priorityLabels[t.priority] ?? t.priority}
-                </span>
-              </td>
               <td>{formatHijriNumeric(t.incomingDate)}</td>
-              <td>
-                <Link to={`/transactions/${t.id}`} className="btn btn-sm btn-outline">عرض</Link>
-              </td>
             </tr>
           ))}
         </tbody>

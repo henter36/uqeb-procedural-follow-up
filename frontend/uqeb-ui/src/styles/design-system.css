@@ -2337,18 +2337,44 @@
 .dashboard-action-table td {
   padding-block: 0.5rem;
   padding-inline: 0.6rem;
+  line-height: 1.35;
+  vertical-align: middle;
 }
 
-.dashboard-action-table .col-ref     { width: 7.5rem; }
+.dashboard-action-table .col-ref     { width: 7.5rem; white-space: nowrap; }
 .dashboard-action-table .col-subject { min-width: 0; }
 .dashboard-action-table .col-dept    { width: 9rem; }
-.dashboard-action-table .col-status  { width: 7.5rem; }
-.dashboard-action-table .col-prio    { width: 5.5rem; }
-.dashboard-action-table .col-date    { width: 7rem; direction: ltr; text-align: center; }
-.dashboard-action-table .col-action  { width: 4.5rem; text-align: center; }
+.dashboard-action-table .col-status  { width: 7rem; }
+.dashboard-action-table .col-date    { width: 7rem; direction: ltr; text-align: center; white-space: nowrap; }
 
 .dashboard-cell-truncate {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.dashboard-subject-cell {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.dashboard-subject-link {
+  display: block;
+  color: var(--color-primary);
+  font-weight: 700;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-subject-link:hover {
+  color: var(--color-primary-hover);
+  text-decoration: underline;
+}
+
+.dashboard-subject-link:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
