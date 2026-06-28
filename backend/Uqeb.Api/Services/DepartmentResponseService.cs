@@ -226,11 +226,12 @@ public class DepartmentResponseService : IDepartmentResponseService
         if (string.IsNullOrWhiteSpace(response.ResponseText))
             throw new InvalidOperationException("نص الرد مطلوب قبل التقديم.");
 
+        var previousStatus = response.Status;
         response.Status = DepartmentResponseStatus.SubmittedForReview;
         response.SubmittedAt = DateTime.UtcNow;
         response.UpdatedAt = DateTime.UtcNow;
 
-        _audit.TrackLog(currentUser.UserId, AuditAction.DepartmentResponseSubmitted, "DepartmentResponse", id, response.TransactionId, DepartmentResponseStatus.Draft.ToString(), DepartmentResponseStatus.SubmittedForReview.ToString());
+        _audit.TrackLog(currentUser.UserId, AuditAction.DepartmentResponseSubmitted, "DepartmentResponse", id, response.TransactionId, previousStatus.ToString(), DepartmentResponseStatus.SubmittedForReview.ToString());
         await _db.SaveChangesAsync();
 
         return MapToDto((await LoadWithDetailsAsync(id))!);

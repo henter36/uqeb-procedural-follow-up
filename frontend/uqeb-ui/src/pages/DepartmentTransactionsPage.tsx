@@ -73,6 +73,7 @@ export default function DepartmentTransactionsPage() {
       setForm({ responseText: res.data.responseText });
     } catch {
       setError('تعذر تحميل تفاصيل الرد');
+      setView({ kind: 'list' });
     } finally {
       setDetailLoading(false);
     }

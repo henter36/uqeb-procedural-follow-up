@@ -154,7 +154,7 @@ export default function App() {
             <Route
               path="department-responses"
               element={(
-                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry', 'DepartmentUser']}>
+                <ProtectedRoute requiredRoles={['DepartmentUser']}>
                   <DepartmentTransactionsPage />
                 </ProtectedRoute>
               )}

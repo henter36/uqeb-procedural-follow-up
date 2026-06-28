@@ -52,6 +52,7 @@ export default function DepartmentResponseReviewPage() {
       setDetail(res.data);
     } catch {
       setError('تعذر تحميل تفاصيل الرد');
+      setView({ kind: 'list' });
     } finally {
       setDetailLoading(false);
     }

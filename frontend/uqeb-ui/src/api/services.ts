@@ -297,9 +297,7 @@ export const departmentResponsesApi = {
   uploadAttachment: (id: number, file: File) => {
     const form = new FormData();
     form.append('file', file);
-    return api.post<DepartmentResponseAttachmentDto>(`/department-responses/${id}/attachments`, form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+    return api.post<DepartmentResponseAttachmentDto>(`/department-responses/${id}/attachments`, form);
   },
   deleteAttachment: (id: number, attachmentId: number) =>
     api.delete(`/department-responses/${id}/attachments/${attachmentId}`),
