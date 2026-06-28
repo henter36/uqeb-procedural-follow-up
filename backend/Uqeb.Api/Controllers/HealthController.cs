@@ -9,6 +9,9 @@ namespace Uqeb.Api.Controllers;
 [AllowAnonymous]
 public class HealthController : ControllerBase
 {
+    private const string FollowUpPrintTimeoutReason = "follow_up_print_timeout";
+    private const string FollowUpPrintErrorReason = "follow_up_print_error";
+
     private readonly IHealthDatabaseProbe _databaseProbe;
     private readonly IDeploymentReportingHealthContributor _reportingHealth;
     private readonly IDeploymentFollowUpPrintHealthContributor _followUpPrintHealth;
@@ -133,10 +136,10 @@ public class HealthController : ControllerBase
                 IsReady: false,
                 Checks:
                 [
-                    new DeploymentReportingHealthCheck("followUpPrintSchema", "fail", "follow_up_print_timeout"),
-                    new DeploymentReportingHealthCheck("followUpDefaultTemplate", "fail", "follow_up_print_timeout"),
-                    new DeploymentReportingHealthCheck("followUpPrintOptions", "fail", "follow_up_print_timeout"),
-                    new DeploymentReportingHealthCheck("followUpPrintProcessor", "fail", "follow_up_print_timeout"),
+                    new DeploymentReportingHealthCheck("followUpPrintSchema", "fail", FollowUpPrintTimeoutReason),
+                    new DeploymentReportingHealthCheck("followUpDefaultTemplate", "fail", FollowUpPrintTimeoutReason),
+                    new DeploymentReportingHealthCheck("followUpPrintOptions", "fail", FollowUpPrintTimeoutReason),
+                    new DeploymentReportingHealthCheck("followUpPrintProcessor", "fail", FollowUpPrintTimeoutReason),
                 ]);
         }
         catch (Exception exception)
@@ -150,10 +153,10 @@ public class HealthController : ControllerBase
                 IsReady: false,
                 Checks:
                 [
-                    new DeploymentReportingHealthCheck("followUpPrintSchema", "fail", "follow_up_print_error"),
-                    new DeploymentReportingHealthCheck("followUpDefaultTemplate", "fail", "follow_up_print_error"),
-                    new DeploymentReportingHealthCheck("followUpPrintOptions", "fail", "follow_up_print_error"),
-                    new DeploymentReportingHealthCheck("followUpPrintProcessor", "fail", "follow_up_print_error"),
+                    new DeploymentReportingHealthCheck("followUpPrintSchema", "fail", FollowUpPrintErrorReason),
+                    new DeploymentReportingHealthCheck("followUpDefaultTemplate", "fail", FollowUpPrintErrorReason),
+                    new DeploymentReportingHealthCheck("followUpPrintOptions", "fail", FollowUpPrintErrorReason),
+                    new DeploymentReportingHealthCheck("followUpPrintProcessor", "fail", FollowUpPrintErrorReason),
                 ]);
         }
     }

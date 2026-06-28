@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Uqeb.Api.Configuration;
 using Uqeb.Api.Data;
 using Uqeb.Api.HostedServices;
@@ -53,6 +54,17 @@ public class DeploymentFollowUpPrintHealthContributorTests
         Assert.Contains(result.Checks, check => check.Name == "followUpPrintProcessor" && check.Status == "pass");
     }
 
+    [Fact]
+    public async Task EvaluateAsync_WhenOptionsThrow_ReturnsOptionsFailure()
+    {
+        await using var fixture = await FollowUpPrintHealthFixture.CreateAsync(createSchema: true, seedDefaultTemplate: true, nullOptions: true);
+
+        var result = await fixture.Contributor.EvaluateAsync();
+
+        Assert.False(result.IsReady);
+        Assert.Contains(result.Checks, check => check.Name == "followUpPrintOptions" && check.Status == "fail");
+    }
+
     private sealed class FollowUpPrintHealthFixture : IAsyncDisposable
     {
         private readonly ServiceProvider _provider;
@@ -67,7 +79,10 @@ public class DeploymentFollowUpPrintHealthContributorTests
 
         public IDeploymentFollowUpPrintHealthContributor Contributor { get; }
 
-        public static async Task<FollowUpPrintHealthFixture> CreateAsync(bool createSchema, bool seedDefaultTemplate)
+        public static async Task<FollowUpPrintHealthFixture> CreateAsync(
+            bool createSchema,
+            bool seedDefaultTemplate,
+            bool nullOptions = false)
         {
             var connection = new SqliteConnection("Data Source=:memory:");
             await connection.OpenAsync();
@@ -79,6 +94,11 @@ public class DeploymentFollowUpPrintHealthContributorTests
             services.AddDbContext<AppDbContext>(options => options.UseSqlite(connection));
             services.AddHostedService<FollowUpPrintJobProcessorHostedService>();
             services.AddScoped<IDeploymentFollowUpPrintHealthContributor, DeploymentFollowUpPrintHealthContributor>();
+            if (nullOptions)
+            {
+                services.RemoveAll<IOptions<FollowUpLettersOptions>>();
+                services.AddSingleton<IOptions<FollowUpLettersOptions>>(new NullFollowUpLettersOptions());
+            }
 
             var provider = services.BuildServiceProvider();
             if (createSchema)
@@ -109,6 +129,11 @@ public class DeploymentFollowUpPrintHealthContributorTests
         {
             await _provider.DisposeAsync();
             await _connection.DisposeAsync();
+        }
+
+        private sealed class NullFollowUpLettersOptions : IOptions<FollowUpLettersOptions>
+        {
+            public FollowUpLettersOptions Value => null!;
         }
     }
 }

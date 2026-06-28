@@ -39,7 +39,11 @@ BeforeAll {
             [string]$DatabaseCheck = 'pass',
             [string]$PlaywrightCheck = 'pass',
             [string]$ReportNumberSequenceCheck = 'pass',
-            [string]$InstitutionalReportingCheck = 'pass'
+            [string]$InstitutionalReportingCheck = 'pass',
+            [string]$FollowUpPrintSchemaCheck = 'pass',
+            [string]$FollowUpDefaultTemplateCheck = 'pass',
+            [string]$FollowUpPrintOptionsCheck = 'pass',
+            [string]$FollowUpPrintProcessorCheck = 'pass'
         )
 
         $body = @{ status = $HealthStatus }
@@ -49,6 +53,10 @@ BeforeAll {
                 playwrightChromium = $PlaywrightCheck
                 reportNumberSequence = $ReportNumberSequenceCheck
                 institutionalReporting = $InstitutionalReportingCheck
+                followUpPrintSchema = $FollowUpPrintSchemaCheck
+                followUpDefaultTemplate = $FollowUpDefaultTemplateCheck
+                followUpPrintOptions = $FollowUpPrintOptionsCheck
+                followUpPrintProcessor = $FollowUpPrintProcessorCheck
             }
         }
 
@@ -370,6 +378,35 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
             Should -Throw "*required check 'playwrightChromium'*"
     }
 
+    It 'FAIL: summary missing required follow-up print check' {
+        Mock Invoke-WebRequest {
+            param($Uri)
+            switch (([uri]$Uri).AbsolutePath) {
+                '/health/live' { return (New-HealthResponse -Status 200 -HealthStatus 'live') }
+                '/health/ready' { return (New-HealthResponse -Status 200 -HealthStatus 'ready') }
+                '/health' {
+                    return [pscustomobject]@{
+                        StatusCode = 200
+                        Content = (@{
+                            status = 'healthy'
+                            checks = @{
+                                database = 'pass'
+                                playwrightChromium = 'pass'
+                                reportNumberSequence = 'pass'
+                                institutionalReporting = 'pass'
+                            }
+                        } | ConvertTo-Json -Compress)
+                        Headers = @{ 'X-Correlation-ID' = 'abc123' }
+                    }
+                }
+                default { throw "Unexpected path $(([uri]$Uri).AbsolutePath)" }
+            }
+        }
+
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' -RetryCount 1 } |
+            Should -Throw "*required check 'followUpPrintSchema'*"
+    }
+
     It 'FAIL: summary playwright check is not pass' {
         Mock Invoke-WebRequest {
             param($Uri)
@@ -416,6 +453,70 @@ Describe 'verify-deployment-health.ps1 HTTP scenarios' {
 
         { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' } |
             Should -Throw "*institutionalReporting='fail'*"
+    }
+
+    It 'FAIL: summary follow-up print schema check is not pass' {
+        Mock Invoke-WebRequest {
+            param($Uri)
+            switch (([uri]$Uri).AbsolutePath) {
+                '/health/live' { return (New-HealthResponse -Status 200 -HealthStatus 'live') }
+                '/health/ready' { return (New-HealthResponse -Status 200 -HealthStatus 'ready') }
+                '/health' {
+                    return (New-HealthResponse -Status 200 -HealthStatus 'healthy' -FollowUpPrintSchemaCheck 'fail')
+                }
+            }
+        }
+
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' } |
+            Should -Throw "*followUpPrintSchema='fail'*"
+    }
+
+    It 'FAIL: summary follow-up default template check is not pass' {
+        Mock Invoke-WebRequest {
+            param($Uri)
+            switch (([uri]$Uri).AbsolutePath) {
+                '/health/live' { return (New-HealthResponse -Status 200 -HealthStatus 'live') }
+                '/health/ready' { return (New-HealthResponse -Status 200 -HealthStatus 'ready') }
+                '/health' {
+                    return (New-HealthResponse -Status 200 -HealthStatus 'healthy' -FollowUpDefaultTemplateCheck 'fail')
+                }
+            }
+        }
+
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' } |
+            Should -Throw "*followUpDefaultTemplate='fail'*"
+    }
+
+    It 'FAIL: summary follow-up print options check is not pass' {
+        Mock Invoke-WebRequest {
+            param($Uri)
+            switch (([uri]$Uri).AbsolutePath) {
+                '/health/live' { return (New-HealthResponse -Status 200 -HealthStatus 'live') }
+                '/health/ready' { return (New-HealthResponse -Status 200 -HealthStatus 'ready') }
+                '/health' {
+                    return (New-HealthResponse -Status 200 -HealthStatus 'healthy' -FollowUpPrintOptionsCheck 'fail')
+                }
+            }
+        }
+
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' } |
+            Should -Throw "*followUpPrintOptions='fail'*"
+    }
+
+    It 'FAIL: summary follow-up print processor check is not pass' {
+        Mock Invoke-WebRequest {
+            param($Uri)
+            switch (([uri]$Uri).AbsolutePath) {
+                '/health/live' { return (New-HealthResponse -Status 200 -HealthStatus 'live') }
+                '/health/ready' { return (New-HealthResponse -Status 200 -HealthStatus 'ready') }
+                '/health' {
+                    return (New-HealthResponse -Status 200 -HealthStatus 'healthy' -FollowUpPrintProcessorCheck 'fail')
+                }
+            }
+        }
+
+        { Invoke-TestHealthScript -ApiBaseUrl 'http://localhost:5000' } |
+            Should -Throw "*followUpPrintProcessor='fail'*"
     }
 
     It 'PASS: optional invalid-login probe returns 401 after health checks' {

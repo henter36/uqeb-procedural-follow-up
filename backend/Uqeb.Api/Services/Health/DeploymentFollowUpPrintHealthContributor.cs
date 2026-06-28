@@ -82,7 +82,7 @@ public sealed class DeploymentFollowUpPrintHealthContributor : IDeploymentFollow
             _options.Value.Validate();
             return true;
         }
-        catch (InvalidOperationException)
+        catch (Exception)
         {
             return false;
         }
@@ -107,15 +107,16 @@ public sealed class DeploymentFollowUpPrintHealthContributor : IDeploymentFollow
         }
 
         var provider = _db.Database.ProviderName ?? string.Empty;
-        var connection = _db.Database.GetDbConnection();
-        var shouldClose = connection.State != System.Data.ConnectionState.Open;
+        var shouldClose = _db.Database.GetDbConnection().State != System.Data.ConnectionState.Open;
+
         if (shouldClose)
         {
-            await connection.OpenAsync(cancellationToken);
+            await _db.Database.OpenConnectionAsync(cancellationToken);
         }
 
         try
         {
+            var connection = _db.Database.GetDbConnection();
             if (provider.Contains("Sqlite", StringComparison.OrdinalIgnoreCase))
             {
                 return await CountExistingTablesAsync(
@@ -133,7 +134,7 @@ public sealed class DeploymentFollowUpPrintHealthContributor : IDeploymentFollow
         {
             if (shouldClose)
             {
-                await connection.CloseAsync();
+                await _db.Database.CloseConnectionAsync();
             }
         }
     }
