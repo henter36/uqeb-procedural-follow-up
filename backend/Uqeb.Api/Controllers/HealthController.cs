@@ -9,17 +9,23 @@ namespace Uqeb.Api.Controllers;
 [AllowAnonymous]
 public class HealthController : ControllerBase
 {
+    private const string FollowUpPrintTimeoutReason = "follow_up_print_timeout";
+    private const string FollowUpPrintErrorReason = "follow_up_print_error";
+
     private readonly IHealthDatabaseProbe _databaseProbe;
     private readonly IDeploymentReportingHealthContributor _reportingHealth;
+    private readonly IDeploymentFollowUpPrintHealthContributor _followUpPrintHealth;
     private readonly ILogger<HealthController> _logger;
 
     public HealthController(
         IHealthDatabaseProbe databaseProbe,
         IDeploymentReportingHealthContributor reportingHealth,
+        IDeploymentFollowUpPrintHealthContributor followUpPrintHealth,
         ILogger<HealthController> logger)
     {
         _databaseProbe = databaseProbe;
         _reportingHealth = reportingHealth;
+        _followUpPrintHealth = followUpPrintHealth;
         _logger = logger;
     }
 
@@ -40,6 +46,7 @@ public class HealthController : ControllerBase
             cancellationToken,
             "Health readiness check");
         var reportingResult = await CheckReportingSafelyAsync(cancellationToken);
+        var followUpPrintResult = await CheckFollowUpPrintSafelyAsync(cancellationToken);
 
         if (databaseResult.Status != HealthDatabaseStatus.Ready)
         {
@@ -49,13 +56,13 @@ public class HealthController : ControllerBase
                 notReadyStatus: "not_ready");
         }
 
-        if (!reportingResult.IsReady)
+        if (!reportingResult.IsReady || !followUpPrintResult.IsReady)
         {
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new
             {
                 status = "not_ready",
-                reason = "reporting_not_ready",
-                checks = ToCheckDictionary(reportingResult.Checks),
+                reason = !reportingResult.IsReady ? "reporting_not_ready" : "follow_up_print_not_ready",
+                checks = ToCheckDictionary([.. reportingResult.Checks, .. followUpPrintResult.Checks]),
                 timestampUtc = DateTime.UtcNow,
             });
         }
@@ -63,7 +70,7 @@ public class HealthController : ControllerBase
         return Ok(new
         {
             status = "ready",
-            checks = ToCheckDictionary(reportingResult.Checks),
+            checks = ToCheckDictionary([.. reportingResult.Checks, .. followUpPrintResult.Checks]),
             timestampUtc = DateTime.UtcNow,
         });
     }
@@ -75,9 +82,11 @@ public class HealthController : ControllerBase
             cancellationToken,
             "Health summary check");
         var reportingResult = await CheckReportingSafelyAsync(cancellationToken);
+        var followUpPrintResult = await CheckFollowUpPrintSafelyAsync(cancellationToken);
 
         var databaseReady = databaseResult.Status == HealthDatabaseStatus.Ready;
         var reportingReady = reportingResult.IsReady;
+        var followUpPrintReady = followUpPrintResult.IsReady;
         var checks = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["live"] = "pass",
@@ -88,8 +97,12 @@ public class HealthController : ControllerBase
         {
             checks[check.Name] = check.Status;
         }
+        foreach (var check in followUpPrintResult.Checks)
+        {
+            checks[check.Name] = check.Status;
+        }
 
-        var healthy = databaseReady && reportingReady;
+        var healthy = databaseReady && reportingReady && followUpPrintReady;
         var payload = new
         {
             status = healthy ? "healthy" : "degraded",
@@ -100,6 +113,52 @@ public class HealthController : ControllerBase
         return healthy
             ? Ok(payload)
             : StatusCode(StatusCodes.Status503ServiceUnavailable, payload);
+    }
+
+    private async Task<DeploymentReportingHealthResult> CheckFollowUpPrintSafelyAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _followUpPrintHealth.EvaluateAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                exception,
+                "FollowUp Print readiness check timed out.");
+
+            return new DeploymentReportingHealthResult(
+                FeatureEnabled: true,
+                IsReady: false,
+                Checks:
+                [
+                    new DeploymentReportingHealthCheck("followUpPrintSchema", "fail", FollowUpPrintTimeoutReason),
+                    new DeploymentReportingHealthCheck("followUpDefaultTemplate", "fail", FollowUpPrintTimeoutReason),
+                    new DeploymentReportingHealthCheck("followUpPrintOptions", "fail", FollowUpPrintTimeoutReason),
+                    new DeploymentReportingHealthCheck("followUpPrintProcessor", "fail", FollowUpPrintTimeoutReason),
+                ]);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(
+                exception,
+                "FollowUp Print readiness check failed.");
+
+            return new DeploymentReportingHealthResult(
+                FeatureEnabled: true,
+                IsReady: false,
+                Checks:
+                [
+                    new DeploymentReportingHealthCheck("followUpPrintSchema", "fail", FollowUpPrintErrorReason),
+                    new DeploymentReportingHealthCheck("followUpDefaultTemplate", "fail", FollowUpPrintErrorReason),
+                    new DeploymentReportingHealthCheck("followUpPrintOptions", "fail", FollowUpPrintErrorReason),
+                    new DeploymentReportingHealthCheck("followUpPrintProcessor", "fail", FollowUpPrintErrorReason),
+                ]);
+        }
     }
 
     private async Task<DeploymentReportingHealthResult> CheckReportingSafelyAsync(CancellationToken cancellationToken)

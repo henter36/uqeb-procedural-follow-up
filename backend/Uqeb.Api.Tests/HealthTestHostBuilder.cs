@@ -55,6 +55,7 @@ internal static class HealthTestHostBuilder
             services.RemoveAll<IDbContextFactory<AppDbContext>>();
             services.RemoveAll<AppDbContext>();
             services.RemoveAll<IHealthDatabaseProbe>();
+            services.RemoveAll<IDeploymentFollowUpPrintHealthContributor>();
             services.RemoveAll<ISecurityAuditService>();
 
             services.AddDbContextFactory<AppDbContext>(options =>
@@ -62,11 +63,27 @@ internal static class HealthTestHostBuilder
             services.AddScoped(sp =>
                 sp.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
             services.AddScoped<IHealthDatabaseProbe, SuccessfulHealthDatabaseProbe>();
+            services.AddSingleton<IDeploymentFollowUpPrintHealthContributor, PassingFollowUpPrintHealthContributor>();
             services.AddSingleton<ISecurityAuditService, NoOpSecurityAuditService>();
 
             configureServices?.Invoke(services);
         });
     }
+}
+
+internal sealed class PassingFollowUpPrintHealthContributor : IDeploymentFollowUpPrintHealthContributor
+{
+    public Task<DeploymentReportingHealthResult> EvaluateAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(new DeploymentReportingHealthResult(
+            FeatureEnabled: true,
+            IsReady: true,
+            Checks:
+            [
+                new DeploymentReportingHealthCheck("followUpPrintSchema", "pass"),
+                new DeploymentReportingHealthCheck("followUpDefaultTemplate", "pass"),
+                new DeploymentReportingHealthCheck("followUpPrintOptions", "pass"),
+                new DeploymentReportingHealthCheck("followUpPrintProcessor", "pass"),
+            ]));
 }
 
 internal sealed class SuccessfulHealthDatabaseProbe : IHealthDatabaseProbe

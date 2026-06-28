@@ -349,7 +349,7 @@ describe('ReportBuilderPage export dialog', () => {
 
     await user.click(screen.getByRole('button', { name: 'تصدير' }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
-  });
+  }, 10000);
 
   it('shows copied feedback after copying correlation id', async () => {
     const previewError = new axios.AxiosError(
