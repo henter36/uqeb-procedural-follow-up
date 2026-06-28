@@ -33,7 +33,16 @@ public class DepartmentResponsesController : ControllerBase
     [HttpGet("pending-review")]
     [Authorize(Policy = Policies.ReviewDepartmentResponse)]
     public async Task<IActionResult> GetPendingReview()
-        => Ok(await _service.GetPendingReviewAsync());
+    {
+        try
+        {
+            return Ok(await _service.GetPendingReviewAsync(_currentUser));
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
+    }
 
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id)
@@ -93,6 +102,10 @@ public class DepartmentResponsesController : ControllerBase
         {
             return Ok(await _service.ApproveAsync(id, _currentUser));
         }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
         catch (InvalidOperationException ex)
         {
             return BadRequest(new { message = ex.Message });
@@ -107,6 +120,10 @@ public class DepartmentResponsesController : ControllerBase
         {
             return Ok(await _service.ReturnForCorrectionAsync(id, request, _currentUser));
         }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
         catch (InvalidOperationException ex)
         {
             return BadRequest(new { message = ex.Message });
@@ -120,6 +137,10 @@ public class DepartmentResponsesController : ControllerBase
         try
         {
             return Ok(await _service.RejectAsync(id, request, _currentUser));
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
         }
         catch (InvalidOperationException ex)
         {
@@ -163,8 +184,15 @@ public class DepartmentResponsesController : ControllerBase
     [HttpGet("{id:int}/attachments/{attachmentId:int}/download")]
     public async Task<IActionResult> DownloadAttachment(int id, int attachmentId)
     {
-        var result = await _service.DownloadAttachmentAsync(id, attachmentId, _currentUser);
-        if (result == null) return NotFound();
-        return File(result.Value.Content, result.Value.ContentType, result.Value.FileName);
+        try
+        {
+            var result = await _service.DownloadAttachmentAsync(id, attachmentId, _currentUser);
+            if (result == null) return NotFound();
+            return File(result.Value.Content, result.Value.ContentType, result.Value.FileName);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 }

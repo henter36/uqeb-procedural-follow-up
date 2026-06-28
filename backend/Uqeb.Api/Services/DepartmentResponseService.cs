@@ -8,9 +8,9 @@ namespace Uqeb.Api.Services;
 
 public interface IDepartmentResponseService
 {
-    Task<List<DepartmentTransactionItem>> GetDepartmentTransactionsAsync(ICurrentUserService currentUser);
+    Task<List<DepartmentTransactionResponseItemDto>> GetDepartmentTransactionsAsync(ICurrentUserService currentUser);
     Task<List<DepartmentResponseSummaryDto>> GetMyDepartmentResponsesAsync(ICurrentUserService currentUser);
-    Task<List<DepartmentResponseSummaryDto>> GetPendingReviewAsync();
+    Task<List<DepartmentResponseSummaryDto>> GetPendingReviewAsync(ICurrentUserService currentUser);
     Task<DepartmentResponseDto?> GetByIdAsync(int id, ICurrentUserService currentUser);
     Task<DepartmentResponseDto> CreateAsync(CreateDepartmentResponseRequest request, ICurrentUserService currentUser);
     Task<DepartmentResponseDto> UpdateAsync(int id, UpdateDepartmentResponseRequest request, ICurrentUserService currentUser);
@@ -44,12 +44,27 @@ public class DepartmentResponseService : IDepartmentResponseService
         Directory.CreateDirectory(_storagePath);
     }
 
-    public async Task<List<DepartmentTransactionItem>> GetDepartmentTransactionsAsync(ICurrentUserService currentUser)
+    private static void RequireReviewer(ICurrentUserService currentUser)
+    {
+        if (currentUser.Role is not (UserRole.Admin or UserRole.Supervisor or UserRole.DataEntry))
+            throw new UnauthorizedAccessException("المستخدم غير مخول بمراجعة إفادات الإدارات.");
+    }
+
+    public async Task<List<DepartmentTransactionResponseItemDto>> GetDepartmentTransactionsAsync(ICurrentUserService currentUser)
     {
         if (!currentUser.DepartmentId.HasValue)
             return [];
 
         int deptId = currentUser.DepartmentId.Value;
+
+        var department = await _db.Departments
+            .AsNoTracking()
+            .Where(d => d.Id == deptId)
+            .Select(d => new { d.Id, d.Name })
+            .FirstOrDefaultAsync();
+
+        if (department == null)
+            return [];
 
         var assigned = await _db.Assignments
             .AsNoTracking()
@@ -65,7 +80,13 @@ public class DepartmentResponseService : IDepartmentResponseService
         var transactions = await _db.Transactions
             .AsNoTracking()
             .Where(t => txIds.Contains(t.Id))
-            .Select(t => new { t.Id, t.InternalTrackingNumber, t.Subject, Status = t.Status.ToString() })
+            .Select(t => new {
+                t.Id,
+                t.InternalTrackingNumber,
+                t.Subject,
+                t.IncomingDate,
+                Priority = t.Priority.ToString()
+            })
             .ToListAsync();
 
         var responses = await _db.DepartmentResponses
@@ -77,19 +98,32 @@ public class DepartmentResponseService : IDepartmentResponseService
         var responseByTx = responses.ToDictionary(r => r.TransactionId);
         var assignedDateByTx = assigned.ToDictionary(a => a.TransactionId, a => a.AssignedDate);
 
+        var editableStatuses = new[] { "Draft", "ReturnedForCorrection" };
+
         return transactions
             .Select(t =>
             {
                 responseByTx.TryGetValue(t.Id, out var resp);
                 assignedDateByTx.TryGetValue(t.Id, out var assignedDate);
-                return new DepartmentTransactionItem(
+
+                bool canCreate = resp == null;
+                bool canEdit = resp != null && editableStatuses.Contains(resp.Status);
+                bool canSubmit = canEdit;
+
+                return new DepartmentTransactionResponseItemDto(
                     t.Id,
                     t.InternalTrackingNumber,
                     t.Subject,
-                    t.Status,
+                    t.IncomingDate,
+                    t.Priority,
                     assignedDate == default ? null : (DateTime?)assignedDate,
+                    deptId,
+                    department.Name,
                     resp?.Id,
-                    resp?.Status);
+                    resp?.Status,
+                    canCreate,
+                    canEdit,
+                    canSubmit);
             })
             .OrderByDescending(x => x.AssignedDate)
             .ToList();
@@ -126,8 +160,9 @@ public class DepartmentResponseService : IDepartmentResponseService
             .ToListAsync();
     }
 
-    public async Task<List<DepartmentResponseSummaryDto>> GetPendingReviewAsync()
+    public async Task<List<DepartmentResponseSummaryDto>> GetPendingReviewAsync(ICurrentUserService currentUser)
     {
+        RequireReviewer(currentUser);
         return await _db.DepartmentResponses
             .Include(r => r.Transaction)
             .Include(r => r.Department)
@@ -189,7 +224,16 @@ public class DepartmentResponseService : IDepartmentResponseService
         };
 
         _db.DepartmentResponses.Add(response);
-        _audit.TrackLog(currentUser.UserId, AuditAction.DepartmentResponseCreated, "DepartmentResponse", null, request.TransactionId, null, null);
+        await _db.SaveChangesAsync();
+
+        _audit.TrackLog(
+            currentUser.UserId,
+            AuditAction.DepartmentResponseCreated,
+            "DepartmentResponse",
+            response.Id,
+            response.TransactionId,
+            null,
+            null);
         await _db.SaveChangesAsync();
 
         return MapToDto((await LoadWithDetailsAsync(response.Id))!);
@@ -229,6 +273,9 @@ public class DepartmentResponseService : IDepartmentResponseService
         var previousStatus = response.Status;
         response.Status = DepartmentResponseStatus.SubmittedForReview;
         response.SubmittedAt = DateTime.UtcNow;
+        response.ReviewedByUserId = null;
+        response.ReviewedAt = null;
+        response.ReviewNote = null;
         response.UpdatedAt = DateTime.UtcNow;
 
         _audit.TrackLog(currentUser.UserId, AuditAction.DepartmentResponseSubmitted, "DepartmentResponse", id, response.TransactionId, previousStatus.ToString(), DepartmentResponseStatus.SubmittedForReview.ToString());
@@ -239,6 +286,8 @@ public class DepartmentResponseService : IDepartmentResponseService
 
     public async Task<DepartmentResponseDto> ApproveAsync(int id, ICurrentUserService currentUser)
     {
+        RequireReviewer(currentUser);
+
         var response = await _db.DepartmentResponses.FindAsync(id)
             ?? throw new InvalidOperationException("الرد غير موجود.");
 
@@ -258,6 +307,8 @@ public class DepartmentResponseService : IDepartmentResponseService
 
     public async Task<DepartmentResponseDto> ReturnForCorrectionAsync(int id, ReviewDepartmentResponseRequest request, ICurrentUserService currentUser)
     {
+        RequireReviewer(currentUser);
+
         var response = await _db.DepartmentResponses.FindAsync(id)
             ?? throw new InvalidOperationException("الرد غير موجود.");
 
@@ -281,6 +332,8 @@ public class DepartmentResponseService : IDepartmentResponseService
 
     public async Task<DepartmentResponseDto> RejectAsync(int id, ReviewDepartmentResponseRequest request, ICurrentUserService currentUser)
     {
+        RequireReviewer(currentUser);
+
         var response = await _db.DepartmentResponses.FindAsync(id)
             ?? throw new InvalidOperationException("الرد غير موجود.");
 
@@ -361,9 +414,27 @@ public class DepartmentResponseService : IDepartmentResponseService
             Sha256 = sha256,
         };
 
-        _db.DepartmentResponseAttachments.Add(attachment);
-        _audit.TrackLog(currentUser.UserId, AuditAction.DepartmentResponseAttachmentUploaded, "DepartmentResponseAttachment", null, response.TransactionId, null, file.FileName);
-        await _db.SaveChangesAsync();
+        try
+        {
+            _db.DepartmentResponseAttachments.Add(attachment);
+            await _db.SaveChangesAsync();
+
+            _audit.TrackLog(
+                currentUser.UserId,
+                AuditAction.DepartmentResponseAttachmentUploaded,
+                "DepartmentResponseAttachment",
+                attachment.Id,
+                response.TransactionId,
+                null,
+                safeOriginalName);
+            await _db.SaveChangesAsync();
+        }
+        catch
+        {
+            if (File.Exists(filePath))
+                try { File.Delete(filePath); } catch { /* best effort */ }
+            throw;
+        }
 
         var uploader = await _db.Users.FindAsync(currentUser.UserId);
         return new DepartmentResponseAttachmentDto(
@@ -406,6 +477,16 @@ public class DepartmentResponseService : IDepartmentResponseService
         if (attachment == null || !File.Exists(attachment.StoragePath)) return null;
 
         var content = await File.ReadAllBytesAsync(attachment.StoragePath);
+
+        if (!string.IsNullOrEmpty(attachment.Sha256))
+        {
+            var actualHash = Convert
+                .ToHexString(System.Security.Cryptography.SHA256.HashData(content))
+                .ToLowerInvariant();
+            if (!string.Equals(actualHash, attachment.Sha256, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("فشل التحقق من سلامة المرفق.");
+        }
+
         return (content, attachment.ContentType ?? "application/octet-stream", attachment.OriginalFileName);
     }
 

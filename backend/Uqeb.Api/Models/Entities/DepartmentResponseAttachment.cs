@@ -11,7 +11,7 @@ public class DepartmentResponseAttachment
     public string StoragePath { get; set; } = string.Empty;
     public int UploadedByUserId { get; set; }
     public DateTime UploadedAt { get; set; } = DateTime.UtcNow;
-    public string? Sha256 { get; set; }
+    public string Sha256 { get; set; } = string.Empty;
     public bool IsDeleted { get; set; }
     public int? DeletedByUserId { get; set; }
     public DateTime? DeletedAt { get; set; }

@@ -309,6 +309,7 @@ public class AppDbContext : DbContext
         {
             e.HasIndex(a => a.DepartmentResponseId);
             e.HasIndex(a => new { a.DepartmentResponseId, a.IsDeleted });
+            e.Property(a => a.Sha256).IsRequired().HasMaxLength(64).IsUnicode(false);
             e.HasOne(a => a.DepartmentResponse).WithMany(r => r.Attachments).HasForeignKey(a => a.DepartmentResponseId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(a => a.UploadedBy).WithMany().HasForeignKey(a => a.UploadedByUserId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne(a => a.DeletedBy).WithMany().HasForeignKey(a => a.DeletedByUserId).OnDelete(DeleteBehavior.NoAction);

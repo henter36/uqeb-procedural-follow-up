@@ -698,12 +698,21 @@ export interface DepartmentResponseSummaryDto {
 }
 
 
-export interface DepartmentTransactionItem {
+export interface DepartmentTransactionResponseItemDto {
   transactionId: number;
   internalTrackingNumber: string;
   subject: string;
-  transactionStatus: string;
+  incomingDate?: string;
+  priority: string;
   assignedDate?: string;
-  responseId?: number;
-  responseStatus?: string;
+  departmentId: number;
+  departmentName: string;
+  departmentResponseId?: number;
+  departmentResponseStatus?: string;
+  canCreateResponse: boolean;
+  canEditResponse: boolean;
+  canSubmitResponse: boolean;
 }
+
+// @deprecated use DepartmentTransactionResponseItemDto
+export type DepartmentTransactionItem = DepartmentTransactionResponseItemDto;

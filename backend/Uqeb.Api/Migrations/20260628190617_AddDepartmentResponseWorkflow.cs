@@ -70,7 +70,7 @@ namespace Uqeb.Api.Migrations
                     StoragePath = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     UploadedByUserId = table.Column<int>(type: "int", nullable: false),
                     UploadedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    Sha256 = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    Sha256 = table.Column<string>(type: "varchar(64)", unicode: false, maxLength: 64, nullable: false, defaultValue: ""),
                     IsDeleted = table.Column<bool>(type: "bit", nullable: false),
                     DeletedByUserId = table.Column<int>(type: "int", nullable: true),
                     DeletedAt = table.Column<DateTime>(type: "datetime2", nullable: true)

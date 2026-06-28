@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Uqeb.Api.Data;
@@ -258,13 +259,14 @@ public class DepartmentResponseServiceTests
         var (db, txId, deptId, userId) = await SeedAsync(nameof(GetPendingReview_ReturnsOnlySubmittedItems));
         var service = BuildService(db);
         var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
+        var admin = new FakeUser { UserId = userId, Role = UserRole.Admin };
 
         await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "مسودة"), submitter);
-        var pending = await service.GetPendingReviewAsync();
+        var pending = await service.GetPendingReviewAsync(admin);
         Assert.Empty(pending);
 
         await service.SubmitAsync((await service.GetMyDepartmentResponsesAsync(submitter))[0].Id, submitter);
-        pending = await service.GetPendingReviewAsync();
+        pending = await service.GetPendingReviewAsync(admin);
         Assert.Single(pending);
     }
 
@@ -333,15 +335,17 @@ public class DepartmentResponseServiceTests
         // No response created yet — transaction should still appear
         var itemsBefore = await service.GetDepartmentTransactionsAsync(user);
         Assert.Single(itemsBefore);
-        Assert.Null(itemsBefore[0].ResponseId);
+        Assert.Null(itemsBefore[0].DepartmentResponseId);
+        Assert.True(itemsBefore[0].CanCreateResponse);
 
         // Create a response
         await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user);
 
         var itemsAfter = await service.GetDepartmentTransactionsAsync(user);
         Assert.Single(itemsAfter);
-        Assert.NotNull(itemsAfter[0].ResponseId);
-        Assert.Equal("Draft", itemsAfter[0].ResponseStatus);
+        Assert.NotNull(itemsAfter[0].DepartmentResponseId);
+        Assert.Equal("Draft", itemsAfter[0].DepartmentResponseStatus);
+        Assert.True(itemsAfter[0].CanEditResponse);
     }
 
     [Fact]
@@ -354,5 +358,214 @@ public class DepartmentResponseServiceTests
         var result = await service.GetDepartmentTransactionsAsync(noDeptUser);
 
         Assert.Empty(result);
+    }
+
+    // ─── Authorization tests ───────────────────────────────────────────────────
+
+    [Fact]
+    public async Task GetPendingReview_DepartmentUserForbidden()
+    {
+        var (db, _, _, userId) = await SeedAsync(nameof(GetPendingReview_DepartmentUserForbidden));
+        var service = BuildService(db);
+        var deptUser = new FakeUser { UserId = userId, Role = UserRole.DepartmentUser };
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            service.GetPendingReviewAsync(deptUser));
+    }
+
+    [Fact]
+    public async Task Approve_DepartmentUserForbidden()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(Approve_DepartmentUserForbidden));
+        var service = BuildService(db);
+        var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
+        var deptUser = new FakeUser { UserId = userId, Role = UserRole.DepartmentUser };
+
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        await service.SubmitAsync(created.Id, submitter);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            service.ApproveAsync(created.Id, deptUser));
+    }
+
+    [Fact]
+    public async Task ReturnForCorrection_DepartmentUserForbidden()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(ReturnForCorrection_DepartmentUserForbidden));
+        var service = BuildService(db);
+        var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
+        var deptUser = new FakeUser { UserId = userId, Role = UserRole.DepartmentUser };
+
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        await service.SubmitAsync(created.Id, submitter);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            service.ReturnForCorrectionAsync(created.Id, new ReviewDepartmentResponseRequest("ملاحظة"), deptUser));
+    }
+
+    [Fact]
+    public async Task Reject_DepartmentUserForbidden()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(Reject_DepartmentUserForbidden));
+        var service = BuildService(db);
+        var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
+        var deptUser = new FakeUser { UserId = userId, Role = UserRole.DepartmentUser };
+
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        await service.SubmitAsync(created.Id, submitter);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            service.RejectAsync(created.Id, new ReviewDepartmentResponseRequest("سبب"), deptUser));
+    }
+
+    [Fact]
+    public async Task Admin_CanApprovePendingReview()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(Admin_CanApprovePendingReview));
+        var service = BuildService(db);
+        var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
+        var admin = new FakeUser { UserId = userId, Role = UserRole.Admin };
+
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        await service.SubmitAsync(created.Id, submitter);
+        var approved = await service.ApproveAsync(created.Id, admin);
+
+        Assert.Equal("Approved", approved.Status);
+    }
+
+    [Fact]
+    public async Task DataEntry_CanApprovePendingReview()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(DataEntry_CanApprovePendingReview));
+        var service = BuildService(db);
+        var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
+        var dataEntry = new FakeUser { UserId = userId, Role = UserRole.DataEntry };
+
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        await service.SubmitAsync(created.Id, submitter);
+        var approved = await service.ApproveAsync(created.Id, dataEntry);
+
+        Assert.Equal("Approved", approved.Status);
+    }
+
+    [Fact]
+    public async Task GetPendingReview_DataEntryCanAccess()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(GetPendingReview_DataEntryCanAccess));
+        var service = BuildService(db);
+        var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
+        var dataEntry = new FakeUser { UserId = userId, Role = UserRole.DataEntry };
+
+        await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        await service.SubmitAsync((await service.GetMyDepartmentResponsesAsync(submitter))[0].Id, submitter);
+
+        var pending = await service.GetPendingReviewAsync(dataEntry);
+        Assert.Single(pending);
+    }
+
+    // ─── Resubmission clears review state ─────────────────────────────────────
+
+    [Fact]
+    public async Task Resubmit_AfterReturnedForCorrection_ClearsReviewState()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(Resubmit_AfterReturnedForCorrection_ClearsReviewState));
+        var service = BuildService(db);
+        var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
+        var reviewer = new FakeUser { UserId = userId, Role = UserRole.Supervisor };
+
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        await service.SubmitAsync(created.Id, submitter);
+        await service.ReturnForCorrectionAsync(created.Id, new ReviewDepartmentResponseRequest("يحتاج إصلاح"), reviewer);
+
+        // Resubmit — review state should be cleared
+        var resubmitted = await service.SubmitAsync(created.Id, submitter);
+
+        Assert.Equal("SubmittedForReview", resubmitted.Status);
+        Assert.Null(resubmitted.ReviewNote);
+        Assert.Null(resubmitted.ReviewedAt);
+        Assert.Null(resubmitted.ReviewedByName);
+    }
+
+    [Fact]
+    public async Task Resubmit_AuditLog_RecordsReturnedForCorrectionToSubmitted()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(Resubmit_AuditLog_RecordsReturnedForCorrectionToSubmitted));
+        var service = BuildService(db);
+        var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
+        var reviewer = new FakeUser { UserId = userId, Role = UserRole.Supervisor };
+
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        await service.SubmitAsync(created.Id, submitter);
+        await service.ReturnForCorrectionAsync(created.Id, new ReviewDepartmentResponseRequest("ملاحظة"), reviewer);
+        await service.SubmitAsync(created.Id, submitter);
+
+        var log = await db.AuditLogs
+            .Where(l => l.Action == AuditAction.DepartmentResponseSubmitted && l.OldValue == "ReturnedForCorrection")
+            .FirstOrDefaultAsync();
+        Assert.NotNull(log);
+        Assert.Equal("SubmittedForReview", log.NewValue);
+    }
+
+    // ─── Audit EntityId test ───────────────────────────────────────────────────
+
+    [Fact]
+    public async Task AuditLog_CreatedOnCreate_HasEntityId()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(AuditLog_CreatedOnCreate_HasEntityId));
+        var service = BuildService(db);
+        var user = new FakeUser { UserId = userId, DepartmentId = deptId };
+
+        var dto = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user);
+
+        var log = await db.AuditLogs.FirstOrDefaultAsync(l => l.Action == AuditAction.DepartmentResponseCreated);
+        Assert.NotNull(log);
+        Assert.Equal(txId, log.TransactionId);
+        Assert.NotNull(log.EntityId);
+        Assert.Equal(dto.Id, log.EntityId);
+    }
+
+    // ─── SHA-256 integrity test ────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Download_RejectsIfFileContentChanged()
+    {
+        var tmpDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tmpDir);
+        try
+        {
+            var (db, txId, deptId, userId) = await SeedAsync(nameof(Download_RejectsIfFileContentChanged));
+            var service = BuildService(db, BuildConfig(tmpDir));
+            var user = new FakeUser { UserId = userId, DepartmentId = deptId };
+
+            var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user);
+
+            // Upload a real file
+            var fileContent = System.Text.Encoding.UTF8.GetBytes("محتوى الملف الأصلي");
+            var formFile = new FormFile(
+                new System.IO.MemoryStream(fileContent),
+                0,
+                fileContent.Length,
+                "file",
+                "test.pdf")
+            {
+                Headers = new HeaderDictionary(),
+                ContentType = "application/pdf"
+            };
+
+            var attachmentDto = await service.UploadAttachmentAsync(created.Id, formFile, user);
+
+            // Tamper with the file on disk
+            var attachment = await db.DepartmentResponseAttachments.FindAsync(attachmentDto.Id);
+            Assert.NotNull(attachment);
+            await File.WriteAllBytesAsync(attachment.StoragePath, System.Text.Encoding.UTF8.GetBytes("محتوى مزوّر"));
+
+            // Download should reject
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.DownloadAttachmentAsync(created.Id, attachmentDto.Id, user));
+        }
+        finally
+        {
+            Directory.Delete(tmpDir, true);
+        }
     }
 }

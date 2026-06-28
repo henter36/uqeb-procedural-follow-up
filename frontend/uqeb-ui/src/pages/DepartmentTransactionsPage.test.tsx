@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor, fireEvent } from '@testing-library/re
 import { MemoryRouter } from 'react-router-dom';
 import DepartmentTransactionsPage from './DepartmentTransactionsPage';
 import * as services from '../api/services';
-import type { DepartmentTransactionItem, DepartmentResponseDto } from '../api/types';
+import type { DepartmentTransactionResponseItemDto, DepartmentResponseDto } from '../api/types';
 
 vi.mock('../api/services', () => ({
   departmentResponsesApi: {
@@ -18,24 +18,29 @@ vi.mock('../api/services', () => ({
   },
 }));
 
-const txNoResponse: DepartmentTransactionItem = {
+const txNoResponse: DepartmentTransactionResponseItemDto = {
   transactionId: 10,
   internalTrackingNumber: 'TX-001',
   subject: 'موضوع الاختبار',
-  transactionStatus: 'Assigned',
+  incomingDate: '2026-01-01T00:00:00Z',
+  priority: 'Normal',
   assignedDate: '2026-06-01T00:00:00Z',
-  responseId: undefined,
-  responseStatus: undefined,
+  departmentId: 1,
+  departmentName: 'إدارة التجارب',
+  departmentResponseId: undefined,
+  departmentResponseStatus: undefined,
+  canCreateResponse: true,
+  canEditResponse: false,
+  canSubmitResponse: false,
 };
 
-const txWithDraft: DepartmentTransactionItem = {
-  transactionId: 10,
-  internalTrackingNumber: 'TX-001',
-  subject: 'موضوع الاختبار',
-  transactionStatus: 'Assigned',
-  assignedDate: '2026-06-01T00:00:00Z',
-  responseId: 1,
-  responseStatus: 'Draft',
+const txWithDraft: DepartmentTransactionResponseItemDto = {
+  ...txNoResponse,
+  departmentResponseId: 1,
+  departmentResponseStatus: 'Draft',
+  canCreateResponse: false,
+  canEditResponse: true,
+  canSubmitResponse: true,
 };
 
 const detailDraft: DepartmentResponseDto = {
@@ -97,22 +102,22 @@ describe('DepartmentTransactionsPage', () => {
     mockApi.getDepartmentTransactions.mockResolvedValueOnce({ data: [txNoResponse] } as never);
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText('إنشاء رد')).toBeTruthy();
+      expect(screen.getByText('تسجيل إفادة')).toBeTruthy();
     });
   });
 
   it('shows view button for transaction with an existing response', async () => {
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText('عرض الرد')).toBeTruthy();
+      expect(screen.getByText('تعديل الإفادة')).toBeTruthy();
     });
   });
 
   it('opens create form from transaction row with no manual transaction ID input', async () => {
     mockApi.getDepartmentTransactions.mockResolvedValueOnce({ data: [txNoResponse] } as never);
     renderPage();
-    await waitFor(() => screen.getByText('إنشاء رد'));
-    fireEvent.click(screen.getByText('إنشاء رد'));
+    await waitFor(() => screen.getByText('تسجيل إفادة'));
+    fireEvent.click(screen.getByText('تسجيل إفادة'));
     await waitFor(() => {
       expect(screen.getByText(/موضوع الاختبار/)).toBeTruthy();
       // no manual transaction ID field
@@ -123,18 +128,18 @@ describe('DepartmentTransactionsPage', () => {
   it('opens detail view on clicking view button', async () => {
     mockApi.getById.mockResolvedValue({ data: detailDraft } as never);
     renderPage();
-    await waitFor(() => screen.getByText('عرض الرد'));
-    fireEvent.click(screen.getByText('عرض الرد'));
+    await waitFor(() => screen.getByText('تعديل الإفادة'));
+    fireEvent.click(screen.getByText('تعديل الإفادة'));
     await waitFor(() => {
-      expect(screen.getByText('نص الرد')).toBeTruthy();
+      expect(screen.getByDisplayValue('نص الرد')).toBeTruthy();
     });
   });
 
   it('shows submit button for Draft responses', async () => {
     mockApi.getById.mockResolvedValue({ data: detailDraft } as never);
     renderPage();
-    await waitFor(() => screen.getByText('عرض الرد'));
-    fireEvent.click(screen.getByText('عرض الرد'));
+    await waitFor(() => screen.getByText('تعديل الإفادة'));
+    fireEvent.click(screen.getByText('تعديل الإفادة'));
     await waitFor(() => {
       expect(screen.getByText('تقديم للمراجعة')).toBeTruthy();
     });
@@ -145,8 +150,8 @@ describe('DepartmentTransactionsPage', () => {
       data: { ...detailDraft, status: 'Approved' },
     } as never);
     renderPage();
-    await waitFor(() => screen.getByText('عرض الرد'));
-    fireEvent.click(screen.getByText('عرض الرد'));
+    await waitFor(() => screen.getByText('تعديل الإفادة'));
+    fireEvent.click(screen.getByText('تعديل الإفادة'));
     await waitFor(() => {
       expect(screen.queryByText('تقديم للمراجعة')).toBeNull();
       expect(screen.queryByText('حفظ التعديلات')).toBeNull();
@@ -158,10 +163,27 @@ describe('DepartmentTransactionsPage', () => {
       data: { ...detailDraft, status: 'ReturnedForCorrection', reviewNote: 'يحتاج إصلاح' },
     } as never);
     renderPage();
-    await waitFor(() => screen.getByText('عرض الرد'));
-    fireEvent.click(screen.getByText('عرض الرد'));
+    await waitFor(() => screen.getByText('تعديل الإفادة'));
+    fireEvent.click(screen.getByText('تعديل الإفادة'));
     await waitFor(() => {
       expect(screen.getByText(/يحتاج إصلاح/)).toBeTruthy();
+    });
+  });
+
+  it('form text does not leak between responses', async () => {
+    const detail2: DepartmentResponseDto = { ...detailDraft, id: 2, responseText: 'نص ثانٍ' };
+    mockApi.getById
+      .mockResolvedValueOnce({ data: detailDraft } as never)
+      .mockResolvedValue({ data: detail2 } as never);
+    renderPage();
+    await waitFor(() => screen.getByText('تعديل الإفادة'));
+    fireEvent.click(screen.getByText('تعديل الإفادة'));
+    await waitFor(() => screen.getByText('رجوع للقائمة'));
+    fireEvent.click(screen.getByText('رجوع للقائمة'));
+    await waitFor(() => screen.getByText('تعديل الإفادة'));
+    fireEvent.click(screen.getByText('تعديل الإفادة'));
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('نص ثانٍ')).toBeTruthy();
     });
   });
 });

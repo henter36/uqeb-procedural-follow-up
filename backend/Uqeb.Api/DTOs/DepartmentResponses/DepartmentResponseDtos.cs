@@ -1,5 +1,3 @@
-using Uqeb.Api.Models.Enums;
-
 namespace Uqeb.Api.DTOs.DepartmentResponses;
 
 public record DepartmentResponseDto(
@@ -55,12 +53,18 @@ public record ReviewDepartmentResponseRequest(
     string? ReviewNote
 );
 
-public record DepartmentTransactionItem(
+public record DepartmentTransactionResponseItemDto(
     int TransactionId,
     string InternalTrackingNumber,
     string Subject,
-    string TransactionStatus,
+    DateTime? IncomingDate,
+    string Priority,
     DateTime? AssignedDate,
-    int? ResponseId,
-    string? ResponseStatus
+    int DepartmentId,
+    string DepartmentName,
+    int? DepartmentResponseId,
+    string? DepartmentResponseStatus,
+    bool CanCreateResponse,
+    bool CanEditResponse,
+    bool CanSubmitResponse
 );

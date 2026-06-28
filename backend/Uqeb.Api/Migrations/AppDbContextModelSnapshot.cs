@@ -347,7 +347,10 @@ namespace Uqeb.Api.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Sha256")
-                        .HasColumnType("nvarchar(max)");
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
 
                     b.Property<string>("StoragePath")
                         .IsRequired()

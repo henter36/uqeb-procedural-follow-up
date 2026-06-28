@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { departmentResponsesApi } from '../api/services';
-import type { DepartmentResponseDto, DepartmentTransactionItem } from '../api/types';
+import type { DepartmentResponseDto, DepartmentTransactionResponseItemDto } from '../api/types';
 import { PageHeader, EmptyState, ErrorState } from '../components/ui';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -34,7 +34,7 @@ type ViewState =
   | { kind: 'detail'; id: number };
 
 export default function DepartmentTransactionsPage() {
-  const [transactions, setTransactions] = useState<DepartmentTransactionItem[]>([]);
+  const [transactions, setTransactions] = useState<DepartmentTransactionResponseItemDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<ViewState>({ kind: 'list' });
@@ -65,6 +65,7 @@ export default function DepartmentTransactionsPage() {
   async function openDetail(responseId: number) {
     setDetailLoading(true);
     setDetail(null);
+    setForm({ responseText: '' });
     setFormError(null);
     setView({ kind: 'detail', id: responseId });
     try {
@@ -79,7 +80,7 @@ export default function DepartmentTransactionsPage() {
     }
   }
 
-  function openCreate(tx: DepartmentTransactionItem) {
+  function openCreate(tx: DepartmentTransactionResponseItemDto) {
     setFormError(null);
     setForm({ responseText: '' });
     setView({ kind: 'new', transactionId: tx.transactionId, subject: tx.subject, trackingNumber: tx.internalTrackingNumber });
@@ -381,22 +382,33 @@ export default function DepartmentTransactionsPage() {
                   <td>{tx.internalTrackingNumber}</td>
                   <td className="max-w-xs truncate">{tx.subject}</td>
                   <td>
-                    {tx.responseStatus
-                      ? statusBadge(tx.responseStatus)
+                    {tx.departmentResponseStatus
+                      ? statusBadge(tx.departmentResponseStatus)
                       : <span className="text-gray-400 text-xs">لم تُنشأ بعد</span>}
                   </td>
                   <td>{tx.assignedDate ? new Date(tx.assignedDate).toLocaleDateString('ar-SA') : '—'}</td>
                   <td>
-                    {tx.responseId
-                      ? (
-                        <button className="text-blue-600 hover:underline text-sm" onClick={() => openDetail(tx.responseId!)}>
-                          عرض الرد
-                        </button>
-                      ) : (
-                        <button className="text-green-600 hover:underline text-sm" onClick={() => openCreate(tx)}>
-                          إنشاء رد
-                        </button>
-                      )}
+                    {tx.canCreateResponse && (
+                      <button className="text-green-600 hover:underline text-sm" onClick={() => openCreate(tx)}>
+                        تسجيل إفادة
+                      </button>
+                    )}
+                    {tx.canEditResponse && (
+                      <button className="text-blue-600 hover:underline text-sm" onClick={() => openDetail(tx.departmentResponseId!)}>
+                        تعديل الإفادة
+                      </button>
+                    )}
+                    {tx.departmentResponseStatus === 'SubmittedForReview' && (
+                      <button className="text-gray-400 text-sm cursor-not-allowed" disabled>
+                        بانتظار المراجعة
+                      </button>
+                    )}
+                    {tx.departmentResponseStatus === 'Approved' && (
+                      <span className="text-green-600 text-xs font-medium">معتمدة</span>
+                    )}
+                    {tx.departmentResponseStatus === 'Rejected' && (
+                      <span className="text-red-600 text-xs font-medium">مرفوضة</span>
+                    )}
                   </td>
                 </tr>
               ))}

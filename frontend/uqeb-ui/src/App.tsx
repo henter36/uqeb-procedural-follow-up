@@ -162,7 +162,7 @@ export default function App() {
             <Route
               path="department-responses/review"
               element={(
-                <ProtectedRoute requiredRoles={['Admin', 'Supervisor']}>
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']}>
                   <DepartmentResponseReviewPage />
                 </ProtectedRoute>
               )}
