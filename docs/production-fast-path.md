@@ -170,8 +170,10 @@ $prevWeb = "C:\Uqeb\releases\$prevVersion\web"
 # إيقاف API
 Stop-ScheduledTask -TaskName UqebApi
 
-# استعادة الملفات باستخدام robocopy
-robocopy "$prevApi" "C:\Uqeb\current\api" /MIR /NFL /NDL
+# استعادة API: /E بدلاً من /MIR للحفاظ على ملفات الإعداد المحلية غير الموجودة في الأرشيف
+robocopy "$prevApi" "C:\Uqeb\current\api" /E /IS /IT /NFL /NDL
+
+# استعادة Web: /MIR صحيح هنا (static files فقط، لا ملفات إعداد محلية)
 robocopy "$prevWeb" "C:\Uqeb\current\web" /MIR /NFL /NDL
 
 # تشغيل API

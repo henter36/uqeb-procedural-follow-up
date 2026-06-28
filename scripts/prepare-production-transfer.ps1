@@ -74,31 +74,46 @@ if ($actualHash -ne $expectedHash) {
 }
 Write-DeployInfo "SHA256 للحزمة مطابق."
 
-# Read version from manifest inside ZIP
+# Read and validate manifest inside ZIP — all three fields are required
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zipArchive  = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
-$manifestEntry = $zipArchive.Entries | Where-Object { $_.FullName -eq 'manifest.json' } | Select-Object -First 1
-$packageVersion = ""
-$packageCommit  = ""
+$packageVersion    = ""
+$packageCommit     = ""
 $requiredMigration = ""
 try {
-    if ($manifestEntry) {
-        $stream  = $manifestEntry.Open()
-        $reader  = New-Object System.IO.StreamReader $stream
+    $manifestEntry = $zipArchive.Entries |
+        Where-Object { $_.FullName -eq 'manifest.json' } |
+        Select-Object -First 1
+    if (-not $manifestEntry) {
+        throw "manifest.json غير موجود في حزمة ZIP. الحزمة ربما تالفة أو بُنيت بإصدار قديم."
+    }
+    $stream = $manifestEntry.Open()
+    $reader = New-Object System.IO.StreamReader $stream
+    $manifestJson = $null
+    try {
         $manifestJson = $reader.ReadToEnd() | ConvertFrom-Json
-        $packageVersion    = [string]$manifestJson.version
-        $packageCommit     = [string]$manifestJson.commitSha
-        $requiredMigration = [string]$manifestJson.minimumDatabaseMigration
-        $reader.Dispose()
-        $stream.Dispose()
+    }
+    catch {
+        throw "تعذر تفسير manifest.json كـ JSON: $($_.Exception.Message)"
+    }
+    finally { $reader.Dispose(); $stream.Dispose() }
+
+    $packageVersion    = [string]$manifestJson.version
+    $packageCommit     = [string]$manifestJson.commitSha
+    $requiredMigration = [string]$manifestJson.minimumDatabaseMigration
+
+    if ([string]::IsNullOrWhiteSpace($packageVersion)) {
+        throw "حقل 'version' مفقود أو فارغ في manifest.json. الحزمة غير صالحة."
+    }
+    if ([string]::IsNullOrWhiteSpace($packageCommit)) {
+        throw "حقل 'commitSha' مفقود أو فارغ في manifest.json. الحزمة غير صالحة."
+    }
+    if ([string]::IsNullOrWhiteSpace($requiredMigration)) {
+        throw "حقل 'minimumDatabaseMigration' مفقود أو فارغ في manifest.json. الحزمة غير صالحة."
     }
 }
 finally {
     $zipArchive.Dispose()
-}
-
-if ([string]::IsNullOrWhiteSpace($packageVersion)) {
-    $packageVersion = [System.IO.Path]::GetFileNameWithoutExtension($ZipPath)
 }
 
 Write-DeployInfo ("الإصدار: " + $packageVersion)
@@ -137,8 +152,7 @@ $scriptsToTools = @(
 foreach ($script in $scriptsToTools) {
     $src = Join-Path $scriptDir $script
     if (-not (Test-Path -LiteralPath $src)) {
-        Write-DeployInfo ("تحذير: السكربت غير موجود في repo ولن يُضاف: " + $script)
-        continue
+        throw "سكربت النشر الإلزامي غير موجود في repo: $script. تحقق من أن الفرع محدّث."
     }
     Copy-Item -LiteralPath $src -Destination (Join-Path $toolsDir $script) -Force
 }

@@ -245,17 +245,17 @@ function Test-IdempotentMigrationScriptRepaired {
         if (-not $r1Ok) { return $false }
     }
 
-    # Repair 2: LetterTemplates V2 UPDATE must be wrapped in EXEC() (only when pattern is present).
-    # The UPDATE text will still appear inside the EXEC string after repair, so we detect repair by
-    # checking that EXEC wrapper is present whenever UPDATE is present.
-    $v2UpdatePresent = $Content -match '(?is)UPDATE\s+\[?LetterTemplates\]?\s+SET\s+\[?IsDefault\]?\s*=\s*1'
+    # Repair 2: LetterTemplates follow_up_letter UPDATE must be wrapped in EXEC().
+    # Only applies when the specific WHERE [Code] = N'follow_up_letter' pattern is present.
+    $v2UpdatePresent = $Content -match "(?is)UPDATE\s+\[?LetterTemplates\]?\s+SET\s+[^;]*WHERE\s+\[?Code\]?\s*=\s*N?'follow_up_letter'"
     if ($v2UpdatePresent) {
         $anyRepairApplicable = $true
-        $v2ExecPresent = $Content -match '(?is)EXEC\s*\(\s*N''UPDATE\s+\[?LetterTemplates\]?'
+        $v2ExecPresent = $Content -match "(?is)EXEC\s*\(\s*N'UPDATE\s+\[?LetterTemplates\]?"
         if (-not $v2ExecPresent) { return $false }
     }
 
-    return $anyRepairApplicable
+    # All found patterns have been repaired (or no patterns found at all)
+    return $true
 }
 
 function Repair-IdempotentMigrationScript {
@@ -282,15 +282,23 @@ function Repair-IdempotentMigrationScript {
         }
     }
 
-    # Repair 2: Wrap the LetterTemplates V2 data-fix UPDATE inside EXEC() so that
-    # SQL Server defers column-name validation to runtime rather than batch-compile time.
-    # This prevents "Invalid column name 'IsDefault'" when ALTER TABLE and UPDATE share a batch.
-    $v2UpdatePresent = $Content -match '(?is)UPDATE\s+\[?LetterTemplates\]?\s+SET\s+\[?IsDefault\]?\s*=\s*1'
-    $v2ExecPresent   = $Content -match '(?is)EXEC\s*\(\s*N''UPDATE\s+\[?LetterTemplates\]?'
-    if ($v2UpdatePresent -and -not $v2ExecPresent) {
-        $v2Pattern = '(?is)(UPDATE\s+\[?LetterTemplates\]?\s+SET\s+\[?IsDefault\]?\s*=\s*1\b[^;]*;)'
-        $execWrapper = "EXEC(N'UPDATE [LetterTemplates] SET [IsDefault] = 1, [TemplateType] = 1, [SortOrder] = 0 WHERE [Code] = N''follow_up_letter''')"
-        $Content = [regex]::Replace($Content, $v2Pattern, $execWrapper, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::Singleline)
+    # Repair 2: Wrap the follow_up_letter LetterTemplates UPDATE inside EXEC() so that SQL Server
+    # defers column-name validation to runtime. Only matches the specific follow_up_letter row;
+    # other LetterTemplates UPDATEs in future migrations are left untouched.
+    $v2Pattern = "(?is)(UPDATE\s+\[?LetterTemplates\]?\s+SET\s+[^;]*WHERE\s+\[?Code\]?\s*=\s*N?'follow_up_letter'[^;]*;)"
+    $v2ExecPresent = $Content -match "(?is)EXEC\s*\(\s*N'UPDATE\s+\[?LetterTemplates\]?"
+    if (($Content -match $v2Pattern) -and -not $v2ExecPresent) {
+        $Content = [regex]::Replace(
+            $Content,
+            $v2Pattern,
+            [System.Text.RegularExpressions.MatchEvaluator]{
+                param($m)
+                # Strip trailing semicolon, escape embedded single quotes, wrap in EXEC(N'...')
+                $sql     = $m.Groups[1].Value.TrimEnd().TrimEnd(';').Trim()
+                $escaped = $sql -replace "'", "''"
+                "EXEC(N'$escaped')"
+            }
+        )
     }
 
     return $Content

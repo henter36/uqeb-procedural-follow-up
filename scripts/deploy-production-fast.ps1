@@ -77,7 +77,7 @@ $report = [ordered]@{
     "Reason"                        = "لم يكتمل النشر"
 }
 
-function Write-Report {
+function Show-DeploymentReport {
     Write-Host ""
     Write-Host "======================================== DEPLOYMENT REPORT ========================================"
     foreach ($key in $report.Keys) {
@@ -92,7 +92,7 @@ function Fail-Deploy {
     param([string]$Reason)
     $report["Result"] = "NO-GO"
     $report["Reason"] = $Reason
-    Write-Report
+    Show-DeploymentReport
     exit 1
 }
 
@@ -103,7 +103,7 @@ $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = [Security.Principal.WindowsPrincipal]$identity
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     $report["Reason"] = "يجب تشغيل السكربت كـ Administrator."
-    Write-Report
+    Show-DeploymentReport
     exit 1
 }
 
@@ -242,20 +242,44 @@ if ($packageZip -ne $destZip) {
 # ---------------------------------------------------------------------------
 Write-DeployStep "قراءة manifest الحزمة"
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$zipArchive = [System.IO.Compression.ZipFile]::OpenRead($packageZip)
+$zipArchive = $null
 try {
+    try {
+        $zipArchive = [System.IO.Compression.ZipFile]::OpenRead($packageZip)
+    }
+    catch {
+        Fail-Deploy "تعذر فتح حزمة ZIP: $($_.Exception.Message)"
+    }
+
     $me = $zipArchive.Entries | Where-Object { $_.FullName -eq 'manifest.json' } | Select-Object -First 1
-    if ($me) {
-        $ms = $me.Open()
-        $mr = New-Object System.IO.StreamReader $ms
+    if (-not $me) {
+        Fail-Deploy "manifest.json غير موجود في حزمة ZIP: $packageZip. الحزمة ربما تالفة أو بُنيت بإصدار قديم."
+    }
+    $ms = $me.Open()
+    $mr = New-Object System.IO.StreamReader $ms
+    $mj = $null
+    try {
         $mj = $mr.ReadToEnd() | ConvertFrom-Json
-        $report["Version"]                    = [string]$mj.version
-        $report["CommitSha"]                  = [string]$mj.commitSha
-        $report["DatabaseRequiredMigration"]  = [string]$mj.minimumDatabaseMigration
-        $mr.Dispose(); $ms.Dispose()
+    }
+    catch {
+        Fail-Deploy "تعذر تفسير manifest.json كـ JSON: $($_.Exception.Message)"
+    }
+    finally { $mr.Dispose(); $ms.Dispose() }
+
+    $report["Version"]                   = [string]$mj.version
+    $report["CommitSha"]                 = [string]$mj.commitSha
+    $report["DatabaseRequiredMigration"] = [string]$mj.minimumDatabaseMigration
+
+    if ([string]::IsNullOrWhiteSpace($report["Version"])) {
+        Fail-Deploy "حقل 'version' مفقود في manifest.json. الحزمة غير صالحة."
+    }
+    if ([string]::IsNullOrWhiteSpace($report["DatabaseRequiredMigration"])) {
+        Fail-Deploy "حقل 'minimumDatabaseMigration' مفقود في manifest.json. الحزمة غير صالحة."
     }
 }
-finally { $zipArchive.Dispose() }
+finally {
+    if ($null -ne $zipArchive) { $zipArchive.Dispose() }
+}
 
 Write-DeployInfo ("الإصدار: " + $report["Version"])
 Write-DeployInfo ("آخر migration مطلوبة: " + $report["DatabaseRequiredMigration"])
@@ -357,7 +381,13 @@ $report["ReleaseManifest"] = $releaseManifestPath
 Write-DeployInfo "release-manifest.json موجود."
 
 # 7b. Verify release manifest contents match package
-$releaseManifestJson = Get-Content -LiteralPath $releaseManifestPath -Raw | ConvertFrom-Json
+$releaseManifestJson = $null
+try {
+    $releaseManifestJson = Get-Content -LiteralPath $releaseManifestPath -Raw | ConvertFrom-Json
+}
+catch {
+    Fail-Deploy "تعذر قراءة release-manifest.json أو تفسيره: $($_.Exception.Message)"
+}
 $manifestVersion = [string]$releaseManifestJson.version
 if (-not [string]::IsNullOrWhiteSpace($report["Version"]) -and
     $manifestVersion -ne $report["Version"]) {
@@ -479,6 +509,19 @@ if (-not $SkipHealthCheck) {
     $ApiBaseUrl = "http://${ApiBindAddress}:${ApiPort}"
     Write-DeployStep "فحص health endpoints"
 
+    function Get-HttpResponseStatusCode {
+        # Safely extract HTTP status code from a caught exception under Set-StrictMode -Version Latest.
+        # .Response exists on WebException (PS 5.1) and HttpResponseException (PS 7+) but not on all
+        # exception types; accessing a missing .NET property under StrictMode throws, hence the inner try.
+        param($ExceptionRecord)
+        try {
+            $resp = $ExceptionRecord.Exception.Response
+            if ($null -ne $resp) { return [int]$resp.StatusCode }
+        }
+        catch { }
+        return $null
+    }
+
     function Invoke-SimpleGet {
         param([string]$Uri, [int]$TimeoutSec = 20)
         try {
@@ -486,9 +529,11 @@ if (-not $SkipHealthCheck) {
             return [pscustomobject]@{ StatusCode = [int]$r.StatusCode; Content = $r.Content; Error = $null }
         }
         catch {
-            $sc = $null
-            if ($_.Exception.Response) { $sc = [int]$_.Exception.Response.StatusCode }
-            return [pscustomobject]@{ StatusCode = $sc; Content = $null; Error = $_.Exception.Message }
+            return [pscustomobject]@{
+                StatusCode = Get-HttpResponseStatusCode $_
+                Content    = $null
+                Error      = $_.Exception.Message
+            }
         }
     }
 
@@ -500,9 +545,11 @@ if (-not $SkipHealthCheck) {
             return [pscustomobject]@{ StatusCode = [int]$r.StatusCode; Content = $r.Content; Error = $null }
         }
         catch {
-            $sc = $null
-            if ($_.Exception.Response) { $sc = [int]$_.Exception.Response.StatusCode }
-            return [pscustomobject]@{ StatusCode = $sc; Content = $null; Error = $_.Exception.Message }
+            return [pscustomobject]@{
+                StatusCode = Get-HttpResponseStatusCode $_
+                Content    = $null
+                Error      = $_.Exception.Message
+            }
         }
     }
 
@@ -534,14 +581,17 @@ if (-not $SkipHealthCheck) {
             if ($ready.Content) {
                 try {
                     $rb = $ready.Content | ConvertFrom-Json
-                    if ($rb.checks) {
-                        $failedChecks = $rb.checks.PSObject.Properties |
+                    $checksVal = $rb.PSObject.Properties['checks']
+                    if ($null -ne $checksVal -and $null -ne $checksVal.Value) {
+                        $failedChecks = $checksVal.Value.PSObject.Properties |
                             Where-Object { $_.Value -notin @('pass', 'not_applicable') } |
                             ForEach-Object { "$($_.Name)=$($_.Value)" }
                         $report["HealthReady"] += " [failed: " + ($failedChecks -join ", ") + "]"
                     }
                 }
-                catch { }
+                catch {
+                    Write-Verbose "تعذر تفسير body الـ /health/ready: $($_.Exception.Message)"
+                }
             }
             Fail-Deploy "/health/ready لم يُعِد 200. النظام غير جاهز بالكامل."
         }
@@ -593,6 +643,6 @@ if (-not $SkipHealthCheck) {
 $report["Result"] = "GO"
 $report["Reason"] = "اكتمل النشر وجميع الفحوصات نجحت."
 
-Write-Report
+Show-DeploymentReport
 Write-Host "✓ Result: GO" -ForegroundColor Green
 exit 0

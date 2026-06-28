@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
   تطبيق migrations-idempotent.sql على SQL Server بدون sqlcmd.
@@ -142,13 +142,22 @@ Write-DeployInfo ("آخر migration مطبّق حالياً: " + $(
     if ([string]::IsNullOrWhiteSpace($currentMigrationBefore)) { "(لا يوجد)" } else { $currentMigrationBefore }
 ))
 
-# Skip if already up-to-date
+# Skip if already at exact expected migration; fail if DB is NEWER than package
 if (-not [string]::IsNullOrWhiteSpace($ExpectedLatestMigration) -and
-    -not [string]::IsNullOrWhiteSpace($currentMigrationBefore) -and
-    [string]$currentMigrationBefore -ge [string]$ExpectedLatestMigration) {
-    Write-DeployInfo "قاعدة البيانات محدّثة بالفعل. لا حاجة لتطبيق migrations."
-    Write-DeployInfo "اكتمل التحقق بنجاح."
-    exit 0
+    -not [string]::IsNullOrWhiteSpace($currentMigrationBefore)) {
+
+    if ([string]$currentMigrationBefore -gt [string]$ExpectedLatestMigration) {
+        throw ("قاعدة البيانات ($currentMigrationBefore) أحدث من أحدث migration في الحزمة " +
+               "($ExpectedLatestMigration). لا يمكن النشر على قاعدة بيانات أحدث من الحزمة. " +
+               "تحقق من الإصدار الصحيح أو استخدم حزمة مطابقة.")
+    }
+
+    if ([string]$currentMigrationBefore -eq [string]$ExpectedLatestMigration) {
+        Write-DeployInfo "قاعدة البيانات محدّثة بالفعل. لا حاجة لتطبيق migrations."
+        Write-DeployInfo "اكتمل التحقق بنجاح."
+        exit 0
+    }
+    # currentMigration < ExpectedLatestMigration: fall through to apply
 }
 
 Write-DeployInfo "ترقية قاعدة البيانات مطلوبة."
