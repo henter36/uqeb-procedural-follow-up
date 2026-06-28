@@ -892,8 +892,10 @@ export default function ReportBuilderPage() {
 
           {/* 5 ── الأقسام */}
           <h3 className="report-builder-section-title">
-            الأقسام
-            <span className="rb-filter-badge rb-sections-badge">{sectionIds.length} / {SECTIONS.length}</span>
+            <span>الأقسام</span>
+            <span className="rb-filter-badge rb-sections-badge">
+              {sectionIds.length} / {SECTIONS.length}
+            </span>
           </h3>
 
           <div className="rb-preset-buttons">
