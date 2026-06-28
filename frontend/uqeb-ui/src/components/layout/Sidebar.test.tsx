@@ -22,6 +22,7 @@ function createAdminAuthState() {
   return {
     isAdmin: true,
     canClose: true,
+    canOperateFollowUpPrint: true,
     user: { fullName: 'مختبر', role: 'Admin' },
     logout: vi.fn(),
     login: vi.fn(),

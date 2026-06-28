@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { followUpPrintApi } from '../api/services';
-import type { FollowUpLetterPrintRecord } from '../api/types';
+import { followUpPrintApi, transactionsApi } from '../api/services';
+import type { FollowUp, FollowUpLetterPrintRecord } from '../api/types';
 import { getApiErrorMessage } from '../utils/apiHelpers';
 import { createIdempotencyKey } from '../utils/createIdempotencyKey';
 import { sanitizeFullDocumentHtml } from '../utils/sanitizePrintHtml';
@@ -9,6 +9,7 @@ import DateDisplay from '../components/DateDisplay';
 import {
   Alert, EmptyState, LoadingInline, PageHeader, Pagination,
 } from '../components/ui';
+import { useAuth } from '../context/useAuth';
 import { useDeferredEffect } from '../hooks/useDeferredEffect';
 import { usePendingPrintSummary } from '../hooks/usePendingPrintSummary';
 
@@ -21,9 +22,31 @@ type RecordHandlers = {
   actingId: number | null;
 };
 
+function getFollowUpReference(followUp: FollowUp): string {
+  const visibleId = followUp.followUpNumber?.trim();
+  return visibleId ? `${visibleId} · #${followUp.id}` : `#${followUp.id}`;
+}
+
+function getFollowUpTarget(followUp: FollowUp): string {
+  const parts = [
+    followUp.sentTo?.trim(),
+    followUp.recipients.map((recipient) => recipient.partyName).filter(Boolean).join('، '),
+    followUp.departments.map((department) => department.departmentName).filter(Boolean).join('، '),
+  ].filter((part) => Boolean(part && part.length > 0));
+
+  return parts[0] ?? '—';
+}
+
+function getFollowUpSnippet(followUp: FollowUp): string {
+  return followUp.notes?.trim()
+    || followUp.replySummary?.trim()
+    || 'لا يوجد مختصر';
+}
+
 function PendingRecordRow({ record, handlers }: Readonly<{ record: FollowUpLetterPrintRecord; handlers: RecordHandlers }>) {
   const busy = handlers.actingId === record.id;
   const confirmed = Boolean(record.printConfirmedAt);
+
   return (
     <tr>
       <td>{record.incomingNumber}</td>
@@ -63,6 +86,7 @@ function PendingRecordRow({ record, handlers }: Readonly<{ record: FollowUpLette
 }
 
 export default function FollowUpPrintPendingPage() {
+  const { canClose } = useAuth();
   const [records, setRecords] = useState<FollowUpLetterPrintRecord[]>([]);
   const [summaryTotal, setSummaryTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -73,6 +97,15 @@ export default function FollowUpPrintPendingPage() {
   const [previewWarning, setPreviewWarning] = useState('');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [linkDialogRecord, setLinkDialogRecord] = useState<FollowUpLetterPrintRecord | null>(null);
+  const [linkFollowUps, setLinkFollowUps] = useState<FollowUp[]>([]);
+  const [linkLoading, setLinkLoading] = useState(false);
+  const [linkError, setLinkError] = useState('');
+  const [linkingFollowUpId, setLinkingFollowUpId] = useState<number | null>(null);
+  const [cancelDialogRecord, setCancelDialogRecord] = useState<FollowUpLetterPrintRecord | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelSubmitting, setCancelSubmitting] = useState(false);
+  const [cancelError, setCancelError] = useState('');
   const { refresh: refreshPendingSummary } = usePendingPrintSummary();
 
   const loadRecords = useCallback(async (active: () => boolean) => {
@@ -102,6 +135,21 @@ export default function FollowUpPrintPendingPage() {
   const refreshRecords = useCallback(async () => {
     await loadRecords(() => true);
   }, [loadRecords]);
+
+  const closeLinkDialog = useCallback(() => {
+    setLinkDialogRecord(null);
+    setLinkFollowUps([]);
+    setLinkLoading(false);
+    setLinkError('');
+    setLinkingFollowUpId(null);
+  }, []);
+
+  const closeCancelDialog = useCallback(() => {
+    setCancelDialogRecord(null);
+    setCancelReason('');
+    setCancelSubmitting(false);
+    setCancelError('');
+  }, []);
 
   const handleConfirm = async (record: FollowUpLetterPrintRecord) => {
     setActingId(record.id);
@@ -134,19 +182,57 @@ export default function FollowUpPrintPendingPage() {
     }
   };
 
-  const handleCancel = async (record: FollowUpLetterPrintRecord) => {
-    const reason = globalThis.prompt('سبب الإلغاء:');
-    if (!reason?.trim()) return;
+  const handleOpenCancelDialog = (record: FollowUpLetterPrintRecord) => {
     setActingId(record.id);
     setError('');
+    setMessage('');
+    setCancelDialogRecord(record);
+    setCancelReason('');
+    setCancelError('');
+    setCancelSubmitting(false);
+    setActingId(null);
+  };
+
+  const handleSubmitCancel = async () => {
+    if (!cancelDialogRecord) return;
+    const trimmedReason = cancelReason.trim();
+    if (!trimmedReason) {
+      setCancelError('سبب الإلغاء مطلوب.');
+      return;
+    }
+
+    setCancelSubmitting(true);
+    setCancelError('');
+    setError('');
     try {
-      await followUpPrintApi.cancelRecord(record.id, reason.trim());
-      setMessage(`تم إلغاء سجل ${record.incomingNumber}.`);
+      await followUpPrintApi.cancelRecord(cancelDialogRecord.id, trimmedReason);
+      setMessage(`تم إلغاء سجل ${cancelDialogRecord.incomingNumber}.`);
+      closeCancelDialog();
       await refreshRecords();
       await refreshPendingSummary();
     } catch (err: unknown) {
-      setError(getApiErrorMessage(err));
+      setCancelError(getApiErrorMessage(err));
     } finally {
+      setCancelSubmitting(false);
+    }
+  };
+
+  const handleOpenLinkDialog = async (record: FollowUpLetterPrintRecord) => {
+    setActingId(record.id);
+    setError('');
+    setMessage('');
+    setLinkDialogRecord(record);
+    setLinkFollowUps([]);
+    setLinkError('');
+    setLinkLoading(true);
+
+    try {
+      const res = await transactionsApi.getFollowUps(record.transactionId);
+      setLinkFollowUps(res.data);
+    } catch (err: unknown) {
+      setLinkError(getApiErrorMessage(err));
+    } finally {
+      setLinkLoading(false);
       setActingId(null);
     }
   };
@@ -154,6 +240,7 @@ export default function FollowUpPrintPendingPage() {
   const handleReprint = async (record: FollowUpLetterPrintRecord) => {
     setActingId(record.id);
     setError('');
+    setMessage('');
     try {
       await followUpPrintApi.reprintRecord(record.id, createIdempotencyKey());
       setMessage(`تم إنشاء إعادة طباعة لـ ${record.incomingNumber}.`);
@@ -166,29 +253,30 @@ export default function FollowUpPrintPendingPage() {
     }
   };
 
-  const handleLinkFollowUp = async (record: FollowUpLetterPrintRecord) => {
-    const followUpIdRaw = globalThis.prompt('رقم التعقيب المسجل:');
-    const followUpId = Number(followUpIdRaw);
-    if (!Number.isFinite(followUpId) || followUpId <= 0) return;
-    setActingId(record.id);
+  const handleSelectFollowUp = async (followUp: FollowUp) => {
+    if (!linkDialogRecord) return;
+
+    setLinkingFollowUpId(followUp.id);
     setError('');
+    setMessage('');
     try {
-      await followUpPrintApi.linkFollowUp(record.id, followUpId);
-      setMessage(`تم ربط ${record.incomingNumber} بالتعقيب ${followUpId}.`);
+      await followUpPrintApi.linkFollowUp(linkDialogRecord.id, followUp.id);
+      setMessage(`تم ربط ${linkDialogRecord.incomingNumber} بالتعقيب ${getFollowUpReference(followUp)}.`);
+      closeLinkDialog();
       await refreshRecords();
       await refreshPendingSummary();
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
     } finally {
-      setActingId(null);
+      setLinkingFollowUpId(null);
     }
   };
 
   const handlers: RecordHandlers = {
     onConfirm: (r) => { handleConfirm(r).catch(() => undefined); },
-    onCancel: (r) => { handleCancel(r).catch(() => undefined); },
+    onCancel: (r) => { handleOpenCancelDialog(r); },
     onReprint: (r) => { handleReprint(r).catch(() => undefined); },
-    onLinkFollowUp: (r) => { handleLinkFollowUp(r).catch(() => undefined); },
+    onLinkFollowUp: (r) => { handleOpenLinkDialog(r).catch(() => undefined); },
     onViewLetter: (r) => { handleViewLetter(r).catch(() => undefined); },
     actingId,
   };
@@ -237,14 +325,14 @@ export default function FollowUpPrintPendingPage() {
   return (
     <div dir="rtl">
       <PageHeader
-        title="خطابات بانتظار التسجيل"
-        subtitle="سجلات طُلبت طباعتها ولم تُسجّل بعد كتعقيب"
-        actions={(
+        title="بانتظار تسجيل التعقيب"
+        subtitle="سجلات طُلبت طباعتها ولم تُربط بعد بتعقيب مسجل"
+        actions={canClose ? (
           <>
             <Link to="/follow-up-print/jobs" className="btn btn-outline">مهام الطباعة</Link>
             <Link to="/follow-up-print/eligible" className="btn btn-outline">المعاملات المستحقة</Link>
           </>
-        )}
+        ) : undefined}
       />
 
       {message && <Alert variant="success">{message}</Alert>}
@@ -252,7 +340,7 @@ export default function FollowUpPrintPendingPage() {
 
       <div className="card">
         <div className="card-header">
-          <h3 className="card-title">سجلات بانتظار التسجيل</h3>
+          <h3 className="card-title">السجلات بانتظار تسجيل التعقيب</h3>
           <span className="badge badge-orange">{summaryTotal} معلق</span>
         </div>
         {renderRecordsContent()}
@@ -271,6 +359,96 @@ export default function FollowUpPrintPendingPage() {
             srcDoc={previewHtml}
             sandbox="allow-same-origin allow-modals"
           />
+        </div>
+      )}
+
+      {linkDialogRecord && (
+        <div className="modal-overlay" role="presentation">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="pending-link-dialog-title">
+            <h3 id="pending-link-dialog-title">ربط تعقيب</h3>
+            <p className="text-muted">
+              اختر التعقيب المسجل لهذه المعاملة. لا يمكن إدخال معرف يدوي.
+            </p>
+            <div className="form-group">
+              <div className="text-muted">
+                المعاملة: {linkDialogRecord.incomingNumber} - {linkDialogRecord.subject}
+              </div>
+            </div>
+
+            {linkLoading && <LoadingInline label="جاري تحميل التعقيبات..." />}
+
+            {!linkLoading && linkError && <Alert variant="error">{linkError}</Alert>}
+
+            {!linkLoading && !linkError && linkFollowUps.length === 0 && (
+              <Alert variant="info">
+                لا توجد تعقيبات مسجلة لهذه المعاملة. سجّل تعقيبًا أولًا من صفحة المعاملة ثم ارجع للربط.
+              </Alert>
+            )}
+
+            {!linkLoading && !linkError && linkFollowUps.length > 0 && (
+              <div className="modal-followup-list">
+                {linkFollowUps.map((followUp) => {
+                  const selecting = linkingFollowUpId === followUp.id;
+                  return (
+                    <div key={followUp.id} className="card" style={{ marginBottom: 'var(--space-3)' }}>
+                      <div className="card-header" style={{ alignItems: 'flex-start' }}>
+                        <div>
+                          <h4 className="card-title">{getFollowUpReference(followUp)}</h4>
+                          <div className="text-muted">التاريخ: <DateDisplay date={followUp.followUpDate} /></div>
+                          <div className="text-muted">الجهة: {getFollowUpTarget(followUp)}</div>
+                          <div className="text-muted">مختصر: {getFollowUpSnippet(followUp)}</div>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm"
+                          onClick={() => { handleSelectFollowUp(followUp).catch(() => undefined); }}
+                          disabled={selecting || Boolean(linkingFollowUpId)}
+                        >
+                          {selecting ? 'جاري الربط...' : 'ربط هذا التعقيب'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="modal-actions">
+              <button type="button" className="btn btn-outline" onClick={closeLinkDialog} disabled={linkLoading || Boolean(linkingFollowUpId)}>
+                إغلاق
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {cancelDialogRecord && (
+        <div className="modal-overlay" role="presentation">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="pending-cancel-dialog-title">
+            <h3 id="pending-cancel-dialog-title">إلغاء سجل الطباعة</h3>
+            <p className="text-muted">
+              سيُحذف السجل من قائمة الانتظار. حدّد سبب الإلغاء بوضوح.
+            </p>
+            <div className="form-group">
+              <label htmlFor="cancel-reason">سبب الإلغاء</label>
+              <textarea
+                id="cancel-reason"
+                value={cancelReason}
+                onChange={(event) => setCancelReason(event.target.value)}
+                rows={4}
+                disabled={cancelSubmitting}
+              />
+            </div>
+            {cancelError && <Alert variant="error">{cancelError}</Alert>}
+            <div className="modal-actions">
+              <button type="button" className="btn btn-primary" onClick={() => { handleSubmitCancel().catch(() => undefined); }} disabled={cancelSubmitting}>
+                {cancelSubmitting ? 'جاري الإلغاء...' : 'تأكيد الإلغاء'}
+              </button>
+              <button type="button" className="btn btn-outline" onClick={closeCancelDialog} disabled={cancelSubmitting}>
+                إغلاق
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -96,7 +96,7 @@ export default function App() {
             <Route
               path="follow-up-print/pending"
               element={(
-                <ProtectedRoute requiredRoles={['Admin', 'Supervisor']}>
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']}>
                   <FollowUpPrintPendingPage />
                 </ProtectedRoute>
               )}

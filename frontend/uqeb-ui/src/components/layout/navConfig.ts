@@ -11,6 +11,7 @@ export type NavItem = {
   icon: ComponentType<SVGProps<SVGSVGElement>>;
   adminOnly?: boolean;
   supervisorOnly?: boolean;
+  followUpPrintOnly?: boolean;
   matchPrefix?: boolean;
   badgeKey?: 'pendingPrints';
 };
@@ -40,7 +41,7 @@ export function buildNavSections(institutionalReportsEnabled = isInstitutionalRe
         { path: '/letter-template', label: 'قوالب خطاب التعقيب', icon: IconLetter, supervisorOnly: true, matchPrefix: true },
         { path: '/follow-up-print/eligible', label: 'طباعة التعقيب — المستحقة', icon: IconPrint, supervisorOnly: true, matchPrefix: true },
         { path: '/follow-up-print/jobs', label: 'مهام طباعة التعقيب', icon: IconPrint, supervisorOnly: true, matchPrefix: true },
-        { path: '/follow-up-print/pending', label: 'بانتظار تسجيل التعقيب', icon: IconPrint, supervisorOnly: true, badgeKey: 'pendingPrints' },
+        { path: '/follow-up-print/pending', label: 'بانتظار تسجيل التعقيب', icon: IconPrint, followUpPrintOnly: true, badgeKey: 'pendingPrints' },
         { path: '/transactions/import', label: 'استيراد Excel', icon: IconImport, adminOnly: true },
       ],
     },
@@ -81,7 +82,7 @@ export function getRouteMeta(pathname: string, search: string): RouteMeta {
     '/letter-template': { title: 'قوالب خطاب التعقيب', breadcrumbs: [{ label: 'قوالب خطاب التعقيب' }] },
     '/follow-up-print/eligible': { title: 'المعاملات المستحقة للتعقيب', breadcrumbs: [{ label: 'طباعة التعقيب' }, { label: 'المستحقة' }] },
     '/follow-up-print/jobs': { title: 'مهام طباعة التعقيب', breadcrumbs: [{ label: 'طباعة التعقيب' }, { label: 'المهام' }] },
-    '/follow-up-print/pending': { title: 'بانتظار تسجيل التعقيب', breadcrumbs: [{ label: 'طباعة التعقيب' }, { label: 'بانتظار التسجيل' }] },
+    '/follow-up-print/pending': { title: 'بانتظار تسجيل التعقيب', breadcrumbs: [{ label: 'طباعة التعقيب' }, { label: 'بانتظار تسجيل التعقيب' }] },
     '/users': { title: 'المستخدمون', breadcrumbs: [{ label: 'الإدارة' }, { label: 'المستخدمون' }] },
     '/departments': { title: 'الإدارات', breadcrumbs: [{ label: 'الإدارة' }, { label: 'الإدارات' }] },
     '/external-parties': { title: 'الجهات الخارجية', breadcrumbs: [{ label: 'الإدارة' }, { label: 'الجهات الخارجية' }] },

@@ -26,12 +26,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const role = user?.role ?? '';
+  const canOperateFollowUpPrint = ['Admin', 'Supervisor', 'DataEntry'].includes(role);
   return (
     <AuthContext.Provider value={{
       user, login, logout,
       isAdmin: role === 'Admin',
       canEdit: ['Admin', 'Supervisor', 'DataEntry'].includes(role),
       canClose: ['Admin', 'Supervisor'].includes(role),
+      canOperateFollowUpPrint,
       isDepartmentUser: role === 'DepartmentUser',
     }}>
       {children}

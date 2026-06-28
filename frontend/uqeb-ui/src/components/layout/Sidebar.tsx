@@ -15,10 +15,10 @@ type SidebarProps = Readonly<{
 }>;
 
 export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
-  const { isAdmin, canClose } = useAuth();
+  const { isAdmin, canClose, canOperateFollowUpPrint } = useAuth();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(() => getStorageItem(SIDEBAR_KEY) === 'true');
-  const { pendingTotal } = usePendingPrintSummary(canClose);
+  const { pendingTotal } = usePendingPrintSummary(canOperateFollowUpPrint);
 
   useEffect(() => {
     setStorageItem(SIDEBAR_KEY, String(collapsed));
@@ -27,6 +27,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const isVisible = (item: NavItem) => {
     if (item.adminOnly && !isAdmin) return false;
     if (item.supervisorOnly && !canClose) return false;
+    if (item.followUpPrintOnly && !canOperateFollowUpPrint) return false;
     return true;
   };
 

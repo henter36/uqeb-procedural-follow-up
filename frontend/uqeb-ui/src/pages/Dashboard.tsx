@@ -131,8 +131,8 @@ function ActionRequiredTable({ rows }: Readonly<{ rows: TransactionListItem[] }>
 }
 
 export default function DashboardPage() {
-  const { canClose } = useAuth();
-  const { pendingTotal } = usePendingPrintSummary(canClose);
+  const { canOperateFollowUpPrint } = useAuth();
+  const { pendingTotal } = usePendingPrintSummary(canOperateFollowUpPrint);
   const [data, setData] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -361,7 +361,7 @@ export default function DashboardPage() {
               <span className="dashboard-performance-label">رد جزئي</span>
               <strong className="dashboard-performance-value">{data.partiallyReplied}</strong>
             </div>
-            {canClose && (
+            {canOperateFollowUpPrint && (
               <div className="dashboard-performance-row">
                 <span className="dashboard-performance-icon dashboard-performance-icon--orange" aria-hidden="true">⏳</span>
                 <span className="dashboard-performance-label">بانتظار تسجيل التعقيب</span>
