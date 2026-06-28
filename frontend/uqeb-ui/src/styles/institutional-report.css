@@ -21,6 +21,11 @@
   padding: 1.25rem;
 }
 
+.report-export-card h3 {
+  margin-top: 0;
+  color: var(--color-primary);
+}
+
 .report-builder-panel h3:not(.report-builder-section-title) {
   margin: 0 0 0.75rem;
   color: var(--color-primary);
@@ -180,11 +185,6 @@
   padding: 1.25rem;
   direction: rtl;
   box-shadow: 0 24px 70px rgb(0 0 0 / 22%);
-}
-
-.report-export-card h3 {
-  margin-top: 0;
-  color: var(--color-primary);
 }
 
 .report-export-card label {
