@@ -50,14 +50,16 @@ export default function DashboardPage() {
     };
   }, [reloadKey]);
 
-  const kpiItems = [
+  type StatItem = { label: string; value: number; color: string; link: string; suffix?: string };
+
+  const kpiItems: StatItem[] = [
     { label: 'معاملات مفتوحة', value: data?.totalOpen ?? 0, color: 'green', link: '/reports?tab=open' },
     { label: 'متأخر في الإفادة', value: data?.responseOverdueCount ?? 0, color: 'red', link: '/reports?tab=overdue-responses' },
     { label: 'بانتظار رد', value: data?.waitingForReply ?? 0, color: 'orange', link: '/reports?tab=waiting' },
     { label: 'مطلوب إفادة', value: data?.requiresResponsePending ?? 0, color: 'purple', link: '/reports?tab=response-required' },
   ];
 
-  const secondaryItems = [
+  const secondaryItems: StatItem[] = [
     { label: 'رد جزئي', value: data?.partiallyReplied ?? 0, color: 'cyan', link: '/reports?tab=partial-replies' },
     { label: 'جاهزة للإفادة', value: data?.readyForResponse ?? 0, color: 'green', link: '/transactions?status=ReadyForResponse' },
     { label: 'مغلقة هذا الشهر', value: data?.closedThisMonth ?? 0, color: 'gray', link: '/transactions?status=Closed' },

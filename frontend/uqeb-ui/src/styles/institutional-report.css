@@ -21,7 +21,7 @@
   padding: 1.25rem;
 }
 
-.report-builder-panel h3 {
+.report-builder-panel h3:not(.report-builder-section-title) {
   margin: 0 0 0.75rem;
   color: var(--color-primary);
   font-size: var(--font-size-md);
@@ -135,7 +135,7 @@
   gap: 0.75rem;
   margin-bottom: 0.75rem;
   font-size: 0.85rem;
-  color: #2F6B58;
+  color: var(--color-primary-muted);
 }
 
 .report-preview-stats .text-warning {
@@ -184,7 +184,7 @@
 
 .report-export-card h3 {
   margin-top: 0;
-  color: #123F32;
+  color: var(--color-primary);
 }
 
 .report-export-card label {

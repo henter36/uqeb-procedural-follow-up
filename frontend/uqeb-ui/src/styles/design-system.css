@@ -21,7 +21,7 @@
   --color-border-strong: #C9D3DD;
   --color-text: #1F2937;
   --color-text-secondary: #6B7280;
-  --color-text-muted: #6B7280;
+  --color-text-muted: #9CA3AF;
   --color-text-inverse: #fff;
 
   /* Semantic */
@@ -69,16 +69,16 @@
   --radius-full: 9999px;
 
   /* Shadows */
-  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.05);
-  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.07);
-  --shadow-lg: 0 8px 24px rgba(15, 23, 42, 0.06);
+  --shadow-sm: 0 1px 3px rgb(15 23 42 / 5%);
+  --shadow-md: 0 4px 12px rgb(15 23 42 / 7%);
+  --shadow-lg: 0 8px 24px rgb(15 23 42 / 6%);
 
   /* Layout */
   --sidebar-width: 260px;
   --sidebar-collapsed-width: 68px;
   --topbar-height: 64px;
   --content-max-width: 1440px;
-  --focus-ring: 0 0 0 3px rgba(14, 90, 69, 0.2);
+  --focus-ring: 0 0 0 3px rgb(14 90 69 / 20%);
 
   /* Transitions */
   --transition-fast: 0.15s ease;
@@ -245,7 +245,7 @@
 .sidebar-link.active::after {
   content: '';
   position: absolute;
-  left: 0;
+  inset-inline-end: 0;
   top: 4px;
   bottom: 4px;
   width: 3px;
@@ -294,22 +294,22 @@
 }
 
 .sidebar-toggle:focus-visible {
-  outline: 2px solid #fff;
+  outline: 2px solid var(--color-text-inverse);
   outline-offset: 2px;
-  background: #1A7A5E;
-  color: #fff;
+  background: var(--color-primary-muted);
+  color: var(--color-text-inverse);
 }
 
 .sidebar-toggle:disabled {
-  background: #0B3B2E;
-  color: #fff;
+  background: var(--color-primary-hover);
+  color: var(--color-text-inverse);
   opacity: 0.7;
   cursor: not-allowed;
 }
 
 .sidebar-toggle:hover:not(:disabled) {
-  background: #1A7A5E;
-  color: #fff;
+  background: var(--color-primary-muted);
+  color: var(--color-text-inverse);
 }
 
 /* Tooltip for collapsed sidebar */
