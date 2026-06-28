@@ -44,12 +44,8 @@ elseif ([string]::IsNullOrWhiteSpace($ConnectionString)) {
 }
 else {
     $builder = New-Object System.Data.SqlClient.SqlConnectionStringBuilder $ConnectionString
-    if ([string]::IsNullOrWhiteSpace($Server)) {
-        $Server = $builder.DataSource
-    }
-    if ([string]::IsNullOrWhiteSpace($Database)) {
-        $Database = $builder.InitialCatalog
-    }
+    if ([string]::IsNullOrWhiteSpace($Server)) { $Server = $builder.DataSource }
+    if ([string]::IsNullOrWhiteSpace($Database)) { $Database = $builder.InitialCatalog }
 }
 
 if ([string]::IsNullOrWhiteSpace($Server) -or [string]::IsNullOrWhiteSpace($Database)) {
@@ -60,24 +56,148 @@ if (-not (Test-Path -LiteralPath $MigrationFile)) {
     throw "ملف migrations غير موجود: $MigrationFile"
 }
 
+# Disable MARS: a transaction that spans GO-separated batches must not be
+# interrupted by an active result set on a parallel MARS channel.
+$csBuilder = New-Object System.Data.SqlClient.SqlConnectionStringBuilder $ConnectionString
+$csBuilder['MultipleActiveResultSets'] = $false
+$ConnectionString = $csBuilder.ConnectionString
+
+function New-MigrationConnection {
+    return New-SqlDeploymentConnection -ConnectionString $ConnectionString -Database $Database
+}
+
+function Get-LatestAppliedMigration {
+    $conn = New-MigrationConnection
+    try {
+        $conn.Open()
+        $cmd = $conn.CreateCommand()
+        $cmd.CommandText = @"
+IF OBJECT_ID(N'[__EFMigrationsHistory]', N'U') IS NULL
+    SELECT NULL
+ELSE
+    SELECT TOP (1) [MigrationId]
+    FROM [__EFMigrationsHistory]
+    ORDER BY [MigrationId] DESC
+"@
+        $result = $cmd.ExecuteScalar()
+        return [string]$result
+    }
+    finally {
+        if ($conn.State -eq 'Open') { $conn.Close() }
+        $conn.Dispose()
+    }
+}
+
+function Test-TableColumnExists {
+    param([string]$TableName, [string]$ColumnName)
+    $conn = New-MigrationConnection
+    try {
+        $conn.Open()
+        $cmd = $conn.CreateCommand()
+        $cmd.CommandText = @"
+SELECT CASE WHEN EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_NAME = @tableName AND COLUMN_NAME = @columnName
+) THEN 1 ELSE 0 END
+"@
+        [void]$cmd.Parameters.AddWithValue("@tableName", $TableName)
+        [void]$cmd.Parameters.AddWithValue("@columnName", $ColumnName)
+        return ([int]$cmd.ExecuteScalar() -eq 1)
+    }
+    finally {
+        if ($conn.State -eq 'Open') { $conn.Close() }
+        $conn.Dispose()
+    }
+}
+
+function Test-TableExists {
+    param([string]$TableName)
+    $conn = New-MigrationConnection
+    try {
+        $conn.Open()
+        $cmd = $conn.CreateCommand()
+        $cmd.CommandText = @"
+SELECT CASE WHEN EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = @tableName
+) THEN 1 ELSE 0 END
+"@
+        [void]$cmd.Parameters.AddWithValue("@tableName", $TableName)
+        return ([int]$cmd.ExecuteScalar() -eq 1)
+    }
+    finally {
+        if ($conn.State -eq 'Open') { $conn.Close() }
+        $conn.Dispose()
+    }
+}
+
+Write-DeployStep ("تطبيق migrations: " + (Get-SqlRedactedConnectionLabel -Server $Server -Database $Database))
+Write-DeployInfo ("ملف migrations: " + $MigrationFile)
+
+if (-not [string]::IsNullOrWhiteSpace($ExpectedLatestMigration)) {
+    Write-DeployInfo ("آخر migration مطلوبة: " + $ExpectedLatestMigration)
+}
+
+$currentMigrationBefore = Get-LatestAppliedMigration
+Write-DeployInfo ("آخر migration مطبّق حالياً: " + $(
+    if ([string]::IsNullOrWhiteSpace($currentMigrationBefore)) { "(لا يوجد)" } else { $currentMigrationBefore }
+))
+
+# Skip if already at exact expected migration; fail if DB is NEWER than package
+if (-not [string]::IsNullOrWhiteSpace($ExpectedLatestMigration) -and
+    -not [string]::IsNullOrWhiteSpace($currentMigrationBefore)) {
+
+    if ([string]$currentMigrationBefore -gt [string]$ExpectedLatestMigration) {
+        throw ("قاعدة البيانات ($currentMigrationBefore) أحدث من أحدث migration في الحزمة " +
+               "($ExpectedLatestMigration). لا يمكن النشر على قاعدة بيانات أحدث من الحزمة. " +
+               "تحقق من الإصدار الصحيح أو استخدم حزمة مطابقة.")
+    }
+
+    if ([string]$currentMigrationBefore -eq [string]$ExpectedLatestMigration) {
+        Write-DeployInfo "قاعدة البيانات محدّثة بالفعل. لا حاجة لتطبيق migrations."
+        Write-DeployInfo "اكتمل التحقق بنجاح."
+        exit 0
+    }
+    # currentMigration < ExpectedLatestMigration: fall through to apply
+}
+
+Write-DeployInfo "ترقية قاعدة البيانات مطلوبة."
+
 $sql = Get-Content -LiteralPath $MigrationFile -Raw -Encoding UTF8
+
+# Apply structural repairs before splitting (fixes known SQL Server batch-compile issues)
+$sql = Repair-IdempotentMigrationScript -Content $sql
+
+# Required SQL Server session settings. Without QUOTED_IDENTIFIER=ON, updating rows
+# in tables that have filtered indexes or computed columns raises error 1934.
+$setOptionsPreamble = @"
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+"@
+
 $batches = Split-SqlBatches -SqlContent $sql
 if ($batches.Count -eq 0) {
     throw "ملف migrations فارغ أو غير صالح."
 }
 
-$connection = New-SqlDeploymentConnection -ConnectionString $ConnectionString -Database $Database
+$allBatches = [System.Collections.Generic.List[string]]::new()
+$allBatches.Add($setOptionsPreamble)
+foreach ($b in $batches) { $allBatches.Add($b) }
+
+$connection = New-MigrationConnection
 
 try {
     $connection.Open()
-    Write-DeployInfo (Get-SqlRedactedConnectionLabel -Server $Server -Database $Database)
+    Write-DeployInfo ("تنفيذ " + $allBatches.Count + " batch")
 
     $batchNumber = 0
-    foreach ($batch in $batches) {
+    foreach ($batch in $allBatches) {
         $batchNumber++
-        if ([string]::IsNullOrWhiteSpace($batch)) {
-            continue
-        }
+        if ([string]::IsNullOrWhiteSpace($batch)) { continue }
 
         $command = $connection.CreateCommand()
         $command.CommandText = $batch
@@ -86,92 +206,16 @@ try {
             [void]$command.ExecuteNonQuery()
         }
         catch {
-            $preview = ($batch -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 3) -join " | "
+            $preview = ($batch -split "`r?`n" |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+                Select-Object -First 3) -join " | "
             throw "فشل تنفيذ batch رقم $batchNumber. بداية batch: $preview. رسالة SQL: $($_.Exception.Message)"
         }
     }
 }
 finally {
-    if ($connection.State -eq 'Open') {
-        $connection.Close()
-    }
+    if ($connection.State -eq 'Open') { $connection.Close() }
     $connection.Dispose()
-}
-
-function Test-TableColumnExists {
-    param(
-        [string]$TableName,
-        [string]$ColumnName
-    )
-
-    $checkConnection = New-SqlDeploymentConnection -ConnectionString $ConnectionString -Database $Database
-    try {
-        $checkConnection.Open()
-        $command = $checkConnection.CreateCommand()
-        $command.CommandText = @"
-SELECT CASE WHEN EXISTS (
-    SELECT 1
-    FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE TABLE_NAME = @tableName AND COLUMN_NAME = @columnName
-) THEN 1 ELSE 0 END
-"@
-        [void]$command.Parameters.AddWithValue("@tableName", $TableName)
-        [void]$command.Parameters.AddWithValue("@columnName", $ColumnName)
-        return ([int]$command.ExecuteScalar() -eq 1)
-    }
-    finally {
-        if ($checkConnection.State -eq 'Open') {
-            $checkConnection.Close()
-        }
-        $checkConnection.Dispose()
-    }
-}
-
-function Test-TableExists {
-    param([string]$TableName)
-
-    $checkConnection = New-SqlDeploymentConnection -ConnectionString $ConnectionString -Database $Database
-    try {
-        $checkConnection.Open()
-        $command = $checkConnection.CreateCommand()
-        $command.CommandText = @"
-SELECT CASE WHEN EXISTS (
-    SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = @tableName
-) THEN 1 ELSE 0 END
-"@
-        [void]$command.Parameters.AddWithValue("@tableName", $TableName)
-        return ([int]$command.ExecuteScalar() -eq 1)
-    }
-    finally {
-        if ($checkConnection.State -eq 'Open') {
-            $checkConnection.Close()
-        }
-        $checkConnection.Dispose()
-    }
-}
-
-function Get-LatestAppliedMigration {
-    $checkConnection = New-SqlDeploymentConnection -ConnectionString $ConnectionString -Database $Database
-    try {
-        $checkConnection.Open()
-        $command = $checkConnection.CreateCommand()
-        $command.CommandText = @"
-IF OBJECT_ID(N'[__EFMigrationsHistory]', N'U') IS NULL
-    SELECT NULL
-ELSE
-    SELECT TOP (1) [MigrationId]
-    FROM [__EFMigrationsHistory]
-    ORDER BY [MigrationId] DESC
-"@
-        $result = $command.ExecuteScalar()
-        return [string]$result
-    }
-    finally {
-        if ($checkConnection.State -eq 'Open') {
-            $checkConnection.Close()
-        }
-        $checkConnection.Dispose()
-    }
 }
 
 Write-DeployStep "التحقق بعد تطبيق migrations"

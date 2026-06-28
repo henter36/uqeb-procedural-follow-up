@@ -58,10 +58,10 @@ namespace Uqeb.Api.Migrations
                 type: "int",
                 nullable: true);
 
+            // EXEC defers column-name validation to runtime so SQL Server does not
+            // reject the UPDATE at batch-compile time (before ALTER TABLE ADD runs).
             migrationBuilder.Sql("""
-                UPDATE LetterTemplates
-                SET IsDefault = 1, TemplateType = 1, SortOrder = 0
-                WHERE Code = 'follow_up_letter';
+                EXEC(N'UPDATE [LetterTemplates] SET [IsDefault] = 1, [TemplateType] = 1, [SortOrder] = 0 WHERE [Code] = N''follow_up_letter''')
                 """);
 
             migrationBuilder.CreateTable(

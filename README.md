@@ -182,21 +182,40 @@ Frontend:
 
 📘 **[دليل إصدار الحزمة وترقية نفس الـartifact إلى الإنتاج](docs/production_artifact_promotion.md)**
 
-> **المبدأ المعتمد:** ابنِ الحزمة مرة واحدة من `main`، اختبر ملفي ZIP وSHA256 نفسيهما على Windows VM، ثم انقل **نفس الحزمة ونفس SHA256** إلى الإنتاج. لا تُعِد بناء الحزمة بعد نجاح الاختبار.
+🚀 **[دليل المسار السريع (deploy-production-fast.ps1)](docs/production-fast-path.md)** — النشر بأمر واحد مع تقرير GO/NO-GO شامل
 
+> **المبدأ المعتمد:** ابنِ الحزمة مرة واحدة من `main`، اختبر ملفي ZIP وSHA256 نفسيهما على Windows VM، ثم انقل **نفس الحزمة ونفس SHA256** إلى الإنتاج. لا تُعِد بناء الحزمة بعد نجاح الاختبار.
+>
+> جهاز الإنتاج **لا يحتاج**: المستودع، git، ولا dotnet SDK.
+> المسارات الثابتة: `C:\Uqeb\publish\api` و`C:\Uqeb\publish\web` (جانكشن إلى `current\api` و`current\web`).
+
+### المسار السريع (الموصى به)
 
 ```powershell
-# جهاز التطوير (يتطلب الإنترنت لتنزيل Chromium المتوافق مع Microsoft.Playwright)
+# ① جهاز البناء — بناء الحزمة وتجهيز مجلد النقل
+.\scripts\build-production-package.ps1
+.\scripts\prepare-production-transfer.ps1
+# → artifacts\transfer\UqebDeploy-<timestamp>\
+
+# ② انقل المجلد الكامل إلى جهاز الإنتاج (USB / شبكة / RDP)
+
+# ③ جهاز الإنتاج (Administrator PowerShell) — نشر كامل بأمر واحد
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1
+# يطبع تقرير GO / NO-GO مع: DB migration، IIS path، Scheduled Task، الشعار، health endpoints
+```
+
+### المسار اليدوي (للاستخدام في حالات خاصة)
+
+```powershell
+# جهاز البناء
 .\scripts\build-production-package.ps1
 
-# جهاز الإنتاج (بعد نقل ZIP + SHA256 إلى C:\Uqeb\incoming — offline)
+# جهاز الإنتاج (بعد نقل ZIP + SHA256 إلى C:\Uqeb\incoming)
 $package = Get-ChildItem "C:\Uqeb\incoming\Uqeb-*.zip" |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
 
-if (-not $package) {
-    throw "لم يتم العثور على حزمة Uqeb في C:\Uqeb\incoming."
-}
+if (-not $package) { throw "لم يتم العثور على حزمة Uqeb في C:\Uqeb\incoming." }
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File "C:\UqebTools\install-production-package.ps1" `
@@ -209,7 +228,6 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 - `PLAYWRIGHT_BROWSERS_PATH` يُضبط عبر `C:\Uqeb\run-api.cmd` الذي تستدعيه مهمة `UqebApi`
 - لا تشغّل `playwright install` يدويًا على الإنتاج عند استخدام الحزمة الرسمية
 - PDF يتطلب Chromium؛ HTML وXLSX وDOCX لا تعتمد عليه
-- التحقق التشغيلي المعتمد: `/health/live` ثم `/health/ready` ثم `/health` مع `database=pass` وبقية checks، ثم طلب دخول وهمي اختياري يعيد `401`.
 
 إعداد أولي: `.\scripts\setup-production-tools.ps1` على جهاز الإنتاج.
 

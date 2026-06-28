@@ -232,11 +232,30 @@ function Test-IdempotentMigrationScriptRepaired {
         return $false
     }
 
-    if ($Content -match '(?is)ALTER TABLE \[Categories\] ADD \[NameNormalized\][^;]*;\s*GO\s*UPDATE\s+Departments') {
-        return $true
+    $anyRepairApplicable = $false
+
+    # Repair 1: NameNormalized/Departments GO separator (only required when that migration is present)
+    $nameNormPresent = $Content -match '(?is)ALTER TABLE \[Categories\] ADD \[NameNormalized\]'
+    if ($nameNormPresent) {
+        $anyRepairApplicable = $true
+        $r1Ok = (
+            ($Content -match '(?is)ALTER TABLE \[Categories\] ADD \[NameNormalized\][^;]*;\s*GO\s*UPDATE\s+Departments') -or
+            ($Content -match '(?is)ALTER TABLE \[Categories\] ADD \[NameNormalized\][^;]*;\s*END;\s*GO[\s\S]*?UPDATE\s+Departments')
+        )
+        if (-not $r1Ok) { return $false }
     }
 
-    return $Content -match '(?is)ALTER TABLE \[Categories\] ADD \[NameNormalized\][^;]*;\s*END;\s*GO[\s\S]*?UPDATE\s+Departments'
+    # Repair 2: LetterTemplates follow_up_letter UPDATE must be wrapped in EXEC().
+    # Only applies when the specific WHERE [Code] = N'follow_up_letter' pattern is present.
+    $v2UpdatePresent = $Content -match "(?is)UPDATE\s+\[?LetterTemplates\]?\s+SET\s+[^;]*WHERE\s+\[?Code\]?\s*=\s*N?'follow_up_letter'"
+    if ($v2UpdatePresent) {
+        $anyRepairApplicable = $true
+        $v2ExecPresent = $Content -match "(?is)EXEC\s*\(\s*N'UPDATE\s+\[?LetterTemplates\]?"
+        if (-not $v2ExecPresent) { return $false }
+    }
+
+    # All found patterns have been repaired (or no patterns found at all)
+    return $true
 }
 
 function Repair-IdempotentMigrationScript {
@@ -246,17 +265,43 @@ function Repair-IdempotentMigrationScript {
         return $Content
     }
 
-    if (Test-IdempotentMigrationScriptRepaired -Content $Content) {
-        return $Content
+    # Repair 1: Insert GO between ALTER TABLE [Categories] ADD [NameNormalized] and UPDATE Departments
+    # so that SQL Server does not compile both in the same batch (avoids "column not found" on first run).
+    $repair1Done = (
+        ($Content -match '(?is)ALTER TABLE \[Categories\] ADD \[NameNormalized\][^;]*;\s*GO\s*UPDATE\s+Departments') -or
+        ($Content -match '(?is)ALTER TABLE \[Categories\] ADD \[NameNormalized\][^;]*;\s*END;\s*GO[\s\S]*?UPDATE\s+Departments')
+    )
+    if (-not $repair1Done) {
+        $idempotentPattern = '(?is)(ALTER TABLE \[Categories\] ADD \[NameNormalized\][^;]*;\s*END;)(\s*)(IF NOT EXISTS\s*\(\s*\r?\n\s*SELECT \* FROM \[__EFMigrationsHistory\][\s\S]*?\r?\nBEGIN\s*\r?\n\s*UPDATE\s+Departments)'
+        if ($Content -match $idempotentPattern) {
+            $Content = [regex]::Replace($Content, $idempotentPattern, '$1$2GO$2$3', 1)
+        }
+        else {
+            $flatPattern = '(?is)(ALTER TABLE \[Categories\] ADD \[NameNormalized\][^;]*;)(\s*)(?=UPDATE\s+Departments)'
+            $Content = [regex]::Replace($Content, $flatPattern, '$1$2GO$2', 1)
+        }
     }
 
-    $idempotentPattern = '(?is)(ALTER TABLE \[Categories\] ADD \[NameNormalized\][^;]*;\s*END;)(\s*)(IF NOT EXISTS\s*\(\s*\r?\n\s*SELECT \* FROM \[__EFMigrationsHistory\][\s\S]*?\r?\nBEGIN\s*\r?\n\s*UPDATE\s+Departments)'
-    if ($Content -match $idempotentPattern) {
-        return [regex]::Replace($Content, $idempotentPattern, '$1$2GO$2$3', 1)
+    # Repair 2: Wrap the follow_up_letter LetterTemplates UPDATE inside EXEC() so that SQL Server
+    # defers column-name validation to runtime. Only matches the specific follow_up_letter row;
+    # other LetterTemplates UPDATEs in future migrations are left untouched.
+    $v2Pattern = "(?is)(UPDATE\s+\[?LetterTemplates\]?\s+SET\s+[^;]*WHERE\s+\[?Code\]?\s*=\s*N?'follow_up_letter'[^;]*;)"
+    $v2ExecPresent = $Content -match "(?is)EXEC\s*\(\s*N'UPDATE\s+\[?LetterTemplates\]?"
+    if (($Content -match $v2Pattern) -and -not $v2ExecPresent) {
+        $Content = [regex]::Replace(
+            $Content,
+            $v2Pattern,
+            [System.Text.RegularExpressions.MatchEvaluator]{
+                param($m)
+                # Strip trailing semicolon, escape embedded single quotes, wrap in EXEC(N'...')
+                $sql     = $m.Groups[1].Value.TrimEnd().TrimEnd(';').Trim()
+                $escaped = $sql -replace "'", "''"
+                "EXEC(N'$escaped')"
+            }
+        )
     }
 
-    $flatPattern = '(?is)(ALTER TABLE \[Categories\] ADD \[NameNormalized\][^;]*;)(\s*)(?=UPDATE\s+Departments)'
-    return [regex]::Replace($Content, $flatPattern, '$1$2GO$2', 1)
+    return $Content
 }
 
 function Get-SqlConnectionInfoFromSettings {
