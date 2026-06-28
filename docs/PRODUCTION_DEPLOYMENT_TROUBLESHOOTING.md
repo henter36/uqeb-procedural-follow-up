@@ -420,7 +420,77 @@ C:\Uqeb\config\appsettings.Production.json
 - إعادة sequence الخاصة برقم التتبع عند اعتماد تصفير كامل.
 - إبقاء Users وDepartments وCategories وExternalParties وLetterTemplates وإعدادات النظام.
 
-## 24. قاعدة تحقق نهائية قبل إعلان نجاح النشر
+## 24. فشل فحوص طباعة التعقيب بعد النشر
+
+### العرض
+
+`verify-deployment-health.ps1` يفشل برسائل مثل:
+
+```text
+summary reported followUpPrintSchema='fail' instead of 'pass'
+summary reported followUpDefaultTemplate='fail' instead of 'pass'
+summary reported followUpPrintOptions='fail' instead of 'pass'
+summary reported followUpPrintProcessor='fail' instead of 'pass'
+```
+
+### السبب
+
+- `followUpPrintSchema`: جداول طباعة التعقيب لم تُنشأ أو migration لم تُطبّق.
+- `followUpDefaultTemplate`: قالب `follow_up_letter` غير موجود أو ليس `IsActive=true` و`IsDefault=true` و`TemplateType=FollowUp`.
+- `followUpPrintOptions`: قسم `FollowUpLetters` غير صالح أو يحتوي قيمًا خارج الحدود.
+- `followUpPrintProcessor`: عامل `FollowUpPrintJobProcessorHostedService` غير مسجل في التطبيق المنشور.
+
+### المعالجة
+
+1. لا تعلن نجاح النشر ولا تتجاوز health check.
+2. تحقق من `__EFMigrationsHistory` ومن وجود الجداول:
+
+```sql
+SELECT name
+FROM sys.tables
+WHERE name IN (
+  'FollowUpPrintJobs',
+  'FollowUpPrintJobParts',
+  'FollowUpLetterPrintRecords',
+  'FollowUpPrintIdempotencyKeys'
+);
+```
+
+3. تحقق من القالب الافتراضي:
+
+```sql
+SELECT Code, TemplateType, IsActive, IsDefault
+FROM LetterTemplates
+WHERE Code = 'follow_up_letter';
+```
+
+4. لا تفعّل `DatabaseStartup:RunReferenceSeedOnStartup` عشوائيًا في الإنتاج. استخدم provisioning محدودًا ومعتمدًا للقالب فقط إذا كان مفقودًا.
+5. راجع `appsettings.Production.json` وتأكد من وجود قسم `FollowUpLetters` بقيم صالحة.
+
+## 25. تمرير ZIP إلى `deploy-production-v2.ps1`
+
+### العرض
+
+السكربت يرفض التنفيذ برسالة تطلب استخدام `install-production-package.ps1`.
+
+### السبب
+
+مسار ZIP القديم كان يمرر التنفيذ إلى installer دون ضمان تمرير `ApiBindAddress` و`ApiBaseUrl`، ما قد يجعل النشر ينجح ظاهريًا بعنوان تشغيل خاطئ.
+
+### المعالجة
+
+استخدم installer الرسمي مباشرة:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File "C:\UqebTools\install-production-package.ps1" `
+  -PackagePath "C:\Uqeb\incoming\Uqeb-<timestamp>.zip" `
+  -ApiBindAddress "10.0.177.17" `
+  -ApiPort 5000 `
+  -ApiBaseUrl "http://10.0.177.17:5000"
+```
+
+## 26. قاعدة تحقق نهائية قبل إعلان نجاح النشر
 
 لا يُعلن نجاح النشر إلا بعد تحقق جميع الآتي:
 
@@ -435,3 +505,4 @@ C:\Uqeb\config\appsettings.Production.json
 9. جهاز داخل الشبكة يصل إلى المنفذ 5000.
 10. تسجيل الدخول الفعلي يعمل من جهاز الإنتاج ومن جهاز عميل.
 11. المرفقات والبيانات القائمة سليمة عند عدم وجود قرار تصفير.
+12. `/health` يعرض `followUpPrintSchema`, `followUpDefaultTemplate`, `followUpPrintOptions`, `followUpPrintProcessor` بقيمة `pass`.

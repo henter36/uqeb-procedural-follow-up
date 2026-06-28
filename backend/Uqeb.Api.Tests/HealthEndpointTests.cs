@@ -42,6 +42,10 @@ public class HealthEndpointTests : IClassFixture<HealthEndpointWebApplicationFac
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadAsStringAsync();
         Assert.Contains("healthy", body, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("followUpPrintSchema", body, StringComparison.Ordinal);
+        Assert.Contains("followUpDefaultTemplate", body, StringComparison.Ordinal);
+        Assert.Contains("followUpPrintOptions", body, StringComparison.Ordinal);
+        Assert.Contains("followUpPrintProcessor", body, StringComparison.Ordinal);
     }
 }
 

@@ -159,6 +159,76 @@ Describe 'PowerShell deployment script parse checks' {
             [ref]$errors)
         $errors | Should -BeNullOrEmpty
     }
+
+    It 'parses deploy-production-v2.ps1' {
+        $errors = $null
+        [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PSScriptRoot 'deploy-production-v2.ps1'),
+            [ref]$null,
+            [ref]$errors)
+        $errors | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Production deployment wrapper safety' {
+    It 'rejects ZIP packages instead of dropping API bind settings' {
+        $scriptPath = Join-Path $PSScriptRoot 'deploy-production-v2.ps1'
+
+        {
+            & $scriptPath `
+                -SourcePackagePath 'C:\Uqeb\incoming\Uqeb-test.zip' `
+                -ApiBindAddress '10.0.177.17' `
+                -ApiPort 5000
+        } | Should -Throw '*install-production-package.ps1*ApiBindAddress*10.0.177.17*'
+    }
+}
+
+Describe 'Production build toolchain version gates' {
+    It 'accepts Node and npm versions inside package engines range' {
+        {
+            Assert-ToolVersionRangeExpression `
+                -ToolName 'Node.js' `
+                -ActualVersion 'v24.12.0' `
+                -RangeExpression '>=24 <25'
+        } | Should -Not -Throw
+
+        {
+            Assert-ToolVersionRangeExpression `
+                -ToolName 'npm' `
+                -ActualVersion '11.7.0' `
+                -RangeExpression '>=11 <12'
+        } | Should -Not -Throw
+    }
+
+    It 'rejects Node and npm versions outside package engines range' {
+        {
+            Assert-ToolVersionRangeExpression `
+                -ToolName 'Node.js' `
+                -ActualVersion '23.9.0' `
+                -RangeExpression '>=24 <25'
+        } | Should -Throw '*Node.js version*'
+
+        {
+            Assert-ToolVersionRangeExpression `
+                -ToolName 'npm' `
+                -ActualVersion '12.0.0' `
+                -RangeExpression '>=11 <12'
+        } | Should -Throw '*npm version*'
+    }
+
+    It 'enforces the global.json .NET SDK feature band' {
+        {
+            Assert-DotNetSdkVersionMatchesGlobalJson `
+                -ActualVersion '10.0.305' `
+                -RequiredVersion '10.0.301'
+        } | Should -Not -Throw
+
+        {
+            Assert-DotNetSdkVersionMatchesGlobalJson `
+                -ActualVersion '10.0.401' `
+                -RequiredVersion '10.0.301'
+        } | Should -Throw '*.NET SDK version*'
+    }
 }
 
 Describe 'SHA256 package validation' {

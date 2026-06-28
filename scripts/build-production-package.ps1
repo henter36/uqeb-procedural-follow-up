@@ -72,6 +72,28 @@ foreach ($tool in @("dotnet", "node", "npm", "powershell")) {
     Write-DeployInfo "تم العثور على $tool"
 }
 
+$globalJson = Get-Content -LiteralPath (Join-Path $repoRoot "global.json") -Raw | ConvertFrom-Json
+$requiredDotNetSdk = [string]$globalJson.sdk.version
+$actualDotNetSdk = (& dotnet --version).Trim()
+Assert-DotNetSdkVersionMatchesGlobalJson `
+    -ActualVersion $actualDotNetSdk `
+    -RequiredVersion $requiredDotNetSdk
+Write-DeployInfo (".NET SDK: " + $actualDotNetSdk)
+
+$packageJson = Get-Content -LiteralPath (Join-Path $frontendRoot "package.json") -Raw | ConvertFrom-Json
+$actualNodeVersion = (& node --version).Trim()
+$actualNpmVersion = (& npm --version).Trim()
+Assert-ToolVersionRangeExpression `
+    -ToolName "Node.js" `
+    -ActualVersion $actualNodeVersion `
+    -RangeExpression ([string]$packageJson.engines.node)
+Assert-ToolVersionRangeExpression `
+    -ToolName "npm" `
+    -ActualVersion $actualNpmVersion `
+    -RangeExpression ([string]$packageJson.engines.npm)
+Write-DeployInfo ("Node.js: " + $actualNodeVersion)
+Write-DeployInfo ("npm: " + $actualNpmVersion)
+
 Ensure-DotNetEfToolAvailable
 
 $playwrightVersion = Get-PlaywrightPackageVersionFromProject -ProjectPath $backendProject
@@ -108,10 +130,19 @@ else {
 
 Push-Location $frontendRoot
 try {
+    Invoke-ExternalCommand "تثبيت اعتمادات Frontend" {
+        npm ci
+    }
+
+    Invoke-ExternalCommand "تشغيل ESLint" {
+        npm run lint
+    }
+
+    Invoke-ExternalCommand "تشغيل Stylelint" {
+        npm run lint:css
+    }
+
     if (-not $SkipFrontendTests) {
-        Invoke-ExternalCommand "تثبيت اعتمادات Frontend" {
-            npm ci
-        }
         Invoke-ExternalCommand "تشغيل اختبارات Frontend" {
             npm test
         }
@@ -119,11 +150,6 @@ try {
     }
     else {
         $testResults.Frontend = "متخطى"
-        if (-not (Test-Path -LiteralPath (Join-Path $frontendRoot "node_modules"))) {
-            Invoke-ExternalCommand "تثبيت اعتمادات Frontend" {
-                npm ci
-            }
-        }
     }
 
     Invoke-ExternalCommand "بناء Frontend للإنتاج" {

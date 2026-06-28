@@ -31,18 +31,7 @@ Set-StrictMode -Version Latest
 Write-Warning "deploy-production-v2.ps1 is deprecated for ZIP packages. Use install-production-package.ps1."
 
 if ([System.IO.Path]::GetExtension($SourcePackagePath) -eq ".zip") {
-    $installScript = Join-Path $PSScriptRoot "install-production-package.ps1"
-    if (-not (Test-Path -LiteralPath $installScript)) {
-        throw "Preferred installer is missing: $installScript"
-    }
-
-    & $installScript `
-        -PackagePath $SourcePackagePath `
-        -InstallRoot $InstallRoot `
-        -TaskName $ScheduledTaskName `
-        -ApiPort $ApiPort `
-        -ConfigPath $(if ($ProductionSettingsPath) { $ProductionSettingsPath } else { Join-Path $InstallRoot "config\appsettings.Production.json" })
-    return
+    throw "ZIP packages are not supported by deploy-production-v2.ps1. Use install-production-package.ps1 directly and pass -ApiBindAddress '$ApiBindAddress' and -ApiBaseUrl 'http://${ApiBindAddress}:$ApiPort'."
 }
 
 function Write-Step { param([string]$Message) Write-Output ""; Write-Output ("==> " + $Message) }

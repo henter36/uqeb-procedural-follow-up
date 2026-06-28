@@ -102,6 +102,7 @@ builder.Services.AddScoped<ISecurityAuditService, SecurityAuditService>();
 builder.Services.AddScoped<IAuditIntegrityDiagnosticService, AuditIntegrityDiagnosticService>();
 builder.Services.AddScoped<IHealthDatabaseProbe, DbContextHealthDatabaseProbe>();
 builder.Services.AddScoped<IDeploymentReportingHealthContributor, DeploymentReportingHealthContributor>();
+builder.Services.AddScoped<IDeploymentFollowUpPrintHealthContributor, DeploymentFollowUpPrintHealthContributor>();
 
 var jwtSettings = builder.Configuration.GetSection("Jwt").Get<JwtSettings>() ?? new JwtSettings();
 if (string.IsNullOrWhiteSpace(jwtSettings.Key))

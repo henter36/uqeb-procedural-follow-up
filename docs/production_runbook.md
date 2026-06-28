@@ -128,6 +128,19 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -PackagePath $package.FullName
 ```
 
+إذا احتجت تغيير عنوان استماع API أو المنفذ، مرّره إلى سكربت التثبيت الرسمي مباشرة:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File "C:\UqebTools\install-production-package.ps1" `
+  -PackagePath $package.FullName `
+  -ApiBindAddress "10.0.177.17" `
+  -ApiPort 5000 `
+  -ApiBaseUrl "http://10.0.177.17:5000"
+```
+
+لا تمرر ZIP إلى `deploy-production-v2.ps1`; هذا المسار يرفض ZIP صراحة حتى لا تُفقد إعدادات `ApiBindAddress` أو `ApiBaseUrl`.
+
 #### نسخة قاعدة البيانات الإلزامية
 
 بعد التحقق من الحزمة وقبل إيقاف API، ينفّذ `install-production-package.ps1` تلقائيًا:
@@ -143,6 +156,45 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 عند فشل النسخة الاحتياطية أو التحقق القبلي: يتوقف النشر دون إيقاف API أو استبدال ملفات. عند فشل مرحلة لاحقة: يُعرض أمر `RESTORE DATABASE` اليدوي دون استعادة تلقائية.
 
 سياسة الاحتفاظ: آخر 10 نسخ ناجحة كحد أدنى؛ لا حذف النسخ المرتبطة بإصدار منشور.
+
+#### فحوص الصحة بعد النشر
+
+لا يكفي نجاح `/health/live` وحده. سكربت `verify-deployment-health.ps1` يتحقق من:
+
+- `/health/live` = `live`
+- `/health/ready` = `ready`
+- `/health` = `healthy`
+- `database = pass`
+- `playwrightChromium = pass` أو `not_applicable`
+- `reportNumberSequence = pass` أو `not_applicable`
+- `institutionalReporting = pass` أو `not_applicable`
+- `followUpPrintSchema = pass`
+- `followUpDefaultTemplate = pass`
+- `followUpPrintOptions = pass`
+- `followUpPrintProcessor = pass`
+
+يفشل النشر إذا كانت جداول طباعة التعقيب ناقصة، أو إذا كان قالب خطاب التعقيب الافتراضي غير موجود/غير نشط، أو إذا كانت إعدادات `FollowUpLetters` غير صالحة، أو إذا لم يُسجل عامل معالجة مهام الطباعة.
+
+#### قالب خطاب التعقيب الافتراضي
+
+بعد migrations يجب أن توجد قيمة واحدة قابلة للاستخدام على الأقل:
+
+```text
+Code = follow_up_letter
+TemplateType = FollowUp
+IsActive = true
+IsDefault = true
+```
+
+لا يعتمد النشر على `DatabaseStartup:RunReferenceSeedOnStartup` لأن هذا الخيار يبقى `false` في الإنتاج افتراضيًا. عند فشل `followUpDefaultTemplate`، أصلح القالب يدويًا أو شغّل إجراء provisioning محدود ومعتمد للقالب فقط؛ لا تفعّل seeds العامة عشوائيًا ولا تضف بيانات تجريبية.
+
+#### طباعة التعقيب والسجلات المعلقة
+
+`PrintedLetterExclusionDays` هي فترة استثناء الخطابات المطبوعة حديثًا من إعادة الطباعة. إذا كانت القيمة `7`، فلن تعاد نفس المعاملة إلى قوائم الطباعة المستحقة خلال سبعة أيام من آخر خطاب مطبوع، ما لم تتغير شروط العمل أو الفلاتر.
+
+صفحة "بانتظار تسجيل التعقيب" تعرض سجلات خطابات طُبعت ولم تُربط بعد بتعقيب مسجل فعليًا. بعد تسجيل التعقيب في صفحة المعاملة يجب ربط السجل المطبوع بالتعقيب الداخلي الصحيح حتى يخرج من قائمة الانتظار.
+
+إذا فشل Chromium، ستفشل checks الخاصة بالتقارير أو فحص payload المحلي. تحقق من `C:\Uqeb\tools\ms-playwright\playwright-browser-manifest.json` ومن مسار المتصفح وتجزئته، ثم أعد تثبيت الحزمة بدل نسخ متصفح يدويًا من مصدر غير موثق.
 
 ### طريقة بديلة (مجلد staging مفكوك)
 

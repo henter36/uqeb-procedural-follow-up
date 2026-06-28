@@ -49,6 +49,76 @@ function Test-CommandAvailable {
     return $null -ne $command
 }
 
+function ConvertTo-DeploymentVersion {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$VersionText,
+        [Parameter(Mandatory = $true)]
+        [string]$ToolName
+    )
+
+    $normalized = $VersionText.Trim()
+    if ($normalized.StartsWith('v', [System.StringComparison]::OrdinalIgnoreCase)) {
+        $normalized = $normalized.Substring(1)
+    }
+
+    $match = [regex]::Match($normalized, '^(?<major>\d+)(?:\.(?<minor>\d+))?(?:\.(?<patch>\d+))?')
+    if (-not $match.Success) {
+        throw "تعذر قراءة نسخة ${ToolName}: $VersionText"
+    }
+
+    $major = [int]$match.Groups['major'].Value
+    $minor = if ($match.Groups['minor'].Success) { [int]$match.Groups['minor'].Value } else { 0 }
+    $patch = if ($match.Groups['patch'].Success) { [int]$match.Groups['patch'].Value } else { 0 }
+
+    return [version]::new($major, $minor, $patch)
+}
+
+function Assert-ToolVersionRangeExpression {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ToolName,
+        [Parameter(Mandatory = $true)]
+        [string]$ActualVersion,
+        [Parameter(Mandatory = $true)]
+        [string]$RangeExpression
+    )
+
+    $range = [regex]::Match($RangeExpression.Trim(), '^>=\s*(?<min>[0-9]+(?:\.[0-9]+){0,2})\s+<\s*(?<max>[0-9]+(?:\.[0-9]+){0,2})$')
+    if (-not $range.Success) {
+        throw "صيغة نطاق نسخة $ToolName غير مدعومة: $RangeExpression"
+    }
+
+    $actual = ConvertTo-DeploymentVersion -VersionText $ActualVersion -ToolName $ToolName
+    $minimum = ConvertTo-DeploymentVersion -VersionText $range.Groups['min'].Value -ToolName $ToolName
+    $maximumExclusive = ConvertTo-DeploymentVersion -VersionText $range.Groups['max'].Value -ToolName $ToolName
+
+    if ($actual -lt $minimum -or $actual -ge $maximumExclusive) {
+        throw "$ToolName version $ActualVersion is not supported. Required range: $RangeExpression"
+    }
+}
+
+function Assert-DotNetSdkVersionMatchesGlobalJson {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ActualVersion,
+        [Parameter(Mandatory = $true)]
+        [string]$RequiredVersion
+    )
+
+    $actual = ConvertTo-DeploymentVersion -VersionText $ActualVersion -ToolName ".NET SDK"
+    $required = ConvertTo-DeploymentVersion -VersionText $RequiredVersion -ToolName ".NET SDK"
+    $actualFeatureBand = [math]::Floor($actual.Build / 100)
+    $requiredFeatureBand = [math]::Floor($required.Build / 100)
+
+    if ($actual.Major -ne $required.Major -or
+        $actual.Minor -ne $required.Minor -or
+        $actualFeatureBand -ne $requiredFeatureBand -or
+        $actual -lt $required) {
+        throw ".NET SDK version $ActualVersion does not match global.json requirement $RequiredVersion with latestPatch roll-forward."
+    }
+}
+
 function Get-FileSha256Hex {
     param([string]$Path)
     $hash = Get-FileHash -LiteralPath $Path -Algorithm SHA256

@@ -116,9 +116,23 @@ function Assert-SummaryChecks {
         throw "$Label did not return checks object."
     }
 
-    $databaseCheck = [string]$payload.checks.database
-    if ($databaseCheck -ne 'pass') {
-        throw "$Label reported database check '$databaseCheck' instead of 'pass'."
+    $requiredPassChecks = @(
+        'database',
+        'followUpPrintSchema',
+        'followUpDefaultTemplate',
+        'followUpPrintOptions',
+        'followUpPrintProcessor'
+    )
+
+    foreach ($checkName in $requiredPassChecks) {
+        if ($payload.checks.PSObject.Properties.Name -notcontains $checkName) {
+            throw "$Label did not return required check '$checkName'."
+        }
+
+        $value = [string]$payload.checks.$checkName
+        if ($value -ne 'pass') {
+            throw "$Label reported $checkName='$value' instead of 'pass'."
+        }
     }
 
     foreach ($checkName in @('playwrightChromium', 'reportNumberSequence', 'institutionalReporting')) {
