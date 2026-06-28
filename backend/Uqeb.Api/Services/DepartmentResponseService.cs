@@ -8,6 +8,7 @@ namespace Uqeb.Api.Services;
 
 public interface IDepartmentResponseService
 {
+    Task<List<DepartmentTransactionItem>> GetDepartmentTransactionsAsync(ICurrentUserService currentUser);
     Task<List<DepartmentResponseSummaryDto>> GetMyDepartmentResponsesAsync(ICurrentUserService currentUser);
     Task<List<DepartmentResponseSummaryDto>> GetPendingReviewAsync();
     Task<DepartmentResponseDto?> GetByIdAsync(int id, ICurrentUserService currentUser);
@@ -43,15 +44,72 @@ public class DepartmentResponseService : IDepartmentResponseService
         Directory.CreateDirectory(_storagePath);
     }
 
+    public async Task<List<DepartmentTransactionItem>> GetDepartmentTransactionsAsync(ICurrentUserService currentUser)
+    {
+        if (!currentUser.DepartmentId.HasValue)
+            return [];
+
+        int deptId = currentUser.DepartmentId.Value;
+
+        var assigned = await _db.Assignments
+            .AsNoTracking()
+            .Where(a => a.DepartmentId == deptId && a.Status == AssignmentStatus.Active)
+            .Select(a => new { a.TransactionId, a.AssignedDate })
+            .ToListAsync();
+
+        if (assigned.Count == 0)
+            return [];
+
+        var txIds = assigned.Select(a => a.TransactionId).ToList();
+
+        var transactions = await _db.Transactions
+            .AsNoTracking()
+            .Where(t => txIds.Contains(t.Id))
+            .Select(t => new { t.Id, t.InternalTrackingNumber, t.Subject, Status = t.Status.ToString() })
+            .ToListAsync();
+
+        var responses = await _db.DepartmentResponses
+            .AsNoTracking()
+            .Where(r => r.DepartmentId == deptId && txIds.Contains(r.TransactionId))
+            .Select(r => new { r.TransactionId, r.Id, Status = r.Status.ToString() })
+            .ToListAsync();
+
+        var responseByTx = responses.ToDictionary(r => r.TransactionId);
+        var assignedDateByTx = assigned.ToDictionary(a => a.TransactionId, a => a.AssignedDate);
+
+        return transactions
+            .Select(t =>
+            {
+                responseByTx.TryGetValue(t.Id, out var resp);
+                assignedDateByTx.TryGetValue(t.Id, out var assignedDate);
+                return new DepartmentTransactionItem(
+                    t.Id,
+                    t.InternalTrackingNumber,
+                    t.Subject,
+                    t.Status,
+                    assignedDate == default ? null : (DateTime?)assignedDate,
+                    resp?.Id,
+                    resp?.Status);
+            })
+            .OrderByDescending(x => x.AssignedDate)
+            .ToList();
+    }
+
     public async Task<List<DepartmentResponseSummaryDto>> GetMyDepartmentResponsesAsync(ICurrentUserService currentUser)
     {
+        if (currentUser.Role == UserRole.DepartmentUser)
+        {
+            if (!currentUser.DepartmentId.HasValue)
+                return [];
+        }
+
         var query = _db.DepartmentResponses
             .Include(r => r.Transaction)
             .Include(r => r.Department)
             .AsNoTracking();
 
-        if (currentUser.Role == UserRole.DepartmentUser && currentUser.DepartmentId.HasValue)
-            query = query.Where(r => r.DepartmentId == currentUser.DepartmentId.Value);
+        if (currentUser.Role == UserRole.DepartmentUser)
+            query = query.Where(r => r.DepartmentId == currentUser.DepartmentId!.Value);
 
         return await query
             .OrderByDescending(r => r.CreatedAt)
@@ -254,11 +312,23 @@ public class DepartmentResponseService : IDepartmentResponseService
         if (file.Length > MaxFileSizeBytes)
             throw new InvalidOperationException($"حجم الملف يتجاوز الحد المسموح ({MaxFileSizeBytes / 1024 / 1024} MB).");
 
-        var ext = Path.GetExtension(file.FileName);
+        // Strip any path components the client may have included in the filename
+        var safeOriginalName = Path.GetFileName(file.FileName ?? string.Empty);
+        var ext = Path.GetExtension(safeOriginalName);
         if (BlockedExtensions.Contains(ext))
             throw new InvalidOperationException("نوع الملف غير مسموح به.");
         if (!AllowedExtensions.Contains(ext))
             throw new InvalidOperationException("يُسمح فقط بملفات PDF وJPG وPNG وDOCX.");
+
+        // Derive MIME type from extension; do not trust the client-supplied ContentType
+        var mimeType = ext.ToLowerInvariant() switch
+        {
+            ".pdf" => "application/pdf",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".png" => "image/png",
+            ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            _ => "application/octet-stream",
+        };
 
         var storedName = $"{Guid.NewGuid()}{ext}";
         var filePath = Path.Combine(_storagePath, storedName);
@@ -277,9 +347,9 @@ public class DepartmentResponseService : IDepartmentResponseService
         var attachment = new DepartmentResponseAttachment
         {
             DepartmentResponseId = id,
-            OriginalFileName = file.FileName,
+            OriginalFileName = safeOriginalName,
             StoredFileName = storedName,
-            ContentType = file.ContentType,
+            ContentType = mimeType,
             FileSizeBytes = file.Length,
             StoragePath = filePath,
             UploadedByUserId = currentUser.UserId,

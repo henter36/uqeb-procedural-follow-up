@@ -308,4 +308,51 @@ public class DepartmentResponseServiceTests
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user));
     }
+
+    [Fact]
+    public async Task GetMyDepartmentResponsesAsync_DepartmentUserWithNullDept_ReturnsEmpty()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(GetMyDepartmentResponsesAsync_DepartmentUserWithNullDept_ReturnsEmpty));
+        var service = BuildService(db);
+        var owner = new FakeUser { UserId = userId, DepartmentId = deptId };
+        await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), owner);
+
+        var noDeptUser = new FakeUser { UserId = userId, DepartmentId = null };
+        var result = await service.GetMyDepartmentResponsesAsync(noDeptUser);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public async Task GetDepartmentTransactions_ReturnsBothWithAndWithoutResponse()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(GetDepartmentTransactions_ReturnsBothWithAndWithoutResponse));
+        var service = BuildService(db);
+        var user = new FakeUser { UserId = userId, DepartmentId = deptId };
+
+        // No response created yet — transaction should still appear
+        var itemsBefore = await service.GetDepartmentTransactionsAsync(user);
+        Assert.Single(itemsBefore);
+        Assert.Null(itemsBefore[0].ResponseId);
+
+        // Create a response
+        await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user);
+
+        var itemsAfter = await service.GetDepartmentTransactionsAsync(user);
+        Assert.Single(itemsAfter);
+        Assert.NotNull(itemsAfter[0].ResponseId);
+        Assert.Equal("Draft", itemsAfter[0].ResponseStatus);
+    }
+
+    [Fact]
+    public async Task GetDepartmentTransactions_NullDept_ReturnsEmpty()
+    {
+        var (db, _, _, userId) = await SeedAsync(nameof(GetDepartmentTransactions_NullDept_ReturnsEmpty));
+        var service = BuildService(db);
+        var noDeptUser = new FakeUser { UserId = userId, DepartmentId = null };
+
+        var result = await service.GetDepartmentTransactionsAsync(noDeptUser);
+
+        Assert.Empty(result);
+    }
 }

@@ -1,9 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { departmentResponsesApi } from '../api/services';
-import type { DepartmentResponseDto, DepartmentResponseSummaryDto } from '../api/types';
+import type { DepartmentResponseDto, DepartmentTransactionItem } from '../api/types';
 import { PageHeader, EmptyState, ErrorState } from '../components/ui';
-import { useAuth } from '../context/useAuth';
 
 const STATUS_LABELS: Record<string, string> = {
   Draft: 'مسودة',
@@ -32,22 +30,19 @@ function statusBadge(status: string) {
 
 type ViewState =
   | { kind: 'list' }
-  | { kind: 'new'; transactionId: number | null }
+  | { kind: 'new'; transactionId: number; subject: string; trackingNumber: string }
   | { kind: 'detail'; id: number };
 
 export default function DepartmentTransactionsPage() {
-  const { user } = useAuth();
-  const navigate = useNavigate();
-  const [summaries, setSummaries] = useState<DepartmentResponseSummaryDto[]>([]);
+  const [transactions, setTransactions] = useState<DepartmentTransactionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<ViewState>({ kind: 'list' });
   const [detail, setDetail] = useState<DepartmentResponseDto | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [form, setForm] = useState({ transactionId: '', responseText: '' });
+  const [form, setForm] = useState({ responseText: '' });
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [reviewNote, setReviewNote] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -58,21 +53,24 @@ export default function DepartmentTransactionsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await departmentResponsesApi.getMyResponses();
-      setSummaries(res.data);
+      const res = await departmentResponsesApi.getDepartmentTransactions();
+      setTransactions(res.data);
     } catch {
-      setError('تعذر تحميل البيانات');
+      setError('تعذر تحميل بيانات المعاملات');
     } finally {
       setLoading(false);
     }
   }
 
-  async function openDetail(id: number) {
+  async function openDetail(responseId: number) {
     setDetailLoading(true);
-    setView({ kind: 'detail', id });
+    setDetail(null);
+    setFormError(null);
+    setView({ kind: 'detail', id: responseId });
     try {
-      const res = await departmentResponsesApi.getById(id);
+      const res = await departmentResponsesApi.getById(responseId);
       setDetail(res.data);
+      setForm({ responseText: res.data.responseText });
     } catch {
       setError('تعذر تحميل تفاصيل الرد');
     } finally {
@@ -80,14 +78,19 @@ export default function DepartmentTransactionsPage() {
     }
   }
 
-  async function handleCreate() {
+  function openCreate(tx: DepartmentTransactionItem) {
     setFormError(null);
-    const txId = parseInt(form.transactionId, 10);
-    if (!txId || isNaN(txId)) { setFormError('رقم المعاملة مطلوب'); return; }
+    setForm({ responseText: '' });
+    setView({ kind: 'new', transactionId: tx.transactionId, subject: tx.subject, trackingNumber: tx.internalTrackingNumber });
+  }
+
+  async function handleCreate() {
+    if (view.kind !== 'new') return;
+    setFormError(null);
     if (!form.responseText.trim()) { setFormError('نص الرد مطلوب'); return; }
     setSaving(true);
     try {
-      const res = await departmentResponsesApi.create({ transactionId: txId, responseText: form.responseText });
+      const res = await departmentResponsesApi.create({ transactionId: view.transactionId, responseText: form.responseText });
       await loadList();
       await openDetail(res.data.id);
     } catch (e: unknown) {
@@ -106,7 +109,7 @@ export default function DepartmentTransactionsPage() {
     try {
       const res = await departmentResponsesApi.update(detail.id, { responseText: form.responseText });
       setDetail(res.data);
-      setForm(f => ({ ...f, responseText: res.data.responseText }));
+      setForm({ responseText: res.data.responseText });
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
       setFormError(msg ?? 'حدث خطأ أثناء الحفظ');
@@ -162,6 +165,11 @@ export default function DepartmentTransactionsPage() {
     URL.revokeObjectURL(url);
   }
 
+  function goBack() {
+    setView({ kind: 'list' });
+    loadList();
+  }
+
   const isEditable = detail?.status === 'Draft' || detail?.status === 'ReturnedForCorrection';
 
   if (loading) {
@@ -186,7 +194,7 @@ export default function DepartmentTransactionsPage() {
     return (
       <div className="page-container" dir="rtl">
         <PageHeader
-          title="إنشاء رد إدارة جديد"
+          title={`إنشاء رد — ${view.trackingNumber}`}
           actions={
             <button className="btn btn-secondary" onClick={() => { setView({ kind: 'list' }); setFormError(null); }}>
               رجوع
@@ -196,15 +204,9 @@ export default function DepartmentTransactionsPage() {
         <div className="card max-w-2xl">
           <div className="card-body space-y-4">
             {formError && <div className="alert alert-error">{formError}</div>}
-            <div>
-              <label className="form-label">رقم المعاملة *</label>
-              <input
-                className="form-input"
-                type="number"
-                value={form.transactionId}
-                onChange={e => setForm(f => ({ ...f, transactionId: e.target.value }))}
-                placeholder="أدخل رقم المعاملة"
-              />
+            <div className="p-3 bg-gray-50 rounded text-sm">
+              <span className="text-gray-500 ml-2">الموضوع:</span>
+              <span className="font-medium">{view.subject}</span>
             </div>
             <div>
               <label className="form-label">نص الرد *</label>
@@ -239,9 +241,9 @@ export default function DepartmentTransactionsPage() {
     return (
       <div className="page-container" dir="rtl">
         <PageHeader
-          title={`رد إدارة — معاملة ${detail.internalTrackingNumber}`}
+          title={`رد إدارة — ${detail.internalTrackingNumber}`}
           actions={
-            <button className="btn btn-secondary" onClick={() => { setView({ kind: 'list' }); loadList(); }}>
+            <button className="btn btn-secondary" onClick={goBack}>
               رجوع للقائمة
             </button>
           }
@@ -279,7 +281,7 @@ export default function DepartmentTransactionsPage() {
                 <textarea
                   className="form-input"
                   rows={7}
-                  value={form.responseText || detail.responseText}
+                  value={form.responseText}
                   onChange={e => setForm(f => ({ ...f, responseText: e.target.value }))}
                 />
                 <div className="flex gap-2">
@@ -354,23 +356,12 @@ export default function DepartmentTransactionsPage() {
     );
   }
 
-  // list view
   return (
     <div className="page-container" dir="rtl">
-      <PageHeader
-        title="معاملات إدارتي"
-        actions={
-          <button
-            className="btn btn-primary"
-            onClick={() => { setView({ kind: 'new' }); setForm({ transactionId: '', responseText: '' }); setFormError(null); }}
-          >
-            رد جديد
-          </button>
-        }
-      />
+      <PageHeader title="معاملات إدارتي" />
 
-      {summaries.length === 0 ? (
-        <EmptyState title="لا توجد ردود إدارة بعد" />
+      {transactions.length === 0 ? (
+        <EmptyState title="لا توجد معاملات مسندة لإدارتك حالياً" />
       ) : (
         <div className="overflow-x-auto">
           <table className="data-table w-full">
@@ -378,24 +369,33 @@ export default function DepartmentTransactionsPage() {
               <tr>
                 <th>رقم المعاملة</th>
                 <th>الموضوع</th>
-                <th>الإدارة</th>
-                <th>الحالة</th>
-                <th>تاريخ التقديم</th>
+                <th>حالة الإفادة</th>
+                <th>تاريخ الإسناد</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {summaries.map(r => (
-                <tr key={r.id}>
-                  <td>{r.internalTrackingNumber}</td>
-                  <td className="max-w-xs truncate">{r.transactionSubject}</td>
-                  <td>{r.departmentName}</td>
-                  <td>{statusBadge(r.status)}</td>
-                  <td>{r.submittedAt ? new Date(r.submittedAt).toLocaleDateString('ar-SA') : '—'}</td>
+              {transactions.map(tx => (
+                <tr key={tx.transactionId}>
+                  <td>{tx.internalTrackingNumber}</td>
+                  <td className="max-w-xs truncate">{tx.subject}</td>
                   <td>
-                    <button className="text-blue-600 hover:underline text-sm" onClick={() => openDetail(r.id)}>
-                      عرض
-                    </button>
+                    {tx.responseStatus
+                      ? statusBadge(tx.responseStatus)
+                      : <span className="text-gray-400 text-xs">لم تُنشأ بعد</span>}
+                  </td>
+                  <td>{tx.assignedDate ? new Date(tx.assignedDate).toLocaleDateString('ar-SA') : '—'}</td>
+                  <td>
+                    {tx.responseId
+                      ? (
+                        <button className="text-blue-600 hover:underline text-sm" onClick={() => openDetail(tx.responseId!)}>
+                          عرض الرد
+                        </button>
+                      ) : (
+                        <button className="text-green-600 hover:underline text-sm" onClick={() => openCreate(tx)}>
+                          إنشاء رد
+                        </button>
+                      )}
                   </td>
                 </tr>
               ))}

@@ -54,3 +54,13 @@ public record UpdateDepartmentResponseRequest(
 public record ReviewDepartmentResponseRequest(
     string? ReviewNote
 );
+
+public record DepartmentTransactionItem(
+    int TransactionId,
+    string InternalTrackingNumber,
+    string Subject,
+    string TransactionStatus,
+    DateTime? AssignedDate,
+    int? ResponseId,
+    string? ResponseStatus
+);

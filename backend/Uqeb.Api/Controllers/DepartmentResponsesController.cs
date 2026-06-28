@@ -20,6 +20,11 @@ public class DepartmentResponsesController : ControllerBase
         _currentUser = currentUser;
     }
 
+    [HttpGet("department-transactions")]
+    [Authorize(Policy = Policies.SubmitDepartmentResponse)]
+    public async Task<IActionResult> GetDepartmentTransactions()
+        => Ok(await _service.GetDepartmentTransactionsAsync(_currentUser));
+
     [HttpGet("my")]
     [Authorize(Policy = Policies.SubmitDepartmentResponse)]
     public async Task<IActionResult> GetMyResponses()

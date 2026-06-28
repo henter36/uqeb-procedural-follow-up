@@ -10,7 +10,7 @@ import type {
   CreateFollowUpPrintJobRequest, FollowUpPrintJob, PagedFollowUpPrintJobs,
   FollowUpLetterPrintRecord, FollowUpPrintPendingSummary, FollowUpPrintRecordPrintView, UserNotification,
   CreateDirectPrintRequest,
-  DepartmentResponseDto, DepartmentResponseSummaryDto, DepartmentResponseAttachmentDto,
+  DepartmentResponseDto, DepartmentResponseSummaryDto, DepartmentResponseAttachmentDto, DepartmentTransactionItem,
 } from './types';
 import type {
   InstitutionalReportManifest,
@@ -280,6 +280,7 @@ export const institutionalReportsApi = {
 };
 
 export const departmentResponsesApi = {
+  getDepartmentTransactions: () => api.get<DepartmentTransactionItem[]>('/department-responses/department-transactions'),
   getMyResponses: () => api.get<DepartmentResponseSummaryDto[]>('/department-responses/my'),
   getPendingReview: () => api.get<DepartmentResponseSummaryDto[]>('/department-responses/pending-review'),
   getById: (id: number) => api.get<DepartmentResponseDto>(`/department-responses/${id}`),

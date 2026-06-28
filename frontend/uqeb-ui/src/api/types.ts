@@ -697,3 +697,13 @@ export interface DepartmentResponseSummaryDto {
   createdAt: string;
 }
 
+
+export interface DepartmentTransactionItem {
+  transactionId: number;
+  internalTrackingNumber: string;
+  subject: string;
+  transactionStatus: string;
+  assignedDate?: string;
+  responseId?: number;
+  responseStatus?: string;
+}
