@@ -30,13 +30,13 @@ function getFollowUpReference(followUp: FollowUp): string {
 }
 
 function getFollowUpTarget(followUp: FollowUp): string {
-  const parts = [
+  const target = [
     followUp.sentTo?.trim(),
     followUp.recipients?.map((recipient) => recipient.partyName).filter(Boolean).join('، '),
     followUp.departments?.map((department) => department.departmentName).filter(Boolean).join('، '),
-  ].filter((part) => Boolean(part && part.length > 0));
+  ].find((part) => Boolean(part && part.length > 0));
 
-  return parts[0] ?? '—';
+  return target ?? '—';
 }
 
 function getFollowUpSnippet(followUp: FollowUp): string {
@@ -396,8 +396,8 @@ export default function FollowUpPrintPendingPage() {
       )}
 
       {registerDialogRecord && (
-        <div className="modal-overlay" role="presentation">
-          <div className="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="pending-register-dialog-title">
+        <div className="modal-overlay">
+          <dialog open className="modal modal-wide" aria-labelledby="pending-register-dialog-title">
             <h3 id="pending-register-dialog-title">تسجيل التعقيب</h3>
             <p className="text-muted">
               {registerDialogRecord.incomingNumber} — {registerDialogRecord.subject}
@@ -408,13 +408,13 @@ export default function FollowUpPrintPendingPage() {
               onCancel={closeRegisterDialog}
               onSuccess={(followUp) => { handleFollowUpRegistered(followUp).catch(() => undefined); }}
             />
-          </div>
+          </dialog>
         </div>
       )}
 
       {linkDialogRecord && (
-        <div className="modal-overlay" role="presentation">
-          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="pending-link-dialog-title">
+        <div className="modal-overlay">
+          <dialog open className="modal" aria-labelledby="pending-link-dialog-title">
             <h3 id="pending-link-dialog-title">ربط تعقيب موجود</h3>
             <p className="text-muted">
               اختر التعقيب المسجل لهذه المعاملة.
@@ -468,13 +468,13 @@ export default function FollowUpPrintPendingPage() {
                 إغلاق
               </button>
             </div>
-          </div>
+          </dialog>
         </div>
       )}
 
       {cancelDialogRecord && (
-        <div className="modal-overlay" role="presentation">
-          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="pending-cancel-dialog-title">
+        <div className="modal-overlay">
+          <dialog open className="modal" aria-labelledby="pending-cancel-dialog-title">
             <h3 id="pending-cancel-dialog-title">إلغاء سجل الطباعة</h3>
             <p className="text-muted">
               سيُحذف السجل من قائمة الانتظار. حدّد سبب الإلغاء بوضوح.
@@ -498,7 +498,7 @@ export default function FollowUpPrintPendingPage() {
                 إغلاق
               </button>
             </div>
-          </div>
+          </dialog>
         </div>
       )}
     </div>
