@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { institutionalReportsApi, departmentsApi, categoriesApi, externalPartiesApi, type InstitutionalReportManifest, type ReportBuildRequest } from '../api/services';
 import type { LookupItem } from '../api/types';
@@ -118,10 +118,15 @@ const ANALYTICAL_PRESET: number[] = [
   ReportSectionId.RecommendationsAndActionPlan,
 ];
 
-const parsePositiveInteger = (value: string) => {
+function parseBoundedPositiveInteger(value: string, min: number, max: number): number {
   const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
-};
+
+  if (Number.isNaN(parsed)) {
+    return min;
+  }
+
+  return Math.min(Math.max(parsed, min), max);
+}
 
 function formatDateRangeSummary(dateFrom?: string, dateTo?: string): string {
   if (dateFrom && dateTo) {
@@ -163,6 +168,10 @@ function getMultiSelectSize(itemCount: number): number {
   return Math.max(Math.min(itemCount, 5), 3);
 }
 
+function getSummaryItemClassName(className?: string): string {
+  return ['rb-summary-item', className].filter(Boolean).join(' ');
+}
+
 function getContentLevelLabel(contentLevel: typeof ReportContentLevel[keyof typeof ReportContentLevel]): string {
   if (contentLevel === ReportContentLevel.Executive) {
     return 'تنفيذي';
@@ -188,11 +197,12 @@ function buildReportSummaryItems(options: {
   totalSectionCount: number;
   activeFilterCount: number;
 }) {
+  const comparisonStatus = options.includeComparison ? 'مفعّلة' : 'معطّلة';
   const items = [
     { key: 'type', label: options.reportTypeLabel, className: 'rb-summary-type' },
     { key: 'level', label: options.contentLevelLabel },
     { key: 'date', label: options.dateRangeLabel },
-    { key: 'comparison', label: `المقارنة: ${options.includeComparison ? 'مفعّلة' : 'معطّلة'}` },
+    { key: 'comparison', label: `المقارنة: ${comparisonStatus}` },
     { key: 'sections', label: `${options.selectedSectionCount} / ${options.totalSectionCount} قسم` },
   ];
 
@@ -350,6 +360,27 @@ export default function ReportBuilderPage() {
     invalidatePreview();
     setSectionIds([...ids]);
   };
+
+  const updateBoundedMaxInput = useCallback((
+    value: string,
+    setValue: (nextValue: number) => void,
+    max: number,
+  ) => {
+    invalidatePreview();
+    setValue(parseBoundedPositiveInteger(value, 1, max));
+  }, [invalidatePreview]);
+
+  const handleMaxFindingsChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    updateBoundedMaxInput(event.target.value, setMaxFindings, 5);
+  }, [updateBoundedMaxInput]);
+
+  const handleMaxCriticalCasesChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    updateBoundedMaxInput(event.target.value, setMaxCriticalCases, 10);
+  }, [updateBoundedMaxInput]);
+
+  const handleMaxRecommendationsChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    updateBoundedMaxInput(event.target.value, setMaxRecommendations, 10);
+  }, [updateBoundedMaxInput]);
 
   const buildRequest = useCallback((): ReportBuildRequest => ({
     reportType,
@@ -568,7 +599,7 @@ export default function ReportBuilderPage() {
         {summaryItems.map((item, index) => (
           <span key={item.key} className="rb-summary-entry">
             {index > 0 && <span className="rb-summary-sep" aria-hidden="true">—</span>}
-            <span className={`rb-summary-item${item.className ? ` ${item.className}` : ''}`}>
+            <span className={getSummaryItemClassName(item.className)}>
               {item.label}
             </span>
           </span>
@@ -836,7 +867,7 @@ export default function ReportBuilderPage() {
             min="1"
             max="5"
             value={maxFindings}
-            onChange={(e) => { invalidatePreview(); setMaxFindings(parsePositiveInteger(e.target.value)); }}
+            onChange={handleMaxFindingsChange}
           />
 
           <label htmlFor="max-critical-cases">الحد الأقصى للحالات الحرجة</label>
@@ -846,7 +877,7 @@ export default function ReportBuilderPage() {
             min="1"
             max="10"
             value={maxCriticalCases}
-            onChange={(e) => { invalidatePreview(); setMaxCriticalCases(parsePositiveInteger(e.target.value)); }}
+            onChange={handleMaxCriticalCasesChange}
           />
 
           <label htmlFor="max-recommendations">الحد الأقصى للتوصيات</label>
@@ -856,7 +887,7 @@ export default function ReportBuilderPage() {
             min="1"
             max="10"
             value={maxRecommendations}
-            onChange={(e) => { invalidatePreview(); setMaxRecommendations(parsePositiveInteger(e.target.value)); }}
+            onChange={handleMaxRecommendationsChange}
           />
 
           {/* 5 ── الأقسام */}
