@@ -23,7 +23,7 @@ vi.mock('../hooks/usePendingPrintSummary', () => ({
 }));
 
 vi.mock('../context/useAuth', () => ({
-  useAuth: () => ({ canClose: false }),
+  useAuth: () => ({ canClose: false, canOperateFollowUpPrint: false }),
 }));
 
 const emptyDashboard = {

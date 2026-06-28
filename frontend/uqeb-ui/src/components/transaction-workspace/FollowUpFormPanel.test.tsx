@@ -99,6 +99,39 @@ describe('FollowUpFormPanel', () => {
     });
   });
 
+  it('calls onSuccess with the FollowUp returned by addFollowUp', async () => {
+    const fakeFollowUp = {
+      id: 42,
+      followUpDate: '2026-01-15T00:00:00Z',
+      followUpNumber: 'F-042',
+      recipients: [],
+      departments: [],
+      requiresReply: false,
+      replyStatus: 'None',
+      createdByName: 'مختبر',
+      createdAt: '2026-01-15T00:00:00Z',
+    };
+    vi.mocked(services.transactionsApi.addFollowUp).mockResolvedValue({ data: fakeFollowUp } as never);
+
+    const user = userEvent.setup();
+    render(
+      <FollowUpFormPanel
+        transactionId={1}
+        onDirtyChange={onDirtyChange}
+        onSuccess={onSuccess}
+        onCancel={onCancel}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'حفظ التعقيب' })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: 'حفظ التعقيب' }));
+
+    await waitFor(() => {
+      expect(services.transactionsApi.addFollowUp).toHaveBeenCalledWith(1, expect.any(Object));
+      expect(onSuccess).toHaveBeenCalledWith(fakeFollowUp);
+    });
+  });
+
   it('prevents save without selected departments', async () => {
     vi.mocked(services.transactionsApi.getFollowUpDepartments).mockResolvedValue({
       data: [{ departmentId: 3, departmentName: 'إدارة ج', isDefaultSelected: false }],

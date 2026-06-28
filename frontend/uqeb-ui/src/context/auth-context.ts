@@ -8,6 +8,7 @@ export interface AuthContextType {
   isAdmin: boolean;
   canEdit: boolean;
   canClose: boolean;
+  canOperateFollowUpPrint: boolean;
   isDepartmentUser: boolean;
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import type { FollowUpDepartmentOption } from '../../api/types';
+import type { FollowUp, FollowUpDepartmentOption } from '../../api/types';
 import { transactionsApi } from '../../api/services';
 import { buildCreateFollowUpPayload, getApiErrorMessage } from '../../utils/apiHelpers';
 import { areSortedIdsEqual } from '../../utils/formDirty';
@@ -14,7 +14,7 @@ type FollowUpFormPanelProps = Readonly<{
   transactionId: number;
   daysSinceLastFollowUp?: number | null;
   onDirtyChange: (dirty: boolean) => void;
-  onSuccess: () => void;
+  onSuccess: (followUp: FollowUp) => void;
   onCancel: () => void;
 }>;
 
@@ -92,8 +92,8 @@ function FollowUpFormPanelBody({
     setError('');
     setIsSubmitting(true);
     try {
-      await transactionsApi.addFollowUp(transactionId, buildCreateFollowUpPayload(form));
-      onSuccess();
+      const res = await transactionsApi.addFollowUp(transactionId, buildCreateFollowUpPayload(form));
+      onSuccess(res.data);
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
     } finally {

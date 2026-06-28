@@ -18,11 +18,11 @@ function getInitials(name: string): string {
 }
 
 export default function TopBar({ onMenuToggle, mobileOpen = false }: TopBarProps) {
-  const { user, logout, canClose } = useAuth();
+  const { user, logout, canOperateFollowUpPrint } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const meta = getRouteMeta(location.pathname, location.search);
-  const { pendingTotal } = usePendingPrintSummary(canClose);
+  const { pendingTotal } = usePendingPrintSummary(canOperateFollowUpPrint);
 
   const handleLogout = () => {
     logout();
@@ -46,10 +46,10 @@ export default function TopBar({ onMenuToggle, mobileOpen = false }: TopBarProps
       </div>
 
       <div className="topbar-end">
-        {canClose && pendingTotal > 0 && (
-          <Link to="/follow-up-print/pending" className="topbar-pending-badge" title="خطابات بانتظار التسجيل">
+        {canOperateFollowUpPrint && pendingTotal > 0 && (
+          <Link to="/follow-up-print/pending" className="topbar-pending-badge" title="بانتظار تسجيل التعقيب">
             <span className="badge badge-orange">{pendingTotal}</span>
-            <span className="topbar-pending-label">بانتظار التسجيل</span>
+            <span className="topbar-pending-label">بانتظار تسجيل التعقيب</span>
           </Link>
         )}
         {user?.departmentName && (

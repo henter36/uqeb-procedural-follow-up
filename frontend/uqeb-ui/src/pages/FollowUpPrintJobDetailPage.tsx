@@ -94,7 +94,7 @@ function getJobGuidanceAlert(
   if (status === 'Completed') {
     return {
       variant: 'info',
-      message: 'اكتملت المهمة. يمكن مراجعة سجلات الطباعة من صفحة «بانتظار التسجيل».',
+      message: 'اكتملت المهمة. يمكن مراجعة سجلات الطباعة من صفحة «بانتظار تسجيل التعقيب».',
     };
   }
   if (status === 'Failed') {

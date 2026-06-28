@@ -119,7 +119,7 @@ export default function FollowUpPrintJobsPage() {
         actions={(
           <>
             <Link to="/follow-up-print/eligible" className="btn btn-outline">المعاملات المستحقة</Link>
-            <Link to="/follow-up-print/pending" className="btn btn-outline">بانتظار التسجيل</Link>
+            <Link to="/follow-up-print/pending" className="btn btn-outline">بانتظار تسجيل التعقيب</Link>
           </>
         )}
       />

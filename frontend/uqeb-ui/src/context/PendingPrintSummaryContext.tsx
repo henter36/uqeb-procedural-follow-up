@@ -10,14 +10,14 @@ import { PendingPrintSummaryContext } from './pendingPrintSummaryContextValue';
 const POLL_INTERVAL_MS = 60_000;
 
 export function PendingPrintSummaryProvider({ children }: Readonly<{ children: ReactNode }>) {
-  const { canClose, user } = useAuth();
+  const { canOperateFollowUpPrint, user } = useAuth();
   const [summary, setSummary] = useState<FollowUpPrintPendingSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const requestSeq = useRef(0);
 
   const refresh = useCallback(async () => {
-    if (!canClose || !user) {
+    if (!canOperateFollowUpPrint || !user) {
       setSummary(null);
       setError('');
       setLoading(false);
@@ -38,12 +38,12 @@ export function PendingPrintSummaryProvider({ children }: Readonly<{ children: R
     } finally {
       if (requestSeq.current === seq) setLoading(false);
     }
-  }, [canClose, user]);
+  }, [canOperateFollowUpPrint, user]);
 
   useEffect(() => {
     let mounted = true;
 
-    if (!canClose || !user) {
+    if (!canOperateFollowUpPrint || !user) {
       requestSeq.current += 1;
       Promise.resolve().then(() => {
         if (mounted) {
@@ -69,7 +69,7 @@ export function PendingPrintSummaryProvider({ children }: Readonly<{ children: R
       requestSeq.current += 1;
       globalThis.clearInterval(timer);
     };
-  }, [canClose, refresh, user]);
+  }, [canOperateFollowUpPrint, refresh, user]);
 
   const value = useMemo(() => ({
     summary,
