@@ -32,8 +32,8 @@ function getFollowUpReference(followUp: FollowUp): string {
 function getFollowUpTarget(followUp: FollowUp): string {
   const parts = [
     followUp.sentTo?.trim(),
-    followUp.recipients.map((recipient) => recipient.partyName).filter(Boolean).join('، '),
-    followUp.departments.map((department) => department.departmentName).filter(Boolean).join('، '),
+    followUp.recipients?.map((recipient) => recipient.partyName).filter(Boolean).join('، '),
+    followUp.departments?.map((department) => department.departmentName).filter(Boolean).join('، '),
   ].filter((part) => Boolean(part && part.length > 0));
 
   return parts[0] ?? '—';
@@ -193,14 +193,12 @@ export default function FollowUpPrintPendingPage() {
   };
 
   const handleOpenCancelDialog = (record: FollowUpLetterPrintRecord) => {
-    setActingId(record.id);
     setError('');
     setMessage('');
     setCancelDialogRecord(record);
     setCancelReason('');
     setCancelError('');
     setCancelSubmitting(false);
-    setActingId(null);
   };
 
   const handleSubmitCancel = async () => {
@@ -291,7 +289,7 @@ export default function FollowUpPrintPendingPage() {
     if (!linkDialogRecord) return;
 
     setLinkingFollowUpId(followUp.id);
-    setError('');
+    setLinkError('');
     setMessage('');
     try {
       await followUpPrintApi.linkFollowUp(linkDialogRecord.id, followUp.id);
@@ -300,7 +298,7 @@ export default function FollowUpPrintPendingPage() {
       await refreshRecords();
       await refreshPendingSummary();
     } catch (err: unknown) {
-      setError(getApiErrorMessage(err));
+      setLinkError(getApiErrorMessage(err));
     } finally {
       setLinkingFollowUpId(null);
     }
