@@ -195,11 +195,16 @@ WITH REPLACE, RECOVERY;
 - `C:\Uqeb\publish\api\Uqeb.Api.dll` موجود
 - `C:\Uqeb\publish\release-manifest.json` موجود ويطابق إصدار الحزمة
 - آخر migration مطبّق = `minimumDatabaseMigration` في manifest
+- IIS physicalPath = `C:\Uqeb\publish\web` (أو junction target `current\web`)
+- Scheduled Task `UqebApi` — WorkingDirectory = `C:\Uqeb\publish\api` و Execute = `run-api.cmd` أو `Uqeb.Api.exe`
 - `/health/live` = 200
 - `/health/ready` = 200
 - `/health` = 200 مع جميع الفحوصات الأساسية pass أو not_applicable
 - شعار الخطاب موجود في `Assets\Brand\organization-logo.png` وحجمه > 0
 - `/api/branding/organization-logo` = 200
+- `POST /api/auth/login` ببيانات خاطئة → 401
+
+**ملاحظة**: `FollowUpLetterPreviewLogo` و`FollowUpLetterPdfLogo` تُعاد كـ `not_applicable` لأن التحقق منهما يتطلب جلسة متصفح أو rendering headless. يكفي التحقق من وجود الملف وصحة الـ API endpoint.
 
 ## ماذا يعني NO-GO
 

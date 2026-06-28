@@ -70,9 +70,9 @@ $report = [ordered]@{
     "HealthLive"                    = ""
     "HealthReady"                   = ""
     "HealthOverall"                 = ""
-    "LoginSmokeTest"                = "skipped"
-    "FollowUpLetterPreviewLogo"     = "not-verified"
-    "FollowUpLetterPdfLogo"         = "not-verified"
+    "LoginSmokeTest"                = "not_applicable"
+    "FollowUpLetterPreviewLogo"     = "not_applicable (logo file existence and API endpoint verified; in-template rendering requires a browser session)"
+    "FollowUpLetterPdfLogo"         = "not_applicable (logo file existence and API endpoint verified; PDF rendering requires headless browser)"
     "Result"                        = "NO-GO"
     "Reason"                        = "لم يكتمل النشر"
 }
@@ -370,14 +370,17 @@ try {
     $site = Get-WebSite | Where-Object { $_.PhysicalPath -like "*Uqeb*" } | Select-Object -First 1
     if ($site) {
         $report["IISPhysicalPath"] = $site.PhysicalPath
-        $physicalNorm = $site.PhysicalPath.TrimEnd('\').ToLower()
-        $webNorm      = $WebPath.TrimEnd('\').ToLower()
-        if ($physicalNorm -ne $webNorm) {
-            Write-Warning ("تحذير: IIS يعرض '$($site.PhysicalPath)' بينما المتوقع '$WebPath'")
+        $physicalNorm   = $site.PhysicalPath.TrimEnd('\').ToLower()
+        $webNorm        = $WebPath.TrimEnd('\').ToLower()
+        # Accept both the junction path (publish\web) and its target (current\web)
+        $webCurrentNorm = (Join-Path $InstallRoot "current\web").ToLower().TrimEnd('\')
+        if ($physicalNorm -ne $webNorm -and $physicalNorm -ne $webCurrentNorm) {
+            Fail-Deploy ("IIS يعرض '$($site.PhysicalPath)' بينما المتوقع '$WebPath'. يجب تصحيح إعدادات IIS قبل الدمج.")
         }
     }
     else {
         $report["IISPhysicalPath"] = "لم يتم العثور على موقع IIS"
+        Fail-Deploy "لا يوجد موقع IIS يشير إلى مسار Uqeb. تحقق من إعداد IIS على هذا الجهاز."
     }
 }
 catch {
@@ -393,15 +396,28 @@ try {
         $wd  = [string]($actions | Select-Object -First 1 -ExpandProperty WorkingDirectory)
         $report["ScheduledTaskExecutable"]       = $exe
         $report["ScheduledTaskWorkingDirectory"] = $wd
-        $apiNorm = $ApiPath.TrimEnd('\').ToLower()
-        $wdNorm  = $wd.TrimEnd('\').ToLower()
-        if ($wdNorm -ne $apiNorm) {
-            Write-Warning ("تحذير: WorkingDirectory للـ Scheduled Task '$wd' لا يطابق '$ApiPath'")
+
+        # WorkingDirectory must match $ApiPath (junction) OR its resolved target (current\api)
+        $apiNorm        = $ApiPath.TrimEnd('\').ToLower()
+        $apiCurrentNorm = (Join-Path $InstallRoot "current\api").TrimEnd('\').ToLower()
+        $wdNorm         = $wd.TrimEnd('\').ToLower()
+        if ($wdNorm -ne $apiNorm -and $wdNorm -ne $apiCurrentNorm) {
+            Fail-Deploy ("WorkingDirectory للـ Scheduled Task '$TaskName' = '$wd' لا يطابق '$ApiPath'. الـ API لن يجد Assets\Brand عند هذا المسار.")
+        }
+
+        # Executable must point to run-api.cmd OR Uqeb.Api.exe in the API path
+        $exeNorm        = $exe.TrimEnd('"').TrimStart('"').TrimEnd('\').ToLower()
+        $runApiCmdNorm  = (Join-Path $InstallRoot "run-api.cmd").ToLower()
+        $apiExeNorm     = (Join-Path $ApiPath "Uqeb.Api.exe").ToLower()
+        $currentApiExeNorm = (Join-Path $InstallRoot "current\api\Uqeb.Api.exe").ToLower()
+        if ($exeNorm -ne $runApiCmdNorm -and $exeNorm -ne $apiExeNorm -and $exeNorm -ne $currentApiExeNorm) {
+            Fail-Deploy ("ScheduledTask '$TaskName' يشير إلى executable غير متوقع: '$exe'. المتوقع: '$runApiCmdNorm' أو '$apiExeNorm'.")
         }
     }
     else {
         $report["ScheduledTaskExecutable"]       = "Scheduled Task '$TaskName' غير موجود"
         $report["ScheduledTaskWorkingDirectory"] = "N/A"
+        Fail-Deploy "Scheduled Task '$TaskName' غير موجود. يجب إنشاؤه على جهاز الإنتاج قبل أول نشر."
     }
 }
 catch {
@@ -476,6 +492,20 @@ if (-not $SkipHealthCheck) {
         }
     }
 
+    function Invoke-SimplePost {
+        param([string]$Uri, [string]$Body, [string]$ContentType = "application/json", [int]$TimeoutSec = 20)
+        try {
+            $r = Invoke-WebRequest -UseBasicParsing -Uri $Uri -Method POST `
+                -Body $Body -ContentType $ContentType -TimeoutSec $TimeoutSec -ErrorAction Stop
+            return [pscustomobject]@{ StatusCode = [int]$r.StatusCode; Content = $r.Content; Error = $null }
+        }
+        catch {
+            $sc = $null
+            if ($_.Exception.Response) { $sc = [int]$_.Exception.Response.StatusCode }
+            return [pscustomobject]@{ StatusCode = $sc; Content = $null; Error = $_.Exception.Message }
+        }
+    }
+
     # /health/live
     for ($attempt = 1; $attempt -le 5; $attempt++) {
         $live = Invoke-SimpleGet -Uri "$ApiBaseUrl/health/live"
@@ -538,6 +568,22 @@ if (-not $SkipHealthCheck) {
                 Fail-Deploy "الشعار موجود لكن API endpoint /api/branding/organization-logo أعاد $($logoApi.StatusCode)"
             }
         }
+    }
+
+    # Login smoke test — POST with obviously-invalid credentials, must get 401
+    # A 200 would mean auth middleware is misconfigured; connection failure means API is not reachable.
+    $loginProbe = Invoke-SimplePost -Uri "$ApiBaseUrl/api/auth/login" `
+        -Body '{"username":"__deploy_probe__","password":"__deploy_probe__"}'
+    if ($loginProbe.StatusCode -eq 401) {
+        $report["LoginSmokeTest"] = "ok (401 as expected)"
+    }
+    elseif ($loginProbe.StatusCode -ge 200 -and $loginProbe.StatusCode -lt 300) {
+        $report["LoginSmokeTest"] = "fail: got $($loginProbe.StatusCode) for invalid credentials (expected 401)"
+        Fail-Deploy "LoginSmokeTest: أعاد $($loginProbe.StatusCode) لبيانات اعتماد خاطئة. المتوقع 401. تحقق من auth middleware."
+    }
+    else {
+        $report["LoginSmokeTest"] = "fail ($($loginProbe.StatusCode)) $($loginProbe.Error)"
+        Fail-Deploy "LoginSmokeTest: /api/auth/login فشل في الاستجابة. $($loginProbe.Error)"
     }
 }
 
