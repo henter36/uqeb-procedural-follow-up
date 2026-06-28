@@ -5,7 +5,7 @@ import type { DashboardSummary, StatusDistribution, TransactionListItem } from '
 import { useAuth } from '../context/useAuth';
 import { usePendingPrintSummary } from '../hooks/usePendingPrintSummary';
 import { priorityLabels, statusBadgeClass } from '../utils/labels';
-import DateDisplay from '../components/DateDisplay';
+import { formatHijriNumeric } from '../utils/dateUtils';
 import DepartmentBadges from '../components/DepartmentBadges';
 import { PageHeader, StatsSkeleton, EmptyState, ErrorState } from '../components/ui';
 import StatusBadge from '../components/ui/StatusBadge';
@@ -96,7 +96,16 @@ function ActionRequiredTable({ rows }: { rows: TransactionListItem[] }) {
   }
   return (
     <div className="dashboard-table-wrap">
-      <table className="dashboard-table">
+      <table className="dashboard-table dashboard-action-table">
+        <colgroup>
+          <col className="col-ref" />
+          <col className="col-subject" />
+          <col className="col-dept" />
+          <col className="col-status" />
+          <col className="col-prio" />
+          <col className="col-date" />
+          <col className="col-action" />
+        </colgroup>
         <thead>
           <tr>
             <th>رقم الوارد</th>
@@ -111,18 +120,16 @@ function ActionRequiredTable({ rows }: { rows: TransactionListItem[] }) {
         <tbody>
           {rows.map((t) => (
             <tr key={t.id} className={t.isOverdue ? 'row-overdue' : ''}>
-              <td>{t.incomingNumber}</td>
-              <td style={{ maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {t.subject}
-              </td>
-              <td><DepartmentBadges names={t.outgoingDepartmentNames} /></td>
+              <td className="dashboard-cell-truncate" title={t.incomingNumber}>{t.incomingNumber}</td>
+              <td className="dashboard-cell-truncate" title={t.subject}>{t.subject}</td>
+              <td className="dashboard-cell-truncate"><DepartmentBadges names={t.outgoingDepartmentNames} /></td>
               <td><StatusBadge status={t.status} isOverdue={t.isOverdue} /></td>
               <td>
                 <span className={priorityBadgeClass(t.priority)}>
                   {priorityLabels[t.priority] ?? t.priority}
                 </span>
               </td>
-              <td><DateDisplay date={t.incomingDate} /></td>
+              <td>{formatHijriNumeric(t.incomingDate)}</td>
               <td>
                 <Link to={`/transactions/${t.id}`} className="btn btn-sm btn-outline">عرض</Link>
               </td>

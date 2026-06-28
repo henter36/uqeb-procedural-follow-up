@@ -20,3 +20,20 @@ export function formatHijri(date: string | Date): string {
 export function formatDualDate(date: string | Date): string {
   return `${formatGregorian(date)} (${formatHijri(date)})`;
 }
+
+export function formatHijriNumeric(date: string | Date): string {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  if (Number.isNaN(d.getTime())) return '';
+  try {
+    const fmt = new Intl.DateTimeFormat('en-u-ca-islamic-umalqura', {
+      year: 'numeric', month: 'numeric', day: 'numeric',
+    });
+    const parts = Object.fromEntries(fmt.formatToParts(d).map((p) => [p.type, p.value]));
+    const y = parts.year ?? '';
+    const m = String(parts.month ?? '').padStart(2, '0');
+    const dd = String(parts.day ?? '').padStart(2, '0');
+    return `${y}/${m}/${dd}`;
+  } catch {
+    return '';
+  }
+}

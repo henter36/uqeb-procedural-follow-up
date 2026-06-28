@@ -2327,3 +2327,29 @@
   direction: ltr;
   text-align: left;
 }
+
+/* ── Action-required table (compact override) ── */
+
+.dashboard-action-table {
+  table-layout: fixed;
+}
+
+.dashboard-action-table th,
+.dashboard-action-table td {
+  padding-block: 0.5rem;
+  padding-inline: 0.6rem;
+}
+
+.dashboard-action-table .col-ref     { width: 7.5rem; }
+.dashboard-action-table .col-subject { min-width: 0; }
+.dashboard-action-table .col-dept    { width: 9rem; }
+.dashboard-action-table .col-status  { width: 7.5rem; }
+.dashboard-action-table .col-prio    { width: 5.5rem; }
+.dashboard-action-table .col-date    { width: 7rem; direction: ltr; text-align: center; }
+.dashboard-action-table .col-action  { width: 4.5rem; text-align: center; }
+
+.dashboard-cell-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
