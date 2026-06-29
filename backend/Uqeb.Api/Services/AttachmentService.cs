@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.Transactions;
+using Uqeb.Api.Helpers;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
 
@@ -23,7 +24,7 @@ public class AttachmentService : IAttachmentService
     {
         _db = db;
         _audit = audit;
-        _storagePath = config["FileStorage:Path"] ?? Path.Combine(Directory.GetCurrentDirectory(), "Attachments");
+        _storagePath = FileStoragePathResolver.Resolve(config["FileStorage:Path"]);
         Directory.CreateDirectory(_storagePath);
     }
 

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.DepartmentResponses;
+using Uqeb.Api.Helpers;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
 
@@ -44,8 +45,7 @@ public class DepartmentResponseService : IDepartmentResponseService
     {
         _db = db;
         _audit = audit;
-        var basePath = config["FileStorage:Path"] ?? Path.Combine(Directory.GetCurrentDirectory(), "Attachments");
-        _storagePath = Path.Combine(basePath, "DepartmentResponses");
+        _storagePath = FileStoragePathResolver.Resolve(config["FileStorage:Path"], "DepartmentResponses");
         Directory.CreateDirectory(_storagePath);
     }
 

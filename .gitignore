@@ -61,3 +61,7 @@ artifacts/publish-api/
 artifacts/production/
 artifacts/production-staging-temp/
 artifacts/migrations-idempotent.sql
+
+# Windows drive-letter directories accidentally created on macOS/Linux by FileStorage:Path init
+# e.g. C:\Uqeb\attachments becomes a literal dir name that breaks MSBuild glob expansion
+backend/Uqeb.Api/[A-Za-z]:\*/
