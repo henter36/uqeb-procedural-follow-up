@@ -23,6 +23,8 @@ internal static class InstitutionalReportQueryBuilder
         var query = db.Transactions.AsNoTracking();
         query = InstitutionalReportSnapshotQuery.ApplyInstitutionalFilter(query, request.Filters, legacyFilter);
         query = InstitutionalReportSnapshotQuery.ApplyReportTypeFilter(query, request.ReportType, request.SingleTransactionId);
+        if (request.Filters.IncludeOverdue && request.ReportType != InstitutionalReportType.OverdueTransactions)
+            query = InstitutionalReportOverdueQuery.ApplyOverdueFilter(query, ReportingTemporalCalculator.RiyadhBusinessDate());
         query = InstitutionalReportSnapshotQuery.ApplyAccessScopeFilter(query, role, departmentId);
         return query;
     }

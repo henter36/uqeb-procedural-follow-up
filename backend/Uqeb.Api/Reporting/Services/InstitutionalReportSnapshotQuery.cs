@@ -118,7 +118,9 @@ internal static class InstitutionalReportSnapshotQuery
 
         if (reportType == InstitutionalReportType.OverdueTransactions)
         {
-            return InstitutionalReportOverdueQuery.ApplyOverdueFilter(query, DateTime.UtcNow.Date);
+            return InstitutionalReportOverdueQuery.ApplyOverdueFilter(
+                query,
+                ReportingTemporalCalculator.RiyadhBusinessDate());
         }
 
         if (reportType == InstitutionalReportType.JointDepartmentTransactions)
