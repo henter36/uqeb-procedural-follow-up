@@ -315,13 +315,19 @@ exit 1
         $scriptPath = Join-Path $root 'playwright.ps1'
         try {
             Set-Item -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH' -Value ''
-            Test-Path -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH' | Should -BeTrue
+            $emptyEnvCanBeRepresented = Test-Path -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH'
             New-FakePlaywrightInstallScript -Path $scriptPath
 
             $null = Invoke-PlaywrightChromiumInstall -PlaywrightScriptPath $scriptPath -BrowsersRoot $browsersRoot
 
-            Test-Path -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH' | Should -BeTrue
-            $env:PLAYWRIGHT_BROWSERS_PATH | Should -Be ''
+            if ($emptyEnvCanBeRepresented) {
+                Test-Path -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH' | Should -BeTrue
+                $env:PLAYWRIGHT_BROWSERS_PATH | Should -Be ''
+            }
+            else {
+                $env:PLAYWRIGHT_BROWSERS_PATH | Should -Not -Be $browsersRoot
+                [string]::IsNullOrEmpty($env:PLAYWRIGHT_BROWSERS_PATH) | Should -BeTrue
+            }
         }
         finally {
             Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
