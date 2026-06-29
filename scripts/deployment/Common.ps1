@@ -1192,7 +1192,8 @@ function Invoke-SqlDeploymentCommand {
 
     $handler = Get-SqlDeploymentCommandHandler
     if ($null -ne $handler) {
-        return ,(& $handler `
+        return ,(Invoke-SqlDeploymentCommandHandler `
+            -Handler $handler `
             -Server $Server `
             -Database $Database `
             -ConnectionString $ConnectionString `
@@ -1243,6 +1244,60 @@ function Get-SqlDeploymentCommandHandler {
     }
 
     return $variable.Value
+}
+
+function Test-SqlDeploymentCommandHandlerSupportsParameter {
+    param(
+        $Handler,
+        [string]$ParameterName
+    )
+
+    if ($Handler -is [scriptblock]) {
+        if ($null -eq $Handler.Ast -or $null -eq $Handler.Ast.ParamBlock) {
+            return $false
+        }
+
+        foreach ($parameter in $Handler.Ast.ParamBlock.Parameters) {
+            if ($parameter.Name.VariablePath.UserPath -eq $ParameterName) {
+                return $true
+            }
+        }
+
+        return $false
+    }
+
+    $command = Get-Command -Name $Handler -ErrorAction SilentlyContinue
+    if ($null -ne $command -and $command.Parameters.ContainsKey($ParameterName)) {
+        return $true
+    }
+
+    return $false
+}
+
+function Invoke-SqlDeploymentCommandHandler {
+    param(
+        $Handler,
+        [string]$Server,
+        [string]$Database = 'master',
+        [string]$ConnectionString,
+        [string]$CommandText,
+        [bool]$Scalar,
+        [bool]$DataTable
+    )
+
+    $arguments = @{
+        Server = $Server
+        Database = $Database
+        CommandText = $CommandText
+        Scalar = $Scalar
+        DataTable = $DataTable
+    }
+
+    if (Test-SqlDeploymentCommandHandlerSupportsParameter -Handler $Handler -ParameterName 'ConnectionString') {
+        $arguments['ConnectionString'] = $ConnectionString
+    }
+
+    return & $Handler @arguments
 }
 
 function Get-ProductionDatabaseBackupPath {
@@ -2329,7 +2384,11 @@ function Get-AppliedMigrationIds {
 
     $handler = Get-SqlDeploymentCommandHandler
     if ($null -ne $handler) {
-        $result = & $handler `
+        $connectionBuilder = New-Object System.Data.SqlClient.SqlConnectionStringBuilder $ConnectionString
+        $result = Invoke-SqlDeploymentCommandHandler `
+            -Handler $handler `
+            -Server $connectionBuilder.DataSource `
+            -Database $connectionBuilder.InitialCatalog `
             -ConnectionString $ConnectionString `
             -CommandText 'SELECT [MigrationId] FROM [dbo].[__EFMigrationsHistory] ORDER BY [MigrationId];' `
             -DataTable:$true
