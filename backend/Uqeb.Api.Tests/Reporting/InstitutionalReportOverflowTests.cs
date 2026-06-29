@@ -104,6 +104,36 @@ public class InstitutionalReportOverflowTests
     }
 
     [Fact]
+    public async Task RenderPreviewAsync_OverdueTransactions_WithIncludeOverdue_DoesNotChangeFilteredCount()
+    {
+        var dbFactory = await CreateSeededFactoryAsync(transactionCount: 5, overdueCount: 2);
+        var service = InstitutionalReportServiceTestHelpers.CreateService(
+            dbFactory,
+            new ReportingOptions { MaxPreviewDetailRows = DetailLimit, MaxPdfDetailRows = DetailLimit, MaxPdfDetailRowsPerPart = DetailLimit });
+
+        var withoutExtraFilter = await service.RenderPreviewAsync(new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.OverdueTransactions,
+            SectionIds = [ReportSectionId.Cover, ReportSectionId.TransactionDetails],
+        });
+
+        var withExtraFilter = await service.RenderPreviewAsync(new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.OverdueTransactions,
+            SectionIds = [ReportSectionId.Cover, ReportSectionId.TransactionDetails],
+            Filters = new ReportFiltersDto
+            {
+                IncludeOverdue = true,
+            },
+        });
+
+        Assert.Equal(2, withoutExtraFilter.TotalMatchingTransactions);
+        Assert.Equal(withoutExtraFilter.TotalMatchingTransactions, withExtraFilter.TotalMatchingTransactions);
+        Assert.Equal(withoutExtraFilter.IncludedTransactionCount, withExtraFilter.IncludedTransactionCount);
+        Assert.Equal(withoutExtraFilter.LoadedDetailRows, withExtraFilter.LoadedDetailRows);
+    }
+
+    [Fact]
     public async Task ExportAsync_SummaryOnly_ProducesPdfWithoutSilentTruncation()
     {
         var dbFactory = await CreateSeededFactoryAsync(transactionCount: 5);

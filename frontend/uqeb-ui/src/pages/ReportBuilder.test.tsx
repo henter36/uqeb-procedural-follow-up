@@ -591,6 +591,48 @@ describe('ReportBuilderPage export dialog', () => {
     expect(request.filters.search).toBe('TPL-1');
   });
 
+  it('applies safe fallbacks when saved template default filters are missing', async () => {
+    vi.mocked(services.institutionalReportsApi.getTemplates).mockResolvedValueOnce({
+      data: [
+        {
+          id: 8,
+          name: 'قالب ناقص',
+          reportType: 1,
+          sectionIds: undefined,
+          defaultFilters: undefined,
+          defaultFormat: ExportFormat.Pdf,
+          pageNumberingMode: 1,
+          includePartialCover: true,
+          includePartialManifest: true,
+        },
+      ],
+    } as never);
+    vi.mocked(services.institutionalReportsApi.preview).mockResolvedValue({ data: mockManifest } as never);
+
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'قالب ناقص' })).toBeInTheDocument();
+    });
+
+    await user.selectOptions(screen.getByLabelText('القالب المحفوظ'), '8');
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+
+    await waitFor(() => expect(services.institutionalReportsApi.preview).toHaveBeenCalled());
+    const request = vi.mocked(services.institutionalReportsApi.preview).mock.calls[0][0];
+    expect(request.sectionIds).toEqual([]);
+    expect(request.filters.dateFrom).toBeNull();
+    expect(request.filters.dateTo).toBeNull();
+    expect(request.filters.departmentIds).toEqual([]);
+    expect(request.filters.partyIds).toEqual([]);
+    expect(request.filters.categoryIds).toEqual([]);
+    expect(request.filters.priorities).toEqual([]);
+    expect(request.filters.statuses).toEqual([]);
+    expect(request.filters.includeOverdue).toBe(false);
+    expect(request.filters.search).toBeNull();
+  });
+
   it('saves current report builder settings as a template', async () => {
     vi.mocked(services.institutionalReportsApi.saveTemplate).mockResolvedValueOnce({
       data: {
@@ -632,6 +674,55 @@ describe('ReportBuilderPage export dialog', () => {
     expect(payload.reportType).toBe(InstitutionalReportType.ExecutiveComprehensive);
     expect(payload.defaultFilters.includeOverdue).toBe(false);
     expect(payload.defaultFormat).toBe(ExportFormat.Pdf);
+  });
+
+  it('prevents double submission while saving template', async () => {
+    let resolveSave: (value: unknown) => void = () => undefined;
+    vi.mocked(services.institutionalReportsApi.saveTemplate).mockReturnValueOnce(new Promise((resolve) => {
+      resolveSave = resolve;
+    }) as never);
+
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+
+    await user.type(screen.getByLabelText('حفظ الإعدادات كقالب'), 'قالب بطيء');
+    const saveButton = screen.getByRole('button', { name: 'حفظ' });
+
+    fireEvent.click(saveButton);
+    fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      expect(services.institutionalReportsApi.saveTemplate).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('button', { name: 'جاري الحفظ...' })).toBeDisabled();
+    });
+
+    resolveSave({
+      data: {
+        id: 10,
+        name: 'قالب بطيء',
+        reportType: 1,
+        sectionIds: [ReportSectionId.Cover],
+        defaultFilters: {
+          dateFrom: null,
+          dateTo: null,
+          departmentIds: [],
+          partyIds: [],
+          categoryIds: [],
+          priorities: [],
+          statuses: [],
+          includeJointDepartmentTransactions: true,
+          includeOverdue: false,
+          includeDetails: true,
+          includeRisks: true,
+          includeRecommendations: true,
+          search: null,
+        },
+        defaultFormat: ExportFormat.Pdf,
+        pageNumberingMode: 1,
+        includePartialCover: true,
+        includePartialManifest: true,
+      },
+    });
   });
 
   it('sends null search when field is empty', async () => {

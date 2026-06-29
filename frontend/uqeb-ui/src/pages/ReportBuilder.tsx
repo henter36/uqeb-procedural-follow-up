@@ -289,6 +289,7 @@ export default function ReportBuilderPage() {
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [templateName, setTemplateName] = useState('');
   const [templateError, setTemplateError] = useState('');
+  const [isSavingTemplate, setIsSavingTemplate] = useState(false);
   const previewRequestIdRef = useRef(0);
   const previewAbortRef = useRef<AbortController | null>(null);
 
@@ -479,20 +480,23 @@ export default function ReportBuilderPage() {
   });
 
   const applyTemplate = useCallback((template: ReportTemplate) => {
+    const filters: Partial<ReportTemplate['defaultFilters']> = template.defaultFilters ?? {};
+    const templateSectionIds = Array.isArray(template.sectionIds) ? template.sectionIds : [];
+
     invalidatePreview();
     setSelectedTemplateId(String(template.id));
     setTemplateError('');
     setReportType(template.reportType);
-    setSectionIds([...template.sectionIds]);
-    setFilterDepartmentIds([...(template.defaultFilters.departmentIds ?? [])]);
-    setFilterCategoryIds([...(template.defaultFilters.categoryIds ?? [])]);
-    setFilterPartyIds([...(template.defaultFilters.partyIds ?? [])]);
-    setFilterPriorities([...(template.defaultFilters.priorities ?? [])]);
-    setFilterStatuses([...(template.defaultFilters.statuses ?? [])]);
-    setFilterOnlyOverdue(Boolean(template.defaultFilters.includeOverdue));
-    setFilterSearch(template.defaultFilters.search ?? '');
-    setDateFrom(template.defaultFilters.dateFrom ?? '');
-    setDateTo(template.defaultFilters.dateTo ?? '');
+    setSectionIds([...templateSectionIds]);
+    setFilterDepartmentIds([...(filters.departmentIds ?? [])]);
+    setFilterCategoryIds([...(filters.categoryIds ?? [])]);
+    setFilterPartyIds([...(filters.partyIds ?? [])]);
+    setFilterPriorities([...(filters.priorities ?? [])]);
+    setFilterStatuses([...(filters.statuses ?? [])]);
+    setFilterOnlyOverdue(Boolean(filters.includeOverdue));
+    setFilterSearch(filters.search ?? '');
+    setDateFrom(filters.dateFrom ?? '');
+    setDateTo(filters.dateTo ?? '');
     setExportFormat(template.defaultFormat);
     setPageNumberingMode(template.pageNumberingMode);
     setIncludePartialCover(template.includePartialCover);
@@ -519,6 +523,10 @@ export default function ReportBuilderPage() {
   }, [applyTemplate, invalidatePreview, templates]);
 
   const saveCurrentTemplate = useCallback(async () => {
+    if (isSavingTemplate) {
+      return;
+    }
+
     const name = templateName.trim();
     if (!name) {
       setTemplateError('اسم القالب مطلوب.');
@@ -526,6 +534,7 @@ export default function ReportBuilderPage() {
     }
 
     setTemplateError('');
+    setIsSavingTemplate(true);
     try {
       const payload = buildRequest();
       const { data } = await institutionalReportsApi.saveTemplate({
@@ -544,12 +553,15 @@ export default function ReportBuilderPage() {
     } catch (error) {
       const apiError = getApiErrorDetails(error);
       setTemplateError(apiError.message?.trim() || 'تعذر حفظ القالب.');
+    } finally {
+      setIsSavingTemplate(false);
     }
   }, [
     buildRequest,
     exportFormat,
     includePartialCover,
     includePartialManifest,
+    isSavingTemplate,
     pageNumberingMode,
     templateName,
   ]);
@@ -783,8 +795,13 @@ export default function ReportBuilderPage() {
                 }}
                 placeholder="اسم القالب"
               />
-              <button type="button" className="btn btn-sm btn-outline" onClick={saveCurrentTemplate}>
-                حفظ
+              <button
+                type="button"
+                className="btn btn-sm btn-outline"
+                onClick={saveCurrentTemplate}
+                disabled={isSavingTemplate}
+              >
+                {isSavingTemplate ? 'جاري الحفظ...' : 'حفظ'}
               </button>
             </div>
             {templateError && <p className="text-danger">{templateError}</p>}
