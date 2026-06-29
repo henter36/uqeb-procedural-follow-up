@@ -314,7 +314,8 @@ exit 1
         $browsersRoot = Join-Path $root 'browsers'
         $scriptPath = Join-Path $root 'playwright.ps1'
         try {
-            $env:PLAYWRIGHT_BROWSERS_PATH = ''
+            [System.Environment]::SetEnvironmentVariable('PLAYWRIGHT_BROWSERS_PATH', '', 'Process')
+            Test-Path -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH' | Should -BeTrue
             New-FakePlaywrightInstallScript -Path $scriptPath
 
             $null = Invoke-PlaywrightChromiumInstall -PlaywrightScriptPath $scriptPath -BrowsersRoot $browsersRoot

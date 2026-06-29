@@ -3,10 +3,13 @@
 Describe 'PowerShell script encoding policy' {
     It 'requires UTF-8 BOM when a PowerShell script contains non-ASCII bytes' {
         $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        $excludedPathPattern = '[\\/](\.git|node_modules|bin|obj|artifacts)[\\/]|[\\/]frontend[\\/]uqeb-ui[\\/]dist[\\/]|[\\/]backend[\\/]build-[^\\/]+([\\/]|$)'
+        $powerShellExtensions = @('.ps1', '.psm1', '.psd1')
         $scriptFiles = @(
-            Get-ChildItem -LiteralPath $repoRoot -Recurse -File -Include '*.ps1', '*.psm1' |
+            Get-ChildItem -LiteralPath $repoRoot -Recurse -File |
                 Where-Object {
-                    $_.FullName -notmatch '[\\/](\.git|node_modules|bin|obj|artifacts)[\\/]'
+                    $_.Extension -in $powerShellExtensions -and
+                    $_.FullName -notmatch $excludedPathPattern
                 }
         )
 
