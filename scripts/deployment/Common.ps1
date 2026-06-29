@@ -2373,7 +2373,9 @@ function Get-DeploymentReportLatestMigrationId {
         return [string](Get-LatestAppliedMigrationId -ConnectionString $ConnectionString)
     }
     catch {
-        Write-Host ("[معلومات] تعذر قراءة آخر migration للتقرير: " + $_.Exception.Message)
+        Write-Information `
+            -MessageData ("[معلومات] تعذر قراءة آخر migration للتقرير: " + $_.Exception.Message) `
+            -InformationAction Continue
         return "غير معروف"
     }
 }

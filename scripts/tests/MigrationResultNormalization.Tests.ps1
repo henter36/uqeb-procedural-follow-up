@@ -106,12 +106,14 @@ Describe 'Get-DeploymentReportLatestMigrationId' {
             throw 'SQL history unavailable'
         }
 
-        $result = Get-DeploymentReportLatestMigrationId -ConnectionString 'bad'
+        $informationPath = Join-Path $TestDrive 'migration-report-info.txt'
+        $result = Get-DeploymentReportLatestMigrationId -ConnectionString 'bad' 6> $informationPath
 
         $result | Should -Be 'غير معروف'
         $result | Should -BeOfType [string]
         $result | Should -Not -Match 'تعذر قراءة آخر migration'
         @($result).Count | Should -Be 1
+        (Get-Content -LiteralPath $informationPath -Raw) | Should -Match 'تعذر قراءة آخر migration'
     }
 
     It 'does not pollute assignment values when migration reading fails' {
