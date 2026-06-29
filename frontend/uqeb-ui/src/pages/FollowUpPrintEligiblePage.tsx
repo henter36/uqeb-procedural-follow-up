@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { categoriesApi, departmentsApi, followUpPrintApi, letterTemplatesApi } from '../api/services';
 import type {
@@ -40,6 +40,13 @@ export default function FollowUpPrintEligiblePage() {
   const [signatoryNameOverride, setSignatoryNameOverride] = useState('');
   // Tracks whether signatory fields were set by a template default or edited manually
   const [signatoryEditedManually, setSignatoryEditedManually] = useState(false);
+  // Stable key for the current job-creation intent. Generated once on mount,
+  // reset when the user applies new filters. Retries use the same key so the
+  // backend can de-duplicate them as a single job creation attempt.
+  const [idempotencyKey, setIdempotencyKey] = useState(() => createIdempotencyKey());
+  // Synchronous guard: prevents a second click from starting a second request
+  // in the brief window between a click and the next React render cycle.
+  const isSubmittingRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
@@ -121,6 +128,9 @@ export default function FollowUpPrintEligiblePage() {
   const handleSearch = (event: FormEvent) => {
     event.preventDefault();
     setAppliedFilters({ ...draftFilters, page: 1 });
+    // New filter intent → new idempotency key so a subsequent job creation
+    // is treated as a fresh request, not a retry of the previous one.
+    setIdempotencyKey(createIdempotencyKey());
   };
 
   const renderTransactionsContent = () => {
@@ -173,10 +183,14 @@ export default function FollowUpPrintEligiblePage() {
   };
 
   const handleCreateJob = async () => {
+    // Synchronous double-click guard: the disabled attribute is applied on the
+    // next render; this ref prevents a second call from racing through.
+    if (isSubmittingRef.current) return;
     if (!preview || preview.eligibleTransactionCount === 0) {
       setError('لا توجد معاملات مستحقة للطباعة ضمن الفلاتر الحالية.');
       return;
     }
+    isSubmittingRef.current = true;
     setCreating(true);
     setError('');
     setMessage('');
@@ -185,7 +199,7 @@ export default function FollowUpPrintEligiblePage() {
         filter: buildFilter(),
         templateId: templateId ? Number(templateId) : undefined,
         responseDeadlineDays: responseDeadlineDays ? Number(responseDeadlineDays) : undefined,
-        idempotencyKey: createIdempotencyKey(),
+        idempotencyKey, // stable key: same for all retries until filter changes
         signatoryPosition: signatoryPosition.trim() || undefined,
         signatoryRank: signatoryRank.trim() || undefined,
         signatoryNameOverride: signatoryNameOverride.trim() || undefined,
@@ -200,6 +214,7 @@ export default function FollowUpPrintEligiblePage() {
         setError(getApiErrorMessage(err) || 'تعذر إنشاء مهمة الطباعة.');
       }
     } finally {
+      isSubmittingRef.current = false;
       setCreating(false);
     }
   };

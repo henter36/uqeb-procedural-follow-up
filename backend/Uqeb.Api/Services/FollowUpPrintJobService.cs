@@ -813,8 +813,10 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
     }
 
     /// <summary>
-    /// Returns candidates filtered to only valid-shape targets (exactly one positive ID).
-    /// Invalid targets are logged and dropped; candidates with no valid targets are excluded.
+    /// Returns candidates filtered to only valid, unique targets.
+    /// A target is valid when exactly one of DepartmentId / ExternalPartyId is a positive integer.
+    /// Duplicate targets (same normalized IDs within a transaction) are also dropped.
+    /// Candidates with no valid targets after filtering are excluded entirely.
     /// </summary>
     private IReadOnlyList<EligibleCandidateWithTargets> BuildValidCandidates(
         IReadOnlyList<EligibleCandidateWithTargets> candidates)
@@ -822,14 +824,11 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         var result = new List<EligibleCandidateWithTargets>();
         foreach (var candidate in candidates)
         {
+            var seen = new HashSet<(int?, int?)>();
             var validTargets = new List<FollowUpLetterTargetEntity>();
             foreach (var target in candidate.Targets)
             {
-                if (HasValidTargetShape(target))
-                {
-                    validTargets.Add(target);
-                }
-                else
+                if (!HasValidTargetShape(target))
                 {
                     _logger.LogWarning(
                         "Skipping target with invalid shape. " +
@@ -840,7 +839,29 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
                         target.DepartmentId,
                         target.ExternalPartyId,
                         target.Name);
+                    continue;
                 }
+
+                // Normalize IDs (treat 0 as null) before de-duplication so the key
+                // matches what will actually be stored in the payload.
+                var deptId = target.DepartmentId is > 0 ? target.DepartmentId : null;
+                var entityId = target.ExternalPartyId is > 0 ? target.ExternalPartyId : null;
+
+                if (!seen.Add((deptId, entityId)))
+                {
+                    _logger.LogWarning(
+                        "Skipping duplicate target. " +
+                        "TransactionId={TransactionId}, DepartmentId={DepartmentId}, " +
+                        "ExternalPartyId={ExternalPartyId}, TargetName={TargetName}. " +
+                        "Reason=DuplicateTarget",
+                        candidate.TransactionId,
+                        deptId,
+                        entityId,
+                        target.Name);
+                    continue;
+                }
+
+                validTargets.Add(target);
             }
 
             if (validTargets.Count > 0)

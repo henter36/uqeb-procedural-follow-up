@@ -317,6 +317,126 @@ public class FollowUpPrintTargetShapeTests
         Assert.Equal(2, stored.TotalLetters);
     }
 
+    // ── de-duplication: same transaction + same ID → one payload ─────────────
+
+    [Fact]
+    public async Task CreateJobAsync_SameDepartmentIdTwice_CreatesOnePayload()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(CreateJobAsync_SameDepartmentIdTwice_CreatesOnePayload));
+        await LettersTestInfrastructure.SeedUserAsync(db);
+        await LettersTestInfrastructure.SeedTemplateAsync(db);
+
+        var eligibility = new FixedCandidateEligibility([
+            new EligibleCandidateWithTargets
+            {
+                TransactionId = 60,
+                Targets =
+                [
+                    new FollowUpLetterTargetEntity("إدارة المالية", DepartmentId: 7, ExternalPartyId: null),
+                    new FollowUpLetterTargetEntity("إدارة المالية (مكرر)", DepartmentId: 7, ExternalPartyId: null),
+                ],
+            },
+        ]);
+        var service = FollowUpPrintJobServiceTests.CreateService(db, eligibility, new StubRenderService());
+
+        var job = await service.CreateJobAsync(BaseRequest, new TestCurrentUser(1));
+
+        var payloads = await db.FollowUpPrintJobPayloads.Where(p => p.JobId == job.Id).ToListAsync();
+        Assert.Single(payloads);
+        Assert.Equal(7, payloads[0].TargetDepartmentId);
+
+        var stored = await db.FollowUpPrintJobs.SingleAsync(j => j.Id == job.Id);
+        Assert.Equal(1, stored.TotalLetters);
+        Assert.Equal(1, stored.TotalTransactions);
+    }
+
+    [Fact]
+    public async Task CreateJobAsync_SameExternalPartyIdTwice_CreatesOnePayload()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(CreateJobAsync_SameExternalPartyIdTwice_CreatesOnePayload));
+        await LettersTestInfrastructure.SeedUserAsync(db);
+        await LettersTestInfrastructure.SeedTemplateAsync(db);
+
+        var eligibility = new FixedCandidateEligibility([
+            new EligibleCandidateWithTargets
+            {
+                TransactionId = 61,
+                Targets =
+                [
+                    new FollowUpLetterTargetEntity("جهة خارجية", DepartmentId: null, ExternalPartyId: 12),
+                    new FollowUpLetterTargetEntity("جهة خارجية (مكرر)", DepartmentId: null, ExternalPartyId: 12),
+                ],
+            },
+        ]);
+        var service = FollowUpPrintJobServiceTests.CreateService(db, eligibility, new StubRenderService());
+
+        var job = await service.CreateJobAsync(BaseRequest, new TestCurrentUser(1));
+
+        var payloads = await db.FollowUpPrintJobPayloads.Where(p => p.JobId == job.Id).ToListAsync();
+        Assert.Single(payloads);
+        Assert.Equal(12, payloads[0].TargetEntityId);
+    }
+
+    [Fact]
+    public async Task CreateJobAsync_DifferentDepartmentIds_CreatesTwoPayloads()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(CreateJobAsync_DifferentDepartmentIds_CreatesTwoPayloads));
+        await LettersTestInfrastructure.SeedUserAsync(db);
+        await LettersTestInfrastructure.SeedTemplateAsync(db);
+
+        var eligibility = new FixedCandidateEligibility([
+            new EligibleCandidateWithTargets
+            {
+                TransactionId = 62,
+                Targets =
+                [
+                    new FollowUpLetterTargetEntity("إدارة أ", DepartmentId: 8, ExternalPartyId: null),
+                    new FollowUpLetterTargetEntity("إدارة ب", DepartmentId: 9, ExternalPartyId: null),
+                ],
+            },
+        ]);
+        var service = FollowUpPrintJobServiceTests.CreateService(db, eligibility, new StubRenderService());
+
+        var job = await service.CreateJobAsync(BaseRequest, new TestCurrentUser(1));
+
+        var payloads = await db.FollowUpPrintJobPayloads.Where(p => p.JobId == job.Id).ToListAsync();
+        Assert.Equal(2, payloads.Count);
+        Assert.Contains(payloads, p => p.TargetDepartmentId == 8);
+        Assert.Contains(payloads, p => p.TargetDepartmentId == 9);
+
+        var stored = await db.FollowUpPrintJobs.SingleAsync(j => j.Id == job.Id);
+        Assert.Equal(2, stored.TotalLetters);
+        Assert.Equal(1, stored.TotalTransactions);
+    }
+
+    [Fact]
+    public async Task CreateJobAsync_DeptIdAndEntityId_CreatesTwoDistinctPayloads()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(CreateJobAsync_DeptIdAndEntityId_CreatesTwoDistinctPayloads));
+        await LettersTestInfrastructure.SeedUserAsync(db);
+        await LettersTestInfrastructure.SeedTemplateAsync(db);
+
+        var eligibility = new FixedCandidateEligibility([
+            new EligibleCandidateWithTargets
+            {
+                TransactionId = 63,
+                Targets =
+                [
+                    new FollowUpLetterTargetEntity("إدارة",      DepartmentId: 4,  ExternalPartyId: null),
+                    new FollowUpLetterTargetEntity("طرف خارجي",  DepartmentId: null, ExternalPartyId: 6),
+                ],
+            },
+        ]);
+        var service = FollowUpPrintJobServiceTests.CreateService(db, eligibility, new StubRenderService());
+
+        var job = await service.CreateJobAsync(BaseRequest, new TestCurrentUser(1));
+
+        var payloads = await db.FollowUpPrintJobPayloads.Where(p => p.JobId == job.Id).ToListAsync();
+        Assert.Equal(2, payloads.Count);
+        Assert.Contains(payloads, p => p.TargetDepartmentId == 4 && p.TargetEntityId == null);
+        Assert.Contains(payloads, p => p.TargetEntityId == 6 && p.TargetDepartmentId == null);
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private sealed class FixedCandidateEligibility(IReadOnlyList<EligibleCandidateWithTargets> candidates)

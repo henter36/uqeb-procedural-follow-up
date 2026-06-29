@@ -172,8 +172,18 @@ public sealed class FollowUpPrintEligibilityService : IFollowUpPrintEligibilityS
                 continue;
             }
 
+            // Count only targets that will actually become payloads: exactly one positive
+            // ID, de-duplicated. Mirrors the logic in FollowUpPrintJobService.BuildValidCandidates
+            // so the preview count matches what the job will actually contain.
+            var validCount = CountValidUniqueTargets(targets);
+            if (validCount == 0)
+            {
+                noTargetCount++;
+                continue;
+            }
+
             eligibleTransactionCount++;
-            estimatedLetterCount += targets.Count;
+            estimatedLetterCount += validCount;
         }
 
         return new FollowUpPrintEligibilityPreviewDto
@@ -366,13 +376,22 @@ public sealed class FollowUpPrintEligibilityService : IFollowUpPrintEligibilityS
                 continue;
 
             var sequence = FollowUpSequenceCalculator.CalculateExpectedSequence(candidate.FollowUpCount);
+            var seen = new HashSet<(int?, int?)>();
             foreach (var target in targets)
             {
+                // Mirror FollowUpPrintJobService.BuildValidCandidates: valid shape + unique IDs.
+                var hasDept = target.DepartmentId is > 0;
+                var hasEntity = target.ExternalPartyId is > 0;
+                if (!(hasDept ^ hasEntity)) continue;
+                var deptId = hasDept ? target.DepartmentId : null;
+                var entityId = hasEntity ? target.ExternalPartyId : null;
+                if (!seen.Add((deptId, entityId))) continue;
+
                 payloads.Add(new FollowUpPrintJobLetterPayload
                 {
                     TransactionId = candidate.TransactionId,
-                    TargetDepartmentId = target.DepartmentId,
-                    TargetEntityId = target.ExternalPartyId,
+                    TargetDepartmentId = deptId,
+                    TargetEntityId = entityId,
                     TargetEntityName = target.Name,
                     FollowUpSequence = sequence,
                 });
@@ -415,6 +434,25 @@ public sealed class FollowUpPrintEligibilityService : IFollowUpPrintEligibilityS
             LastPrintRequestedAt = row.LastPrintRequestedAt,
             PrimaryTargetEntity = primaryTarget,
         };
+    }
+
+    /// <summary>
+    /// Counts targets that would produce a storable payload: exactly one positive ID, de-duplicated.
+    /// Mirrors FollowUpPrintJobService.BuildValidCandidates so preview counts match actual job counts.
+    /// </summary>
+    private static int CountValidUniqueTargets(IReadOnlyList<FollowUpLetterTargetEntity> targets)
+    {
+        var seen = new HashSet<(int?, int?)>();
+        var count = 0;
+        foreach (var target in targets)
+        {
+            var hasDept = target.DepartmentId is > 0;
+            var hasEntity = target.ExternalPartyId is > 0;
+            if (!(hasDept ^ hasEntity)) continue;
+            if (seen.Add((hasDept ? target.DepartmentId : null, hasEntity ? target.ExternalPartyId : null)))
+                count++;
+        }
+        return count;
     }
 
     private DateTime ComputeExclusionThresholdUtc(DateTime exclusionCutoffDisplayDate)
