@@ -333,4 +333,46 @@ public class TransactionWorkflowAtomicityTests
         Assert.Contains("الموارد", ex.Message);
         Assert.Equal(0, cache.TransactionChangeInvalidations);
     }
+
+    [Fact]
+    public async Task CloseAsync_fails_when_approved_response_revoked_before_save()
+    {
+        // Simulates the race-condition scenario where a dept response was Approved when
+        // the close was initiated but was revoked by a concurrent write before the save.
+        // ValidateCanCloseAsync now runs inside CommitWorkflowMutationAsync (inside the DB
+        // transaction), so it reads the current state and correctly rejects the close.
+        var (service, db, _, cache) = await CreateServiceAsync(
+            nameof(CloseAsync_fails_when_approved_response_revoked_before_save));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+
+        var assignment = await db.Assignments.SingleAsync(a => a.TransactionId == created!.Id && a.DepartmentId == 10);
+        assignment.RequiresReply = true;
+        assignment.ReplyStatus = ReplyStatus.Replied;
+        assignment.Status = AssignmentStatus.Completed;
+
+        // Response exists but was revoked back to Submitted (concurrent write scenario)
+        db.DepartmentResponses.Add(new DepartmentResponse
+        {
+            TransactionId = created!.Id,
+            DepartmentId = 10,
+            ResponseText = "إفادة",
+            Status = DepartmentResponseStatus.SubmittedForReview,
+            SubmittedByUserId = 1,
+            SubmittedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+        cache.ResetInvalidations();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin));
+
+        Assert.Contains("إفادات ناقصة", ex.Message);
+        Assert.Contains("المالية", ex.Message);
+        Assert.Equal(0, cache.TransactionChangeInvalidations);
+        var finalStatus = await db.Transactions
+            .Where(t => t.Id == created.Id)
+            .Select(t => t.Status)
+            .FirstAsync();
+        Assert.NotEqual(TransactionStatus.Closed, finalStatus);
+    }
 }
