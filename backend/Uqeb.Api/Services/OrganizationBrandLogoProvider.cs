@@ -11,7 +11,7 @@ public interface IOrganizationBrandLogoProvider
     byte[]? TryGetLogoBytes(string? logoPath = null);
 
     // Loads exactly the named file from Assets/Brand/ with no fallback to the configured LogoPath.
-    byte[]? TryGetExactLogoBytes(string fileName);
+    byte[]? TryGetExactLogoBytes(string? fileName);
 }
 
 public sealed class OrganizationBrandLogoProvider : IOrganizationBrandLogoProvider
@@ -56,14 +56,19 @@ public sealed class OrganizationBrandLogoProvider : IOrganizationBrandLogoProvid
         return null;
     }
 
-    public byte[]? TryGetExactLogoBytes(string fileName)
+    public byte[]? TryGetExactLogoBytes(string? fileName)
     {
+        if (string.IsNullOrWhiteSpace(fileName))
+            return null;
         var resolvedPath = TryResolveBrandPath(fileName);
         return resolvedPath is null ? null : TryLoadCached(resolvedPath);
     }
 
     private string? TryResolveBrandPath(string candidate)
     {
+        if (string.IsNullOrWhiteSpace(candidate))
+            return null;
+
         // Data URIs are not file paths; skip silently without logging a warning.
         if (candidate.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
             return null;

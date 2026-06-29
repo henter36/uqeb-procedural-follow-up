@@ -11,34 +11,42 @@ public interface IBrandAssetService
 
 public sealed class BrandAssetService : IBrandAssetService
 {
-    private readonly IOrganizationBrandLogoProvider _logoProvider;
-    private readonly ILogger<BrandAssetService> _logger;
+    private readonly Lazy<string?> _svgDataUri;
+    private readonly Lazy<string?> _pngDataUri;
+    private readonly Lazy<string?> _preferredDataUri;
 
     public BrandAssetService(
         IOrganizationBrandLogoProvider logoProvider,
         ILogger<BrandAssetService> logger)
     {
-        _logoProvider = logoProvider;
-        _logger = logger;
+        _svgDataUri = new Lazy<string?>(() =>
+        {
+            var bytes = logoProvider.TryGetExactLogoBytes("organization-logo.svg");
+            return bytes is null || bytes.Length == 0
+                ? null
+                : $"data:image/svg+xml;base64,{Convert.ToBase64String(bytes)}";
+        });
+
+        _pngDataUri = new Lazy<string?>(() =>
+        {
+            var bytes = logoProvider.TryGetExactLogoBytes("organization-logo.png");
+            return bytes is null || bytes.Length == 0
+                ? null
+                : $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
+        });
+
+        _preferredDataUri = new Lazy<string?>(() =>
+        {
+            var dataUri = GetLogoSvgDataUri() ?? GetLogoPngDataUri();
+            if (dataUri is null)
+                logger.LogWarning("لم يتم العثور على شعار المؤسسة (SVG أو PNG) لتضمينه في الخطابات.");
+            return dataUri;
+        });
     }
 
-    public string? GetLogoSvgDataUri()
-    {
-        var bytes = _logoProvider.TryGetExactLogoBytes("organization-logo.svg");
-        return bytes is null ? null : $"data:image/svg+xml;base64,{Convert.ToBase64String(bytes)}";
-    }
+    public string? GetLogoSvgDataUri() => _svgDataUri.Value;
 
-    public string? GetLogoPngDataUri()
-    {
-        var bytes = _logoProvider.TryGetExactLogoBytes("organization-logo.png");
-        return bytes is null ? null : $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
-    }
+    public string? GetLogoPngDataUri() => _pngDataUri.Value;
 
-    public string? GetPreferredLogoDataUri()
-    {
-        var dataUri = GetLogoSvgDataUri() ?? GetLogoPngDataUri();
-        if (dataUri is null)
-            _logger.LogWarning("لم يتم العثور على شعار المؤسسة (SVG أو PNG) لتضمينه في الخطابات.");
-        return dataUri;
-    }
+    public string? GetPreferredLogoDataUri() => _preferredDataUri.Value;
 }

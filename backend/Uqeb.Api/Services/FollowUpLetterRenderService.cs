@@ -76,7 +76,6 @@ public sealed class FollowUpLetterRenderService : IFollowUpLetterRenderService
     private readonly IFollowUpLetterPdfExporter _pdfExporter;
     private readonly IFollowUpLetterTimeZone _timeZone;
     private readonly IBrandAssetService _brandAssets;
-    private readonly OrganizationBrandingOptions _branding;
     private readonly FollowUpLettersOptions _printOptions;
 
     public FollowUpLetterRenderService(
@@ -85,7 +84,6 @@ public sealed class FollowUpLetterRenderService : IFollowUpLetterRenderService
         IFollowUpLetterPdfExporter pdfExporter,
         IFollowUpLetterTimeZone timeZone,
         IBrandAssetService brandAssets,
-        IOptions<OrganizationBrandingOptions> branding,
         IOptions<FollowUpLettersOptions> printOptions)
     {
         _db = db;
@@ -93,7 +91,6 @@ public sealed class FollowUpLetterRenderService : IFollowUpLetterRenderService
         _pdfExporter = pdfExporter;
         _timeZone = timeZone;
         _brandAssets = brandAssets;
-        _branding = branding.Value;
         _printOptions = printOptions.Value;
     }
 
