@@ -10,6 +10,7 @@ import type {
   CreateFollowUpPrintJobRequest, FollowUpPrintJob, PagedFollowUpPrintJobs,
   FollowUpLetterPrintRecord, FollowUpPrintPendingSummary, FollowUpPrintRecordPrintView, UserNotification,
   CreateDirectPrintRequest,
+  DepartmentResponseDto, DepartmentResponseSummaryDto, DepartmentResponseAttachmentDto, DepartmentTransactionResponseItemDto,
 } from './types';
 import type {
   InstitutionalReportManifest,
@@ -276,4 +277,30 @@ export const institutionalReportsApi = {
   saveTemplate: (payload: SaveReportTemplateRequest) =>
     api.post<ReportTemplate>('/institutional-reports/templates', payload),
   deleteTemplate: (id: number) => api.delete(`/institutional-reports/templates/${id}`),
+};
+
+export const departmentResponsesApi = {
+  getDepartmentTransactions: () => api.get<DepartmentTransactionResponseItemDto[]>('/department-responses/department-transactions'),
+  getMyResponses: () => api.get<DepartmentResponseSummaryDto[]>('/department-responses/my'),
+  getPendingReview: () => api.get<DepartmentResponseSummaryDto[]>('/department-responses/pending-review'),
+  getById: (id: number) => api.get<DepartmentResponseDto>(`/department-responses/${id}`),
+  create: (data: { transactionId: number; responseText: string }) =>
+    api.post<DepartmentResponseDto>('/department-responses', data),
+  update: (id: number, data: { responseText: string }) =>
+    api.put<DepartmentResponseDto>(`/department-responses/${id}`, data),
+  submit: (id: number) => api.post<DepartmentResponseDto>(`/department-responses/${id}/submit`),
+  approve: (id: number) => api.post<DepartmentResponseDto>(`/department-responses/${id}/approve`),
+  returnForCorrection: (id: number, reviewNote: string) =>
+    api.post<DepartmentResponseDto>(`/department-responses/${id}/return`, { reviewNote }),
+  reject: (id: number, reviewNote: string) =>
+    api.post<DepartmentResponseDto>(`/department-responses/${id}/reject`, { reviewNote }),
+  uploadAttachment: (id: number, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return api.post<DepartmentResponseAttachmentDto>(`/department-responses/${id}/attachments`, form);
+  },
+  deleteAttachment: (id: number, attachmentId: number) =>
+    api.delete(`/department-responses/${id}/attachments/${attachmentId}`),
+  downloadAttachment: (id: number, attachmentId: number) =>
+    api.get(`/department-responses/${id}/attachments/${attachmentId}/download`, { responseType: 'blob' }),
 };

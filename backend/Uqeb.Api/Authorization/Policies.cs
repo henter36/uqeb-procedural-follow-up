@@ -16,4 +16,7 @@ public static class Policies
     public const string PrintFollowUpLetters = "PrintFollowUpLetters";
     public const string RegisterPrintedFollowUp = "RegisterPrintedFollowUp";
     public const string CancelFollowUpPrintRecord = "CancelFollowUpPrintRecord";
+
+    public const string SubmitDepartmentResponse = "SubmitDepartmentResponse";
+    public const string ReviewDepartmentResponse = "ReviewDepartmentResponse";
 }

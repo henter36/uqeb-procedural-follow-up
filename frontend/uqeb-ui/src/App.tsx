@@ -19,6 +19,8 @@ import FollowUpPrintPendingPage from './pages/FollowUpPrintPendingPage';
 import FollowUpPrintPartPage from './pages/FollowUpPrintPartPage';
 import SecurityPage from './pages/SecurityPage';
 import TransactionImport from './pages/TransactionImport';
+import DepartmentTransactionsPage from './pages/DepartmentTransactionsPage';
+import DepartmentResponseReviewPage from './pages/DepartmentResponseReviewPage';
 import { institutionalReportsEnabled } from './config/institutionalReportsRuntime';
 import { PendingPrintSummaryProvider } from './context/PendingPrintSummaryContext';
 
@@ -146,6 +148,22 @@ export default function App() {
               element={(
                 <ProtectedRoute requiredRoles={["Admin"]}>
                   <SecurityPage />
+                </ProtectedRoute>
+              )}
+            />
+            <Route
+              path="department-responses"
+              element={(
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry', 'DepartmentUser']}>
+                  <DepartmentTransactionsPage />
+                </ProtectedRoute>
+              )}
+            />
+            <Route
+              path="department-responses/review"
+              element={(
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']}>
+                  <DepartmentResponseReviewPage />
                 </ProtectedRoute>
               )}
             />

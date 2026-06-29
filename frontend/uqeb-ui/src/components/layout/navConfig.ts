@@ -12,6 +12,8 @@ export type NavItem = {
   adminOnly?: boolean;
   supervisorOnly?: boolean;
   followUpPrintOnly?: boolean;
+  departmentUserOnly?: boolean;
+  departmentResponseReviewOnly?: boolean;
   matchPrefix?: boolean;
   badgeKey?: 'pendingPrints';
 };
@@ -32,6 +34,13 @@ export function buildNavSections(institutionalReportsEnabled = isInstitutionalRe
         ...(institutionalReportsEnabled
           ? [{ path: '/report-builder', label: 'منشئ التقارير', icon: IconReports, adminOnly: true } satisfies NavItem]
           : []),
+      ],
+    },
+    {
+      label: 'إفادات الإدارات',
+      items: [
+        { path: '/department-responses', label: 'معاملات إدارتي', icon: IconTransactions, departmentUserOnly: true, matchPrefix: false },
+        { path: '/department-responses/review', label: 'إفادات بانتظار المراجعة', icon: IconReports, departmentResponseReviewOnly: true },
       ],
     },
     {
@@ -88,6 +97,8 @@ export function getRouteMeta(pathname: string, search: string): RouteMeta {
     '/external-parties': { title: 'الجهات الخارجية', breadcrumbs: [{ label: 'الإدارة' }, { label: 'الجهات الخارجية' }] },
     '/categories': { title: 'التصنيفات', breadcrumbs: [{ label: 'الإدارة' }, { label: 'التصنيفات' }] },
     '/security': { title: 'الأمن والتنبيهات', breadcrumbs: [{ label: 'الإدارة' }, { label: 'الأمن والتنبيهات' }] },
+    '/department-responses': { title: 'معاملات إدارتي', breadcrumbs: [{ label: 'إفادات الإدارات' }, { label: 'معاملات إدارتي' }] },
+    '/department-responses/review': { title: 'إفادات بانتظار المراجعة', breadcrumbs: [{ label: 'إفادات الإدارات' }, { label: 'بانتظار المراجعة' }] },
   };
 
   if (routes[pathname]) return routes[pathname];

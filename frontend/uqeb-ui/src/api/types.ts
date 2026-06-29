@@ -656,3 +656,63 @@ export interface ExcelImportCommitResult {
   importedTransactionIds: number[];
   rejectedRows: ExcelImportRejectedRow[];
 }
+
+export interface DepartmentResponseAttachmentDto {
+  id: number;
+  originalFileName: string;
+  contentType?: string;
+  fileSizeBytes: number;
+  uploadedByName: string;
+  uploadedAt: string;
+}
+
+export interface DepartmentResponseDto {
+  id: number;
+  transactionId: number;
+  transactionSubject: string;
+  internalTrackingNumber: string;
+  departmentId: number;
+  departmentName: string;
+  responseText: string;
+  status: string;
+  submittedByName: string;
+  submittedAt?: string;
+  reviewedByName?: string;
+  reviewedAt?: string;
+  reviewNote?: string;
+  createdAt: string;
+  updatedAt?: string;
+  attachments: DepartmentResponseAttachmentDto[];
+}
+
+export interface DepartmentResponseSummaryDto {
+  id: number;
+  transactionId: number;
+  transactionSubject: string;
+  internalTrackingNumber: string;
+  departmentId: number;
+  departmentName: string;
+  status: string;
+  submittedAt?: string;
+  createdAt: string;
+}
+
+
+export interface DepartmentTransactionResponseItemDto {
+  transactionId: number;
+  internalTrackingNumber: string;
+  subject: string;
+  incomingDate?: string;
+  priority: string;
+  assignedDate?: string;
+  departmentId: number;
+  departmentName: string;
+  departmentResponseId?: number;
+  departmentResponseStatus?: string;
+  canCreateResponse: boolean;
+  canEditResponse: boolean;
+  canSubmitResponse: boolean;
+}
+
+// @deprecated use DepartmentTransactionResponseItemDto
+export type DepartmentTransactionItem = DepartmentTransactionResponseItemDto;
