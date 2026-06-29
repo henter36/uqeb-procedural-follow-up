@@ -568,4 +568,56 @@ public class DepartmentResponseServiceTests
             Directory.Delete(tmpDir, true);
         }
     }
+
+    [Fact]
+    public async Task Upload_RejectsFileLargerThan10MB()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(Upload_RejectsFileLargerThan10MB));
+        var service = BuildService(db);
+        var user = new FakeUser { UserId = userId, DepartmentId = deptId };
+
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user);
+
+        // FormFile length > 10 MB without allocating the full buffer
+        const long oversizeBytes = 10L * 1024 * 1024 + 1;
+        var oversizedFile = new FormFile(Stream.Null, 0, oversizeBytes, "file", "large.pdf")
+        {
+            Headers = new HeaderDictionary(),
+            ContentType = "application/pdf",
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UploadAttachmentAsync(created.Id, oversizedFile, user));
+    }
+
+    [Fact]
+    public async Task Upload_AcceptsFileExactlyAt10MB()
+    {
+        var tmpDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tmpDir);
+        try
+        {
+            var (db, txId, deptId, userId) = await SeedAsync(nameof(Upload_AcceptsFileExactlyAt10MB));
+            var service = BuildService(db, BuildConfig(tmpDir));
+            var user = new FakeUser { UserId = userId, DepartmentId = deptId };
+
+            var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user);
+
+            const long exactBytes = 10L * 1024 * 1024;
+            var fileContent = new byte[exactBytes];
+            var borderlineFile = new FormFile(
+                new MemoryStream(fileContent), 0, exactBytes, "file", "border.pdf")
+            {
+                Headers = new HeaderDictionary(),
+                ContentType = "application/pdf",
+            };
+
+            var result = await service.UploadAttachmentAsync(created.Id, borderlineFile, user);
+            Assert.Equal(exactBytes, result.FileSizeBytes);
+        }
+        finally
+        {
+            Directory.Delete(tmpDir, true);
+        }
+    }
 }

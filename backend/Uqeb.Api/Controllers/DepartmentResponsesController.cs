@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Uqeb.Api.Authorization;
 using Uqeb.Api.DTOs.DepartmentResponses;
@@ -11,6 +12,10 @@ namespace Uqeb.Api.Controllers;
 [Authorize]
 public class DepartmentResponsesController : ControllerBase
 {
+    // 10 MB file limit plus a small multipart/form-data overhead allowance.
+    // The service enforces the per-file 10 MB cap; this limit covers the full request.
+    private const long AttachmentRequestSizeLimitBytes = 10_500_000L;
+
     private readonly IDepartmentResponseService _service;
     private readonly ICurrentUserService _currentUser;
 
@@ -150,9 +155,12 @@ public class DepartmentResponsesController : ControllerBase
 
     [HttpPost("{id:int}/attachments")]
     [Authorize(Policy = Policies.SubmitDepartmentResponse)]
-    [RequestSizeLimit(10_500_000)]
+    [RequestSizeLimit(AttachmentRequestSizeLimitBytes)]
     public async Task<IActionResult> UploadAttachment(int id, IFormFile file)
     {
+        if (Request.ContentLength is > AttachmentRequestSizeLimitBytes)
+            return StatusCode(StatusCodes.Status413PayloadTooLarge, new { message = "حجم الطلب يتجاوز الحد المسموح." });
+
         if (file == null || file.Length == 0)
             return BadRequest(new { message = "يجب اختيار ملف" });
         try
