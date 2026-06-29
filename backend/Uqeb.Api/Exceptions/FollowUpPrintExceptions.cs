@@ -3,6 +3,7 @@ namespace Uqeb.Api.Exceptions;
 public abstract class FollowUpPrintException : Exception
 {
     protected FollowUpPrintException(string message) : base(message) { }
+    protected FollowUpPrintException(string message, Exception innerException) : base(message, innerException) { }
 }
 
 public sealed class FollowUpPrintForbiddenException : FollowUpPrintException
@@ -21,6 +22,9 @@ public sealed class FollowUpPrintValidationException : FollowUpPrintException
 {
     public FollowUpPrintValidationException(string message)
         : base(message) { }
+
+    public FollowUpPrintValidationException(string message, Exception innerException)
+        : base(message, innerException) { }
 }
 
 public sealed class FollowUpPrintNotFoundException : FollowUpPrintException

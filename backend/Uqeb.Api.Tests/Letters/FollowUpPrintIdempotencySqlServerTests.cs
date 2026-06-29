@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.FollowUpPrint;
 using Uqeb.Api.Exceptions;
@@ -130,7 +131,8 @@ public class FollowUpPrintIdempotencySqlServerTests
             render,
             new FollowUpPrintAccessService(db),
             new NoOpAuditService(),
-            LettersTestInfrastructure.CreateOptions());
+            LettersTestInfrastructure.CreateOptions(),
+            NullLogger<FollowUpPrintJobService>.Instance);
     }
 
     private static CreateFollowUpPrintJobRequest BuildRequest(string idempotencyKey) => new()

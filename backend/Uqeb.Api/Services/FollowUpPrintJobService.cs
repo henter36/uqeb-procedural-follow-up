@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Uqeb.Api.Configuration;
 using Uqeb.Api.Data;
@@ -46,6 +47,7 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
     private readonly IFollowUpPrintAccessService _access;
     private readonly IAuditService _audit;
     private readonly FollowUpLettersOptions _options;
+    private readonly ILogger<FollowUpPrintJobService> _logger;
 
     public FollowUpPrintJobService(
         AppDbContext db,
@@ -53,7 +55,8 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         IFollowUpLetterRenderService renderService,
         IFollowUpPrintAccessService access,
         IAuditService audit,
-        IOptions<FollowUpLettersOptions> options)
+        IOptions<FollowUpLettersOptions> options,
+        ILogger<FollowUpPrintJobService> logger)
     {
         _db = db;
         _eligibility = eligibility;
@@ -61,6 +64,7 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         _access = access;
         _audit = audit;
         _options = options.Value;
+        _logger = logger;
     }
 
     public async Task<FollowUpPrintJobDto> CreateJobAsync(
@@ -155,7 +159,9 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         {
             await transaction.RollbackAsync(cancellationToken);
             _db.ChangeTracker.Clear();
-            throw new FollowUpPrintValidationException("بعض الجهات المستهدفة ليست مرتبطة بإدارة أو طرف خارجي بمعرّف صالح. تحقق من بيانات المعاملات المختارة.");
+            throw new FollowUpPrintValidationException(
+                "بعض الجهات المستهدفة ليست مرتبطة بإدارة أو طرف خارجي بمعرّف صالح. تحقق من بيانات المعاملات المختارة.",
+                ex);
         }
         catch (DbUpdateException ex) when (SqlExceptionHelper.IsDuplicateKey(ex))
         {
@@ -693,21 +699,27 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         CancellationToken cancellationToken)
     {
         var ordinal = 0;
+        var validTransactionCount = 0;
         foreach (var candidate in eligibleCandidates)
         {
             var sequence = FollowUpSequenceCalculator.CalculateExpectedSequence(candidate.FollowUpCount);
-            var validPayloadsForCandidate = 0;
+            var ordinalBeforeCandidate = ordinal;
             foreach (var target in candidate.Targets)
             {
                 // CK_FollowUpPrintJobPayloads_TargetShape requires exactly one of DepartmentId/ExternalPartyId to be set.
                 // Name-only fallback targets (both null) or invalid targets (both set) must be skipped.
                 if (target.DepartmentId.HasValue == target.ExternalPartyId.HasValue)
                 {
-                    job.TotalLetters = Math.Max(0, job.TotalLetters - 1);
+                    _logger.LogWarning(
+                        "Skipping target with invalid shape for TransactionId={TransactionId}: " +
+                        "TargetDepartmentId={TargetDepartmentId}, TargetEntityId={TargetEntityId}. " +
+                        "Reason: CK_FollowUpPrintJobPayloads_TargetShape requires exactly one ID to be non-null.",
+                        candidate.TransactionId,
+                        target.DepartmentId,
+                        target.ExternalPartyId);
                     continue;
                 }
 
-                validPayloadsForCandidate++;
                 ordinal++;
                 var document = await _renderService.BuildDocumentAsync(new FollowUpLetterBuildRequest
                 {
@@ -751,10 +763,12 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
                 _db.FollowUpPrintJobPayloads.Add(payload);
             }
 
-            if (validPayloadsForCandidate == 0)
-                job.TotalTransactions = Math.Max(0, job.TotalTransactions - 1);
+            if (ordinal > ordinalBeforeCandidate)
+                validTransactionCount++;
         }
 
+        job.TotalLetters = ordinal;
+        job.TotalTransactions = validTransactionCount;
         job.NextPayloadOrdinal = ordinal;
         await _db.SaveChangesAsync(cancellationToken);
         return ordinal;

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Uqeb.Api.Configuration;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.FollowUpPrint;
@@ -28,7 +29,8 @@ public class FollowUpPrintJobServiceTests
             renderService,
             access ?? new FollowUpPrintAccessService(db),
             audit ?? new NoOpAuditService(),
-            LettersTestInfrastructure.CreateOptions(options));
+            LettersTestInfrastructure.CreateOptions(options),
+            NullLogger<FollowUpPrintJobService>.Instance);
 
     internal static async Task<(FollowUpPrintJob Job, FollowUpPrintJobPart Part)> SeedReadyPartAsync(AppDbContext db)
     {
