@@ -1,4 +1,4 @@
-BeforeAll {
+﻿BeforeAll {
     $script:CommonPath = Join-Path (Split-Path $PSScriptRoot -Parent) 'deployment\Common.ps1'
     . $script:CommonPath
 
@@ -84,5 +84,45 @@ Describe 'Resolve-MigrationIdsFromHandlerResult' {
         $result -is [System.Array] | Should -BeTrue
         @($result).Count | Should -Be 1
         $result | Should -BeExactly @('20260101_A')
+    }
+}
+
+Describe 'Get-DeploymentReportLatestMigrationId' {
+    It 'returns only the migration id as a single string when reading succeeds' {
+        Mock Get-LatestAppliedMigrationId {
+            return '20260628190617_AddDepartmentResponseWorkflow'
+        }
+
+        $result = Get-DeploymentReportLatestMigrationId -ConnectionString 'Server=.;Database=Uqeb;Trusted_Connection=True;'
+
+        $result | Should -Be '20260628190617_AddDepartmentResponseWorkflow'
+        $result | Should -BeOfType [string]
+        $result | Should -Not -Match 'تعذر قراءة آخر migration'
+        @($result).Count | Should -Be 1
+    }
+
+    It 'returns unknown as a single string when reading fails without polluting the success pipeline' {
+        Mock Get-LatestAppliedMigrationId {
+            throw 'SQL history unavailable'
+        }
+
+        $result = Get-DeploymentReportLatestMigrationId -ConnectionString 'bad'
+
+        $result | Should -Be 'غير معروف'
+        $result | Should -BeOfType [string]
+        $result | Should -Not -Match 'تعذر قراءة آخر migration'
+        @($result).Count | Should -Be 1
+    }
+
+    It 'does not pollute assignment values when migration reading fails' {
+        Mock Get-LatestAppliedMigrationId {
+            throw 'SQL history unavailable'
+        }
+
+        $migrationAfterRollback = Get-DeploymentReportLatestMigrationId -ConnectionString 'bad'
+
+        $migrationAfterRollback | Should -Be 'غير معروف'
+        $migrationAfterRollback | Should -BeOfType [string]
+        @($migrationAfterRollback).Count | Should -Be 1
     }
 }

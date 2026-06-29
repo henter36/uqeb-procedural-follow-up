@@ -2366,6 +2366,18 @@ function Get-LatestAppliedMigrationId {
     return [string]($appliedIds | Select-Object -Last 1)
 }
 
+function Get-DeploymentReportLatestMigrationId {
+    param([string]$ConnectionString)
+
+    try {
+        return [string](Get-LatestAppliedMigrationId -ConnectionString $ConnectionString)
+    }
+    catch {
+        Write-Host ("[معلومات] تعذر قراءة آخر migration للتقرير: " + $_.Exception.Message)
+        return "غير معروف"
+    }
+}
+
 function Test-RequiredMigrationPresent {
     param(
         [string]$ConnectionString,

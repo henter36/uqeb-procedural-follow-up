@@ -157,7 +157,7 @@ Describe 'Playwright deployment helpers' {
             $runScript = Join-Path $root 'run-api.cmd'
             Write-ApiRunScript `
                 -RunScriptPath $runScript `
-                -ApiPath 'C:\Uqeb\publish\api' `
+                -ApiPath $root `
                 -ApiPort 5000 `
                 -PlaywrightBrowsersPath 'C:\Uqeb\tools\ms-playwright' `
                 -LogPath 'C:\Uqeb\logs\api-runtime.log'
@@ -191,7 +191,7 @@ Describe 'Playwright deployment helpers' {
         }
     }
 
-    It 'performs atomic browser directory swap' {
+    It 'performs atomic browser directory swap' -Skip:($env:OS -ne 'Windows_NT') {
         $root = New-PlaywrightTestDirectory
         try {
             $target = Join-Path $root 'ms-playwright'
@@ -273,7 +273,7 @@ exit 1
         return $path
     }
 
-    It 'removes PLAYWRIGHT_BROWSERS_PATH when it was unset' {
+    It 'removes PLAYWRIGHT_BROWSERS_PATH when it was unset' -Skip:($env:OS -ne 'Windows_NT') {
         $root = New-InstallTestRoot
         $browsersRoot = Join-Path $root 'browsers'
         $scriptPath = Join-Path $root 'playwright.ps1'
@@ -291,7 +291,7 @@ exit 1
         }
     }
 
-    It 'restores PLAYWRIGHT_BROWSERS_PATH when it was previously set' {
+    It 'restores PLAYWRIGHT_BROWSERS_PATH when it was previously set' -Skip:($env:OS -ne 'Windows_NT') {
         $root = New-InstallTestRoot
         $browsersRoot = Join-Path $root 'browsers'
         $scriptPath = Join-Path $root 'playwright.ps1'
@@ -309,7 +309,7 @@ exit 1
         }
     }
 
-    It 'preserves empty PLAYWRIGHT_BROWSERS_PATH state' {
+    It 'preserves empty PLAYWRIGHT_BROWSERS_PATH state' -Skip:($env:OS -ne 'Windows_NT') {
         $root = New-InstallTestRoot
         $browsersRoot = Join-Path $root 'browsers'
         $scriptPath = Join-Path $root 'playwright.ps1'
@@ -328,7 +328,7 @@ exit 1
         }
     }
 
-    It 'restores PLAYWRIGHT_BROWSERS_PATH when install fails' {
+    It 'restores PLAYWRIGHT_BROWSERS_PATH when install fails' -Skip:($env:OS -ne 'Windows_NT') {
         $root = New-InstallTestRoot
         $browsersRoot = Join-Path $root 'browsers'
         $scriptPath = Join-Path $root 'playwright.ps1'
@@ -689,7 +689,7 @@ Describe 'Playwright browser source copy policy' {
         $content | Should -Match 'يجب تحديد PlaywrightBrowsersSourcePath'
     }
 
-    It 'copies valid source into staging browsers without deleting source' {
+    It 'copies valid source into staging browsers without deleting source' -Skip:($env:OS -ne 'Windows_NT') {
         $root = New-PlaywrightTestDirectory
         $source = Join-Path $root 'cache-browsers'
         $staging = Join-Path $root 'staging\browsers'
