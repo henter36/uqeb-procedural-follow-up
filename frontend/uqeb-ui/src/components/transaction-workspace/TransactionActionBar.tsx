@@ -66,15 +66,21 @@ export default function TransactionActionBar({
         </>
       )}
       {canRegisterResponse && (
-        <button
-          type="button"
-          className={`btn btn-primary btn-sm${activeAction === 'complete-response' ? ' active' : ''}`}
-          disabled={hasPendingDepts}
-          title={hasPendingDepts ? 'لا يمكن تسجيل الإفادة قبل اكتمال رد جميع الإدارات.' : undefined}
-          onClick={() => onAction('complete-response')}
-        >
-          تسجيل الإفادة
-        </button>
+        isDepartmentUser ? (
+          <Link to="/department-responses" className="btn btn-primary btn-sm">
+            تسجيل إفادة
+          </Link>
+        ) : (
+          <button
+            type="button"
+            className={`btn btn-primary btn-sm${activeAction === 'complete-response' ? ' active' : ''}`}
+            disabled={hasPendingDepts}
+            title={hasPendingDepts ? 'لا يمكن تسجيل الإفادة قبل اكتمال رد جميع الإدارات.' : undefined}
+            onClick={() => onAction('complete-response')}
+          >
+            تسجيل الإفادة
+          </button>
+        )
       )}
       {canShowClose && (
         <button type="button" className="btn btn-danger btn-sm" onClick={onCloseTransaction}>

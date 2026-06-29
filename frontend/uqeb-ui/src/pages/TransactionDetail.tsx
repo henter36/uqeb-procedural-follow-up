@@ -69,6 +69,13 @@ function countOpenAssignments(items: Assignment[]): number {
   ).length;
 }
 
+function hasDepartmentResponseAssignment(items: Assignment[], departmentId?: number | null): boolean {
+  if (!departmentId) return false;
+  return items.some(
+    (item) => item.departmentId === departmentId && item.requiresReply && item.status !== 'Cancelled',
+  );
+}
+
 const ACTION_TITLES: Record<WorkspaceAction, string> = {
   assignment: 'إضافة تحويل',
   followup: 'إضافة تعقيب',
@@ -96,7 +103,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab');
-  const { canEdit, canClose, isDepartmentUser } = useAuth();
+  const { canEdit, canClose, isDepartmentUser, user } = useAuth();
   const { departments } = useReferenceData();
   const [tx, setTx] = useState<TransactionDetail | null>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -471,10 +478,12 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const needsResponse = tx.requiresResponse || tx.responseType !== 'None';
   const isTerminal = tx.status === 'Closed' || tx.status === 'Cancelled' || tx.status === 'Archived';
   const hasPendingDepts = tx.pendingDepartmentNames.length > 0;
-  const canRegisterResponse = canClose && needsResponse && !tx.responseCompleted && !isTerminal;
+  const canRegisterResponse = (
+    canClose || (isDepartmentUser && hasDepartmentResponseAssignment(assignments, user?.departmentId))
+  ) && needsResponse && !tx.responseCompleted && !isTerminal;
   const canShowClose = canClose && !isTerminal && (!needsResponse || tx.responseCompleted);
   const showMutationActions = canEdit && !isDepartmentUser;
-  const canReply = isDepartmentUser || canEdit;
+  const canReply = canEdit && !isDepartmentUser;
   const openAssignmentsCount = countOpenAssignments(assignments);
   const replyAssignmentId = actionContext.replyAssignmentId;
   const replyFollowUpId = actionContext.replyFollowUpId;

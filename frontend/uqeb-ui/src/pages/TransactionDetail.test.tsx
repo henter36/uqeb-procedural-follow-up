@@ -5,7 +5,21 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import TransactionDetailPage from './TransactionDetail';
 import * as services from '../api/services';
 
-const mockUseAuth = vi.fn(() => ({
+type MockAuthState = {
+  canEdit: boolean;
+  canClose: boolean;
+  isDepartmentUser: boolean;
+  user: {
+    fullName: string;
+    role: string;
+    departmentId?: number;
+  };
+  logout: ReturnType<typeof vi.fn>;
+  login: ReturnType<typeof vi.fn>;
+  isAdmin: boolean;
+};
+
+const mockUseAuth = vi.fn<() => MockAuthState>(() => ({
   canEdit: true,
   canClose: true,
   isDepartmentUser: false,
@@ -377,6 +391,88 @@ describe('TransactionDetailPage three-tab layout', () => {
 
 });
 
+describe('TransactionDetailPage department user permissions', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseAuth.mockReturnValue({
+      canEdit: false,
+      canClose: false,
+      isDepartmentUser: true,
+      user: {
+        fullName: 'موظف إدارة',
+        role: 'DepartmentUser',
+        departmentId: 1,
+      },
+      logout: vi.fn(),
+      login: vi.fn(),
+      isAdmin: false,
+    });
+    setupDefaultMocks();
+    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: {
+        ...defaultWorkspace,
+        transaction: {
+          ...baseTx,
+          requiresResponse: true,
+          responseType: 'Internal',
+          responseCompleted: false,
+        },
+      },
+    } as never);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    cleanup();
+  });
+
+  it('hides transaction mutation, follow-up, print, and reply actions for department users', async () => {
+    renderDetail();
+    await waitForDetailsReady();
+
+    const actionBar = getActionBar();
+    expect(within(actionBar).queryByRole('button', { name: 'إضافة تحويل' })).not.toBeInTheDocument();
+    expect(within(actionBar).queryByRole('button', { name: 'إضافة تعقيب' })).not.toBeInTheDocument();
+    expect(within(actionBar).queryByRole('button', { name: 'إضافة مرفق' })).not.toBeInTheDocument();
+    expect(within(actionBar).queryByRole('link', { name: 'تعديل' })).not.toBeInTheDocument();
+    expect(within(actionBar).queryByRole('button', { name: 'خطاب تعقيب PDF' })).not.toBeInTheDocument();
+    expect(within(actionBar).queryByRole('button', { name: 'إغلاق المعاملة' })).not.toBeInTheDocument();
+
+    expect(within(getAssignmentsCard()).queryByRole('button', { name: '+ إضافة تحويل' })).not.toBeInTheDocument();
+    expect(within(getFollowUpsCard()).queryByRole('button', { name: '+ إضافة تعقيب' })).not.toBeInTheDocument();
+    expect(within(getAttachmentsCard()).queryByRole('button', { name: '+ إضافة مرفق' })).not.toBeInTheDocument();
+    expect(screen.queryAllByRole('button', { name: 'تسجيل رد' })).toHaveLength(0);
+  });
+
+  it('shows the department response action when the transaction requires this department response', async () => {
+    renderDetail();
+    await waitForDetailsReady();
+
+    const responseLink = within(getActionBar()).getByRole('link', { name: 'تسجيل إفادة' });
+    expect(responseLink).toHaveAttribute('href', '/department-responses');
+  });
+
+  it('keeps mutation actions available for data entry users', async () => {
+    mockUseAuth.mockReturnValue({
+      canEdit: true,
+      canClose: false,
+      isDepartmentUser: false,
+      user: { fullName: 'مدخل بيانات', role: 'DataEntry' },
+      logout: vi.fn(),
+      login: vi.fn(),
+      isAdmin: false,
+    });
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    expect(within(getActionBar()).getByRole('button', { name: 'إضافة تحويل' })).toBeInTheDocument();
+    expect(within(getActionBar()).getByRole('button', { name: 'إضافة تعقيب' })).toBeInTheDocument();
+    expect(within(getActionBar()).getByRole('link', { name: 'تعديل' })).toBeInTheDocument();
+    expect(within(getActionBar()).getByRole('button', { name: 'خطاب تعقيب PDF' })).toBeInTheDocument();
+  });
+});
+
 describe('TransactionDetailPage card interaction flows', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -731,12 +827,12 @@ describe('TransactionDetailPage permissions', () => {
     expect(screen.queryByRole('button', { name: 'إضافة أول تحويل' })).not.toBeInTheDocument();
   });
 
-  it('hides admin mutation actions for department user but allows reply', async () => {
+  it('hides admin mutation and reply actions for department user', async () => {
     mockUseAuth.mockReturnValue({
       canEdit: true,
       canClose: false,
       isDepartmentUser: true,
-      user: { fullName: 'موظف', role: 'DepartmentUser' },
+      user: { fullName: 'موظف', role: 'DepartmentUser', departmentId: 1 },
       logout: vi.fn(),
       login: vi.fn(),
       isAdmin: false,
@@ -748,7 +844,7 @@ describe('TransactionDetailPage permissions', () => {
     expect(screen.queryByRole('button', { name: '+ إضافة تحويل' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '+ إضافة تعقيب' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'تعديل' })).not.toBeInTheDocument();
-    expect(within(getAssignmentsCard()).getByRole('button', { name: 'تسجيل رد' })).toBeInTheDocument();
+    expect(within(getAssignmentsCard()).queryByRole('button', { name: 'تسجيل رد' })).not.toBeInTheDocument();
   });
 
   it('shows mutation buttons for supervisor with edit permission', async () => {
