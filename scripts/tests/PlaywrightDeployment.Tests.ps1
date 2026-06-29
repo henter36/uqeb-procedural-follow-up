@@ -1,4 +1,4 @@
-BeforeAll {
+﻿BeforeAll {
     $script:CommonPath = Join-Path (Split-Path $PSScriptRoot -Parent) 'deployment\Common.ps1'
     . $script:CommonPath
 
@@ -139,13 +139,25 @@ Describe 'Playwright deployment helpers' {
         }
     }
 
+    It 'does not read an undefined SQL deployment command handler under StrictMode' {
+        Remove-Item Variable:global:SqlDeploymentCommandHandler -ErrorAction SilentlyContinue
+
+        {
+            Invoke-SqlDeploymentCommand `
+                -Server '.' `
+                -Database 'master' `
+                -CommandText 'SELECT 1' `
+                -Scalar
+        } | Should -Throw '*ConnectionString*'
+    }
+
     It 'writes PLAYWRIGHT_BROWSERS_PATH into run-api script' {
         $root = New-PlaywrightTestDirectory
         try {
             $runScript = Join-Path $root 'run-api.cmd'
             Write-ApiRunScript `
                 -RunScriptPath $runScript `
-                -ApiPath 'C:\Uqeb\publish\api' `
+                -ApiPath $root `
                 -ApiPort 5000 `
                 -PlaywrightBrowsersPath 'C:\Uqeb\tools\ms-playwright' `
                 -LogPath 'C:\Uqeb\logs\api-runtime.log'
@@ -158,7 +170,28 @@ Describe 'Playwright deployment helpers' {
         }
     }
 
-    It 'performs atomic browser directory swap' {
+    It 'binds run-api script to all network interfaces' {
+        $root = New-PlaywrightTestDirectory
+        try {
+            $runScript = Join-Path $root 'run-api.cmd'
+            Write-ApiRunScript `
+                -RunScriptPath $runScript `
+                -ApiPath $root `
+                -ApiPort 5000 `
+                -ApiBindAddress '10.0.177.17' `
+                -PlaywrightBrowsersPath 'C:\Uqeb\tools\ms-playwright' `
+                -LogPath 'C:\Uqeb\logs\api-runtime.log'
+
+            $content = Get-Content -LiteralPath $runScript -Raw
+            $content | Should -Match 'ASPNETCORE_URLS=http://0\.0\.0\.0:5000'
+            $content | Should -Not -Match 'ASPNETCORE_URLS=http://10\.0\.177\.17:5000'
+        }
+        finally {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'performs atomic browser directory swap' -Skip:($env:OS -ne 'Windows_NT') {
         $root = New-PlaywrightTestDirectory
         try {
             $target = Join-Path $root 'ms-playwright'
@@ -240,7 +273,7 @@ exit 1
         return $path
     }
 
-    It 'removes PLAYWRIGHT_BROWSERS_PATH when it was unset' {
+    It 'removes PLAYWRIGHT_BROWSERS_PATH when it was unset' -Skip:($env:OS -ne 'Windows_NT') {
         $root = New-InstallTestRoot
         $browsersRoot = Join-Path $root 'browsers'
         $scriptPath = Join-Path $root 'playwright.ps1'
@@ -258,7 +291,7 @@ exit 1
         }
     }
 
-    It 'restores PLAYWRIGHT_BROWSERS_PATH when it was previously set' {
+    It 'restores PLAYWRIGHT_BROWSERS_PATH when it was previously set' -Skip:($env:OS -ne 'Windows_NT') {
         $root = New-InstallTestRoot
         $browsersRoot = Join-Path $root 'browsers'
         $scriptPath = Join-Path $root 'playwright.ps1'
@@ -276,18 +309,25 @@ exit 1
         }
     }
 
-    It 'preserves empty PLAYWRIGHT_BROWSERS_PATH state' {
+    It 'preserves empty PLAYWRIGHT_BROWSERS_PATH state' -Skip:($env:OS -ne 'Windows_NT') {
         $root = New-InstallTestRoot
         $browsersRoot = Join-Path $root 'browsers'
         $scriptPath = Join-Path $root 'playwright.ps1'
         try {
-            $env:PLAYWRIGHT_BROWSERS_PATH = ''
+            Set-Item -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH' -Value ''
+            $emptyEnvCanBeRepresented = Test-Path -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH'
             New-FakePlaywrightInstallScript -Path $scriptPath
 
             $null = Invoke-PlaywrightChromiumInstall -PlaywrightScriptPath $scriptPath -BrowsersRoot $browsersRoot
 
-            Test-Path -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH' | Should -BeTrue
-            $env:PLAYWRIGHT_BROWSERS_PATH | Should -Be ''
+            if ($emptyEnvCanBeRepresented) {
+                Test-Path -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH' | Should -BeTrue
+                $env:PLAYWRIGHT_BROWSERS_PATH | Should -Be ''
+            }
+            else {
+                $env:PLAYWRIGHT_BROWSERS_PATH | Should -Not -Be $browsersRoot
+                [string]::IsNullOrEmpty($env:PLAYWRIGHT_BROWSERS_PATH) | Should -BeTrue
+            }
         }
         finally {
             Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
@@ -295,7 +335,7 @@ exit 1
         }
     }
 
-    It 'restores PLAYWRIGHT_BROWSERS_PATH when install fails' {
+    It 'restores PLAYWRIGHT_BROWSERS_PATH when install fails' -Skip:($env:OS -ne 'Windows_NT') {
         $root = New-InstallTestRoot
         $browsersRoot = Join-Path $root 'browsers'
         $scriptPath = Join-Path $root 'playwright.ps1'
@@ -656,7 +696,7 @@ Describe 'Playwright browser source copy policy' {
         $content | Should -Match 'يجب تحديد PlaywrightBrowsersSourcePath'
     }
 
-    It 'copies valid source into staging browsers without deleting source' {
+    It 'copies valid source into staging browsers without deleting source' -Skip:($env:OS -ne 'Windows_NT') {
         $root = New-PlaywrightTestDirectory
         $source = Join-Path $root 'cache-browsers'
         $staging = Join-Path $root 'staging\browsers'

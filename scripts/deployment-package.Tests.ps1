@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 BeforeAll {
     function Resolve-DeploymentScriptsRoot {
@@ -168,6 +168,13 @@ Describe 'PowerShell deployment script parse checks' {
             [ref]$errors)
         $errors | Should -BeNullOrEmpty
     }
+
+    It 'runs PowerShell encoding policy in deployment package CI' {
+        $repoRoot = Split-Path $PSScriptRoot -Parent
+        $workflowPath = Join-Path (Join-Path (Join-Path $repoRoot '.github') 'workflows') 'deployment-package.yml'
+        $workflow = Get-Content -LiteralPath $workflowPath -Raw
+        $workflow | Should -Match 'scripts[\\/]tests[\\/]PowerShellEncoding\.Tests\.ps1'
+    }
 }
 
 Describe 'Production deployment wrapper safety' {
@@ -180,6 +187,15 @@ Describe 'Production deployment wrapper safety' {
                 -ApiBindAddress '10.0.177.17' `
                 -ApiPort 5000
         } | Should -Throw '*install-production-package.ps1*ApiBindAddress*10.0.177.17*'
+    }
+
+    It 'writes legacy run-api wrapper with all-interface binding' {
+        $content = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'deploy-production-v2.ps1') -Raw
+        $content | Should -Match '\$effectiveApiBinding = "http://0\.0\.0\.0:\$ApiPort"'
+        $content | Should -Match 'ASPNETCORE_URLS=\$effectiveApiBinding'
+        $content | Should -Not -Match 'ASPNETCORE_URLS=http://\$ApiBindAddress'
+        $content | Should -Match 'ApiBinding=\$effectiveApiBinding'
+        $content | Should -Not -Match 'ApiBinding=http://\$ApiBindAddress'
     }
 }
 
@@ -617,6 +633,10 @@ Describe 'Application file copy policy' {
 
 Describe 'Invoke-DeploymentFileRollback' {
     It 'restores API and Web atomically without stale API files' {
+        Test-DirectoryHasContent '' | Should -BeFalse
+        Test-DirectoryHasContent '   ' | Should -BeFalse
+        Test-DirectoryHasContent $null | Should -BeFalse
+
         $backupApi = New-TempDirectory
         $backupWeb = New-TempDirectory
         $apiTarget = New-TempDirectory
@@ -683,6 +703,16 @@ Describe 'Invoke-DeploymentFileRollback' {
         (Get-Content (Join-Path $apiTarget 'Uqeb.Api.dll') -Raw).Trim() | Should -Be 'new-api'
         Test-Path (Join-Path $apiTarget 'failed-release-only.dll') | Should -BeTrue
         (Get-Content (Join-Path $webTarget 'index.html') -Raw).Trim() | Should -Be 'new-web'
+
+        {
+            Invoke-DeploymentFileRollback `
+                -BackupApi $backupApi `
+                -BackupWeb $backupWeb `
+                -ApiTarget $apiTarget `
+                -WebTarget $webTarget `
+                -ConfigTarget $configTarget `
+                -ConfigSource ''
+        } | Should -Throw '*إعداد الإنتاج المعتمد غير موجود أثناء file rollback*'
     }
 }
 
@@ -1076,12 +1106,10 @@ Describe 'install-production-package.ps1 scenarios' {
         Assert-MockCalled Invoke-ReleaseRollbackFromState -Times 0 -Exactly
     }
 
-    It 'writes production bind address into run-api.cmd' {
-        $runApiPath = $null
+    It 'passes production bind address to run-api writer while run-api content is all-interface bound' {
         Mock Write-ApiRunScript {
             param($RunScriptPath, $ApiBindAddress)
-            $script:runApiPath = $RunScriptPath
-            Set-Content -LiteralPath $RunScriptPath -Value "set ASPNETCORE_URLS=http://${ApiBindAddress}:5000" -Encoding ASCII
+            Set-Content -LiteralPath $RunScriptPath -Value "set ASPNETCORE_URLS=http://0.0.0.0:5000" -Encoding ASCII
         }
 
         $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
@@ -1938,6 +1966,94 @@ Describe 'install-production-package rollback and service recovery' {
         $result.Text | Should -Match 'فشل التحقق بعد file rollback'
         $result.Text | Should -Not -Match 'تم استرجاع ملفات API/Web/Chromium والتحقق من صحة الإصدار'
         $result.Text | Should -Not -Match 'تم تنفيذ rollback للملفات فقط'
+    }
+
+    It 'prints rollback consistency fields when migration was applied before file rollback' {
+        Register-StandardDeploymentInstallMocks -IncludePromotionMock -IncludeHealthMocks
+        Mock Invoke-ReleaseRollbackFromState { return $false }
+        Mock Invoke-DeploymentFileRollback { return $true }
+        Mock Sync-PublishCompatibilityLinks {}
+        Mock Invoke-RestartCurrentReleaseService {}
+        Mock Get-LatestAppliedMigrationId {
+            return '20260622062754_AddReferenceDataNormalizedNames'
+        }
+        Mock Test-RequiredMigrationPresent { return $false }
+        Mock Test-RequiredMigrationApplied {}
+
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath -PackageMigrationContent '$global:rollbackReportMigrationApplied = $true'
+        'throw "new release health failed"' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
+
+        $result = Get-InstallScriptOutput {
+            Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env
+        }
+
+        $result.Text | Should -Match 'Rollback الملفات:'
+        $result.Text | Should -Match 'Rollback قاعدة البيانات:'
+        $result.Text | Should -Match 'هل تم تطبيق migrations أثناء النشر: نعم'
+        $result.Text | Should -Match 'آخر migration قبل النشر:'
+        $result.Text | Should -Match 'آخر migration بعد محاولة النشر:'
+        $result.Text | Should -Match 'آخر migration بعد rollback/الفشل:'
+        $result.Text | Should -Match 'احتمالية app/DB mismatch: نعم'
+        $result.Text | Should -Match 'تم تطبيق migration أثناء النشر ولم يتم تنفيذ rollback تلقائي لقاعدة البيانات'
+    }
+
+    It 'warns about app DB mismatch when migration was applied and deployment fails before rollbackPerformed is set' {
+        Register-StandardDeploymentInstallMocks -IncludeHealthMocks
+        Mock Test-RequiredMigrationPresent { return $false }
+        Mock Test-RequiredMigrationApplied {}
+        Mock Install-StagedReleaseToProduction { throw 'promotion failed' }
+        Mock Invoke-RestartCurrentReleaseService {}
+        Mock Get-LatestAppliedMigrationId {
+            return '20260628190617_AddDepartmentResponseWorkflow'
+        }
+
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath -PackageMigrationContent 'exit 0'
+
+        $result = Get-InstallScriptOutput {
+            Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env
+        }
+
+        $result.Text | Should -Match 'promotion failed'
+        $result.Text | Should -Match 'هل تم تطبيق migrations أثناء النشر: نعم'
+        $result.Text | Should -Match 'احتمالية app/DB mismatch: نعم'
+        $result.Text | Should -Match 'تم تطبيق migration أثناء النشر ولم يتم تنفيذ rollback تلقائي لقاعدة البيانات'
+        $result.Text | Should -Not -Match 'تم تنفيذ rollback للملفات فقط'
+    }
+
+    It 'does not warn about migration mismatch when no migration was applied and deployment fails' {
+        Register-StandardDeploymentInstallMocks -IncludePromotionMock -IncludeHealthMocks
+        Mock Invoke-ReleaseRollbackFromState { return $false }
+        Mock Invoke-DeploymentFileRollback { return $true }
+        Mock Sync-PublishCompatibilityLinks {}
+        Mock Invoke-RestartCurrentReleaseService {}
+
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
+        'throw "new release health failed"' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
+
+        $result = Get-InstallScriptOutput {
+            Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env
+        }
+
+        $result.Text | Should -Match 'هل تم تطبيق migrations أثناء النشر: لا'
+        $result.Text | Should -Match 'احتمالية app/DB mismatch: لا'
+        $result.Text | Should -Not -Match 'تم تطبيق migration أثناء النشر ولم يتم تنفيذ rollback تلقائي لقاعدة البيانات'
+    }
+
+    It 'prints unknown migration fields when migration report reads fail' {
+        Register-StandardDeploymentInstallMocks -IncludePromotionMock -IncludeHealthMocks
+        Mock Get-LatestAppliedMigrationId { throw 'SQL history unavailable' }
+
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
+        'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
+
+        $result = Get-InstallScriptOutput {
+            Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env
+        }
+
+        $result.Threw | Should -BeFalse
+        $result.Text | Should -Match 'آخر migration قبل النشر: غير معروف'
+        $result.Text | Should -Match 'آخر migration بعد محاولة النشر: غير معروف'
+        $result.Text | Should -Match 'آخر migration بعد rollback/الفشل: غير معروف'
     }
 
     It 'tracks service stop phases and restarts current release when stop started before promotion' {

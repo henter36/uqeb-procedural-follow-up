@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
   نشر سريع وآمن من مجلد النقل إلى الإنتاج مع تقرير GO/NO-GO.

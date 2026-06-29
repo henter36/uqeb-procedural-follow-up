@@ -362,9 +362,15 @@ function Ensure-Directory {
 
 function Test-DirectoryHasContent {
     param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $false
+    }
+
     if (-not (Test-Path -LiteralPath $Path)) {
         return $false
     }
+
     return $null -ne (Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue | Select-Object -First 1)
 }
 
@@ -737,7 +743,10 @@ function Assert-RollbackConfigurationAvailable {
         [bool]$HasApplicationBackup
     )
 
-    if ($HasApplicationBackup -and -not (Test-Path -LiteralPath $ConfigSource)) {
+    if ($HasApplicationBackup -and (
+        [string]::IsNullOrWhiteSpace($ConfigSource) -or
+        -not (Test-Path -LiteralPath $ConfigSource)
+    )) {
         throw "إعداد الإنتاج المعتمد غير موجود أثناء file rollback: $ConfigSource"
     }
 }
@@ -1181,10 +1190,12 @@ function Invoke-SqlDeploymentCommand {
         [switch]$DataTable
     )
 
-    if ($null -ne $global:SqlDeploymentCommandHandler) {
-        return ,(& $global:SqlDeploymentCommandHandler `
+    $handler = Get-SqlDeploymentCommandHandler
+    if ($null -ne $handler) {
+        return ,(& $handler `
             -Server $Server `
             -Database $Database `
+            -ConnectionString $ConnectionString `
             -CommandText $CommandText `
             -Scalar:([bool]$Scalar) `
             -DataTable:([bool]$DataTable))
@@ -1223,6 +1234,15 @@ function Invoke-SqlDeploymentCommand {
         }
         $connection.Dispose()
     }
+}
+
+function Get-SqlDeploymentCommandHandler {
+    $variable = Get-Variable -Name SqlDeploymentCommandHandler -Scope Global -ErrorAction SilentlyContinue
+    if ($null -eq $variable) {
+        return $null
+    }
+
+    return $variable.Value
 }
 
 function Get-ProductionDatabaseBackupPath {
@@ -2307,8 +2327,9 @@ function Resolve-MigrationIdsFromHandlerResult {
 function Get-AppliedMigrationIds {
     param([string]$ConnectionString)
 
-    if ($null -ne $global:SqlDeploymentCommandHandler) {
-        $result = & $global:SqlDeploymentCommandHandler `
+    $handler = Get-SqlDeploymentCommandHandler
+    if ($null -ne $handler) {
+        $result = & $handler `
             -ConnectionString $ConnectionString `
             -CommandText 'SELECT [MigrationId] FROM [dbo].[__EFMigrationsHistory] ORDER BY [MigrationId];' `
             -DataTable:$true
@@ -2340,6 +2361,31 @@ function Get-AppliedMigrationIds {
             $connection.Close()
         }
         $connection.Dispose()
+    }
+}
+
+function Get-LatestAppliedMigrationId {
+    param([string]$ConnectionString)
+
+    $appliedIds = @(Get-AppliedMigrationIds -ConnectionString $ConnectionString)
+    if ($appliedIds.Count -eq 0) {
+        return ""
+    }
+
+    return [string]($appliedIds | Select-Object -Last 1)
+}
+
+function Get-DeploymentReportLatestMigrationId {
+    param([string]$ConnectionString)
+
+    try {
+        return [string](Get-LatestAppliedMigrationId -ConnectionString $ConnectionString)
+    }
+    catch {
+        Write-Information `
+            -MessageData ("[معلومات] تعذر قراءة آخر migration للتقرير: " + $_.Exception.Message) `
+            -InformationAction Continue
+        return "غير معروف"
     }
 }
 
@@ -2700,7 +2746,7 @@ function Write-ApiRunScript {
         "cd /d `"$ApiPath`""
         'set ASPNETCORE_ENVIRONMENT=Production'
         'set DOTNET_ENVIRONMENT=Production'
-        "set ASPNETCORE_URLS=http://${ApiBindAddress}:$ApiPort"
+        "set ASPNETCORE_URLS=http://0.0.0.0:$ApiPort"
         "set PLAYWRIGHT_BROWSERS_PATH=$PlaywrightBrowsersPath"
         "$launchCommand >> `"$LogPath`" 2>&1"
     ) -join "`r`n"
@@ -2764,13 +2810,13 @@ function Invoke-PlaywrightChromiumInstall {
 
     $hadPreviousBrowsersPath = Test-Path -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH'
     $previousBrowsersPath = if ($hadPreviousBrowsersPath) {
-        $env:PLAYWRIGHT_BROWSERS_PATH
+        (Get-Item -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH').Value
     }
     else {
         $null
     }
 
-    $env:PLAYWRIGHT_BROWSERS_PATH = $BrowsersRoot
+    Set-Item -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH' -Value $BrowsersRoot
     try {
         Ensure-Directory $BrowsersRoot
         $null = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $PlaywrightScriptPath install chromium 2>&1
@@ -2780,7 +2826,7 @@ function Invoke-PlaywrightChromiumInstall {
     }
     finally {
         if ($hadPreviousBrowsersPath) {
-            $env:PLAYWRIGHT_BROWSERS_PATH = $previousBrowsersPath
+            Set-Item -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH' -Value $previousBrowsersPath
         }
         else {
             Remove-Item `

@@ -58,6 +58,13 @@ $packageVersion = ""
 $packageCommit = ""
 $stagingPath = ""
 $rollbackPerformed = $false
+$rollbackFilesStatus = "لم يُنفَّذ"
+$databaseRollbackStatus = "لم يُنفَّذ: الاستعادة التلقائية لقاعدة البيانات غير مدعومة"
+$migrationBeforeDeployment = "غير معروف"
+$migrationAfterDeployment = "غير معروف"
+$migrationAfterRollback = "غير معروف"
+$rollbackConsistencyWarning = ""
+$appDatabaseMismatchRisk = "لا"
 $configTarget = ""
 $manualRestoreCommand = ""
 $sqlInfo = $null
@@ -172,6 +179,7 @@ try {
     Write-DeployInfo ("تجزئة SHA256 للنسخة: " + $databaseBackupSha256)
 
     Write-DeployStep "فحص migration المطلوبة"
+    $migrationBeforeDeployment = Get-DeploymentReportLatestMigrationId -ConnectionString $sqlInfo.ConnectionString
     $requiredMigrationApplied = Test-RequiredMigrationPresent `
         -ConnectionString $sqlInfo.ConnectionString `
         -RequiredMigrationId $requiredMigration
@@ -261,6 +269,10 @@ try {
             -RequiredMigrationId $requiredMigration
         $databaseStatus = "نجح"
         $migrationsApplied = $true
+        $migrationAfterDeployment = Get-DeploymentReportLatestMigrationId -ConnectionString $sqlInfo.ConnectionString
+    }
+    else {
+        $migrationAfterDeployment = $migrationBeforeDeployment
     }
 
     Write-DeployStep "ترقية الإصدار عبر releases/current"
@@ -421,6 +433,7 @@ catch {
         }
         if ($releaseRollback) {
             $rollbackPerformed = $true
+            $rollbackFilesStatus = "تم rollback إلى الإصدار السابق عبر rollback-state"
             Write-DeployInfo "تم استرجاع الإصدار السابق والتحقق من تشغيله بنجاح."
         }
 
@@ -450,15 +463,23 @@ catch {
                         -SkipPlaywrightProcessSmokeTest `
                         -RequireHealthVerification
                     $rollbackPerformed = $true
+                    $rollbackFilesStatus = "تم rollback من نسخة الملفات الاحتياطية"
                 }
                 catch {
                     $rollbackPerformed = $false
+                    $rollbackFilesStatus = "فشل rollback الملفات بعد محاولة الاسترجاع"
                     Write-DeployFailure ("فشل التحقق بعد file rollback ويتطلب تدخلًا يدويًا: " + $_.Exception.Message)
                 }
                 if ($rollbackPerformed) {
                     Write-DeployInfo "تم استرجاع ملفات API/Web/Chromium والتحقق من صحة الإصدار. لا يوجد rollback تلقائي لقاعدة البيانات."
                 }
             }
+            else {
+                $rollbackFilesStatus = "لم توجد نسخة ملفات قابلة للاسترجاع"
+            }
+        }
+        elseif (-not $rollbackPerformed -and $SkipFileBackup) {
+            $rollbackFilesStatus = "لم يُنفَّذ: تم تخطي نسخة الملفات الاحتياطية"
         }
     }
     elseif ($promotionStarted -and -not $promotionCompleted) {
@@ -497,6 +518,25 @@ catch {
     }
     else {
         Write-DeployInfo "فشل قبل إيقاف API؛ لا rollback للملفات ولا إعادة تشغيل."
+        $rollbackFilesStatus = "لم يُنفَّذ: فشل قبل إيقاف API"
+    }
+
+    if ($sqlInfo) {
+        $migrationAfterRollback = Get-DeploymentReportLatestMigrationId -ConnectionString $sqlInfo.ConnectionString
+    }
+
+    $deploymentDidNotCompleteSuccessfully = $deploymentResult -ne "نجح"
+    $migrationChangedDuringDeployment = (
+        -not [string]::IsNullOrWhiteSpace($migrationBeforeDeployment) -and
+        -not [string]::IsNullOrWhiteSpace($migrationAfterDeployment) -and
+        $migrationBeforeDeployment -ne "غير معروف" -and
+        $migrationAfterDeployment -ne "غير معروف" -and
+        $migrationBeforeDeployment -ne $migrationAfterDeployment
+    )
+
+    if ($migrationsApplied -and ($rollbackPerformed -or $deploymentDidNotCompleteSuccessfully -or $migrationChangedDuringDeployment)) {
+        $appDatabaseMismatchRisk = "نعم"
+        $rollbackConsistencyWarning = "تحذير: تم تطبيق migration أثناء النشر ولم يتم تنفيذ rollback تلقائي لقاعدة البيانات. قد توجد حالة عدم تطابق بين ملفات التطبيق وقاعدة البيانات إذا لم تكتمل ترقية الملفات بنجاح. راجع migration قبل/بعد، rollback-state.json، ونسخة قاعدة البيانات الاحتياطية قبل اتخاذ قرار الاستعادة اليدوية."
     }
 
     exit 1
@@ -515,11 +555,21 @@ finally {
         Write-DeployInfo ("SHA256 لنسخة قاعدة البيانات: " + $databaseBackupSha256)
     }
     Write-DeployInfo ("حالة migrations: " + $databaseStatus)
+    Write-DeployInfo ("هل تم تطبيق migrations أثناء النشر: " + $(if ($migrationsApplied) { "نعم" } else { "لا" }))
+    Write-DeployInfo ("آخر migration قبل النشر: " + $migrationBeforeDeployment)
+    Write-DeployInfo ("آخر migration بعد محاولة النشر: " + $migrationAfterDeployment)
+    Write-DeployInfo ("آخر migration بعد rollback/الفشل: " + $migrationAfterRollback)
     Write-DeployInfo ("صحة API: " + $apiHealth)
     Write-DeployInfo ("حالة أرشفة الحزمة: " + $packageArchiveStatus)
     Write-DeployInfo ("مسار rollback-state: " + $rollbackStatePath)
     Write-DeployInfo ("مسار current API: " + $currentApiPath)
     Write-DeployInfo ("مسار النسخة الاحتياطية للملفات: " + $backupPath)
+    Write-DeployInfo ("Rollback الملفات: " + $rollbackFilesStatus)
+    Write-DeployInfo ("Rollback قاعدة البيانات: " + $databaseRollbackStatus)
+    Write-DeployInfo ("احتمالية app/DB mismatch: " + $appDatabaseMismatchRisk)
+    if ($rollbackConsistencyWarning) {
+        Write-DeployInfo $rollbackConsistencyWarning
+    }
     if (@($databaseRetentionDeleted).Count -gt 0) {
         Write-DeployInfo ("نسخ قاعدة بيانات محذوفة بسياسة الاحتفاظ: " + ($databaseRetentionDeleted -join " | "))
     }
