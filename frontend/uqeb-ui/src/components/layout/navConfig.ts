@@ -14,6 +14,7 @@ export type NavItem = {
   followUpPrintOnly?: boolean;
   departmentUserOnly?: boolean;
   departmentResponseReviewOnly?: boolean;
+  hideForDepartmentUser?: boolean;
   matchPrefix?: boolean;
   badgeKey?: 'pendingPrints';
 };
@@ -29,8 +30,8 @@ export function buildNavSections(institutionalReportsEnabled = isInstitutionalRe
       label: 'الرئيسية',
       items: [
         { path: '/', label: 'لوحة المتابعة', icon: IconDashboard },
-        { path: '/transactions', label: 'المعاملات', icon: IconTransactions, matchPrefix: true },
-        { path: '/reports', label: 'التقارير', icon: IconReports },
+        { path: '/transactions', label: 'المعاملات', icon: IconTransactions, matchPrefix: true, hideForDepartmentUser: true },
+        { path: '/reports', label: 'التقارير', icon: IconReports, hideForDepartmentUser: true },
         ...(institutionalReportsEnabled
           ? [{ path: '/report-builder', label: 'منشئ التقارير', icon: IconReports, adminOnly: true } satisfies NavItem]
           : []),
@@ -46,10 +47,10 @@ export function buildNavSections(institutionalReportsEnabled = isInstitutionalRe
     {
       label: 'العمليات',
       items: [
-        { path: '/reports?tab=waiting', label: 'التحويلات والردود', icon: IconReports },
+        { path: '/reports?tab=waiting', label: 'التحويلات والردود', icon: IconReports, hideForDepartmentUser: true },
         { path: '/letter-template', label: 'قوالب خطاب التعقيب', icon: IconLetter, supervisorOnly: true, matchPrefix: true },
-        { path: '/follow-up-print/eligible', label: 'طباعة التعقيب — المستحقة', icon: IconPrint, supervisorOnly: true, matchPrefix: true },
-        { path: '/follow-up-print/jobs', label: 'مهام طباعة التعقيب', icon: IconPrint, supervisorOnly: true, matchPrefix: true },
+        { path: '/follow-up-print/eligible', label: 'طباعة التعقيب — المستحقة', icon: IconPrint, followUpPrintOnly: true, matchPrefix: true },
+        { path: '/follow-up-print/jobs', label: 'مهام طباعة التعقيب', icon: IconPrint, followUpPrintOnly: true, matchPrefix: true },
         { path: '/follow-up-print/pending', label: 'بانتظار تسجيل التعقيب', icon: IconPrint, followUpPrintOnly: true, badgeKey: 'pendingPrints' },
         { path: '/transactions/import', label: 'استيراد Excel', icon: IconImport, adminOnly: true },
       ],

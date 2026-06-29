@@ -217,6 +217,7 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id}/followups/{followUpId}/reply")]
+    [Authorize(Policy = "CanEditTransactions")]
     public async Task<IActionResult> ReplyFollowUp(int id, int followUpId, [FromBody] ReplyFollowUpRequest request)
     {
         var result = await _transactions.ReplyFollowUpAsync(id, followUpId, request, _currentUser.UserId);
@@ -246,6 +247,7 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id}/assignments/{assignmentId}/reply")]
+    [Authorize(Policy = "CanEditTransactions")]
     public async Task<IActionResult> ReplyAssignment(int id, int assignmentId, [FromBody] ReplyAssignmentRequest request)
     {
         try

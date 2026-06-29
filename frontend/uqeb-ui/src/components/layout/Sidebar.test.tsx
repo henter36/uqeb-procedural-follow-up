@@ -28,6 +28,7 @@ function createAdminAuthState() {
     login: vi.fn(),
     canEdit: true,
     isDepartmentUser: false,
+    canReviewDepartmentResponse: true,
   };
 }
 
@@ -109,5 +110,31 @@ describe('Sidebar', () => {
   it('shows mobile close button when sidebar is open', () => {
     renderSidebar(true);
     expect(screen.getByRole('button', { name: 'إغلاق القائمة' })).toBeInTheDocument();
+  });
+
+  it('hides privileged workflow links for department users', () => {
+    mockUseAuth.mockReturnValue({
+      ...createAdminAuthState(),
+      isAdmin: false,
+      canClose: false,
+      canOperateFollowUpPrint: false,
+      canEdit: false,
+      isDepartmentUser: true,
+      canReviewDepartmentResponse: false,
+      user: {
+        fullName: 'موظف إدارة',
+        role: 'DepartmentUser',
+      },
+    });
+
+    renderSidebar();
+
+    expect(screen.getByRole('link', { name: 'معاملات إدارتي' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'المعاملات' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'التقارير' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'التحويلات والردود' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'بانتظار تسجيل التعقيب' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'مهام طباعة التعقيب' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'إفادات بانتظار المراجعة' })).not.toBeInTheDocument();
   });
 });

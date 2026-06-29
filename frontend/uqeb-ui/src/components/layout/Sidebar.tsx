@@ -30,6 +30,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     if (item.followUpPrintOnly && !canOperateFollowUpPrint) return false;
     if (item.departmentUserOnly && !isDepartmentUser) return false;
     if (item.departmentResponseReviewOnly && !canReviewDepartmentResponse) return false;
+    if (item.hideForDepartmentUser && isDepartmentUser) return false;
     return true;
   };
 

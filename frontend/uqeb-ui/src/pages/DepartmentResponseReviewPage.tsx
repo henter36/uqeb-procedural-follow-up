@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { departmentResponsesApi } from '../api/services';
 import type { DepartmentResponseDto, DepartmentResponseSummaryDto } from '../api/types';
 import { PageHeader, EmptyState, ErrorState } from '../components/ui';
+import { getApiErrorDetails } from '../utils/apiHelpers';
 
 const STATUS_LABELS: Record<string, string> = {
   Draft: 'مسودة',
@@ -34,8 +35,16 @@ export default function DepartmentResponseReviewPage() {
     try {
       const res = await departmentResponsesApi.getPendingReview();
       setPending(res.data);
-    } catch {
-      setError('تعذر تحميل البيانات');
+    } catch (err: unknown) {
+      const details = getApiErrorDetails(err);
+      if (details.httpStatus === 403)
+        setError('لا تملك صلاحية مراجعة إفادات الإدارات.');
+      else if (details.httpStatus === 404)
+        setError('مسار مراجعة الإفادات غير متاح. تحقق من إعدادات الخادم.');
+      else if (details.httpStatus === 500)
+        setError('تعذر تحميل إفادات المراجعة بسبب خطأ في الخادم.');
+      else
+        setError(details.message || 'تعذر تحميل البيانات');
     } finally {
       setLoading(false);
     }

@@ -1097,6 +1097,14 @@ public class TransactionService : ITransactionService
 
     private async Task ValidateCanCloseAsync(Transaction t, int userId)
     {
+        if (t.RequiresResponse)
+        {
+            var incompleteDepartmentNames = await GetIncompleteDepartmentResponseNamesAsync(t.Id);
+            if (incompleteDepartmentNames.Count > 0)
+                throw new InvalidOperationException(
+                    $"لا يمكن إغلاق المعاملة لوجود إفادات ناقصة أو غير معتمدة: {string.Join("، ", incompleteDepartmentNames)}");
+        }
+
         var pending = await _db.Assignments
             .Include(a => a.Department)
             .Where(a => a.TransactionId == t.Id
@@ -1113,6 +1121,37 @@ public class TransactionService : ITransactionService
 
         if (t.RequiresResponse && (!t.ResponseCompleted || !t.ResponseCompletedDate.HasValue))
             throw new InvalidOperationException("لا يمكن إغلاق المعاملة قبل تسجيل الإفادة.");
+    }
+
+    private async Task<List<string>> GetIncompleteDepartmentResponseNamesAsync(int transactionId)
+    {
+        var requiredDepartments = await _db.Assignments
+            .AsNoTracking()
+            .Include(a => a.Department)
+            .Where(a => a.TransactionId == transactionId &&
+                a.RequiresReply &&
+                a.Status == AssignmentStatus.Active)
+            .Select(a => new { a.DepartmentId, a.Department.Name })
+            .Distinct()
+            .ToListAsync();
+
+        if (requiredDepartments.Count == 0)
+            return [];
+
+        var approvedDepartmentIds = await _db.DepartmentResponses
+            .AsNoTracking()
+            .Where(r => r.TransactionId == transactionId &&
+                r.Status == DepartmentResponseStatus.Approved)
+            .Select(r => r.DepartmentId)
+            .Distinct()
+            .ToListAsync();
+
+        var approved = approvedDepartmentIds.ToHashSet();
+        return requiredDepartments
+            .Where(d => !approved.Contains(d.DepartmentId))
+            .Select(d => d.Name)
+            .OrderBy(name => name)
+            .ToList();
     }
 
     private static void ApplyTransactionReplyStatus(Transaction t) =>

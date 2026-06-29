@@ -260,4 +260,32 @@ public class TransactionWorkflowAtomicityTests
         Assert.Equal(0, cache.TransactionChangeInvalidations);
         Assert.InRange(counter.Count, 0, 1);
     }
+
+    [Fact]
+    public async Task CloseAsync_blocks_when_required_department_response_is_not_approved()
+    {
+        var (service, db, _, cache) = await CreateServiceAsync(nameof(CloseAsync_blocks_when_required_department_response_is_not_approved));
+        var created = await service.CreateAsync(BuildCreateRequest(10, 11), userId: 1);
+        var dept10Response = new DepartmentResponse
+        {
+            TransactionId = created!.Id,
+            DepartmentId = 10,
+            ResponseText = "إفادة معتمدة",
+            Status = DepartmentResponseStatus.Approved,
+            SubmittedByUserId = 1,
+            SubmittedAt = DateTime.UtcNow,
+            ReviewedByUserId = 1,
+            ReviewedAt = DateTime.UtcNow,
+        };
+        db.DepartmentResponses.Add(dept10Response);
+        await db.SaveChangesAsync();
+        cache.ResetInvalidations();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin));
+
+        Assert.Contains("إفادات ناقصة", ex.Message);
+        Assert.Contains("الموارد", ex.Message);
+        Assert.Equal(0, cache.TransactionChangeInvalidations);
+    }
 }

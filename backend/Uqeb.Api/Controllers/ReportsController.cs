@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Uqeb.Api.DTOs.Reports;
 using Uqeb.Api.DTOs.Transactions;
+using Uqeb.Api.Authorization;
 using Uqeb.Api.Helpers;
 using Uqeb.Api.Services;
 
@@ -10,6 +11,7 @@ namespace Uqeb.Api.Controllers;
 [ApiController]
 [Route("api/reports")]
 [Authorize]
+[Authorize(Policy = Policies.CanEditTransactions)]
 public class ReportsController : ControllerBase
 {
     private readonly IReportService _reports;
