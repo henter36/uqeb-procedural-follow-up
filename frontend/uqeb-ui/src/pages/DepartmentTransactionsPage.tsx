@@ -41,21 +41,24 @@ type StatsBannerState =
   | { kind: 'error'; message: string }
   | { kind: 'ready'; stats: DepartmentResponseStatsDto };
 
+type StatTone = 'default' | 'red' | 'gold' | 'green';
+
+const TONE_CLASS: Record<StatTone, string> = {
+  default: 'dept-stat-card',
+  red: 'dept-stat-card dept-stat-card--red',
+  gold: 'dept-stat-card dept-stat-card--gold',
+  green: 'dept-stat-card dept-stat-card--green',
+};
+
 type StatCardProps = Readonly<{
   label: string;
   value: number;
-  tone?: 'default' | 'red' | 'gold' | 'green';
+  tone?: StatTone;
 }>;
 
 function StatCard({ label, value, tone = 'default' }: StatCardProps) {
-  const toneClass: Record<string, string> = {
-    default: 'dept-stat-card',
-    red: 'dept-stat-card dept-stat-card--red',
-    gold: 'dept-stat-card dept-stat-card--gold',
-    green: 'dept-stat-card dept-stat-card--green',
-  };
   return (
-    <div className={toneClass[tone]}>
+    <div className={TONE_CLASS[tone]}>
       <span className="dept-stat-value">{value}</span>
       <span className="dept-stat-label">{label}</span>
     </div>
@@ -452,7 +455,7 @@ export default function DepartmentTransactionsPage() {
   }, [requestedTransactionId]);
 
   const loadStats = useCallback(async () => {
-    setStatsState({ kind: 'loading' });
+    setStatsState((prev) => (prev.kind === 'ready' ? prev : { kind: 'loading' }));
     try {
       const res = await departmentResponsesApi.getMyStats();
       setStatsState({ kind: 'ready', stats: res.data });
@@ -466,8 +469,8 @@ export default function DepartmentTransactionsPage() {
     }
   }, []);
 
-  const loadList = useCallback(async () => {
-    setLoading(true);
+  const loadList = useCallback(async (background = false) => {
+    if (!background) setLoading(true);
     setError(null);
     try {
       const res = await departmentResponsesApi.getDepartmentTransactions();
@@ -478,15 +481,19 @@ export default function DepartmentTransactionsPage() {
       setError('تعذر تحميل بيانات المعاملات');
       return [];
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
   }, [openRequestedTransaction]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadStats();
+  }, [loadStats]);
+
+  useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadList().catch(() => undefined);
-  }, [loadList, loadStats]);
+  }, [loadList]);
 
   async function openDetail(responseId: number) {
     setDetailLoading(true);
@@ -519,7 +526,7 @@ export default function DepartmentTransactionsPage() {
     setSaving(true);
     try {
       const res = await departmentResponsesApi.create({ transactionId: view.transactionId, responseText: form.responseText });
-      await Promise.all([loadList(), loadStats()]);
+      await Promise.all([loadList(true), loadStats()]);
       await openDetail(res.data.id);
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -552,7 +559,7 @@ export default function DepartmentTransactionsPage() {
     try {
       const res = await departmentResponsesApi.submit(detail.id);
       setDetail(res.data);
-      await Promise.all([loadList(), loadStats()]);
+      await Promise.all([loadList(true), loadStats()]);
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
       setFormError(msg ?? 'حدث خطأ أثناء التقديم');

@@ -320,5 +320,27 @@ describe('DepartmentTransactionsPage', () => {
         expect(screen.getByText('معتمدة')).toBeTruthy();
       });
     });
+
+    it('calls getMyStats exactly once on initial render', async () => {
+      renderPage();
+      await waitFor(() => expect(screen.getByText('إجمالي المُسندة')).toBeTruthy());
+      expect(mockApi.getMyStats).toHaveBeenCalledTimes(1);
+    });
+
+    it('stat cards stay visible when a slow background stats refresh is in-flight', async () => {
+      let resolveRefresh!: (v: { data: DepartmentResponseStatsDto }) => void;
+      mockApi.getMyStats
+        .mockResolvedValueOnce({ data: defaultStats } as never)
+        .mockReturnValue(new Promise(r => { resolveRefresh = r; }) as never);
+
+      renderPage();
+      await waitFor(() => expect(screen.getByText('إجمالي المُسندة')).toBeTruthy());
+
+      // Stats are in 'ready' state — banner must remain visible, not revert to loading
+      expect(screen.queryByText(/جارٍ تحميل الإحصائيات/)).toBeNull();
+      expect(screen.getByText('إجمالي المُسندة')).toBeTruthy();
+
+      resolveRefresh({ data: defaultStats });
+    });
   });
 });

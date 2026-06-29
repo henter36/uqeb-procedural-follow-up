@@ -842,4 +842,83 @@ public class DepartmentResponseServiceTests
 
         Assert.Equal(beforeCount, afterCount);
     }
+
+    [Fact]
+    public async Task GetMyStats_IgnoresResponsesForInactiveAssignments()
+    {
+        // Tx-A: seeded active assignment, no response → PendingResponse
+        // Tx-B: active assignment + draft response → Draft
+        // Tx-C: completed assignment + approved response → must NOT appear in any counter
+        var (db, _, deptId, userId) = await SeedAsync(nameof(GetMyStats_IgnoresResponsesForInactiveAssignments));
+        var service = BuildService(db);
+        var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
+
+        // Tx-B: active assignment + draft response via service
+        var txB = new Transaction {
+            InternalTrackingNumber = "TX-IGN-B", IncomingNumber = "IN-IGN-B",
+            IncomingDate = DateTime.UtcNow, Subject = "معاملة ب",
+            Status = TransactionStatus.Assigned, CreatedById = userId,
+        };
+        db.Transactions.Add(txB);
+        db.Assignments.Add(new Assignment {
+            Transaction = txB, DepartmentId = deptId, AssignedDate = DateTime.UtcNow,
+            RequiresReply = true, ReplyStatus = ReplyStatus.Pending,
+            Status = AssignmentStatus.Active, CreatedById = userId,
+        });
+        await db.SaveChangesAsync();
+        await service.CreateAsync(new CreateDepartmentResponseRequest(txB.Id, "نص ب"), submitter);
+
+        // Tx-C: completed assignment + approved response (historical — must be excluded)
+        var txC = new Transaction {
+            InternalTrackingNumber = "TX-IGN-C", IncomingNumber = "IN-IGN-C",
+            IncomingDate = DateTime.UtcNow, Subject = "معاملة ج",
+            Status = TransactionStatus.Assigned, CreatedById = userId,
+        };
+        db.Transactions.Add(txC);
+        db.Assignments.Add(new Assignment {
+            Transaction = txC, DepartmentId = deptId, AssignedDate = DateTime.UtcNow,
+            RequiresReply = true, ReplyStatus = ReplyStatus.Replied,
+            Status = AssignmentStatus.Completed, CreatedById = userId,
+        });
+        await db.SaveChangesAsync();
+        db.DepartmentResponses.Add(new DepartmentResponse {
+            TransactionId = txC.Id, DepartmentId = deptId,
+            ResponseText = "إفادة تاريخية",
+            Status = DepartmentResponseStatus.Approved,
+            SubmittedByUserId = userId,
+        });
+        await db.SaveChangesAsync();
+
+        var stats = await service.GetMyStatsAsync(submitter);
+
+        Assert.Equal(2, stats.TotalAssigned);   // Tx-A + Tx-B (active only)
+        Assert.Equal(1, stats.PendingResponse); // Tx-A has no response
+        Assert.Equal(1, stats.Draft);           // Tx-B draft
+        Assert.Equal(0, stats.Approved);        // Tx-C excluded
+        Assert.Equal(0, stats.SubmittedForReview);
+        Assert.Equal(0, stats.ReturnedForCorrection);
+        Assert.Equal(0, stats.Rejected);
+    }
+
+    [Fact]
+    public async Task GetMyStats_DoesNotDoubleCountDuplicateActiveAssignmentsForSameTransaction()
+    {
+        // Two Active assignments for the same TransactionId must count as 1 via Distinct()
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(GetMyStats_DoesNotDoubleCountDuplicateActiveAssignmentsForSameTransaction));
+        var service = BuildService(db);
+
+        db.Assignments.Add(new Assignment {
+            TransactionId = txId, DepartmentId = deptId, AssignedDate = DateTime.UtcNow,
+            RequiresReply = true, ReplyStatus = ReplyStatus.Pending,
+            Status = AssignmentStatus.Active, CreatedById = userId,
+        });
+        await db.SaveChangesAsync();
+
+        var user = new FakeUser { UserId = userId, DepartmentId = deptId };
+        var stats = await service.GetMyStatsAsync(user);
+
+        Assert.Equal(1, stats.TotalAssigned);   // Distinct TransactionId
+        Assert.Equal(1, stats.PendingResponse);
+        Assert.Equal(0, stats.Draft);
+    }
 }

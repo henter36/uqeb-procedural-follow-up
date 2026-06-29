@@ -198,13 +198,17 @@ public class DepartmentResponseService : IDepartmentResponseService
 
         int deptId = currentUser.DepartmentId.Value;
 
-        var totalAssigned = await _db.Assignments
+        var activeTxQuery = _db.Assignments
             .AsNoTracking()
-            .CountAsync(a => a.DepartmentId == deptId && a.Status == AssignmentStatus.Active);
+            .Where(a => a.DepartmentId == deptId && a.Status == AssignmentStatus.Active)
+            .Select(a => a.TransactionId)
+            .Distinct();
+
+        var totalAssigned = await activeTxQuery.CountAsync();
 
         var responseCounts = await _db.DepartmentResponses
             .AsNoTracking()
-            .Where(r => r.DepartmentId == deptId)
+            .Where(r => r.DepartmentId == deptId && activeTxQuery.Contains(r.TransactionId))
             .GroupBy(r => r.Status)
             .Select(g => new { Status = g.Key, Count = g.Count() })
             .ToListAsync();
