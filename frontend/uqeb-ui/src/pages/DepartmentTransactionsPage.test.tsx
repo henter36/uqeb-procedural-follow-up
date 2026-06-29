@@ -181,17 +181,35 @@ describe('DepartmentTransactionsPage', () => {
   });
 
   it('form text does not leak between responses', async () => {
+    // Two distinct rows with different departmentResponseIds
+    const txWithDraft2: DepartmentTransactionResponseItemDto = {
+      ...txWithDraft,
+      transactionId: 20,
+      internalTrackingNumber: 'TX-002',
+      departmentResponseId: 2,
+    };
     const detail2: DepartmentResponseDto = { ...detailDraft, id: 2, responseText: 'نص ثانٍ' };
+
+    mockApi.getDepartmentTransactions.mockResolvedValue({ data: [txWithDraft, txWithDraft2] } as never);
     mockApi.getById
       .mockResolvedValueOnce({ data: detailDraft } as never)
       .mockResolvedValue({ data: detail2 } as never);
+
     renderPage();
-    await waitFor(() => screen.getByText('تعديل الإفادة'));
-    fireEvent.click(screen.getByText('تعديل الإفادة'));
+
+    // Open first row (departmentResponseId: 1)
+    const editButtons = await waitFor(() => screen.getAllByText('تعديل الإفادة'));
+    fireEvent.click(editButtons[0]);
     await waitFor(() => screen.getByText('رجوع للقائمة'));
+
+    // Go back to list
     fireEvent.click(screen.getByText('رجوع للقائمة'));
-    await waitFor(() => screen.getByText('تعديل الإفادة'));
-    fireEvent.click(screen.getByText('تعديل الإفادة'));
+
+    // Open second row (departmentResponseId: 2) — a genuinely different record
+    const editButtons2 = await waitFor(() => screen.getAllByText('تعديل الإفادة'));
+    fireEvent.click(editButtons2[1]);
+
+    // Must show second response's text, not first's
     await waitFor(() => {
       expect(screen.getByDisplayValue('نص ثانٍ')).toBeTruthy();
     });

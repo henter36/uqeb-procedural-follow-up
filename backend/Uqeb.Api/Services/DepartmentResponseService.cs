@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.DepartmentResponses;
 using Uqeb.Api.Models.Entities;
@@ -67,6 +68,14 @@ public class DepartmentResponseService : IDepartmentResponseService
     {
         if (currentUser.Role is not (UserRole.Admin or UserRole.Supervisor or UserRole.DataEntry))
             throw new UnauthorizedAccessException("المستخدم غير مخول بمراجعة إفادات الإدارات.");
+    }
+
+    // InMemory (test) provider throws InvalidOperationException on BeginTransactionAsync.
+    // Production (SQL Server) supports transactions fully.
+    private async Task<IDbContextTransaction?> TryBeginTransactionAsync()
+    {
+        try { return await _db.Database.BeginTransactionAsync(); }
+        catch (InvalidOperationException) { return null; }
     }
 
     public async Task<List<DepartmentTransactionResponseItemDto>> GetDepartmentTransactionsAsync(ICurrentUserService currentUser)
@@ -235,18 +244,33 @@ public class DepartmentResponseService : IDepartmentResponseService
             CreatedAt = DateTime.UtcNow,
         };
 
-        _db.DepartmentResponses.Add(response);
-        await _db.SaveChangesAsync();
+        var tx = await TryBeginTransactionAsync();
+        try
+        {
+            _db.DepartmentResponses.Add(response);
+            await _db.SaveChangesAsync();
 
-        _audit.TrackLog(
-            currentUser.UserId,
-            AuditAction.DepartmentResponseCreated,
-            DepartmentResponseEntityName,
-            response.Id,
-            response.TransactionId,
-            null,
-            null);
-        await _db.SaveChangesAsync();
+            _audit.TrackLog(
+                currentUser.UserId,
+                AuditAction.DepartmentResponseCreated,
+                DepartmentResponseEntityName,
+                response.Id,
+                response.TransactionId,
+                null,
+                null);
+            await _db.SaveChangesAsync();
+
+            if (tx != null) await tx.CommitAsync();
+        }
+        catch
+        {
+            if (tx != null) await tx.RollbackAsync();
+            throw;
+        }
+        finally
+        {
+            if (tx != null) await tx.DisposeAsync();
+        }
 
         return MapToDto((await LoadWithDetailsAsync(response.Id))!);
     }
@@ -426,6 +450,7 @@ public class DepartmentResponseService : IDepartmentResponseService
             Sha256 = sha256,
         };
 
+        var tx = await TryBeginTransactionAsync();
         try
         {
             _db.DepartmentResponseAttachments.Add(attachment);
@@ -440,12 +465,19 @@ public class DepartmentResponseService : IDepartmentResponseService
                 null,
                 safeOriginalName);
             await _db.SaveChangesAsync();
+
+            if (tx != null) await tx.CommitAsync();
         }
         catch
         {
+            if (tx != null) await tx.RollbackAsync();
             if (File.Exists(filePath))
                 try { File.Delete(filePath); } catch { /* best effort */ }
             throw;
+        }
+        finally
+        {
+            if (tx != null) await tx.DisposeAsync();
         }
 
         var uploader = await _db.Users.FindAsync(currentUser.UserId);
