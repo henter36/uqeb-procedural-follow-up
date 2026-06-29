@@ -1333,6 +1333,61 @@ Describe 'Production database backup functions' {
         $script:SqlHandlerReceivedConnectionString | Should -Be $script:TestConnectionString
     }
 
+    It 'passes ConnectionString to command-based SQL handler when explicitly supported' {
+        try {
+            $global:UqebCommandSqlHandlerConnectionString = ''
+            function global:Invoke-UqebCommandSqlHandlerWithConnectionString {
+                param(
+                    [string]$Server,
+                    [string]$Database,
+                    [string]$ConnectionString,
+                    [string]$CommandText,
+                    [bool]$Scalar,
+                    [bool]$DataTable
+                )
+
+                $global:UqebCommandSqlHandlerConnectionString = $ConnectionString
+                return "handled:$CommandText"
+            }
+
+            $global:SqlDeploymentCommandHandler = 'Invoke-UqebCommandSqlHandlerWithConnectionString'
+
+            Invoke-SqlDeploymentCommand -Server '.' -Database 'master' -ConnectionString $script:TestConnectionString -CommandText 'PING' | Should -Be 'handled:PING'
+            $global:UqebCommandSqlHandlerConnectionString | Should -Be $script:TestConnectionString
+        }
+        finally {
+            Remove-Item -LiteralPath 'Function:\Invoke-UqebCommandSqlHandlerWithConnectionString' -ErrorAction SilentlyContinue
+            Remove-Variable -Name UqebCommandSqlHandlerConnectionString -Scope Global -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'does not pass ConnectionString to command-based SQL handler unless supported' {
+        try {
+            $global:UqebCommandSqlHandlerReceivedConnectionString = $true
+            function global:Invoke-UqebCommandSqlHandlerWithoutConnectionString {
+                param(
+                    [string]$Server,
+                    [string]$Database,
+                    [string]$CommandText,
+                    [bool]$Scalar,
+                    [bool]$DataTable
+                )
+
+                $global:UqebCommandSqlHandlerReceivedConnectionString = $PSBoundParameters.ContainsKey('ConnectionString')
+                return "handled:$CommandText"
+            }
+
+            $global:SqlDeploymentCommandHandler = 'Invoke-UqebCommandSqlHandlerWithoutConnectionString'
+
+            Invoke-SqlDeploymentCommand -Server '.' -Database 'master' -ConnectionString $script:TestConnectionString -CommandText 'PING' | Should -Be 'handled:PING'
+            $global:UqebCommandSqlHandlerReceivedConnectionString | Should -BeFalse
+        }
+        finally {
+            Remove-Item -LiteralPath 'Function:\Invoke-UqebCommandSqlHandlerWithoutConnectionString' -ErrorAction SilentlyContinue
+            Remove-Variable -Name UqebCommandSqlHandlerReceivedConnectionString -Scope Global -ErrorAction SilentlyContinue
+        }
+    }
+
     It 'returns DataTable from SQL test handler' {
         $global:SqlDeploymentCommandHandler = {
             param(

@@ -1248,18 +1248,27 @@ function Get-SqlDeploymentCommandHandler {
 
 function Test-SqlDeploymentCommandHandlerSupportsParameter {
     param(
-        [scriptblock]$Handler,
+        $Handler,
         [string]$ParameterName
     )
 
-    if ($null -eq $Handler.Ast -or $null -eq $Handler.Ast.ParamBlock) {
+    if ($Handler -is [scriptblock]) {
+        if ($null -eq $Handler.Ast -or $null -eq $Handler.Ast.ParamBlock) {
+            return $false
+        }
+
+        foreach ($parameter in $Handler.Ast.ParamBlock.Parameters) {
+            if ($parameter.Name.VariablePath.UserPath -eq $ParameterName) {
+                return $true
+            }
+        }
+
         return $false
     }
 
-    foreach ($parameter in $Handler.Ast.ParamBlock.Parameters) {
-        if ($parameter.Name.VariablePath.UserPath -eq $ParameterName) {
-            return $true
-        }
+    $command = Get-Command -Name $Handler -ErrorAction SilentlyContinue
+    if ($null -ne $command -and $command.Parameters.ContainsKey($ParameterName)) {
+        return $true
     }
 
     return $false
@@ -1267,7 +1276,7 @@ function Test-SqlDeploymentCommandHandlerSupportsParameter {
 
 function Invoke-SqlDeploymentCommandHandler {
     param(
-        [scriptblock]$Handler,
+        $Handler,
         [string]$Server,
         [string]$Database = 'master',
         [string]$ConnectionString,
