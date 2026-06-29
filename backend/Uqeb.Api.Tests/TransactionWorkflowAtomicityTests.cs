@@ -226,6 +226,31 @@ public class TransactionWorkflowAtomicityTests
     }
 
     [Fact]
+    public async Task ReplyAssignmentAsync_department_user_cannot_reply_even_for_own_department()
+    {
+        var (service, _, counter, cache) = await CreateServiceAsync(nameof(ReplyAssignmentAsync_department_user_cannot_reply_even_for_own_department));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        var assignment = await service.AddAssignmentAsync(created!.Id, new CreateAssignmentRequest
+        {
+            DepartmentId = 10,
+            AssignedDate = DateTime.UtcNow.Date,
+            RequiredAction = "متابعة",
+            ReplyDueDays = 5
+        }, userId: 1);
+        counter.Reset();
+        cache.ResetInvalidations();
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            service.ReplyAssignmentAsync(
+                created.Id,
+                assignment.Id,
+                new ReplyAssignmentRequest { ReplyDate = DateTime.UtcNow.Date, ReplySummary = "تم" },
+                new TestCurrentUser(2, UserRole.DepartmentUser, departmentId: 10)));
+
+        Assert.Equal(0, cache.TransactionChangeInvalidations);
+    }
+
+    [Fact]
     public async Task AddFollowUpAsync_validation_failure_does_not_write_success_audit()
     {
         var (service, db, counter, cache) = await CreateServiceAsync(nameof(AddFollowUpAsync_validation_failure_does_not_write_success_audit));

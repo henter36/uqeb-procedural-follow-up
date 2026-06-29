@@ -44,6 +44,10 @@ public class TransactionsController : ControllerBase
         {
             return Ok(await _transactions.SearchAsync(request, _currentUser));
         }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
         catch (InvalidTransactionSearchCursorException ex)
         {
             return BadRequest(new { message = ex.Message });
@@ -53,22 +57,43 @@ public class TransactionsController : ControllerBase
     [HttpGet("{id}/basic")]
     public async Task<IActionResult> GetBasic(int id)
     {
-        var result = await _transactions.GetBasicByIdAsync(id, _currentUser);
-        return result == null ? NotFound() : Ok(result);
+        try
+        {
+            var result = await _transactions.GetBasicByIdAsync(id, _currentUser);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
     }
 
     [HttpGet("{id}/workspace")]
     public async Task<IActionResult> GetWorkspace(int id)
     {
-        var result = await _transactions.GetWorkspaceAsync(id, _currentUser);
-        return result == null ? NotFound() : Ok(result);
+        try
+        {
+            var result = await _transactions.GetWorkspaceAsync(id, _currentUser);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
     }
 
     [HttpGet("{id}")]
     public async Task<IActionResult> GetById(int id)
     {
-        var result = await _transactions.GetByIdAsync(id, _currentUser);
-        return result == null ? NotFound() : Ok(result);
+        try
+        {
+            var result = await _transactions.GetByIdAsync(id, _currentUser);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
     }
 
     [HttpPost]
@@ -190,15 +215,29 @@ public class TransactionsController : ControllerBase
     [HttpGet("{id}/followups")]
     public async Task<IActionResult> GetFollowUps(int id)
     {
-        var result = await _transactions.GetFollowUpsAsync(id, _currentUser);
-        return result == null ? NotFound() : Ok(result);
+        try
+        {
+            var result = await _transactions.GetFollowUpsAsync(id, _currentUser);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
     }
 
     [HttpGet("{id}/followup-departments")]
     public async Task<IActionResult> GetFollowUpDepartments(int id)
     {
-        var result = await _transactions.GetFollowUpDepartmentsAsync(id, _currentUser);
-        return result == null ? NotFound() : Ok(result);
+        try
+        {
+            var result = await _transactions.GetFollowUpDepartmentsAsync(id, _currentUser);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
     }
 
     [HttpPost("{id}/followups")]
@@ -227,8 +266,15 @@ public class TransactionsController : ControllerBase
     [HttpGet("{id}/assignments")]
     public async Task<IActionResult> GetAssignments(int id)
     {
-        var result = await _transactions.GetAssignmentsAsync(id, _currentUser);
-        return result == null ? NotFound() : Ok(result);
+        try
+        {
+            var result = await _transactions.GetAssignmentsAsync(id, _currentUser);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
     }
 
     [HttpPost("{id}/assignments")]
@@ -296,7 +342,14 @@ public class TransactionsController : ControllerBase
     [HttpGet("{id}/audit-log")]
     public async Task<IActionResult> GetAuditLog(int id, [FromQuery] int page = 1, [FromQuery] int pageSize = 50)
     {
-        return Ok(await _transactions.GetAuditLogAsync(id, page, pageSize, _currentUser));
+        try
+        {
+            return Ok(await _transactions.GetAuditLogAsync(id, page, pageSize, _currentUser));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
     }
 
     [HttpPost("{id}/follow-up-letter/preview")]

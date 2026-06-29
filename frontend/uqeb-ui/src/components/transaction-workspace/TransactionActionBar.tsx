@@ -67,7 +67,7 @@ export default function TransactionActionBar({
       )}
       {canRegisterResponse && (
         isDepartmentUser ? (
-          <Link to="/department-responses" className="btn btn-primary btn-sm">
+          <Link to={`/department-responses?transactionId=${transactionId}`} className="btn btn-primary btn-sm">
             تسجيل إفادة
           </Link>
         ) : (

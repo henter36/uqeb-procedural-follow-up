@@ -126,16 +126,18 @@ public class TransactionService : ITransactionService
         return PagedResult<TransactionListDto>.Create(offsetItems, total, request.Page, pageSize);
     }
 
-    private static IQueryable<Transaction> ApplySearchFilters(
+    private IQueryable<Transaction> ApplySearchFilters(
         IQueryable<Transaction> query,
         TransactionSearchRequest request,
         ICurrentUserService currentUser,
         DateTime now)
     {
-        if (currentUser.Role == UserRole.DepartmentUser && currentUser.DepartmentId.HasValue)
+        if (currentUser.Role == UserRole.DepartmentUser)
         {
-            var deptId = currentUser.DepartmentId.Value;
-            query = query.Where(t => t.Assignments.Any(a => a.DepartmentId == deptId));
+            var deptId = RequireDepartmentUserDepartmentId(currentUser);
+            query = query.Where(t =>
+                t.Assignments.Any(a => a.DepartmentId == deptId && a.Status != AssignmentStatus.Cancelled) ||
+                _db.DepartmentResponses.Any(r => r.TransactionId == t.Id && r.DepartmentId == deptId));
         }
 
         if (!string.IsNullOrWhiteSpace(request.IncomingNumber))
@@ -379,9 +381,16 @@ public class TransactionService : ITransactionService
     {
         if (!await CanAccessTransactionAsync(transactionId, currentUser)) return null;
 
+        var departmentId = currentUser.Role == UserRole.DepartmentUser
+            ? RequireDepartmentUserDepartmentId(currentUser)
+            : (int?)null;
         var now = DateTime.UtcNow;
-        return await _db.Assignments.AsNoTracking()
-            .Where(a => a.TransactionId == transactionId)
+        var query = _db.Assignments.AsNoTracking()
+            .Where(a => a.TransactionId == transactionId);
+        if (departmentId.HasValue)
+            query = query.Where(a => a.DepartmentId == departmentId.Value && a.Status != AssignmentStatus.Cancelled);
+
+        return await query
             .OrderByDescending(a => a.AssignedDate)
             .Select(a => new AssignmentDto
             {
@@ -409,8 +418,15 @@ public class TransactionService : ITransactionService
     {
         if (!await CanAccessTransactionAsync(transactionId, currentUser)) return null;
 
-        return await _db.FollowUps.AsNoTracking()
-            .Where(f => f.TransactionId == transactionId)
+        var departmentId = currentUser.Role == UserRole.DepartmentUser
+            ? RequireDepartmentUserDepartmentId(currentUser)
+            : (int?)null;
+        var query = _db.FollowUps.AsNoTracking()
+            .Where(f => f.TransactionId == transactionId);
+        if (departmentId.HasValue)
+            query = query.Where(f => f.Departments.Any(d => d.DepartmentId == departmentId.Value));
+
+        return await query
             .OrderByDescending(f => f.CreatedAt)
             .Select(f => new FollowUpDto
             {
@@ -1034,8 +1050,8 @@ public class TransactionService : ITransactionService
             .FirstOrDefaultAsync(a => a.Id == assignmentId && a.TransactionId == transactionId);
         if (assignment == null) return null;
 
-        if (currentUser.Role == UserRole.DepartmentUser && currentUser.DepartmentId != assignment.DepartmentId)
-            throw new UnauthorizedAccessException("لا يمكنك الرد على تحويل ليس لإدارتك");
+        if (currentUser.Role == UserRole.DepartmentUser)
+            throw new UnauthorizedAccessException("لا تملك صلاحية تسجيل رد على التحويل. استخدم مسار إفادات الإدارة.");
 
         await CommitWorkflowMutationAsync(
             () =>
@@ -1567,19 +1583,30 @@ public class TransactionService : ITransactionService
 
     private async Task<bool> CanAccessTransactionAsync(int transactionId, ICurrentUserService user)
     {
-        if (user.Role != UserRole.DepartmentUser || !user.DepartmentId.HasValue)
+        if (user.Role != UserRole.DepartmentUser)
             return await _db.Transactions.AsNoTracking().AnyAsync(t => t.Id == transactionId);
 
-        return await _db.Assignments.AsNoTracking()
-            .AnyAsync(a => a.TransactionId == transactionId && a.DepartmentId == user.DepartmentId.Value);
+        var deptId = RequireDepartmentUserDepartmentId(user);
+
+        return await _db.Transactions.AsNoTracking()
+            .AnyAsync(t => t.Id == transactionId &&
+                (t.Assignments.Any(a => a.DepartmentId == deptId && a.Status != AssignmentStatus.Cancelled) ||
+                    _db.DepartmentResponses.Any(r => r.TransactionId == t.Id && r.DepartmentId == deptId)));
     }
 
     private static bool CanAccess(Transaction t, ICurrentUserService user)
     {
-        if (user.Role == UserRole.DepartmentUser && user.DepartmentId.HasValue)
-            return t.Assignments.Any(a => a.DepartmentId == user.DepartmentId);
+        if (user.Role == UserRole.DepartmentUser)
+        {
+            var deptId = RequireDepartmentUserDepartmentId(user);
+            return t.Assignments.Any(a => a.DepartmentId == deptId && a.Status != AssignmentStatus.Cancelled);
+        }
         return true;
     }
+
+    private static int RequireDepartmentUserDepartmentId(ICurrentUserService user) =>
+        user.DepartmentId
+            ?? throw new UnauthorizedAccessException("المستخدم غير مرتبط بإدارة.");
 
     private sealed record AssignmentSummaryRow(
         string DepartmentName,

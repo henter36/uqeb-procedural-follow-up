@@ -68,7 +68,7 @@ public static class TransactionWorkspaceHelper
             CanRegisterResponse = canClose && needsResponse && !transaction.ResponseCompleted && !isTerminal,
             CanShowClose = canClose && !isTerminal && (!needsResponse || transaction.ResponseCompleted),
             ShowMutationActions = canEdit && !isDepartmentUser,
-            CanReply = isDepartmentUser || canEdit,
+            CanReply = canEdit && !isDepartmentUser,
             HasPendingDepartments = transaction.PendingDepartmentNames.Count > 0
         };
     }

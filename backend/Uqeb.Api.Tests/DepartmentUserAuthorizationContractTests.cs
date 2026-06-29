@@ -62,6 +62,7 @@ public class DepartmentUserAuthorizationContractTests
     [Theory]
     [InlineData(Policies.CanEditTransactions)]
     [InlineData(Policies.CreateFollowUpPrintJob)]
+    [InlineData(Policies.ViewFollowUpPrintJobs)]
     [InlineData(Policies.ReviewDepartmentResponse)]
     public void PrivilegedPolicies_DoNotAllowDepartmentUser(string policyName)
     {

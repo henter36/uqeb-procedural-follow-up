@@ -449,7 +449,7 @@ describe('TransactionDetailPage department user permissions', () => {
     await waitForDetailsReady();
 
     const responseLink = within(getActionBar()).getByRole('link', { name: 'تسجيل إفادة' });
-    expect(responseLink).toHaveAttribute('href', '/department-responses');
+    expect(responseLink).toHaveAttribute('href', '/department-responses?transactionId=1');
   });
 
   it('keeps mutation actions available for data entry users', async () => {

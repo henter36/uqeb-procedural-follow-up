@@ -133,6 +133,7 @@ describe('Sidebar', () => {
     expect(screen.queryByRole('link', { name: 'المعاملات' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'التقارير' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'التحويلات والردود' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'طباعة التعقيب — المستحقة' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'بانتظار تسجيل التعقيب' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'مهام طباعة التعقيب' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'إفادات بانتظار المراجعة' })).not.toBeInTheDocument();

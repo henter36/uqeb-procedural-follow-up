@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { departmentResponsesApi } from '../api/services';
 import type { DepartmentResponseDto, DepartmentTransactionResponseItemDto } from '../api/types';
 import { EmptyState, ErrorState, PageHeader } from '../components/ui';
@@ -354,6 +355,8 @@ function DetailResponseView({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DepartmentTransactionsPage() {
+  const [searchParams] = useSearchParams();
+  const requestedTransactionId = Number(searchParams.get('transactionId'));
   const [transactions, setTransactions] = useState<DepartmentTransactionResponseItemDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -364,20 +367,39 @@ export default function DepartmentTransactionsPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { loadList(); }, []);
+  const openRequestedTransaction = useCallback((items: DepartmentTransactionResponseItemDto[]) => {
+    if (!Number.isFinite(requestedTransactionId) || requestedTransactionId <= 0) return;
 
-  async function loadList() {
+    const tx = items.find(item => item.transactionId === requestedTransactionId);
+    if (!tx) return;
+
+    if (tx.canCreateResponse) {
+      openCreate(tx);
+    } else if (tx.departmentResponseId) {
+      openDetail(tx.departmentResponseId).catch(() => undefined);
+    }
+  }, [requestedTransactionId]);
+
+  const loadList = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const res = await departmentResponsesApi.getDepartmentTransactions();
       setTransactions(res.data);
+      openRequestedTransaction(res.data);
+      return res.data;
     } catch {
       setError('تعذر تحميل بيانات المعاملات');
+      return [];
     } finally {
       setLoading(false);
     }
-  }
+  }, [openRequestedTransaction]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadList().catch(() => undefined);
+  }, [loadList]);
 
   async function openDetail(responseId: number) {
     setDetailLoading(true);

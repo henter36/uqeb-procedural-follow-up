@@ -20,17 +20,37 @@ vi.mock('./pages/FollowUpPrintPendingPage', () => ({
   default: () => <div>pending-screen</div>,
 }));
 
+vi.mock('./pages/FollowUpPrintEligiblePage', () => ({
+  default: () => <div>eligible-print-screen</div>,
+}));
+
+vi.mock('./pages/FollowUpPrintJobsPage', () => ({
+  default: () => <div>print-jobs-screen</div>,
+}));
+
+vi.mock('./pages/TransactionsList', () => ({
+  default: () => <div>transactions-screen</div>,
+}));
+
+vi.mock('./pages/Dashboard', () => ({
+  default: () => <div>dashboard-screen</div>,
+}));
+
+function setUser(role: string) {
+  localStorage.setItem('token', 'token');
+  localStorage.setItem('user', JSON.stringify({
+    token: 'token',
+    username: role.toLowerCase(),
+    fullName: role,
+    role,
+  }));
+}
+
 describe('App follow-up print route permissions', () => {
   beforeEach(() => {
     localStorage.clear();
     window.history.pushState({}, '', '/follow-up-print/pending');
-    localStorage.setItem('token', 'token');
-    localStorage.setItem('user', JSON.stringify({
-      token: 'token',
-      username: 'data-entry',
-      fullName: 'مدخل بيانات',
-      role: 'DataEntry',
-    }));
+    setUser('DataEntry');
   });
 
   afterEach(() => {
@@ -42,5 +62,21 @@ describe('App follow-up print route permissions', () => {
     render(<App />);
 
     expect(screen.getByText('pending-screen')).toBeInTheDocument();
+  });
+
+  it.each([
+    ['/transactions', 'transactions-screen'],
+    ['/follow-up-print/eligible', 'eligible-print-screen'],
+    ['/follow-up-print/jobs', 'print-jobs-screen'],
+    ['/follow-up-print/pending', 'pending-screen'],
+  ])('blocks DepartmentUser from %s', (path, blockedText) => {
+    window.history.pushState({}, '', path);
+    localStorage.clear();
+    setUser('DepartmentUser');
+
+    render(<App />);
+
+    expect(screen.queryByText(blockedText)).not.toBeInTheDocument();
+    expect(screen.getByText('dashboard-screen')).toBeInTheDocument();
   });
 });

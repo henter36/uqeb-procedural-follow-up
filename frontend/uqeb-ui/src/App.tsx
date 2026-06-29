@@ -40,7 +40,14 @@ export default function App() {
             </ProtectedRoute>
           )}>
             <Route index element={<Dashboard />} />
-            <Route path="transactions" element={<TransactionsList />} />
+            <Route
+              path="transactions"
+              element={(
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']}>
+                  <TransactionsList />
+                </ProtectedRoute>
+              )}
+            />
             <Route
               path="transactions/import"
               element={(

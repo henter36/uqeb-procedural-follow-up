@@ -15,9 +15,7 @@ using Xunit;
 namespace Uqeb.Api.Tests.Letters;
 
 /// <summary>
-/// Verifies that DepartmentUser access to print jobs is scoped strictly by
-/// ScopeDepartmentId equality — not substring matching or JSON sniffing.
-/// Key invariant: department 1 must never see department 10's jobs, and vice versa.
+/// Verifies that DepartmentUser cannot access follow-up print jobs.
 /// </summary>
 [Trait("Category", "SqlServer")]
 public class FollowUpPrintDepartmentIsolationSqlServerTests
@@ -40,7 +38,7 @@ public class FollowUpPrintDepartmentIsolationSqlServerTests
         return client;
     }
 
-    // ─── List isolation ────────────────────────────────────────────────────────
+    // ─── Department users are not print operators ──────────────────────────────
 
     private static async Task<List<int>> GetJobIdsAsync(HttpResponseMessage response)
     {
@@ -61,81 +59,43 @@ public class FollowUpPrintDepartmentIsolationSqlServerTests
     }
 
     [Fact]
-    public async Task ListJobs_Dept1User_DoesNotSeeDept10Job()
+    public async Task ListJobs_Dept1User_ReturnsForbidden()
     {
         using var client = MakeClient("DepartmentUser", _factory.Dept1UserId, departmentId: 1);
         var response = await client.GetAsync("/api/follow-up-print/jobs");
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var ids = await GetJobIdsAsync(response);
-        Assert.DoesNotContain(_factory.Dept10JobId, ids);
-    }
-
-    [Fact]
-    public async Task ListJobs_Dept10User_DoesNotSeeDept1Job()
-    {
-        using var client = MakeClient("DepartmentUser", _factory.Dept10UserId, departmentId: 10);
-        var response = await client.GetAsync("/api/follow-up-print/jobs");
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var ids = await GetJobIdsAsync(response);
-        Assert.DoesNotContain(_factory.Dept1JobId, ids);
-    }
-
-    [Fact]
-    public async Task ListJobs_Dept1User_SeesDept1Job()
-    {
-        using var client = MakeClient("DepartmentUser", _factory.Dept1UserId, departmentId: 1);
-        var response = await client.GetAsync("/api/follow-up-print/jobs");
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var ids = await GetJobIdsAsync(response);
-        Assert.Contains(_factory.Dept1JobId, ids);
-    }
-
-    // ─── Direct access isolation ───────────────────────────────────────────────
-
-    [Fact]
-    public async Task GetJob_Dept1User_CannotAccessDept10Job()
-    {
-        using var client = MakeClient("DepartmentUser", _factory.Dept1UserId, departmentId: 1);
-        var response = await client.GetAsync($"/api/follow-up-print/jobs/{_factory.Dept10JobId}");
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]
-    public async Task GetJob_Dept10User_CannotAccessDept1Job()
+    public async Task ListJobs_Dept10User_ReturnsForbidden()
     {
         using var client = MakeClient("DepartmentUser", _factory.Dept10UserId, departmentId: 10);
+        var response = await client.GetAsync("/api/follow-up-print/jobs");
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetJob_Dept1User_ReturnsForbiddenForOwnDeptJob()
+    {
+        using var client = MakeClient("DepartmentUser", _factory.Dept1UserId, departmentId: 1);
         var response = await client.GetAsync($"/api/follow-up-print/jobs/{_factory.Dept1JobId}");
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]
-    public async Task GetJob_Dept1User_CanAccessOwnDept1Job()
+    public async Task GetJob_Dept10User_ReturnsForbiddenForOwnDeptJob()
     {
-        using var client = MakeClient("DepartmentUser", _factory.Dept1UserId, departmentId: 1);
-        var response = await client.GetAsync($"/api/follow-up-print/jobs/{_factory.Dept1JobId}");
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-    }
-
-    // ─── Owner access ─────────────────────────────────────────────────────────
-
-    [Fact]
-    public async Task GetJob_Owner_CanAccessOwnJob_RegardlessOfDepartment()
-    {
-        // The owner of Dept10Job is Dept10UserId; they can view it even if dept changes.
         using var client = MakeClient("DepartmentUser", _factory.Dept10UserId, departmentId: 10);
         var response = await client.GetAsync($"/api/follow-up-print/jobs/{_factory.Dept10JobId}");
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
-    // ─── Unauthorized user leaks nothing ──────────────────────────────────────
-
     [Fact]
-    public async Task GetJob_UnauthorizedUser_Returns403WithoutRevealingJobExistence()
+    public async Task DataEntry_CanListJobs()
     {
-        // A DataEntry user with no department affiliation cannot see dept-scoped jobs.
         using var client = MakeClient("DataEntry", _factory.UnrelatedUserId);
-        var response = await client.GetAsync($"/api/follow-up-print/jobs/{_factory.Dept1JobId}");
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        var response = await client.GetAsync("/api/follow-up-print/jobs");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 }
 
