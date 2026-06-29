@@ -226,6 +226,31 @@ public class TransactionWorkflowAtomicityTests
     }
 
     [Fact]
+    public async Task ReplyAssignmentAsync_department_user_cannot_reply_even_for_own_department()
+    {
+        var (service, _, counter, cache) = await CreateServiceAsync(nameof(ReplyAssignmentAsync_department_user_cannot_reply_even_for_own_department));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        var assignment = await service.AddAssignmentAsync(created!.Id, new CreateAssignmentRequest
+        {
+            DepartmentId = 10,
+            AssignedDate = DateTime.UtcNow.Date,
+            RequiredAction = "متابعة",
+            ReplyDueDays = 5
+        }, userId: 1);
+        counter.Reset();
+        cache.ResetInvalidations();
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            service.ReplyAssignmentAsync(
+                created.Id,
+                assignment.Id,
+                new ReplyAssignmentRequest { ReplyDate = DateTime.UtcNow.Date, ReplySummary = "تم" },
+                new TestCurrentUser(2, UserRole.DepartmentUser, departmentId: 10)));
+
+        Assert.Equal(0, cache.TransactionChangeInvalidations);
+    }
+
+    [Fact]
     public async Task AddFollowUpAsync_validation_failure_does_not_write_success_audit()
     {
         var (service, db, counter, cache) = await CreateServiceAsync(nameof(AddFollowUpAsync_validation_failure_does_not_write_success_audit));
@@ -259,5 +284,95 @@ public class TransactionWorkflowAtomicityTests
 
         Assert.Equal(0, cache.TransactionChangeInvalidations);
         Assert.InRange(counter.Count, 0, 1);
+    }
+
+    [Fact]
+    public async Task CloseAsync_blocks_when_required_department_response_is_not_approved()
+    {
+        var (service, db, _, cache) = await CreateServiceAsync(nameof(CloseAsync_blocks_when_required_department_response_is_not_approved));
+        var created = await service.CreateAsync(BuildCreateRequest(10, 11), userId: 1);
+        var dept10Response = new DepartmentResponse
+        {
+            TransactionId = created!.Id,
+            DepartmentId = 10,
+            ResponseText = "إفادة معتمدة",
+            Status = DepartmentResponseStatus.Approved,
+            SubmittedByUserId = 1,
+            SubmittedAt = DateTime.UtcNow,
+            ReviewedByUserId = 1,
+            ReviewedAt = DateTime.UtcNow,
+        };
+        db.DepartmentResponses.Add(dept10Response);
+        await db.SaveChangesAsync();
+        cache.ResetInvalidations();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin));
+
+        Assert.Contains("إفادات ناقصة", ex.Message);
+        Assert.Contains("الموارد", ex.Message);
+        Assert.Equal(0, cache.TransactionChangeInvalidations);
+    }
+
+    [Fact]
+    public async Task CloseAsync_blocks_completed_assignment_without_approved_department_response()
+    {
+        var (service, db, _, cache) = await CreateServiceAsync(nameof(CloseAsync_blocks_completed_assignment_without_approved_department_response));
+        var created = await service.CreateAsync(BuildCreateRequest(11), userId: 1);
+        var assignment = await db.Assignments.SingleAsync(a => a.TransactionId == created!.Id && a.DepartmentId == 11);
+        assignment.RequiresReply = true;
+        assignment.ReplyStatus = ReplyStatus.Replied;
+        assignment.Status = AssignmentStatus.Completed;
+        await db.SaveChangesAsync();
+        cache.ResetInvalidations();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CloseAsync(created!.Id, userId: 1, role: UserRole.Admin));
+
+        Assert.Contains("إفادات ناقصة", ex.Message);
+        Assert.Contains("الموارد", ex.Message);
+        Assert.Equal(0, cache.TransactionChangeInvalidations);
+    }
+
+    [Fact]
+    public async Task CloseAsync_fails_when_approved_response_revoked_before_save()
+    {
+        // Simulates the race-condition scenario where a dept response was Approved when
+        // the close was initiated but was revoked by a concurrent write before the save.
+        // ValidateCanCloseAsync now runs inside CommitWorkflowMutationAsync (inside the DB
+        // transaction), so it reads the current state and correctly rejects the close.
+        var (service, db, _, cache) = await CreateServiceAsync(
+            nameof(CloseAsync_fails_when_approved_response_revoked_before_save));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+
+        var assignment = await db.Assignments.SingleAsync(a => a.TransactionId == created!.Id && a.DepartmentId == 10);
+        assignment.RequiresReply = true;
+        assignment.ReplyStatus = ReplyStatus.Replied;
+        assignment.Status = AssignmentStatus.Completed;
+
+        // Response exists but was revoked back to Submitted (concurrent write scenario)
+        db.DepartmentResponses.Add(new DepartmentResponse
+        {
+            TransactionId = created!.Id,
+            DepartmentId = 10,
+            ResponseText = "إفادة",
+            Status = DepartmentResponseStatus.SubmittedForReview,
+            SubmittedByUserId = 1,
+            SubmittedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+        cache.ResetInvalidations();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin));
+
+        Assert.Contains("إفادات ناقصة", ex.Message);
+        Assert.Contains("المالية", ex.Message);
+        Assert.Equal(0, cache.TransactionChangeInvalidations);
+        var finalStatus = await db.Transactions
+            .Where(t => t.Id == created.Id)
+            .Select(t => t.Status)
+            .FirstAsync();
+        Assert.NotEqual(TransactionStatus.Closed, finalStatus);
     }
 }

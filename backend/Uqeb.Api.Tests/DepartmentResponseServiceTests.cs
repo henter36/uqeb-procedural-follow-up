@@ -307,7 +307,7 @@ public class DepartmentResponseServiceTests
         var service = BuildService(db);
         var user = new FakeUser { UserId = userId, DepartmentId = null };
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user));
     }
 
@@ -461,6 +461,21 @@ public class DepartmentResponseServiceTests
 
         var pending = await service.GetPendingReviewAsync(dataEntry);
         Assert.Single(pending);
+    }
+
+    [Theory]
+    [InlineData(UserRole.Admin)]
+    [InlineData(UserRole.Supervisor)]
+    [InlineData(UserRole.DataEntry)]
+    public async Task GetPendingReview_ReviewerRoles_ReturnEmptyListWhenNoPending(UserRole role)
+    {
+        var (db, _, _, userId) = await SeedAsync($"{nameof(GetPendingReview_ReviewerRoles_ReturnEmptyListWhenNoPending)}_{role}");
+        var service = BuildService(db);
+        var reviewer = new FakeUser { UserId = userId, Role = role };
+
+        var pending = await service.GetPendingReviewAsync(reviewer);
+
+        Assert.Empty(pending);
     }
 
     // ─── Resubmission clears review state ─────────────────────────────────────
@@ -618,6 +633,20 @@ public class DepartmentResponseServiceTests
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.CreateAsync(new CreateDepartmentResponseRequest(tx2.Id, "نص"), user));
+    }
+
+    [Fact]
+    public async Task Create_DepartmentUserCannotCreateForDifferentDepartmentId()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(Create_DepartmentUserCannotCreateForDifferentDepartmentId));
+        var service = BuildService(db);
+        var user = new FakeUser { UserId = userId, DepartmentId = deptId };
+        var otherDept = new Department { Name = "إدارة أخرى", NameNormalized = "إدارة أخرى", Code = "OTHER" };
+        db.Departments.Add(otherDept);
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", otherDept.Id), user));
     }
 
     [Fact]

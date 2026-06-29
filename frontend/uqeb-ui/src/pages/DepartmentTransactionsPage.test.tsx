@@ -64,9 +64,9 @@ const detailDraft: DepartmentResponseDto = {
 
 const mockApi = vi.mocked(services.departmentResponsesApi);
 
-function renderPage() {
+function renderPage(initialEntry = '/department-responses') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <DepartmentTransactionsPage />
     </MemoryRouter>
   );
@@ -122,6 +122,16 @@ describe('DepartmentTransactionsPage', () => {
       expect(screen.getByText(/موضوع الاختبار/)).toBeTruthy();
       // no manual transaction ID field
       expect(screen.queryByPlaceholderText(/أدخل رقم المعاملة/)).toBeNull();
+    });
+  });
+
+  it('opens create form directly from transactionId query parameter', async () => {
+    mockApi.getDepartmentTransactions.mockResolvedValueOnce({ data: [txNoResponse] } as never);
+    renderPage('/department-responses?transactionId=10');
+
+    await waitFor(() => {
+      expect(screen.getByText('إنشاء رد — TX-001')).toBeTruthy();
+      expect(screen.getByText(/موضوع الاختبار/)).toBeTruthy();
     });
   });
 

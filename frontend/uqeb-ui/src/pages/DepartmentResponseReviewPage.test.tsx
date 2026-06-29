@@ -49,6 +49,18 @@ const pendingDetail: DepartmentResponseDto = {
 
 const mockApi = vi.mocked(services.departmentResponsesApi);
 
+function apiError(status: number, message = '') {
+  return {
+    isAxiosError: true,
+    message: 'Request failed',
+    response: {
+      status,
+      data: message ? { message } : {},
+      headers: {},
+    },
+  };
+}
+
 function renderPage() {
   return render(
     <MemoryRouter>
@@ -81,6 +93,28 @@ describe('DepartmentResponseReviewPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/لا توجد إفادات بانتظار المراجعة/)).toBeTruthy();
     });
+  });
+
+  it('shows a clear permission message for 403 without retry polling', async () => {
+    mockApi.getPendingReview.mockRejectedValueOnce(apiError(403, 'ممنوع') as never);
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText('لا تملك صلاحية مراجعة إفادات الإدارات.')).toBeTruthy();
+    });
+    expect(mockApi.getPendingReview).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a clear route message for 404 without retry polling', async () => {
+    mockApi.getPendingReview.mockRejectedValueOnce(apiError(404) as never);
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText('مسار مراجعة الإفادات غير متاح. تحقق من إعدادات الخادم.')).toBeTruthy();
+    });
+    expect(mockApi.getPendingReview).toHaveBeenCalledTimes(1);
   });
 
   it('opens review detail on row click', async () => {
@@ -123,6 +157,25 @@ describe('DepartmentResponseReviewPage', () => {
     await waitFor(() => {
       expect(screen.queryByText('قبول')).toBeNull();
       expect(screen.getAllByText('معتمد').length).toBeGreaterThan(0);
+    });
+  });
+
+  it('sends reject request with review note', async () => {
+    mockApi.getById.mockResolvedValue({ data: pendingDetail } as never);
+    mockApi.reject.mockResolvedValue({
+      data: { ...pendingDetail, status: 'Rejected', reviewedByName: 'المراجع', reviewNote: 'غير مكتمل' },
+    } as never);
+    renderPage();
+    await waitFor(() => screen.getByText('TX-020'));
+    fireEvent.click(screen.getByText('مراجعة'));
+    await waitFor(() => screen.getByText('رفض'));
+    fireEvent.change(screen.getByLabelText('ملاحظة المراجع (مطلوبة عند الإعادة أو الرفض)'), {
+      target: { value: 'غير مكتمل' },
+    });
+    fireEvent.click(screen.getByText('رفض'));
+
+    await waitFor(() => {
+      expect(mockApi.reject).toHaveBeenCalledWith(5, 'غير مكتمل');
     });
   });
 

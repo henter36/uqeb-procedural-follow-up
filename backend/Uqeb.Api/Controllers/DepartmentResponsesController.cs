@@ -37,15 +37,15 @@ public class DepartmentResponsesController : ControllerBase
 
     [HttpGet("pending-review")]
     [Authorize(Policy = Policies.ReviewDepartmentResponse)]
-    public async Task<IActionResult> GetPendingReview()
+    public async Task<IActionResult> GetPendingReview(CancellationToken cancellationToken)
     {
         try
         {
-            return Ok(await _service.GetPendingReviewAsync(_currentUser));
+            return Ok(await _service.GetPendingReviewAsync(_currentUser, cancellationToken));
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
-            return Forbid();
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
         }
     }
 
@@ -69,6 +69,10 @@ public class DepartmentResponsesController : ControllerBase
         {
             return BadRequest(new { message = ex.Message });
         }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
     }
 
     [HttpPut("{id:int}")]
@@ -82,6 +86,10 @@ public class DepartmentResponsesController : ControllerBase
         catch (InvalidOperationException ex)
         {
             return BadRequest(new { message = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
         }
     }
 
@@ -97,6 +105,10 @@ public class DepartmentResponsesController : ControllerBase
         {
             return BadRequest(new { message = ex.Message });
         }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
     }
 
     [HttpPost("{id:int}/approve")]
@@ -107,9 +119,9 @@ public class DepartmentResponsesController : ControllerBase
         {
             return Ok(await _service.ApproveAsync(id, _currentUser));
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
-            return Forbid();
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
         }
         catch (InvalidOperationException ex)
         {
@@ -125,9 +137,9 @@ public class DepartmentResponsesController : ControllerBase
         {
             return Ok(await _service.ReturnForCorrectionAsync(id, request, _currentUser));
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
-            return Forbid();
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
         }
         catch (InvalidOperationException ex)
         {
@@ -143,9 +155,9 @@ public class DepartmentResponsesController : ControllerBase
         {
             return Ok(await _service.RejectAsync(id, request, _currentUser));
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
-            return Forbid();
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
         }
         catch (InvalidOperationException ex)
         {
@@ -172,6 +184,10 @@ public class DepartmentResponsesController : ControllerBase
         {
             return BadRequest(new { message = ex.Message });
         }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
     }
 
     [HttpDelete("{id:int}/attachments/{attachmentId:int}")]
@@ -186,6 +202,10 @@ public class DepartmentResponsesController : ControllerBase
         catch (InvalidOperationException ex)
         {
             return BadRequest(new { message = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
         }
     }
 

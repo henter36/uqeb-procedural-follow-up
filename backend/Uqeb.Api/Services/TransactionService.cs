@@ -126,18 +126,35 @@ public class TransactionService : ITransactionService
         return PagedResult<TransactionListDto>.Create(offsetItems, total, request.Page, pageSize);
     }
 
-    private static IQueryable<Transaction> ApplySearchFilters(
+    private IQueryable<Transaction> ApplySearchFilters(
         IQueryable<Transaction> query,
         TransactionSearchRequest request,
         ICurrentUserService currentUser,
         DateTime now)
     {
-        if (currentUser.Role == UserRole.DepartmentUser && currentUser.DepartmentId.HasValue)
-        {
-            var deptId = currentUser.DepartmentId.Value;
-            query = query.Where(t => t.Assignments.Any(a => a.DepartmentId == deptId));
-        }
+        query = ApplyDepartmentUserScope(query, currentUser);
+        query = ApplyTextAndReferenceFilters(query, request);
+        query = ApplyDateRangeFilters(query, request);
+        query = ApplyStatusAndAssignmentFilters(query, request, now);
+        return query;
+    }
 
+    private IQueryable<Transaction> ApplyDepartmentUserScope(
+        IQueryable<Transaction> query, ICurrentUserService currentUser)
+    {
+        if (currentUser.Role != UserRole.DepartmentUser)
+            return query;
+        var deptId = RequireDepartmentUserDepartmentId(currentUser);
+        return query.Where(t =>
+            t.Assignments.Any(a => a.DepartmentId == deptId &&
+                a.RequiresReply &&
+                a.Status != AssignmentStatus.Cancelled) ||
+            _db.DepartmentResponses.Any(r => r.TransactionId == t.Id && r.DepartmentId == deptId));
+    }
+
+    private static IQueryable<Transaction> ApplyTextAndReferenceFilters(
+        IQueryable<Transaction> query, TransactionSearchRequest request)
+    {
         if (!string.IsNullOrWhiteSpace(request.IncomingNumber))
             query = query.Where(t => t.IncomingNumber.Contains(request.IncomingNumber));
         if (!string.IsNullOrWhiteSpace(request.OutgoingNumber))
@@ -161,6 +178,12 @@ public class TransactionService : ITransactionService
             query = query.Where(t => t.OutgoingParties.Any(o => o.ExternalPartyId == request.OutgoingPartyId));
         if (request.OutgoingDepartmentId.HasValue)
             query = query.Where(t => t.OutgoingDepartments.Any(o => o.DepartmentId == request.OutgoingDepartmentId));
+        return query;
+    }
+
+    private static IQueryable<Transaction> ApplyDateRangeFilters(
+        IQueryable<Transaction> query, TransactionSearchRequest request)
+    {
         if (request.DateFrom.HasValue)
             query = query.Where(t => t.IncomingDate >= request.DateFrom);
         if (request.DateTo.HasValue)
@@ -169,6 +192,12 @@ public class TransactionService : ITransactionService
             query = query.Where(t => t.ResponseDueDate >= request.ResponseDueDateFrom);
         if (request.ResponseDueDateTo.HasValue)
             query = query.Where(t => t.ResponseDueDate <= request.ResponseDueDateTo);
+        return query;
+    }
+
+    private static IQueryable<Transaction> ApplyStatusAndAssignmentFilters(
+        IQueryable<Transaction> query, TransactionSearchRequest request, DateTime now)
+    {
         if (request.RequiresResponse == true)
             query = query.Where(t => t.RequiresResponse);
         if (request.ResponseCompleted == true)
@@ -178,14 +207,14 @@ public class TransactionService : ITransactionService
         if (request.ResponseOverdue == true)
             query = query.Where(t => t.RequiresResponse && !t.ResponseCompleted && t.ResponseDueDate < now);
         if (request.HasPendingAssignments == true)
-            query = query.Where(t => t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied && a.Status == AssignmentStatus.Active));
+            query = query.Where(t => t.Assignments.Any(a =>
+                a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied && a.Status == AssignmentStatus.Active));
         if (request.HasPartialReplies == true)
             query = query.Where(t => t.Status == TransactionStatus.PartiallyReplied);
         if (request.OverdueOnly == true)
             query = query.Where(t =>
                 (t.RequiresResponse && !t.ResponseCompleted && t.ResponseDueDate < now) ||
                 t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied && a.DueDate < now));
-
         return query;
     }
 
@@ -379,9 +408,16 @@ public class TransactionService : ITransactionService
     {
         if (!await CanAccessTransactionAsync(transactionId, currentUser)) return null;
 
+        var departmentId = currentUser.Role == UserRole.DepartmentUser
+            ? RequireDepartmentUserDepartmentId(currentUser)
+            : (int?)null;
         var now = DateTime.UtcNow;
-        return await _db.Assignments.AsNoTracking()
-            .Where(a => a.TransactionId == transactionId)
+        var query = _db.Assignments.AsNoTracking()
+            .Where(a => a.TransactionId == transactionId);
+        if (departmentId.HasValue)
+            query = query.Where(a => a.DepartmentId == departmentId.Value && a.Status != AssignmentStatus.Cancelled);
+
+        return await query
             .OrderByDescending(a => a.AssignedDate)
             .Select(a => new AssignmentDto
             {
@@ -409,8 +445,15 @@ public class TransactionService : ITransactionService
     {
         if (!await CanAccessTransactionAsync(transactionId, currentUser)) return null;
 
-        return await _db.FollowUps.AsNoTracking()
-            .Where(f => f.TransactionId == transactionId)
+        var departmentId = currentUser.Role == UserRole.DepartmentUser
+            ? RequireDepartmentUserDepartmentId(currentUser)
+            : (int?)null;
+        var query = _db.FollowUps.AsNoTracking()
+            .Where(f => f.TransactionId == transactionId);
+        if (departmentId.HasValue)
+            query = query.Where(f => f.Departments.Any(d => d.DepartmentId == departmentId.Value));
+
+        return await query
             .OrderByDescending(f => f.CreatedAt)
             .Select(f => new FollowUpDto
             {
@@ -643,13 +686,13 @@ public class TransactionService : ITransactionService
         if (request.ResponseDueDays.HasValue) t.ResponseDueDays = request.ResponseDueDays;
         if (request.ResponseCompleted.HasValue || request.ResponseCompletedDate.HasValue)
             throw new InvalidOperationException("يجب تسجيل الإفادة عبر إجراء «تسجيل الإفادة» وليس من شاشة التعديل");
+        bool isClosing = false;
         if (!string.IsNullOrEmpty(request.Status))
         {
             var newStatus = EnumHelper.ParseTransactionStatus(request.Status);
             if (newStatus == TransactionStatus.Closed && role != UserRole.Admin && role != UserRole.Supervisor)
                 throw new UnauthorizedAccessException("لا تملك صلاحية إغلاق المعاملة");
-            if (newStatus == TransactionStatus.Closed)
-                await ValidateCanCloseAsync(t, userId);
+            isClosing = newStatus == TransactionStatus.Closed;
             t.Status = newStatus;
         }
         if (!string.IsNullOrEmpty(request.Priority))
@@ -673,6 +716,9 @@ public class TransactionService : ITransactionService
         await using var dbTransaction = await _db.Database.BeginTransactionAsync();
         try
         {
+            if (isClosing)
+                await ValidateCanCloseAsync(t, userId);
+
             if (request.OutgoingDepartmentIds != null)
                 await SyncOutgoingDepartmentsAsync(t, request.OutgoingDepartmentIds, userId);
 
@@ -745,24 +791,22 @@ public class TransactionService : ITransactionService
 
         try
         {
-            await ValidateCanCloseAsync(t, userId);
+            await CommitWorkflowMutationAsync(async () =>
+            {
+                await ValidateCanCloseAsync(t, userId);
+                t.Status = TransactionStatus.Closed;
+                t.ClosedAt = DateTime.UtcNow;
+                t.UpdatedById = userId;
+                t.UpdatedAt = DateTime.UtcNow;
+                _audit.TrackLog(userId, AuditAction.Close, TransactionEntityName, id, id, null,
+                    JsonSerializer.Serialize(new { ClosedAt = t.ClosedAt }));
+            });
         }
         catch (InvalidOperationException ex)
         {
             await _audit.LogAsync(userId, AuditAction.CloseAttemptFailed, TransactionEntityName, id, id, null, ex.Message);
             throw;
         }
-
-        await CommitWorkflowMutationAsync(() =>
-        {
-            t.Status = TransactionStatus.Closed;
-            t.ClosedAt = DateTime.UtcNow;
-            t.UpdatedById = userId;
-            t.UpdatedAt = DateTime.UtcNow;
-            _audit.TrackLog(userId, AuditAction.Close, TransactionEntityName, id, id, null,
-                JsonSerializer.Serialize(new { ClosedAt = t.ClosedAt }));
-            return Task.CompletedTask;
-        });
         return true;
     }
 
@@ -1034,8 +1078,8 @@ public class TransactionService : ITransactionService
             .FirstOrDefaultAsync(a => a.Id == assignmentId && a.TransactionId == transactionId);
         if (assignment == null) return null;
 
-        if (currentUser.Role == UserRole.DepartmentUser && currentUser.DepartmentId != assignment.DepartmentId)
-            throw new UnauthorizedAccessException("لا يمكنك الرد على تحويل ليس لإدارتك");
+        if (currentUser.Role == UserRole.DepartmentUser)
+            throw new UnauthorizedAccessException("لا تملك صلاحية تسجيل رد على التحويل. استخدم مسار إفادات الإدارة.");
 
         await CommitWorkflowMutationAsync(
             () =>
@@ -1097,6 +1141,14 @@ public class TransactionService : ITransactionService
 
     private async Task ValidateCanCloseAsync(Transaction t, int userId)
     {
+        if (t.RequiresResponse)
+        {
+            var incompleteDepartmentNames = await GetIncompleteDepartmentResponseNamesAsync(t.Id);
+            if (incompleteDepartmentNames.Count > 0)
+                throw new InvalidOperationException(
+                    $"لا يمكن إغلاق المعاملة لوجود إفادات ناقصة أو غير معتمدة: {string.Join("، ", incompleteDepartmentNames)}");
+        }
+
         var pending = await _db.Assignments
             .Include(a => a.Department)
             .Where(a => a.TransactionId == t.Id
@@ -1113,6 +1165,36 @@ public class TransactionService : ITransactionService
 
         if (t.RequiresResponse && (!t.ResponseCompleted || !t.ResponseCompletedDate.HasValue))
             throw new InvalidOperationException("لا يمكن إغلاق المعاملة قبل تسجيل الإفادة.");
+    }
+
+    private async Task<List<string>> GetIncompleteDepartmentResponseNamesAsync(int transactionId)
+    {
+        var requiredDepartments = await _db.Assignments
+            .AsNoTracking()
+            .Where(a => a.TransactionId == transactionId &&
+                a.RequiresReply &&
+                a.Status != AssignmentStatus.Cancelled)
+            .Select(a => new { a.DepartmentId, a.Department.Name })
+            .Distinct()
+            .ToListAsync();
+
+        if (requiredDepartments.Count == 0)
+            return [];
+
+        var approvedDepartmentIds = await _db.DepartmentResponses
+            .AsNoTracking()
+            .Where(r => r.TransactionId == transactionId &&
+                r.Status == DepartmentResponseStatus.Approved)
+            .Select(r => r.DepartmentId)
+            .Distinct()
+            .ToListAsync();
+
+        var approved = approvedDepartmentIds.ToHashSet();
+        return requiredDepartments
+            .Where(d => !approved.Contains(d.DepartmentId))
+            .Select(d => d.Name)
+            .OrderBy(name => name)
+            .ToList();
     }
 
     private static void ApplyTransactionReplyStatus(Transaction t) =>
@@ -1529,19 +1611,34 @@ public class TransactionService : ITransactionService
 
     private async Task<bool> CanAccessTransactionAsync(int transactionId, ICurrentUserService user)
     {
-        if (user.Role != UserRole.DepartmentUser || !user.DepartmentId.HasValue)
+        if (user.Role != UserRole.DepartmentUser)
             return await _db.Transactions.AsNoTracking().AnyAsync(t => t.Id == transactionId);
 
-        return await _db.Assignments.AsNoTracking()
-            .AnyAsync(a => a.TransactionId == transactionId && a.DepartmentId == user.DepartmentId.Value);
+        var deptId = RequireDepartmentUserDepartmentId(user);
+
+        return await _db.Transactions.AsNoTracking()
+            .AnyAsync(t => t.Id == transactionId &&
+                (t.Assignments.Any(a => a.DepartmentId == deptId &&
+                    a.RequiresReply &&
+                    a.Status != AssignmentStatus.Cancelled) ||
+                    _db.DepartmentResponses.Any(r => r.TransactionId == t.Id && r.DepartmentId == deptId)));
     }
 
     private static bool CanAccess(Transaction t, ICurrentUserService user)
     {
-        if (user.Role == UserRole.DepartmentUser && user.DepartmentId.HasValue)
-            return t.Assignments.Any(a => a.DepartmentId == user.DepartmentId);
+        if (user.Role == UserRole.DepartmentUser)
+        {
+            var deptId = RequireDepartmentUserDepartmentId(user);
+            return t.Assignments.Any(a => a.DepartmentId == deptId &&
+                a.RequiresReply &&
+                a.Status != AssignmentStatus.Cancelled);
+        }
         return true;
     }
+
+    private static int RequireDepartmentUserDepartmentId(ICurrentUserService user) =>
+        user.DepartmentId
+            ?? throw new UnauthorizedAccessException("المستخدم غير مرتبط بإدارة.");
 
     private sealed record AssignmentSummaryRow(
         string DepartmentName,

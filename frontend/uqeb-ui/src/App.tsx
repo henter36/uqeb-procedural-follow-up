@@ -40,7 +40,14 @@ export default function App() {
             </ProtectedRoute>
           )}>
             <Route index element={<Dashboard />} />
-            <Route path="transactions" element={<TransactionsList />} />
+            <Route
+              path="transactions"
+              element={(
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']}>
+                  <TransactionsList />
+                </ProtectedRoute>
+              )}
+            />
             <Route
               path="transactions/import"
               element={(
@@ -49,10 +56,31 @@ export default function App() {
                 </ProtectedRoute>
               )}
             />
-            <Route path="transactions/new" element={<TransactionForm mode="create" />} />
+            <Route
+              path="transactions/new"
+              element={(
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']}>
+                  <TransactionForm mode="create" />
+                </ProtectedRoute>
+              )}
+            />
             <Route path="transactions/:id" element={<TransactionDetail />} />
-            <Route path="transactions/:id/edit" element={<TransactionForm mode="edit" />} />
-            <Route path="reports" element={<Reports />} />
+            <Route
+              path="transactions/:id/edit"
+              element={(
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']}>
+                  <TransactionForm mode="edit" />
+                </ProtectedRoute>
+              )}
+            />
+            <Route
+              path="reports"
+              element={(
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']}>
+                  <Reports />
+                </ProtectedRoute>
+              )}
+            />
             {institutionalReportsEnabled() && (
               <Route
                 path="report-builder"
@@ -74,7 +102,7 @@ export default function App() {
             <Route
               path="follow-up-print/eligible"
               element={(
-                <ProtectedRoute requiredRoles={['Admin', 'Supervisor']}>
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']}>
                   <FollowUpPrintEligiblePage />
                 </ProtectedRoute>
               )}
@@ -82,7 +110,7 @@ export default function App() {
             <Route
               path="follow-up-print/jobs"
               element={(
-                <ProtectedRoute requiredRoles={['Admin', 'Supervisor']}>
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']}>
                   <FollowUpPrintJobsPage />
                 </ProtectedRoute>
               )}
@@ -90,7 +118,7 @@ export default function App() {
             <Route
               path="follow-up-print/jobs/:id"
               element={(
-                <ProtectedRoute requiredRoles={['Admin', 'Supervisor']}>
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']}>
                   <FollowUpPrintJobDetailPage />
                 </ProtectedRoute>
               )}
@@ -106,7 +134,7 @@ export default function App() {
             <Route
               path="follow-up-print/parts/:jobId/:partNumber/print"
               element={(
-                <ProtectedRoute requiredRoles={['Admin', 'Supervisor']}>
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']}>
                   <FollowUpPrintPartPage />
                 </ProtectedRoute>
               )}

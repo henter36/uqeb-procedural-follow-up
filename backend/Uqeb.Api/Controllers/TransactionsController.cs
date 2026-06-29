@@ -44,6 +44,10 @@ public class TransactionsController : ControllerBase
         {
             return Ok(await _transactions.SearchAsync(request, _currentUser));
         }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
         catch (InvalidTransactionSearchCursorException ex)
         {
             return BadRequest(new { message = ex.Message });
@@ -53,26 +57,47 @@ public class TransactionsController : ControllerBase
     [HttpGet("{id}/basic")]
     public async Task<IActionResult> GetBasic(int id)
     {
-        var result = await _transactions.GetBasicByIdAsync(id, _currentUser);
-        return result == null ? NotFound() : Ok(result);
+        try
+        {
+            var result = await _transactions.GetBasicByIdAsync(id, _currentUser);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
     }
 
     [HttpGet("{id}/workspace")]
     public async Task<IActionResult> GetWorkspace(int id)
     {
-        var result = await _transactions.GetWorkspaceAsync(id, _currentUser);
-        return result == null ? NotFound() : Ok(result);
+        try
+        {
+            var result = await _transactions.GetWorkspaceAsync(id, _currentUser);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
     }
 
     [HttpGet("{id}")]
     public async Task<IActionResult> GetById(int id)
     {
-        var result = await _transactions.GetByIdAsync(id, _currentUser);
-        return result == null ? NotFound() : Ok(result);
+        try
+        {
+            var result = await _transactions.GetByIdAsync(id, _currentUser);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
     }
 
     [HttpPost]
-    [Authorize(Policy = "CanEditTransactions")]
+    [Authorize(Policy = Policies.CanEditTransactions)]
     public async Task<IActionResult> Create([FromBody] CreateTransactionRequest request)
     {
         try
@@ -99,7 +124,7 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    [Authorize(Policy = "CanEditTransactions")]
+    [Authorize(Policy = Policies.CanEditTransactions)]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateTransactionRequest request)
     {
         try
@@ -190,19 +215,33 @@ public class TransactionsController : ControllerBase
     [HttpGet("{id}/followups")]
     public async Task<IActionResult> GetFollowUps(int id)
     {
-        var result = await _transactions.GetFollowUpsAsync(id, _currentUser);
-        return result == null ? NotFound() : Ok(result);
+        try
+        {
+            var result = await _transactions.GetFollowUpsAsync(id, _currentUser);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
     }
 
     [HttpGet("{id}/followup-departments")]
     public async Task<IActionResult> GetFollowUpDepartments(int id)
     {
-        var result = await _transactions.GetFollowUpDepartmentsAsync(id, _currentUser);
-        return result == null ? NotFound() : Ok(result);
+        try
+        {
+            var result = await _transactions.GetFollowUpDepartmentsAsync(id, _currentUser);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
     }
 
     [HttpPost("{id}/followups")]
-    [Authorize(Policy = "CanEditTransactions")]
+    [Authorize(Policy = Policies.CanEditTransactions)]
     public async Task<IActionResult> AddFollowUp(int id, [FromBody] CreateFollowUpRequest request)
     {
         try
@@ -217,6 +256,7 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id}/followups/{followUpId}/reply")]
+    [Authorize(Policy = Policies.CanEditTransactions)]
     public async Task<IActionResult> ReplyFollowUp(int id, int followUpId, [FromBody] ReplyFollowUpRequest request)
     {
         var result = await _transactions.ReplyFollowUpAsync(id, followUpId, request, _currentUser.UserId);
@@ -226,12 +266,19 @@ public class TransactionsController : ControllerBase
     [HttpGet("{id}/assignments")]
     public async Task<IActionResult> GetAssignments(int id)
     {
-        var result = await _transactions.GetAssignmentsAsync(id, _currentUser);
-        return result == null ? NotFound() : Ok(result);
+        try
+        {
+            var result = await _transactions.GetAssignmentsAsync(id, _currentUser);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
     }
 
     [HttpPost("{id}/assignments")]
-    [Authorize(Policy = "CanEditTransactions")]
+    [Authorize(Policy = Policies.CanEditTransactions)]
     public async Task<IActionResult> AddAssignment(int id, [FromBody] CreateAssignmentRequest request)
     {
         try
@@ -246,6 +293,7 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id}/assignments/{assignmentId}/reply")]
+    [Authorize(Policy = Policies.CanEditTransactions)]
     public async Task<IActionResult> ReplyAssignment(int id, int assignmentId, [FromBody] ReplyAssignmentRequest request)
     {
         try
@@ -266,7 +314,7 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id}/attachments")]
-    [Authorize(Policy = "CanEditTransactions")]
+    [Authorize(Policy = Policies.CanEditTransactions)]
     [RequestSizeLimit(50_000_000)]
     public async Task<IActionResult> UploadAttachment(int id, IFormFile file, [FromForm] string? attachmentType)
     {
@@ -294,11 +342,18 @@ public class TransactionsController : ControllerBase
     [HttpGet("{id}/audit-log")]
     public async Task<IActionResult> GetAuditLog(int id, [FromQuery] int page = 1, [FromQuery] int pageSize = 50)
     {
-        return Ok(await _transactions.GetAuditLogAsync(id, page, pageSize, _currentUser));
+        try
+        {
+            return Ok(await _transactions.GetAuditLogAsync(id, page, pageSize, _currentUser));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
     }
 
     [HttpPost("{id}/follow-up-letter/preview")]
-    [Authorize(Policy = "CanEditTransactions")]
+    [Authorize(Policy = Policies.CanEditTransactions)]
     public async Task<IActionResult> PreviewFollowUpLetter(int id, [FromBody] FollowUpLetterRequest? request)
     {
         var result = await _letterTemplates.RenderFollowUpLetterAsync(
@@ -310,7 +365,7 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id}/follow-up-letter/pdf")]
-    [Authorize(Policy = "CanEditTransactions")]
+    [Authorize(Policy = Policies.CanEditTransactions)]
     public async Task<IActionResult> DownloadFollowUpLetterPdf(int id, [FromBody] FollowUpLetterRequest? request)
     {
         var bytes = await _letterTemplates.GenerateFollowUpLetterPdfAsync(

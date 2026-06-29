@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.DepartmentResponses;
+using Uqeb.Api.Helpers;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
 
@@ -11,7 +12,7 @@ public interface IDepartmentResponseService
 {
     Task<List<DepartmentTransactionResponseItemDto>> GetDepartmentTransactionsAsync(ICurrentUserService currentUser);
     Task<List<DepartmentResponseSummaryDto>> GetMyDepartmentResponsesAsync(ICurrentUserService currentUser);
-    Task<List<DepartmentResponseSummaryDto>> GetPendingReviewAsync(ICurrentUserService currentUser);
+    Task<List<DepartmentResponseSummaryDto>> GetPendingReviewAsync(ICurrentUserService currentUser, CancellationToken cancellationToken = default);
     Task<DepartmentResponseDto?> GetByIdAsync(int id, ICurrentUserService currentUser);
     Task<DepartmentResponseDto> CreateAsync(CreateDepartmentResponseRequest request, ICurrentUserService currentUser);
     Task<DepartmentResponseDto> UpdateAsync(int id, UpdateDepartmentResponseRequest request, ICurrentUserService currentUser);
@@ -44,8 +45,7 @@ public class DepartmentResponseService : IDepartmentResponseService
     {
         _db = db;
         _audit = audit;
-        var basePath = config["FileStorage:Path"] ?? Path.Combine(Directory.GetCurrentDirectory(), "Attachments");
-        _storagePath = Path.Combine(basePath, "DepartmentResponses");
+        _storagePath = FileStoragePathResolver.Resolve(config["FileStorage:Path"], "DepartmentResponses");
         Directory.CreateDirectory(_storagePath);
     }
 
@@ -60,8 +60,13 @@ public class DepartmentResponseService : IDepartmentResponseService
                 ?? throw new InvalidOperationException("يجب تحديد الإدارة عند إنشاء إفادة نيابة عن إدارة أخرى.");
         }
 
-        return currentUser.DepartmentId
-            ?? throw new InvalidOperationException("المستخدم غير مرتبط بإدارة.");
+        var departmentId = currentUser.DepartmentId
+            ?? throw new UnauthorizedAccessException("المستخدم غير مرتبط بإدارة.");
+
+        if (request.DepartmentId.HasValue && request.DepartmentId.Value != departmentId)
+            throw new UnauthorizedAccessException("لا تملك صلاحية تسجيل إفادة لإدارة أخرى.");
+
+        return departmentId;
     }
 
     private static void RequireReviewer(ICurrentUserService currentUser)
@@ -185,7 +190,9 @@ public class DepartmentResponseService : IDepartmentResponseService
             .ToListAsync();
     }
 
-    public async Task<List<DepartmentResponseSummaryDto>> GetPendingReviewAsync(ICurrentUserService currentUser)
+    public async Task<List<DepartmentResponseSummaryDto>> GetPendingReviewAsync(
+        ICurrentUserService currentUser,
+        CancellationToken cancellationToken = default)
     {
         RequireReviewer(currentUser);
         return await _db.DepartmentResponses
@@ -204,7 +211,7 @@ public class DepartmentResponseService : IDepartmentResponseService
                 r.Status.ToString(),
                 r.SubmittedAt,
                 r.CreatedAt))
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
     public async Task<DepartmentResponseDto?> GetByIdAsync(int id, ICurrentUserService currentUser)
@@ -559,7 +566,7 @@ public class DepartmentResponseService : IDepartmentResponseService
         if (currentUser.Role is UserRole.Admin or UserRole.Supervisor or UserRole.DataEntry)
             return;
         if (currentUser.DepartmentId != response.DepartmentId)
-            throw new InvalidOperationException("لا تملك صلاحية تعديل رد إدارة أخرى.");
+            throw new UnauthorizedAccessException("لا تملك صلاحية تعديل رد إدارة أخرى.");
     }
 
     private static void RequireEditableStatus(DepartmentResponse response)

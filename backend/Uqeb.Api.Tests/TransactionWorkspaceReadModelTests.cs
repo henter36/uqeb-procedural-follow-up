@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Uqeb.Api.Data;
+using Uqeb.Api.DTOs.Transactions;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Services;
@@ -131,6 +132,103 @@ public class TransactionWorkspaceReadModelTests
     }
 
     [Fact]
+    public async Task SearchAsync_DepartmentUser_ReturnsOnlyOwnDepartmentTransactions()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(SearchAsync_DepartmentUser_ReturnsOnlyOwnDepartmentTransactions));
+        var own = await SeedTransactionAsync(db, 101);
+        var other = await SeedTransactionAsync(db, 102);
+        var cancelled = await SeedTransactionAsync(db, 103);
+        cancelled.Status = TransactionStatus.Cancelled;
+        db.Assignments.AddRange(
+            new Assignment
+            {
+                TransactionId = own.Id,
+                DepartmentId = 10,
+                AssignedDate = DateTime.UtcNow,
+                RequiresReply = true,
+                ReplyStatus = ReplyStatus.Pending,
+                Status = AssignmentStatus.Active,
+                CreatedById = 1
+            },
+            new Assignment
+            {
+                TransactionId = other.Id,
+                DepartmentId = 20,
+                AssignedDate = DateTime.UtcNow,
+                RequiresReply = true,
+                ReplyStatus = ReplyStatus.Pending,
+                Status = AssignmentStatus.Active,
+                CreatedById = 1
+            },
+            new Assignment
+            {
+                TransactionId = cancelled.Id,
+                DepartmentId = 10,
+                AssignedDate = DateTime.UtcNow,
+                RequiresReply = true,
+                ReplyStatus = ReplyStatus.Pending,
+                Status = AssignmentStatus.Cancelled,
+                CreatedById = 1
+            });
+        await db.SaveChangesAsync();
+
+        var result = await service.SearchAsync(
+            new TransactionSearchRequest { Page = 1, PageSize = 20 },
+            new TestCurrentUser(UserRole.DepartmentUser, userId: 2, departmentId: 10));
+
+        Assert.Contains(result.Items, tx => tx.Id == own.Id);
+        Assert.DoesNotContain(result.Items, tx => tx.Id == other.Id);
+        Assert.DoesNotContain(result.Items, tx => tx.Id == cancelled.Id);
+    }
+
+    [Fact]
+    public async Task SearchAsync_DepartmentUserWithoutDepartment_ThrowsUnauthorized()
+    {
+        var (service, _) = await CreateServiceAsync(nameof(SearchAsync_DepartmentUserWithoutDepartment_ThrowsUnauthorized));
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            service.SearchAsync(
+                new TransactionSearchRequest { Page = 1, PageSize = 20 },
+                new TestCurrentUser(UserRole.DepartmentUser, userId: 2)));
+    }
+
+    [Fact]
+    public async Task GetBasicByIdAsync_DepartmentUserCannotOpenOtherDepartmentTransaction()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(GetBasicByIdAsync_DepartmentUserCannotOpenOtherDepartmentTransaction));
+        var other = await SeedTransactionAsync(db, 104);
+        db.Assignments.Add(new Assignment
+        {
+            TransactionId = other.Id,
+            DepartmentId = 20,
+            AssignedDate = DateTime.UtcNow,
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Pending,
+            Status = AssignmentStatus.Active,
+            CreatedById = 1
+        });
+        await db.SaveChangesAsync();
+
+        var result = await service.GetBasicByIdAsync(
+            other.Id,
+            new TestCurrentUser(UserRole.DepartmentUser, userId: 2, departmentId: 10));
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetBasicByIdAsync_DepartmentUserWithoutDepartment_ThrowsUnauthorized()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(GetBasicByIdAsync_DepartmentUserWithoutDepartment_ThrowsUnauthorized));
+        var transaction = await SeedTransactionAsync(db, 105);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            service.GetBasicByIdAsync(
+                transaction.Id,
+                new TestCurrentUser(UserRole.DepartmentUser, userId: 2)));
+    }
+
+    [Fact]
     public async Task GetWorkspaceAsync_returns_consolidated_payload_for_admin()
     {
         var (service, db) = await CreateServiceAsync(nameof(GetWorkspaceAsync_returns_consolidated_payload_for_admin));
@@ -205,7 +303,7 @@ public class TransactionWorkspaceReadModelTests
         Assert.NotNull(result);
         Assert.Single(result!.Assignments);
         Assert.False(result.AllowedActions.ShowMutationActions);
-        Assert.True(result.AllowedActions.CanReply);
+        Assert.False(result.AllowedActions.CanReply);
     }
 
     [Fact]
