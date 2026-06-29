@@ -716,3 +716,13 @@ export interface DepartmentTransactionResponseItemDto {
 
 // @deprecated use DepartmentTransactionResponseItemDto
 export type DepartmentTransactionItem = DepartmentTransactionResponseItemDto;
+
+export interface DepartmentResponseStatsDto {
+  totalAssigned: number;
+  pendingResponse: number;
+  draft: number;
+  submittedForReview: number;
+  returnedForCorrection: number;
+  approved: number;
+  rejected: number;
+}

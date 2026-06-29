@@ -13,6 +13,7 @@ public interface IDepartmentResponseService
     Task<List<DepartmentTransactionResponseItemDto>> GetDepartmentTransactionsAsync(ICurrentUserService currentUser);
     Task<List<DepartmentResponseSummaryDto>> GetMyDepartmentResponsesAsync(ICurrentUserService currentUser);
     Task<List<DepartmentResponseSummaryDto>> GetPendingReviewAsync(ICurrentUserService currentUser, CancellationToken cancellationToken = default);
+    Task<DepartmentResponseStatsDto> GetMyStatsAsync(ICurrentUserService currentUser);
     Task<DepartmentResponseDto?> GetByIdAsync(int id, ICurrentUserService currentUser);
     Task<DepartmentResponseDto> CreateAsync(CreateDepartmentResponseRequest request, ICurrentUserService currentUser);
     Task<DepartmentResponseDto> UpdateAsync(int id, UpdateDepartmentResponseRequest request, ICurrentUserService currentUser);
@@ -188,6 +189,46 @@ public class DepartmentResponseService : IDepartmentResponseService
                 r.SubmittedAt,
                 r.CreatedAt))
             .ToListAsync();
+    }
+
+    public async Task<DepartmentResponseStatsDto> GetMyStatsAsync(ICurrentUserService currentUser)
+    {
+        if (!currentUser.DepartmentId.HasValue)
+            return new DepartmentResponseStatsDto(0, 0, 0, 0, 0, 0, 0);
+
+        int deptId = currentUser.DepartmentId.Value;
+
+        var totalAssigned = await _db.Assignments
+            .AsNoTracking()
+            .CountAsync(a => a.DepartmentId == deptId && a.Status == AssignmentStatus.Active);
+
+        var responseCounts = await _db.DepartmentResponses
+            .AsNoTracking()
+            .Where(r => r.DepartmentId == deptId)
+            .GroupBy(r => r.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .ToListAsync();
+
+        int CountFor(DepartmentResponseStatus s) =>
+            responseCounts.FirstOrDefault(x => x.Status == s)?.Count ?? 0;
+
+        var draft = CountFor(DepartmentResponseStatus.Draft);
+        var submittedForReview = CountFor(DepartmentResponseStatus.SubmittedForReview);
+        var returnedForCorrection = CountFor(DepartmentResponseStatus.ReturnedForCorrection);
+        var approved = CountFor(DepartmentResponseStatus.Approved);
+        var rejected = CountFor(DepartmentResponseStatus.Rejected);
+
+        var totalWithResponse = draft + submittedForReview + returnedForCorrection + approved + rejected;
+        var pendingResponse = Math.Max(0, totalAssigned - totalWithResponse);
+
+        return new DepartmentResponseStatsDto(
+            totalAssigned,
+            pendingResponse,
+            draft,
+            submittedForReview,
+            returnedForCorrection,
+            approved,
+            rejected);
     }
 
     public async Task<List<DepartmentResponseSummaryDto>> GetPendingReviewAsync(

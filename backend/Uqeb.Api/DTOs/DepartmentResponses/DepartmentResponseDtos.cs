@@ -42,6 +42,16 @@ public record DepartmentResponseSummaryDto(
     DateTime CreatedAt
 );
 
+public record DepartmentResponseStatsDto(
+    int TotalAssigned,
+    int PendingResponse,
+    int Draft,
+    int SubmittedForReview,
+    int ReturnedForCorrection,
+    int Approved,
+    int Rejected
+);
+
 // RowVersion exists on DepartmentResponse for optimistic concurrency but is not yet wired
 // end-to-end through DTOs / requests / DbUpdateConcurrencyException handling. Deferred to a future PR.
 public record CreateDepartmentResponseRequest(

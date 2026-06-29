@@ -700,4 +700,146 @@ public class DepartmentResponseServiceTests
             Directory.Delete(tmpDir, true);
         }
     }
+
+    // ─── GetMyStats tests ──────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task GetMyStats_NoDepartment_ReturnsAllZeros()
+    {
+        var (db, _, _, userId) = await SeedAsync(nameof(GetMyStats_NoDepartment_ReturnsAllZeros));
+        var service = BuildService(db);
+        var user = new FakeUser { UserId = userId, DepartmentId = null };
+
+        var stats = await service.GetMyStatsAsync(user);
+
+        Assert.Equal(0, stats.TotalAssigned);
+        Assert.Equal(0, stats.PendingResponse);
+        Assert.Equal(0, stats.Draft);
+        Assert.Equal(0, stats.SubmittedForReview);
+        Assert.Equal(0, stats.ReturnedForCorrection);
+        Assert.Equal(0, stats.Approved);
+        Assert.Equal(0, stats.Rejected);
+    }
+
+    [Fact]
+    public async Task GetMyStats_NoResponses_ReturnsAllPending()
+    {
+        var (db, _, deptId, userId) = await SeedAsync(nameof(GetMyStats_NoResponses_ReturnsAllPending));
+        var service = BuildService(db);
+        var user = new FakeUser { UserId = userId, DepartmentId = deptId };
+
+        var stats = await service.GetMyStatsAsync(user);
+
+        Assert.Equal(1, stats.TotalAssigned);
+        Assert.Equal(1, stats.PendingResponse);
+        Assert.Equal(0, stats.Draft);
+        Assert.Equal(0, stats.SubmittedForReview);
+        Assert.Equal(0, stats.Approved);
+    }
+
+    [Fact]
+    public async Task GetMyStats_WithDraftResponse_CountsCorrectly()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(GetMyStats_WithDraftResponse_CountsCorrectly));
+        var service = BuildService(db);
+        var user = new FakeUser { UserId = userId, DepartmentId = deptId };
+
+        await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user);
+
+        var stats = await service.GetMyStatsAsync(user);
+
+        Assert.Equal(1, stats.TotalAssigned);
+        Assert.Equal(0, stats.PendingResponse);
+        Assert.Equal(1, stats.Draft);
+        Assert.Equal(0, stats.SubmittedForReview);
+    }
+
+    [Fact]
+    public async Task GetMyStats_WithSubmittedResponse_CountsCorrectly()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(GetMyStats_WithSubmittedResponse_CountsCorrectly));
+        var service = BuildService(db);
+        var user = new FakeUser { UserId = userId, DepartmentId = deptId };
+
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user);
+        await service.SubmitAsync(created.Id, user);
+
+        var stats = await service.GetMyStatsAsync(user);
+
+        Assert.Equal(1, stats.TotalAssigned);
+        Assert.Equal(0, stats.PendingResponse);
+        Assert.Equal(0, stats.Draft);
+        Assert.Equal(1, stats.SubmittedForReview);
+    }
+
+    [Fact]
+    public async Task GetMyStats_WithApprovedResponse_CountsCorrectly()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(GetMyStats_WithApprovedResponse_CountsCorrectly));
+        var service = BuildService(db);
+        var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
+        var reviewer = new FakeUser { UserId = userId, Role = UserRole.Supervisor };
+
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        await service.SubmitAsync(created.Id, submitter);
+        await service.ApproveAsync(created.Id, reviewer);
+
+        var stats = await service.GetMyStatsAsync(submitter);
+
+        Assert.Equal(1, stats.TotalAssigned);
+        Assert.Equal(0, stats.PendingResponse);
+        Assert.Equal(0, stats.Draft);
+        Assert.Equal(0, stats.SubmittedForReview);
+        Assert.Equal(1, stats.Approved);
+    }
+
+    [Fact]
+    public async Task GetMyStats_WithReturnedResponse_CountsCorrectly()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(GetMyStats_WithReturnedResponse_CountsCorrectly));
+        var service = BuildService(db);
+        var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
+        var reviewer = new FakeUser { UserId = userId, Role = UserRole.Supervisor };
+
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        await service.SubmitAsync(created.Id, submitter);
+        await service.ReturnForCorrectionAsync(created.Id, new ReviewDepartmentResponseRequest("يحتاج مراجعة"), reviewer);
+
+        var stats = await service.GetMyStatsAsync(submitter);
+
+        Assert.Equal(1, stats.TotalAssigned);
+        Assert.Equal(0, stats.PendingResponse);
+        Assert.Equal(1, stats.ReturnedForCorrection);
+        Assert.Equal(0, stats.Draft);
+    }
+
+    [Fact]
+    public async Task GetMyStats_DoesNotSeeOtherDepartmentData()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(GetMyStats_DoesNotSeeOtherDepartmentData));
+        var service = BuildService(db);
+        var owner = new FakeUser { UserId = userId, DepartmentId = deptId };
+
+        await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), owner);
+
+        var otherDeptUser = new FakeUser { UserId = userId, DepartmentId = deptId + 999 };
+        var stats = await service.GetMyStatsAsync(otherDeptUser);
+
+        Assert.Equal(0, stats.TotalAssigned);
+        Assert.Equal(0, stats.Draft);
+    }
+
+    [Fact]
+    public async Task GetMyStats_DoesNotModifyData()
+    {
+        var (db, _, deptId, userId) = await SeedAsync(nameof(GetMyStats_DoesNotModifyData));
+        var service = BuildService(db);
+        var user = new FakeUser { UserId = userId, DepartmentId = deptId };
+
+        var beforeCount = await db.DepartmentResponses.CountAsync();
+        await service.GetMyStatsAsync(user);
+        var afterCount = await db.DepartmentResponses.CountAsync();
+
+        Assert.Equal(beforeCount, afterCount);
+    }
 }
