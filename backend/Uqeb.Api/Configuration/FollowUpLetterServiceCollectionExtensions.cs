@@ -29,7 +29,6 @@ public static class FollowUpLetterServiceCollectionExtensions
         services.AddScoped<ILetterTemplateService, LetterTemplateService>();
         services.AddScoped<ILetterTemplateAdminService, LetterTemplateAdminService>();
         services.AddSingleton<IOrganizationBrandLogoProvider, OrganizationBrandLogoProvider>();
-        services.AddSingleton<IBrandAssetService, BrandAssetService>();
         services.AddScoped<IFollowUpLetterTimeZone, FollowUpLetterTimeZone>();
         services.AddScoped<IFollowUpLetterDocumentBuilder, FollowUpLetterDocumentBuilder>();
         services.AddScoped<IFollowUpLetterRenderService, FollowUpLetterRenderService>();

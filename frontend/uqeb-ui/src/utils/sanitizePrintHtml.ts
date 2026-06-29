@@ -13,12 +13,8 @@ const PRINT_HTML_ALLOWED_ATTR = [
   'colspan', 'rowspan', 'scope',
 ] as const;
 
-// Permit http(s) absolute URLs, root-relative paths, and embedded image data URIs (SVG, PNG, etc.).
-// DOMPurify also allows data: URIs on img/video/audio src as a built-in safe carve-out;
-// the explicit data:image/ entries below document the intent and guard any URL-taking attribute
-// that DOMPurify does not treat as a media-source attribute.
-const SAFE_URI_REGEXP =
-  /^(?:(?:https?):|\/|data:image\/(?:svg\+xml|png|jpeg|gif|webp);base64,|[^a-z]|[a-z+.-]+(?:[^a-z+.:-]|$))/i;
+// Permit only http(s) absolute URLs and root-relative paths; blocks javascript: and data: URIs.
+const SAFE_URI_REGEXP = /^(?:(?:https?):|\/|[^a-z]|[a-z+.-]+(?:[^a-z+.:-]|$))/i;
 
 const OPTIONS: Config = {
   WHOLE_DOCUMENT: false,

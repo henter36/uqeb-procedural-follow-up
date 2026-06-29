@@ -18,14 +18,10 @@ public class OrganizationBrandingController : ControllerBase
     [ResponseCache(Duration = 3600, Location = ResponseCacheLocation.Any)]
     public IActionResult GetOrganizationLogo()
     {
-        var svgBytes = _logoProvider.TryGetExactLogoBytes("organization-logo.svg");
-        if (svgBytes != null && svgBytes.Length > 0)
-            return File(svgBytes, "image/svg+xml");
-
-        var pngBytes = _logoProvider.TryGetLogoBytes();
-        if (pngBytes == null || pngBytes.Length == 0)
+        var bytes = _logoProvider.TryGetLogoBytes();
+        if (bytes == null || bytes.Length == 0)
             return NotFound();
 
-        return File(pngBytes, "image/png");
+        return File(bytes, "image/png");
     }
 }
