@@ -60,6 +60,50 @@ public class InstitutionalReportOverflowTests
     }
 
     [Fact]
+    public async Task RenderPreviewAsync_IncludeOverdue_UsesFilteredCountForOverflow()
+    {
+        var dbFactory = await CreateSeededFactoryAsync(transactionCount: 5, overdueCount: 1);
+        var service = InstitutionalReportServiceTestHelpers.CreateService(
+            dbFactory,
+            new ReportingOptions { MaxPreviewDetailRows = DetailLimit, MaxPdfDetailRows = DetailLimit, MaxPdfDetailRowsPerPart = DetailLimit });
+
+        var manifest = await service.RenderPreviewAsync(new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [ReportSectionId.Cover, ReportSectionId.TransactionDetails],
+            Filters = new ReportFiltersDto
+            {
+                IncludeOverdue = true,
+            },
+        });
+
+        Assert.False(manifest.RequiresDetailOverflowAction);
+        Assert.Equal(1, manifest.TotalMatchingTransactions);
+        Assert.Equal(1, manifest.IncludedTransactionCount);
+        Assert.Equal(1, manifest.LoadedDetailRows);
+    }
+
+    [Fact]
+    public async Task ExportAsync_IncludeOverdue_DoesNotRequireOverflowActionForFilteredRowsWithinLimit()
+    {
+        var dbFactory = await CreateSeededFactoryAsync(transactionCount: 5, overdueCount: 1);
+        var service = InstitutionalReportServiceTestHelpers.CreateService(
+            dbFactory,
+            SmallDetailLimits);
+
+        var request = CreateExportRequest(DetailOverflowAction.None);
+        request.ExportFormat = ExportFormat.Html;
+        request.BuildRequest.Filters.IncludeOverdue = true;
+
+        var result = await service.ExportAsync(request);
+
+        Assert.Equal("text/html; charset=utf-8", result.ContentType);
+        Assert.Equal(1, result.Manifest.TotalMatchedRows);
+        Assert.Equal(1, result.Manifest.ExportedDetailRows);
+        Assert.False(result.Manifest.DetailRowsTruncated);
+    }
+
+    [Fact]
     public async Task ExportAsync_SummaryOnly_ProducesPdfWithoutSilentTruncation()
     {
         var dbFactory = await CreateSeededFactoryAsync(transactionCount: 5);
@@ -151,7 +195,9 @@ public class InstitutionalReportOverflowTests
         },
     };
 
-    private static async Task<IDbContextFactory<AppDbContext>> CreateSeededFactoryAsync(int transactionCount)
+    private static async Task<IDbContextFactory<AppDbContext>> CreateSeededFactoryAsync(
+        int transactionCount,
+        int overdueCount = 0)
     {
         var dbName = $"overflow-{Guid.NewGuid():N}";
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -175,6 +221,7 @@ public class InstitutionalReportOverflowTests
         var today = DateTime.UtcNow.Date;
         for (var i = 1; i <= transactionCount; i++)
         {
+            var isOverdue = i <= overdueCount;
             db.Transactions.Add(new Transaction
             {
                 InternalTrackingNumber = $"INT-{i:D4}",
@@ -182,8 +229,11 @@ public class InstitutionalReportOverflowTests
                 IncomingDate = today.AddDays(-i),
                 Subject = $"معاملة {i}",
                 IncomingFrom = "جهة",
-                Status = TransactionStatus.New,
+                Status = isOverdue ? TransactionStatus.Overdue : TransactionStatus.New,
                 Priority = Priority.Normal,
+                RequiresResponse = isOverdue,
+                ResponseCompleted = false,
+                ResponseDueDate = isOverdue ? today.AddDays(-1) : null,
                 CreatedById = user.Id,
                 CreatedAt = DateTime.UtcNow,
             });

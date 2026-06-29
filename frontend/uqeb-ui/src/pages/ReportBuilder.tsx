@@ -1,6 +1,14 @@
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { institutionalReportsApi, departmentsApi, categoriesApi, externalPartiesApi, type InstitutionalReportManifest, type ReportBuildRequest } from '../api/services';
+import {
+  institutionalReportsApi,
+  departmentsApi,
+  categoriesApi,
+  externalPartiesApi,
+  type InstitutionalReportManifest,
+  type ReportBuildRequest,
+  type ReportTemplate,
+} from '../api/services';
 import type { LookupItem } from '../api/types';
 import {
   DetailOverflowAction,
@@ -277,6 +285,10 @@ export default function ReportBuilderPage() {
   const [error, setError] = useState('');
   const [errorCorrelationId, setErrorCorrelationId] = useState('');
   const [correlationCopied, setCorrelationCopied] = useState(false);
+  const [templates, setTemplates] = useState<ReportTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [templateName, setTemplateName] = useState('');
+  const [templateError, setTemplateError] = useState('');
   const previewRequestIdRef = useRef(0);
   const previewAbortRef = useRef<AbortController | null>(null);
 
@@ -303,6 +315,15 @@ export default function ReportBuilderPage() {
     statuses: filterStatuses,
     onlyOverdue: filterOnlyOverdue,
   });
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    let isMounted = true;
+    institutionalReportsApi.getTemplates()
+      .then(({ data }) => { if (isMounted) setTemplates(data); })
+      .catch(() => { if (isMounted) setTemplates([]); });
+    return () => { isMounted = false; };
+  }, [isAdmin]);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -456,6 +477,82 @@ export default function ReportBuilderPage() {
     setError,
     setErrorCorrelationId,
   });
+
+  const applyTemplate = useCallback((template: ReportTemplate) => {
+    invalidatePreview();
+    setSelectedTemplateId(String(template.id));
+    setTemplateError('');
+    setReportType(template.reportType);
+    setSectionIds([...template.sectionIds]);
+    setFilterDepartmentIds([...(template.defaultFilters.departmentIds ?? [])]);
+    setFilterCategoryIds([...(template.defaultFilters.categoryIds ?? [])]);
+    setFilterPartyIds([...(template.defaultFilters.partyIds ?? [])]);
+    setFilterPriorities([...(template.defaultFilters.priorities ?? [])]);
+    setFilterStatuses([...(template.defaultFilters.statuses ?? [])]);
+    setFilterOnlyOverdue(Boolean(template.defaultFilters.includeOverdue));
+    setFilterSearch(template.defaultFilters.search ?? '');
+    setDateFrom(template.defaultFilters.dateFrom ?? '');
+    setDateTo(template.defaultFilters.dateTo ?? '');
+    setExportFormat(template.defaultFormat);
+    setPageNumberingMode(template.pageNumberingMode);
+    setIncludePartialCover(template.includePartialCover);
+    setIncludePartialManifest(template.includePartialManifest);
+  }, [
+    invalidatePreview,
+    setExportFormat,
+    setIncludePartialCover,
+    setIncludePartialManifest,
+    setPageNumberingMode,
+  ]);
+
+  const handleTemplateChange = useCallback((templateId: string) => {
+    if (!templateId) {
+      invalidatePreview();
+      setSelectedTemplateId('');
+      return;
+    }
+
+    const template = templates.find((item) => String(item.id) === templateId);
+    if (template) {
+      applyTemplate(template);
+    }
+  }, [applyTemplate, invalidatePreview, templates]);
+
+  const saveCurrentTemplate = useCallback(async () => {
+    const name = templateName.trim();
+    if (!name) {
+      setTemplateError('اسم القالب مطلوب.');
+      return;
+    }
+
+    setTemplateError('');
+    try {
+      const payload = buildRequest();
+      const { data } = await institutionalReportsApi.saveTemplate({
+        name,
+        reportType: payload.reportType,
+        sectionIds: payload.sectionIds,
+        defaultFilters: payload.filters,
+        defaultFormat: exportFormat,
+        pageNumberingMode,
+        includePartialCover,
+        includePartialManifest,
+      });
+      setTemplates((prev) => [...prev.filter((item) => item.id !== data.id), data].sort((a, b) => a.name.localeCompare(b.name)));
+      setSelectedTemplateId(String(data.id));
+      setTemplateName('');
+    } catch (error) {
+      const apiError = getApiErrorDetails(error);
+      setTemplateError(apiError.message?.trim() || 'تعذر حفظ القالب.');
+    }
+  }, [
+    buildRequest,
+    exportFormat,
+    includePartialCover,
+    includePartialManifest,
+    pageNumberingMode,
+    templateName,
+  ]);
 
   const loadPreview = async () => {
     if (!isAdmin)
@@ -661,6 +758,37 @@ export default function ReportBuilderPage() {
             <option value={ReportContentLevel.Analytical}>تحليلي</option>
             <option value={ReportContentLevel.Detailed}>تفصيلي</option>
           </select>
+
+          <label htmlFor="saved-template">القالب المحفوظ</label>
+          <select
+            id="saved-template"
+            value={selectedTemplateId}
+            onChange={(e) => handleTemplateChange(e.target.value)}
+          >
+            <option value="">بدون قالب</option>
+            {templates.map((template) => (
+              <option key={template.id} value={template.id}>{template.name}</option>
+            ))}
+          </select>
+
+          <div className="rb-template-save">
+            <label htmlFor="template-name">حفظ الإعدادات كقالب</label>
+            <div className="rb-template-save-row">
+              <input
+                id="template-name"
+                value={templateName}
+                onChange={(e) => {
+                  setTemplateName(e.target.value);
+                  setTemplateError('');
+                }}
+                placeholder="اسم القالب"
+              />
+              <button type="button" className="btn btn-sm btn-outline" onClick={saveCurrentTemplate}>
+                حفظ
+              </button>
+            </div>
+            {templateError && <p className="text-danger">{templateError}</p>}
+          </div>
 
           {/* 2 ── الفترة الزمنية */}
           <h3 className="report-builder-section-title">الفترة الزمنية</h3>

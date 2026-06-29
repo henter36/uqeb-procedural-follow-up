@@ -15,6 +15,7 @@ import {
   DetailOverflowAction,
   ExportFormat,
   ExportMode,
+  InstitutionalReportType,
   ReportComparisonMode,
   ReportContentLevel,
   ReportSectionId,
@@ -40,6 +41,8 @@ vi.mock('../api/services', () => ({
   institutionalReportsApi: {
     preview: vi.fn(),
     export: vi.fn(),
+    getTemplates: vi.fn().mockResolvedValue({ data: [] }),
+    saveTemplate: vi.fn(),
   },
   departmentsApi: {
     lookup: vi.fn().mockResolvedValue({ data: [] }),
@@ -143,6 +146,8 @@ describe('ReportBuilderPage export dialog', () => {
       login: vi.fn(),
     });
     vi.mocked(services.institutionalReportsApi.preview).mockResolvedValue({ data: mockManifest } as never);
+    vi.mocked(services.institutionalReportsApi.getTemplates).mockResolvedValue({ data: [] } as never);
+    vi.mocked(services.institutionalReportsApi.saveTemplate).mockReset();
     clipboardWriteText = vi.fn().mockResolvedValue(undefined);
     navigator.clipboard.writeText = clipboardWriteText;
   });
@@ -527,6 +532,106 @@ describe('ReportBuilderPage export dialog', () => {
     await waitFor(() => expect(services.institutionalReportsApi.preview).toHaveBeenCalled());
     const request = vi.mocked(services.institutionalReportsApi.preview).mock.calls[0][0];
     expect(request.filters?.search).toBe('VAR-001');
+  });
+
+  it('loads and applies saved template filters to preview payload', async () => {
+    vi.mocked(services.institutionalReportsApi.getTemplates).mockResolvedValueOnce({
+      data: [
+        {
+          id: 7,
+          name: 'قالب المتأخرة',
+          reportType: 2,
+          sectionIds: [ReportSectionId.Cover, ReportSectionId.TransactionDetails],
+          defaultFilters: {
+            dateFrom: '2026-06-01',
+            dateTo: '2026-06-10',
+            departmentIds: [11],
+            partyIds: [22],
+            categoryIds: [33],
+            priorities: ['Urgent'],
+            statuses: ['Overdue'],
+            includeJointDepartmentTransactions: true,
+            includeOverdue: true,
+            includeDetails: true,
+            includeRisks: true,
+            includeRecommendations: true,
+            search: 'TPL-1',
+          },
+          defaultFormat: ExportFormat.Xlsx,
+          pageNumberingMode: 2,
+          includePartialCover: false,
+          includePartialManifest: true,
+        },
+      ],
+    } as never);
+    vi.mocked(services.institutionalReportsApi.preview).mockResolvedValue({ data: mockManifest } as never);
+
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'قالب المتأخرة' })).toBeInTheDocument();
+    });
+
+    await user.selectOptions(screen.getByLabelText('القالب المحفوظ'), '7');
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+
+    await waitFor(() => expect(services.institutionalReportsApi.preview).toHaveBeenCalled());
+    const request = vi.mocked(services.institutionalReportsApi.preview).mock.calls[0][0];
+    expect(request.reportType).toBe(2);
+    expect(request.sectionIds).toEqual([ReportSectionId.Cover, ReportSectionId.TransactionDetails]);
+    expect(request.filters.dateFrom).toBe('2026-06-01');
+    expect(request.filters.dateTo).toBe('2026-06-10');
+    expect(request.filters.departmentIds).toEqual([11]);
+    expect(request.filters.partyIds).toEqual([22]);
+    expect(request.filters.categoryIds).toEqual([33]);
+    expect(request.filters.priorities).toEqual(['Urgent']);
+    expect(request.filters.statuses).toEqual(['Overdue']);
+    expect(request.filters.includeOverdue).toBe(true);
+    expect(request.filters.search).toBe('TPL-1');
+  });
+
+  it('saves current report builder settings as a template', async () => {
+    vi.mocked(services.institutionalReportsApi.saveTemplate).mockResolvedValueOnce({
+      data: {
+        id: 9,
+        name: 'قالب جديد',
+        reportType: 1,
+        sectionIds: [ReportSectionId.Cover],
+        defaultFilters: {
+          dateFrom: null,
+          dateTo: null,
+          departmentIds: [],
+          partyIds: [],
+          categoryIds: [],
+          priorities: [],
+          statuses: [],
+          includeJointDepartmentTransactions: true,
+          includeOverdue: false,
+          includeDetails: true,
+          includeRisks: true,
+          includeRecommendations: true,
+          search: null,
+        },
+        defaultFormat: ExportFormat.Pdf,
+        pageNumberingMode: 1,
+        includePartialCover: true,
+        includePartialManifest: true,
+      },
+    } as never);
+
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+
+    await user.type(screen.getByLabelText('حفظ الإعدادات كقالب'), 'قالب جديد');
+    await user.click(screen.getByRole('button', { name: 'حفظ' }));
+
+    await waitFor(() => expect(services.institutionalReportsApi.saveTemplate).toHaveBeenCalled());
+    const payload = vi.mocked(services.institutionalReportsApi.saveTemplate).mock.calls[0][0];
+    expect(payload.name).toBe('قالب جديد');
+    expect(payload.reportType).toBe(InstitutionalReportType.ExecutiveComprehensive);
+    expect(payload.defaultFilters.includeOverdue).toBe(false);
+    expect(payload.defaultFormat).toBe(ExportFormat.Pdf);
   });
 
   it('sends null search when field is empty', async () => {
