@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
   يجهّز مجلد نقل كامل من آخر حزمة مبنية جاهزة للنسخ إلى جهاز الإنتاج.

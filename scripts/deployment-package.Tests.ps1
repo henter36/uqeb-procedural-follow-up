@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 BeforeAll {
     function Resolve-DeploymentScriptsRoot {
@@ -1938,6 +1938,34 @@ Describe 'install-production-package rollback and service recovery' {
         $result.Text | Should -Match 'فشل التحقق بعد file rollback'
         $result.Text | Should -Not -Match 'تم استرجاع ملفات API/Web/Chromium والتحقق من صحة الإصدار'
         $result.Text | Should -Not -Match 'تم تنفيذ rollback للملفات فقط'
+    }
+
+    It 'prints rollback consistency fields when migration was applied before file rollback' {
+        Register-StandardDeploymentInstallMocks -IncludePromotionMock -IncludeHealthMocks
+        Mock Invoke-ReleaseRollbackFromState { return $false }
+        Mock Invoke-DeploymentFileRollback { return $true }
+        Mock Sync-PublishCompatibilityLinks {}
+        Mock Invoke-RestartCurrentReleaseService {}
+        Mock Get-LatestAppliedMigrationId {
+            return '20260622062754_AddReferenceDataNormalizedNames'
+        }
+        Mock Test-RequiredMigrationPresent { return $false }
+        Mock Test-RequiredMigrationApplied {}
+
+        $env = New-InstallTestEnvironment -CommonPath $script:CommonPath -PackageMigrationContent '$global:rollbackReportMigrationApplied = $true'
+        'throw "new release health failed"' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
+
+        $result = Get-InstallScriptOutput {
+            Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env
+        }
+
+        $result.Text | Should -Match 'Rollback الملفات:'
+        $result.Text | Should -Match 'Rollback قاعدة البيانات:'
+        $result.Text | Should -Match 'آخر migration قبل النشر:'
+        $result.Text | Should -Match 'آخر migration بعد محاولة النشر:'
+        $result.Text | Should -Match 'آخر migration بعد rollback/الفشل:'
+        $result.Text | Should -Match 'تم تطبيق migration ثم rollback للملفات فقط'
+        $result.Text | Should -Match 'قاعدة البيانات لم تُسترجع تلقائيًا'
     }
 
     It 'tracks service stop phases and restarts current release when stop started before promotion' {

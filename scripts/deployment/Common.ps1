@@ -1181,10 +1181,12 @@ function Invoke-SqlDeploymentCommand {
         [switch]$DataTable
     )
 
-    if ($null -ne $global:SqlDeploymentCommandHandler) {
-        return ,(& $global:SqlDeploymentCommandHandler `
+    $handler = Get-SqlDeploymentCommandHandler
+    if ($null -ne $handler) {
+        return ,(& $handler `
             -Server $Server `
             -Database $Database `
+            -ConnectionString $ConnectionString `
             -CommandText $CommandText `
             -Scalar:([bool]$Scalar) `
             -DataTable:([bool]$DataTable))
@@ -1223,6 +1225,15 @@ function Invoke-SqlDeploymentCommand {
         }
         $connection.Dispose()
     }
+}
+
+function Get-SqlDeploymentCommandHandler {
+    $variable = Get-Variable -Name SqlDeploymentCommandHandler -Scope Global -ErrorAction SilentlyContinue
+    if ($null -eq $variable) {
+        return $null
+    }
+
+    return $variable.Value
 }
 
 function Get-ProductionDatabaseBackupPath {
@@ -2307,8 +2318,9 @@ function Resolve-MigrationIdsFromHandlerResult {
 function Get-AppliedMigrationIds {
     param([string]$ConnectionString)
 
-    if ($null -ne $global:SqlDeploymentCommandHandler) {
-        $result = & $global:SqlDeploymentCommandHandler `
+    $handler = Get-SqlDeploymentCommandHandler
+    if ($null -ne $handler) {
+        $result = & $handler `
             -ConnectionString $ConnectionString `
             -CommandText 'SELECT [MigrationId] FROM [dbo].[__EFMigrationsHistory] ORDER BY [MigrationId];' `
             -DataTable:$true
@@ -2341,6 +2353,17 @@ function Get-AppliedMigrationIds {
         }
         $connection.Dispose()
     }
+}
+
+function Get-LatestAppliedMigrationId {
+    param([string]$ConnectionString)
+
+    $appliedIds = @(Get-AppliedMigrationIds -ConnectionString $ConnectionString)
+    if ($appliedIds.Count -eq 0) {
+        return ""
+    }
+
+    return [string]($appliedIds | Select-Object -Last 1)
 }
 
 function Test-RequiredMigrationPresent {
@@ -2700,7 +2723,7 @@ function Write-ApiRunScript {
         "cd /d `"$ApiPath`""
         'set ASPNETCORE_ENVIRONMENT=Production'
         'set DOTNET_ENVIRONMENT=Production'
-        "set ASPNETCORE_URLS=http://${ApiBindAddress}:$ApiPort"
+        "set ASPNETCORE_URLS=http://0.0.0.0:$ApiPort"
         "set PLAYWRIGHT_BROWSERS_PATH=$PlaywrightBrowsersPath"
         "$launchCommand >> `"$LogPath`" 2>&1"
     ) -join "`r`n"

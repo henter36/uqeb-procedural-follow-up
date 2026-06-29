@@ -1,4 +1,4 @@
-BeforeAll {
+﻿BeforeAll {
     $script:CommonPath = Join-Path (Split-Path $PSScriptRoot -Parent) 'deployment\Common.ps1'
     . $script:CommonPath
 
@@ -139,6 +139,18 @@ Describe 'Playwright deployment helpers' {
         }
     }
 
+    It 'does not read an undefined SQL deployment command handler under StrictMode' {
+        Remove-Item Variable:global:SqlDeploymentCommandHandler -ErrorAction SilentlyContinue
+
+        {
+            Invoke-SqlDeploymentCommand `
+                -Server '.' `
+                -Database 'master' `
+                -CommandText 'SELECT 1' `
+                -Scalar
+        } | Should -Throw '*ConnectionString*'
+    }
+
     It 'writes PLAYWRIGHT_BROWSERS_PATH into run-api script' {
         $root = New-PlaywrightTestDirectory
         try {
@@ -152,6 +164,27 @@ Describe 'Playwright deployment helpers' {
 
             $content = Get-Content -LiteralPath $runScript -Raw
             $content | Should -Match 'PLAYWRIGHT_BROWSERS_PATH=C:\\Uqeb\\tools\\ms-playwright'
+        }
+        finally {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'binds run-api script to all network interfaces' {
+        $root = New-PlaywrightTestDirectory
+        try {
+            $runScript = Join-Path $root 'run-api.cmd'
+            Write-ApiRunScript `
+                -RunScriptPath $runScript `
+                -ApiPath $root `
+                -ApiPort 5000 `
+                -ApiBindAddress '10.0.177.17' `
+                -PlaywrightBrowsersPath 'C:\Uqeb\tools\ms-playwright' `
+                -LogPath 'C:\Uqeb\logs\api-runtime.log'
+
+            $content = Get-Content -LiteralPath $runScript -Raw
+            $content | Should -Match 'ASPNETCORE_URLS=http://0\.0\.0\.0:5000'
+            $content | Should -Not -Match 'ASPNETCORE_URLS=http://10\.0\.177\.17:5000'
         }
         finally {
             Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue

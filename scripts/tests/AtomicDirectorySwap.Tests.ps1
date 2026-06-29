@@ -1,4 +1,4 @@
-BeforeAll {
+﻿BeforeAll {
     $script:CommonPath = Join-Path (Split-Path $PSScriptRoot -Parent) 'deployment\Common.ps1'
     . $script:CommonPath
 
