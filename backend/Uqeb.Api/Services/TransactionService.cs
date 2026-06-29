@@ -1127,10 +1127,9 @@ public class TransactionService : ITransactionService
     {
         var requiredDepartments = await _db.Assignments
             .AsNoTracking()
-            .Include(a => a.Department)
             .Where(a => a.TransactionId == transactionId &&
                 a.RequiresReply &&
-                a.Status == AssignmentStatus.Active)
+                a.Status != AssignmentStatus.Cancelled)
             .Select(a => new { a.DepartmentId, a.Department.Name })
             .Distinct()
             .ToListAsync();

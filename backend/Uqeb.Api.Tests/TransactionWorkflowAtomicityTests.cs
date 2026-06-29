@@ -288,4 +288,23 @@ public class TransactionWorkflowAtomicityTests
         Assert.Contains("الموارد", ex.Message);
         Assert.Equal(0, cache.TransactionChangeInvalidations);
     }
+
+    [Fact]
+    public async Task CloseAsync_blocks_completed_assignment_without_approved_department_response()
+    {
+        var (service, db, _, cache) = await CreateServiceAsync(nameof(CloseAsync_blocks_completed_assignment_without_approved_department_response));
+        var created = await service.CreateAsync(BuildCreateRequest(11), userId: 1);
+        var assignment = await db.Assignments.SingleAsync(a => a.TransactionId == created!.Id && a.DepartmentId == 11);
+        assignment.RequiresReply = true;
+        assignment.Status = AssignmentStatus.Completed;
+        await db.SaveChangesAsync();
+        cache.ResetInvalidations();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CloseAsync(created!.Id, userId: 1, role: UserRole.Admin));
+
+        Assert.Contains("إفادات ناقصة", ex.Message);
+        Assert.Contains("الموارد", ex.Message);
+        Assert.Equal(0, cache.TransactionChangeInvalidations);
+    }
 }

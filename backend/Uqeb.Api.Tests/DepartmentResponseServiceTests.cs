@@ -307,7 +307,7 @@ public class DepartmentResponseServiceTests
         var service = BuildService(db);
         var user = new FakeUser { UserId = userId, DepartmentId = null };
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user));
     }
 
