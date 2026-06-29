@@ -75,6 +75,7 @@ public sealed class FollowUpLetterRenderService : IFollowUpLetterRenderService
     private readonly IFollowUpLetterDocumentBuilder _documentBuilder;
     private readonly IFollowUpLetterPdfExporter _pdfExporter;
     private readonly IFollowUpLetterTimeZone _timeZone;
+    private readonly IBrandAssetService _brandAssets;
     private readonly OrganizationBrandingOptions _branding;
     private readonly FollowUpLettersOptions _printOptions;
 
@@ -83,6 +84,7 @@ public sealed class FollowUpLetterRenderService : IFollowUpLetterRenderService
         IFollowUpLetterDocumentBuilder documentBuilder,
         IFollowUpLetterPdfExporter pdfExporter,
         IFollowUpLetterTimeZone timeZone,
+        IBrandAssetService brandAssets,
         IOptions<OrganizationBrandingOptions> branding,
         IOptions<FollowUpLettersOptions> printOptions)
     {
@@ -90,6 +92,7 @@ public sealed class FollowUpLetterRenderService : IFollowUpLetterRenderService
         _documentBuilder = documentBuilder;
         _pdfExporter = pdfExporter;
         _timeZone = timeZone;
+        _brandAssets = brandAssets;
         _branding = branding.Value;
         _printOptions = printOptions.Value;
     }
@@ -169,7 +172,7 @@ public sealed class FollowUpLetterRenderService : IFollowUpLetterRenderService
             ResponseDeadlineDays = request.ResponseDeadlineDays,
             PreparedBy = preparedBy,
             SenderDepartment = senderDepartment,
-            LogoPath = _branding.LogoPath,
+            LogoPath = _brandAssets.GetPreferredLogoDataUri() ?? OrganizationBrandingPaths.LogoApiUrl,
             TodayLocal = _timeZone.TodayDisplayDate,
             SignatoryPosition = request.SignatoryPosition,
             SignatoryRank = request.SignatoryRank,
@@ -267,7 +270,7 @@ public sealed class FollowUpLetterRenderService : IFollowUpLetterRenderService
         {
             TransactionId = 1001,
             TemplateId = null,
-            LogoPath = OrganizationBrandingPaths.LogoApiUrl,
+            LogoPath = _brandAssets.GetPreferredLogoDataUri() ?? OrganizationBrandingPaths.LogoApiUrl,
             OrganizationName = "المتابعة الإجرائية",
             LetterNumber = "خطاب-تجريبي-001",
             GregorianDate = HijriDateFormatter.FormatGregorianArabic(today),
