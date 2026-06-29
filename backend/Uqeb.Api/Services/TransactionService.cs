@@ -136,7 +136,9 @@ public class TransactionService : ITransactionService
         {
             var deptId = RequireDepartmentUserDepartmentId(currentUser);
             query = query.Where(t =>
-                t.Assignments.Any(a => a.DepartmentId == deptId && a.Status != AssignmentStatus.Cancelled) ||
+                t.Assignments.Any(a => a.DepartmentId == deptId &&
+                    a.RequiresReply &&
+                    a.Status != AssignmentStatus.Cancelled) ||
                 _db.DepartmentResponses.Any(r => r.TransactionId == t.Id && r.DepartmentId == deptId));
         }
 
@@ -1590,7 +1592,9 @@ public class TransactionService : ITransactionService
 
         return await _db.Transactions.AsNoTracking()
             .AnyAsync(t => t.Id == transactionId &&
-                (t.Assignments.Any(a => a.DepartmentId == deptId && a.Status != AssignmentStatus.Cancelled) ||
+                (t.Assignments.Any(a => a.DepartmentId == deptId &&
+                    a.RequiresReply &&
+                    a.Status != AssignmentStatus.Cancelled) ||
                     _db.DepartmentResponses.Any(r => r.TransactionId == t.Id && r.DepartmentId == deptId)));
     }
 
@@ -1599,7 +1603,9 @@ public class TransactionService : ITransactionService
         if (user.Role == UserRole.DepartmentUser)
         {
             var deptId = RequireDepartmentUserDepartmentId(user);
-            return t.Assignments.Any(a => a.DepartmentId == deptId && a.Status != AssignmentStatus.Cancelled);
+            return t.Assignments.Any(a => a.DepartmentId == deptId &&
+                a.RequiresReply &&
+                a.Status != AssignmentStatus.Cancelled);
         }
         return true;
     }

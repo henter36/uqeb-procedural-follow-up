@@ -138,6 +138,7 @@ public class TransactionWorkspaceReadModelTests
         var own = await SeedTransactionAsync(db, 101);
         var other = await SeedTransactionAsync(db, 102);
         var cancelled = await SeedTransactionAsync(db, 103);
+        cancelled.Status = TransactionStatus.Cancelled;
         db.Assignments.AddRange(
             new Assignment
             {
