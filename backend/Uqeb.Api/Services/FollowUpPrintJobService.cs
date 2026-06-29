@@ -151,6 +151,12 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
             await PersistIdempotencyKeyAsync(request, currentUser, requestHash, job.Id, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
+        catch (DbUpdateException ex) when (SqlExceptionHelper.IsCheckConstraintViolation(ex, "CK_FollowUpPrintJobPayloads_TargetShape"))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            _db.ChangeTracker.Clear();
+            throw new FollowUpPrintValidationException("بعض الجهات المستهدفة ليست مرتبطة بإدارة أو طرف خارجي بمعرّف صالح. تحقق من بيانات المعاملات المختارة.");
+        }
         catch (DbUpdateException ex) when (SqlExceptionHelper.IsDuplicateKey(ex))
         {
             await transaction.RollbackAsync(cancellationToken);
@@ -690,8 +696,18 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         foreach (var candidate in eligibleCandidates)
         {
             var sequence = FollowUpSequenceCalculator.CalculateExpectedSequence(candidate.FollowUpCount);
+            var validPayloadsForCandidate = 0;
             foreach (var target in candidate.Targets)
             {
+                // CK_FollowUpPrintJobPayloads_TargetShape requires exactly one of DepartmentId/ExternalPartyId to be set.
+                // Name-only fallback targets (both null) or invalid targets (both set) must be skipped.
+                if (target.DepartmentId.HasValue == target.ExternalPartyId.HasValue)
+                {
+                    job.TotalLetters = Math.Max(0, job.TotalLetters - 1);
+                    continue;
+                }
+
+                validPayloadsForCandidate++;
                 ordinal++;
                 var document = await _renderService.BuildDocumentAsync(new FollowUpLetterBuildRequest
                 {
@@ -734,6 +750,9 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
 
                 _db.FollowUpPrintJobPayloads.Add(payload);
             }
+
+            if (validPayloadsForCandidate == 0)
+                job.TotalTransactions = Math.Max(0, job.TotalTransactions - 1);
         }
 
         job.NextPayloadOrdinal = ordinal;
