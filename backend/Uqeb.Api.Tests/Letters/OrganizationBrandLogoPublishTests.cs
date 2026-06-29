@@ -18,6 +18,16 @@ public class OrganizationBrandLogoPublishTests
     }
 
     [Fact]
+    public void SourceSvgLogoFile_ExistsInRepository()
+    {
+        var repoRoot = FindRepoRoot();
+        var svgPath = Path.Combine(repoRoot, "backend", "Uqeb.Api", "Assets", "Brand", "organization-logo.svg");
+
+        Assert.True(File.Exists(svgPath), $"Expected SVG logo at {svgPath}");
+        Assert.True(new FileInfo(svgPath).Length > 0);
+    }
+
+    [Fact]
     [Trait("Category", "BuildIntegration")]
     public async Task PublishOutput_IncludesOrganizationLogo()
     {
@@ -64,7 +74,10 @@ public class OrganizationBrandLogoPublishTests
             Assert.True(process.ExitCode == 0, $"dotnet publish failed:\n{stdout}\n{stderr}");
 
             var publishedLogo = Path.Combine(outputDir, "Assets", "Brand", "organization-logo.png");
-            Assert.True(File.Exists(publishedLogo), $"Logo missing from publish output: {publishedLogo}");
+            Assert.True(File.Exists(publishedLogo), $"PNG logo missing from publish output: {publishedLogo}");
+
+            var publishedSvg = Path.Combine(outputDir, "Assets", "Brand", "organization-logo.svg");
+            Assert.True(File.Exists(publishedSvg), $"SVG logo missing from publish output: {publishedSvg}");
         }
         finally
         {

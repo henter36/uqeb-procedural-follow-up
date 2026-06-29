@@ -46,6 +46,24 @@ describe('sanitizePrintHtml', () => {
     expect(result).toContain('<p>safe</p>');
   });
 
+  it('preserves data:image/svg+xml;base64 URIs for embedded logos', () => {
+    const svgB64 = btoa('<svg xmlns="http://www.w3.org/2000/svg"><circle r="10"/></svg>');
+    const result = sanitizePrintHtml(
+      `<article><img class="letter-logo" src="data:image/svg+xml;base64,${svgB64}" alt="الشعار" /></article>`,
+    );
+
+    expect(result).toContain(`data:image/svg+xml;base64,${svgB64}`);
+  });
+
+  it('preserves data:image/png;base64 URIs for embedded logos', () => {
+    const pngB64 = btoa('\x89PNG\r\n\x1a\n');
+    const result = sanitizePrintHtml(
+      `<article><img class="letter-logo" src="data:image/png;base64,${pngB64}" alt="الشعار" /></article>`,
+    );
+
+    expect(result).toContain(`data:image/png;base64,${pngB64}`);
+  });
+
   it('removes inline event handlers while preserving allowed image attributes', () => {
     const result = sanitizePrintHtml('<article><img src="/logo.png" alt="شعار" onerror="alert(1)" /></article>');
 
@@ -120,6 +138,16 @@ describe('sanitizeFullDocumentHtml', () => {
 
     expect(result).not.toContain('javascript:');
     expect(result).toContain('<p>safe</p>');
+  });
+
+  it('preserves embedded data:image/svg+xml;base64 logo URIs in full documents', () => {
+    const svgB64 = btoa('<svg xmlns="http://www.w3.org/2000/svg"><circle r="10"/></svg>');
+    const result = sanitizeFullDocumentHtml(
+      `<!DOCTYPE html><html><body><img class="letter-logo" src="data:image/svg+xml;base64,${svgB64}" alt="الشعار" /><p>ok</p></body></html>`,
+    );
+
+    expect(result).toContain(`data:image/svg+xml;base64,${svgB64}`);
+    expect(result).toContain('<p>ok</p>');
   });
 
   it('removes srcdoc attributes', () => {
