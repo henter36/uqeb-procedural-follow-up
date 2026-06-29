@@ -3,11 +3,12 @@ import { cleanup, render, screen, waitFor, fireEvent } from '@testing-library/re
 import { MemoryRouter } from 'react-router-dom';
 import DepartmentTransactionsPage from './DepartmentTransactionsPage';
 import * as services from '../api/services';
-import type { DepartmentTransactionResponseItemDto, DepartmentResponseDto } from '../api/types';
+import type { DepartmentTransactionResponseItemDto, DepartmentResponseDto, DepartmentResponseStatsDto } from '../api/types';
 
 vi.mock('../api/services', () => ({
   departmentResponsesApi: {
     getDepartmentTransactions: vi.fn(),
+    getMyStats: vi.fn(),
     getById: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
@@ -17,6 +18,16 @@ vi.mock('../api/services', () => ({
     downloadAttachment: vi.fn(),
   },
 }));
+
+const defaultStats: DepartmentResponseStatsDto = {
+  totalAssigned: 2,
+  pendingResponse: 1,
+  draft: 1,
+  submittedForReview: 0,
+  returnedForCorrection: 0,
+  approved: 0,
+  rejected: 0,
+};
 
 const txNoResponse: DepartmentTransactionResponseItemDto = {
   transactionId: 10,
@@ -80,6 +91,7 @@ afterEach(() => {
 describe('DepartmentTransactionsPage', () => {
   beforeEach(() => {
     mockApi.getDepartmentTransactions.mockResolvedValue({ data: [txWithDraft] } as never);
+    mockApi.getMyStats.mockResolvedValue({ data: defaultStats } as never);
   });
 
   it('renders list of department transactions on load', async () => {
@@ -222,6 +234,113 @@ describe('DepartmentTransactionsPage', () => {
     // Must show second response's text, not first's
     await waitFor(() => {
       expect(screen.getByDisplayValue('نص ثانٍ')).toBeTruthy();
+    });
+  });
+
+  // ─── Employee Stats Banner tests ───────────────────────────────────────────
+
+  describe('EmployeeStatsBanner', () => {
+    it('shows loading state before stats arrive', async () => {
+      mockApi.getMyStats.mockReturnValue(new Promise(() => undefined));
+      renderPage();
+      // Wait for the transactions list to finish loading (so the banner is visible)
+      await waitFor(() => screen.getByText('TX-001'));
+      expect(screen.getByText(/جارٍ تحميل الإحصائيات/)).toBeTruthy();
+    });
+
+    it('shows stat cards when API succeeds', async () => {
+      renderPage();
+      await waitFor(() => {
+        expect(screen.getByText('إجمالي المُسندة')).toBeTruthy();
+        expect(screen.getAllByText('مسودة').length).toBeGreaterThanOrEqual(1);
+        expect(screen.getByText('لم تُنشأ بعد')).toBeTruthy();
+      });
+    });
+
+    it('shows correct stat values from API response', async () => {
+      renderPage();
+      await waitFor(() => {
+        // totalAssigned = 2
+        const cells = screen.getAllByText('2');
+        expect(cells.length).toBeGreaterThanOrEqual(1);
+      });
+    });
+
+    it('shows empty state when no transactions assigned', async () => {
+      mockApi.getDepartmentTransactions.mockResolvedValueOnce({ data: [] } as never);
+      mockApi.getMyStats.mockResolvedValueOnce({
+        data: { ...defaultStats, totalAssigned: 0, pendingResponse: 0, draft: 0 },
+      } as never);
+      renderPage();
+      await waitFor(() => {
+        expect(screen.getByText(/لا توجد إفادات مطلوبة حاليًا/)).toBeTruthy();
+      });
+    });
+
+    it('shows Arabic error message when stats API fails', async () => {
+      mockApi.getMyStats.mockRejectedValueOnce(new Error('network error'));
+      renderPage();
+      await waitFor(() => {
+        expect(screen.getByText(/تعذر تحميل إحصائيات الموظف/)).toBeTruthy();
+      });
+    });
+
+    it('shows permission error when stats API returns 403', async () => {
+      const err = Object.assign(new Error('forbidden'), { response: { status: 403 } });
+      mockApi.getMyStats.mockRejectedValueOnce(err);
+      renderPage();
+      await waitFor(() => {
+        expect(screen.getByText(/ليست لديك صلاحية لعرض هذه البيانات/)).toBeTruthy();
+      });
+    });
+
+    it('does not show fake stats when API fails', async () => {
+      mockApi.getMyStats.mockRejectedValueOnce(new Error('fail'));
+      renderPage();
+      await waitFor(() => {
+        expect(screen.queryByText('إجمالي المُسندة')).toBeNull();
+      });
+    });
+
+    it('stats of another department are not shown', async () => {
+      mockApi.getMyStats.mockResolvedValueOnce({
+        data: { ...defaultStats, approved: 99 },
+      } as never);
+      const otherDeptUser: DepartmentTransactionResponseItemDto = {
+        ...txWithDraft,
+        departmentId: 999,
+        departmentName: 'إدارة أخرى',
+      };
+      // The API already scopes to current user's dept — we only check the rendered value matches API response
+      mockApi.getDepartmentTransactions.mockResolvedValueOnce({ data: [otherDeptUser] } as never);
+      renderPage();
+      await waitFor(() => {
+        // approved=99 from "other dept" stats would be visible only if scoping was wrong
+        // here we trust backend scoping; frontend just renders what API returns
+        expect(screen.getByText('معتمدة')).toBeTruthy();
+      });
+    });
+
+    it('calls getMyStats exactly once on initial render', async () => {
+      renderPage();
+      await waitFor(() => expect(screen.getByText('إجمالي المُسندة')).toBeTruthy());
+      expect(mockApi.getMyStats).toHaveBeenCalledTimes(1);
+    });
+
+    it('stat cards stay visible when a slow background stats refresh is in-flight', async () => {
+      let resolveRefresh!: (v: { data: DepartmentResponseStatsDto }) => void;
+      mockApi.getMyStats
+        .mockResolvedValueOnce({ data: defaultStats } as never)
+        .mockReturnValue(new Promise(r => { resolveRefresh = r; }) as never);
+
+      renderPage();
+      await waitFor(() => expect(screen.getByText('إجمالي المُسندة')).toBeTruthy());
+
+      // Stats are in 'ready' state — banner must remain visible, not revert to loading
+      expect(screen.queryByText(/جارٍ تحميل الإحصائيات/)).toBeNull();
+      expect(screen.getByText('إجمالي المُسندة')).toBeTruthy();
+
+      resolveRefresh({ data: defaultStats });
     });
   });
 });

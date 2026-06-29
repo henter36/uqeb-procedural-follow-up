@@ -11,6 +11,7 @@ import type {
   FollowUpLetterPrintRecord, FollowUpPrintPendingSummary, FollowUpPrintRecordPrintView, UserNotification,
   CreateDirectPrintRequest,
   DepartmentResponseDto, DepartmentResponseSummaryDto, DepartmentResponseAttachmentDto, DepartmentTransactionResponseItemDto,
+  DepartmentResponseStatsDto,
 } from './types';
 import type {
   InstitutionalReportManifest,
@@ -282,6 +283,7 @@ export const institutionalReportsApi = {
 export const departmentResponsesApi = {
   getDepartmentTransactions: () => api.get<DepartmentTransactionResponseItemDto[]>('/department-responses/department-transactions'),
   getMyResponses: () => api.get<DepartmentResponseSummaryDto[]>('/department-responses/my'),
+  getMyStats: () => api.get<DepartmentResponseStatsDto>('/department-responses/my-stats'),
   getPendingReview: () => api.get<DepartmentResponseSummaryDto[]>('/department-responses/pending-review'),
   getById: (id: number) => api.get<DepartmentResponseDto>(`/department-responses/${id}`),
   create: (data: { transactionId: number; responseText: string }) =>

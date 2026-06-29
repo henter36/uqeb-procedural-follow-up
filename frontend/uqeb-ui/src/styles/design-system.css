@@ -2428,3 +2428,82 @@
   outline-offset: 2px;
   border-radius: 2px;
 }
+
+/* ─── Employee Department Stats Banner ──────────────────────────────────────── */
+
+.dept-stats-banner {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+}
+
+.dept-stats-banner--loading {
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+
+.dept-stats-banner--error {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  border: 1px solid var(--color-danger-bg);
+}
+
+.dept-stats-banner--empty {
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  text-align: center;
+}
+
+.dept-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.dept-stat-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.75rem 0.5rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+
+.dept-stat-card--red {
+  border-color: var(--color-danger-bg);
+  background: var(--color-danger-bg);
+}
+
+.dept-stat-card--gold {
+  border-color: var(--color-warning-bg);
+  background: var(--color-warning-bg);
+}
+
+.dept-stat-card--green {
+  border-color: var(--color-success-bg);
+  background: var(--color-success-bg);
+}
+
+.dept-stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-text);
+}
+
+.dept-stat-card--red .dept-stat-value { color: var(--color-danger); }
+.dept-stat-card--gold .dept-stat-value { color: var(--color-gold); }
+.dept-stat-card--green .dept-stat-value { color: var(--color-success); }
+
+.dept-stat-label {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  line-height: 1.3;
+}
