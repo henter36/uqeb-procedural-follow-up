@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Uqeb.Api.Configuration;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.FollowUpPrint;
+using Uqeb.Api.Exceptions;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Models.Letters;
@@ -233,7 +234,7 @@ public class FollowUpPrintJobServiceTests
         var eligibility = new CountingEligibilityService([]);
         var service = CreateService(db, eligibility, new StubRenderService());
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<FollowUpPrintValidationException>(() =>
             service.CreateJobAsync(
                 new CreateFollowUpPrintJobRequest
                 {
