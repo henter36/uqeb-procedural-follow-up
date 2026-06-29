@@ -97,7 +97,7 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost]
-    [Authorize(Policy = "CanEditTransactions")]
+    [Authorize(Policy = Policies.CanEditTransactions)]
     public async Task<IActionResult> Create([FromBody] CreateTransactionRequest request)
     {
         try
@@ -124,7 +124,7 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    [Authorize(Policy = "CanEditTransactions")]
+    [Authorize(Policy = Policies.CanEditTransactions)]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateTransactionRequest request)
     {
         try
@@ -241,7 +241,7 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id}/followups")]
-    [Authorize(Policy = "CanEditTransactions")]
+    [Authorize(Policy = Policies.CanEditTransactions)]
     public async Task<IActionResult> AddFollowUp(int id, [FromBody] CreateFollowUpRequest request)
     {
         try
@@ -256,7 +256,7 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id}/followups/{followUpId}/reply")]
-    [Authorize(Policy = "CanEditTransactions")]
+    [Authorize(Policy = Policies.CanEditTransactions)]
     public async Task<IActionResult> ReplyFollowUp(int id, int followUpId, [FromBody] ReplyFollowUpRequest request)
     {
         var result = await _transactions.ReplyFollowUpAsync(id, followUpId, request, _currentUser.UserId);
@@ -278,7 +278,7 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id}/assignments")]
-    [Authorize(Policy = "CanEditTransactions")]
+    [Authorize(Policy = Policies.CanEditTransactions)]
     public async Task<IActionResult> AddAssignment(int id, [FromBody] CreateAssignmentRequest request)
     {
         try
@@ -293,7 +293,7 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id}/assignments/{assignmentId}/reply")]
-    [Authorize(Policy = "CanEditTransactions")]
+    [Authorize(Policy = Policies.CanEditTransactions)]
     public async Task<IActionResult> ReplyAssignment(int id, int assignmentId, [FromBody] ReplyAssignmentRequest request)
     {
         try
@@ -314,7 +314,7 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id}/attachments")]
-    [Authorize(Policy = "CanEditTransactions")]
+    [Authorize(Policy = Policies.CanEditTransactions)]
     [RequestSizeLimit(50_000_000)]
     public async Task<IActionResult> UploadAttachment(int id, IFormFile file, [FromForm] string? attachmentType)
     {
@@ -353,7 +353,7 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id}/follow-up-letter/preview")]
-    [Authorize(Policy = "CanEditTransactions")]
+    [Authorize(Policy = Policies.CanEditTransactions)]
     public async Task<IActionResult> PreviewFollowUpLetter(int id, [FromBody] FollowUpLetterRequest? request)
     {
         var result = await _letterTemplates.RenderFollowUpLetterAsync(
@@ -365,7 +365,7 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id}/follow-up-letter/pdf")]
-    [Authorize(Policy = "CanEditTransactions")]
+    [Authorize(Policy = Policies.CanEditTransactions)]
     public async Task<IActionResult> DownloadFollowUpLetterPdf(int id, [FromBody] FollowUpLetterRequest? request)
     {
         var bytes = await _letterTemplates.GenerateFollowUpLetterPdfAsync(

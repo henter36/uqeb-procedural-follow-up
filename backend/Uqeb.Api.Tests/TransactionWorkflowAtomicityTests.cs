@@ -321,6 +321,7 @@ public class TransactionWorkflowAtomicityTests
         var created = await service.CreateAsync(BuildCreateRequest(11), userId: 1);
         var assignment = await db.Assignments.SingleAsync(a => a.TransactionId == created!.Id && a.DepartmentId == 11);
         assignment.RequiresReply = true;
+        assignment.ReplyStatus = ReplyStatus.Replied;
         assignment.Status = AssignmentStatus.Completed;
         await db.SaveChangesAsync();
         cache.ResetInvalidations();
