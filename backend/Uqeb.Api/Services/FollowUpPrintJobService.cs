@@ -179,10 +179,57 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
             throw;
         }
 
-        await FollowUpPrintAuditWriter.LogJobQueuedAsync(_audit, currentUser.UserId, job.Id, $"letters={ordinal};batchSize={batchSize}");
+        // Audit is best-effort: the job is already committed; do not fail the response over an audit write.
+        try
+        {
+            await FollowUpPrintAuditWriter.LogJobQueuedAsync(_audit, currentUser.UserId, job.Id, $"letters={ordinal};batchSize={batchSize}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Audit log failed for committed print job {JobId}. Job was created successfully.", job.Id);
+        }
 
-        return (await GetJobAsync(job.Id, currentUser, cancellationToken))!;
+        // Use CancellationToken.None: the original token may be cancelled if the client disconnected
+        // after commit, but the job is committed — we must return a valid response regardless.
+        try
+        {
+            var dto = await GetJobAsync(job.Id, currentUser, CancellationToken.None);
+            if (dto != null)
+                return dto;
+            _logger.LogWarning("GetJobAsync returned null for committed print job {JobId}. Returning fallback DTO.", job.Id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "GetJobAsync failed for committed print job {JobId}. Returning fallback DTO.", job.Id);
+        }
+
+        return BuildFallbackJobDto(job);
     }
+
+    private static FollowUpPrintJobDto BuildFallbackJobDto(FollowUpPrintJob job) => new()
+    {
+        Id = job.Id,
+        Status = job.Status,
+        TemplateId = job.TemplateId,
+        TotalTransactions = job.TotalTransactions,
+        TotalLetters = job.TotalLetters,
+        ProcessedLetters = job.ProcessedLetters,
+        ReadyLetters = job.ReadyLetters,
+        FailedLetters = job.FailedLetters,
+        SkippedLetters = job.SkippedLetters,
+        TotalParts = job.TotalParts,
+        ReadyParts = job.ReadyParts,
+        PrintedParts = job.PrintedParts,
+        CurrentPart = job.CurrentPart,
+        CreatedAt = job.CreatedAt,
+        StartedAt = job.StartedAt,
+        ReadyAt = job.ReadyAt,
+        CompletedAt = job.CompletedAt,
+        FailedAt = job.FailedAt,
+        CancelledAt = job.CancelledAt,
+        FailureReason = job.FailureReason,
+        Parts = [],
+    };
 
     public Task<FollowUpPrintEligibilityPreviewDto> PreviewJobAsync(
         CreateFollowUpPrintJobRequest request,

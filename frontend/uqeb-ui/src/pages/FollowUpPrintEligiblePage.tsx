@@ -193,7 +193,12 @@ export default function FollowUpPrintEligiblePage() {
       // Navigate to the job detail page so the user can track progress and print
       navigate(`/follow-up-print/jobs/${res.data.id}`);
     } catch (err: unknown) {
-      setError(getApiErrorMessage(err) || 'تعذر إنشاء مهمة الطباعة.');
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status === 500) {
+        setError('تعذر تأكيد إنشاء المهمة. تحقق من قائمة المهام قبل إعادة المحاولة.');
+      } else {
+        setError(getApiErrorMessage(err) || 'تعذر إنشاء مهمة الطباعة.');
+      }
     } finally {
       setCreating(false);
     }
