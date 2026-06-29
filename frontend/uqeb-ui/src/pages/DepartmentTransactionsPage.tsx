@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { departmentResponsesApi } from '../api/services';
-import type { DepartmentResponseDto, DepartmentTransactionResponseItemDto } from '../api/types';
+import type { DepartmentResponseDto, DepartmentTransactionResponseItemDto, DepartmentResponseStatsDto } from '../api/types';
 import { EmptyState, ErrorState, PageHeader } from '../components/ui';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -33,6 +33,76 @@ type ViewState =
   | { kind: 'list' }
   | { kind: 'new'; transactionId: number; subject: string; trackingNumber: string }
   | { kind: 'detail'; id: number };
+
+// ─── EmployeeStatsBanner ──────────────────────────────────────────────────────
+
+type StatsBannerState =
+  | { kind: 'loading' }
+  | { kind: 'error'; message: string }
+  | { kind: 'ready'; stats: DepartmentResponseStatsDto };
+
+type StatCardProps = Readonly<{
+  label: string;
+  value: number;
+  tone?: 'default' | 'red' | 'gold' | 'green';
+}>;
+
+type StatCardTone = NonNullable<StatCardProps['tone']>;
+
+function StatCard({ label, value, tone = 'default' }: StatCardProps) {
+  const toneClass: Record<StatCardTone, string> = {
+    default: 'dept-stat-card',
+    red: 'dept-stat-card dept-stat-card--red',
+    gold: 'dept-stat-card dept-stat-card--gold',
+    green: 'dept-stat-card dept-stat-card--green',
+  };
+  return (
+    <div className={toneClass[tone]}>
+      <span className="dept-stat-value">{value}</span>
+      <span className="dept-stat-label">{label}</span>
+    </div>
+  );
+}
+
+function EmployeeStatsBanner({ state }: Readonly<{ state: StatsBannerState }>) {
+  if (state.kind === 'loading') {
+    return (
+      <div className="dept-stats-banner dept-stats-banner--loading" role="status" aria-live="polite">
+        جارٍ تحميل الإحصائيات...
+      </div>
+    );
+  }
+
+  if (state.kind === 'error') {
+    return (
+      <div className="dept-stats-banner dept-stats-banner--error" role="alert">
+        {state.message}
+      </div>
+    );
+  }
+
+  const { stats } = state;
+
+  if (stats.totalAssigned === 0) {
+    return (
+      <div className="dept-stats-banner dept-stats-banner--empty">
+        لا توجد إفادات مطلوبة حاليًا.
+      </div>
+    );
+  }
+
+  return (
+    <section className="dept-stats-grid" aria-label="إحصائيات إفادات إدارتي">
+      <StatCard label="إجمالي المُسندة" value={stats.totalAssigned} />
+      <StatCard label="لم تُنشأ بعد" value={stats.pendingResponse} tone={stats.pendingResponse > 0 ? 'gold' : 'default'} />
+      <StatCard label="مسودة" value={stats.draft} />
+      <StatCard label="بانتظار المراجعة" value={stats.submittedForReview} tone="gold" />
+      <StatCard label="أُعيدت للتصحيح" value={stats.returnedForCorrection} tone={stats.returnedForCorrection > 0 ? 'red' : 'default'} />
+      <StatCard label="معتمدة" value={stats.approved} tone="green" />
+      <StatCard label="مرفوضة" value={stats.rejected} tone={stats.rejected > 0 ? 'red' : 'default'} />
+    </section>
+  );
+}
 
 // ─── LoadingView ──────────────────────────────────────────────────────────────
 
@@ -95,14 +165,16 @@ function TransactionActionCell({ tx, onOpenCreate, onOpenDetail }: TransactionAc
 
 type TransactionsListViewProps = Readonly<{
   transactions: DepartmentTransactionResponseItemDto[];
+  statsState: StatsBannerState;
   onOpenCreate: (tx: DepartmentTransactionResponseItemDto) => void;
   onOpenDetail: (id: number) => void;
 }>;
 
-function TransactionsListView({ transactions, onOpenCreate, onOpenDetail }: TransactionsListViewProps) {
+function TransactionsListView({ transactions, statsState, onOpenCreate, onOpenDetail }: TransactionsListViewProps) {
   return (
     <div className="page-container" dir="rtl">
       <PageHeader title="معاملات إدارتي" />
+      <EmployeeStatsBanner state={statsState} />
       {transactions.length === 0 ? (
         <EmptyState title="لا توجد معاملات مسندة لإدارتك حالياً" />
       ) : (
@@ -366,6 +438,7 @@ export default function DepartmentTransactionsPage() {
   const [form, setForm] = useState({ responseText: '' });
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [statsState, setStatsState] = useState<StatsBannerState>({ kind: 'loading' });
 
   const openRequestedTransaction = useCallback((items: DepartmentTransactionResponseItemDto[]) => {
     if (!Number.isFinite(requestedTransactionId) || requestedTransactionId <= 0) return;
@@ -380,8 +453,23 @@ export default function DepartmentTransactionsPage() {
     }
   }, [requestedTransactionId]);
 
-  const loadList = useCallback(async () => {
-    setLoading(true);
+  const loadStats = useCallback(async () => {
+    setStatsState({ kind: 'loading' });
+    try {
+      const res = await departmentResponsesApi.getMyStats();
+      setStatsState({ kind: 'ready', stats: res.data });
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status === 403) {
+        setStatsState({ kind: 'error', message: 'ليست لديك صلاحية لعرض هذه البيانات.' });
+      } else {
+        setStatsState({ kind: 'error', message: 'تعذر تحميل إحصائيات الموظف.' });
+      }
+    }
+  }, []);
+
+  const loadList = useCallback(async (background = false) => {
+    if (!background) setLoading(true);
     setError(null);
     try {
       const res = await departmentResponsesApi.getDepartmentTransactions();
@@ -392,14 +480,15 @@ export default function DepartmentTransactionsPage() {
       setError('تعذر تحميل بيانات المعاملات');
       return [];
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
   }, [openRequestedTransaction]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadStats();
     loadList().catch(() => undefined);
-  }, [loadList]);
+  }, [loadList, loadStats]);
 
   async function openDetail(responseId: number) {
     setDetailLoading(true);
@@ -432,7 +521,7 @@ export default function DepartmentTransactionsPage() {
     setSaving(true);
     try {
       const res = await departmentResponsesApi.create({ transactionId: view.transactionId, responseText: form.responseText });
-      await loadList();
+      await Promise.all([loadList(true), loadStats()]);
       await openDetail(res.data.id);
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -465,7 +554,7 @@ export default function DepartmentTransactionsPage() {
     try {
       const res = await departmentResponsesApi.submit(detail.id);
       setDetail(res.data);
-      await loadList();
+      await Promise.all([loadList(true), loadStats()]);
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
       setFormError(msg ?? 'حدث خطأ أثناء التقديم');
@@ -544,6 +633,7 @@ export default function DepartmentTransactionsPage() {
   return (
     <TransactionsListView
       transactions={transactions}
+      statsState={statsState}
       onOpenCreate={openCreate}
       onOpenDetail={openDetail}
     />

@@ -35,6 +35,11 @@ public class DepartmentResponsesController : ControllerBase
     public async Task<IActionResult> GetMyResponses()
         => Ok(await _service.GetMyDepartmentResponsesAsync(_currentUser));
 
+    [HttpGet("my-stats")]
+    [Authorize(Policy = Policies.SubmitDepartmentResponse)]
+    public async Task<IActionResult> GetMyStats()
+        => Ok(await _service.GetMyStatsAsync(_currentUser));
+
     [HttpGet("pending-review")]
     [Authorize(Policy = Policies.ReviewDepartmentResponse)]
     public async Task<IActionResult> GetPendingReview(CancellationToken cancellationToken)
