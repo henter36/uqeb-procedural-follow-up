@@ -26,24 +26,26 @@ function buildJob(overrides: Partial<FollowUpPrintJob> = {}): FollowUpPrintJob {
     readyLetters: 0,
     failedLetters: 0,
     skippedLetters: 0,
-    totalParts: 1,
+    totalParts: 0,
     readyParts: 0,
     printedParts: 0,
     currentPart: 0,
     createdAt: '2026-06-29T08:45:00Z',
-    parts: [
-      {
-        id: 10,
-        jobId: 1,
-        partNumber: 1,
-        status: 'Pending',
-        letterCount: 1,
-        estimatedPages: 1,
-        createdAt: '2026-06-29T08:45:00Z',
-      },
-    ],
+    parts: [],
     ...overrides,
   };
+}
+
+function mockPageOpenedBeforeGrace() {
+  vi.mocked(Date.now)
+    .mockReturnValueOnce(new Date('2026-06-29T08:59:00Z').getTime())
+    .mockReturnValue(new Date('2026-06-29T09:00:00Z').getTime());
+}
+
+function mockPageOpenedAfterGrace() {
+  vi.mocked(Date.now)
+    .mockReturnValueOnce(new Date('2026-06-29T08:57:00Z').getTime())
+    .mockReturnValue(new Date('2026-06-29T09:00:00Z').getTime());
 }
 
 async function renderJob(job: FollowUpPrintJob) {
@@ -70,6 +72,7 @@ describe('FollowUpPrintJobDetailPage stale warning', () => {
   });
 
   it('does not show stale warning for a recent queued job', async () => {
+    mockPageOpenedAfterGrace();
     await renderJob(buildJob({ status: 'Queued', createdAt: '2026-06-29T08:45:00Z' }));
 
     expect(screen.getByText(/المهمة في طابور الانتظار/)).toBeInTheDocument();
@@ -77,6 +80,7 @@ describe('FollowUpPrintJobDetailPage stale warning', () => {
   });
 
   it('does not show stale warning for a recent processing job', async () => {
+    mockPageOpenedAfterGrace();
     await renderJob(buildJob({ status: 'Processing', createdAt: '2026-06-29T08:45:00Z' }));
 
     expect(screen.getByText(/جارٍ تجهيز الخطابات/)).toBeInTheDocument();
@@ -84,23 +88,50 @@ describe('FollowUpPrintJobDetailPage stale warning', () => {
   });
 
   it('does not show stale warning for ReadyToPrint', async () => {
+    mockPageOpenedAfterGrace();
     await renderJob(buildJob({ status: 'ReadyToPrint', createdAt: '2026-06-29T07:00:00Z' }));
 
     expect(screen.queryByText(staleMessage)).not.toBeInTheDocument();
   });
 
-  it('does not show stale warning when there is ready progress', async () => {
+  it('does not show stale warning for createdAt without timezone', async () => {
+    mockPageOpenedAfterGrace();
+    await renderJob(buildJob({ status: 'Queued', createdAt: '2026-06-29T07:00:00' }));
+
+    expect(screen.queryByText(staleMessage)).not.toBeInTheDocument();
+  });
+
+  it('does not show stale warning during the first two minutes after opening the page', async () => {
+    mockPageOpenedBeforeGrace();
+    await renderJob(buildJob({ status: 'Queued', createdAt: '2026-06-29T07:00:00Z' }));
+
+    expect(screen.queryByText(staleMessage)).not.toBeInTheDocument();
+  });
+
+  it('does not show stale warning when startedAt exists', async () => {
+    mockPageOpenedAfterGrace();
     await renderJob(buildJob({
       status: 'Processing',
       createdAt: '2026-06-29T07:00:00Z',
-      readyLetters: 1,
-      readyParts: 1,
+      startedAt: '2026-06-29T07:01:00Z',
+    }));
+
+    expect(screen.queryByText(staleMessage)).not.toBeInTheDocument();
+  });
+
+  it('does not show stale warning when processedLetters is positive', async () => {
+    mockPageOpenedAfterGrace();
+    await renderJob(buildJob({
+      status: 'Processing',
+      createdAt: '2026-06-29T07:00:00Z',
+      processedLetters: 1,
     }));
 
     expect(screen.queryByText(staleMessage)).not.toBeInTheDocument();
   });
 
   it('does not show stale warning when a part is printable', async () => {
+    mockPageOpenedAfterGrace();
     await renderJob(buildJob({
       status: 'Processing',
       createdAt: '2026-06-29T07:00:00Z',
@@ -122,6 +153,7 @@ describe('FollowUpPrintJobDetailPage stale warning', () => {
   });
 
   it('shows stale warning for an old queued job without progress', async () => {
+    mockPageOpenedAfterGrace();
     await renderJob(buildJob({ status: 'Queued', createdAt: '2026-06-29T07:00:00Z' }));
 
     expect(screen.getByText(staleMessage)).toBeInTheDocument();
