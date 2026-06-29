@@ -108,7 +108,7 @@ describe('FollowUpPrintJobDetailPage stale warning', () => {
     expect(screen.queryByText(staleMessage)).not.toBeInTheDocument();
   });
 
-  it('does not show stale warning when startedAt exists', async () => {
+  it('shows stale warning when only startedAt exists without generation progress', async () => {
     mockPageOpenedAfterGrace();
     await renderJob(buildJob({
       status: 'Processing',
@@ -116,7 +116,7 @@ describe('FollowUpPrintJobDetailPage stale warning', () => {
       startedAt: '2026-06-29T07:01:00Z',
     }));
 
-    expect(screen.queryByText(staleMessage)).not.toBeInTheDocument();
+    expect(screen.getByText(staleMessage)).toBeInTheDocument();
   });
 
   it('does not show stale warning when processedLetters is positive', async () => {

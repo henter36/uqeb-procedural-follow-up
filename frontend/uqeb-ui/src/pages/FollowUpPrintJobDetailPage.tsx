@@ -82,19 +82,31 @@ function hasReliableCreatedAt(createdAt: string, now: number): number | null {
 }
 
 function hasJobProgress(job: FollowUpPrintJob): boolean {
-  if (job.startedAt) return true;
-  if (job.processedLetters > 0 || job.readyLetters > 0 || job.failedLetters > 0 || job.skippedLetters > 0) return true;
-  if (job.readyParts > 0 || job.totalParts > 0 || job.parts.length > 0) return true;
+  if (job.processedLetters > 0 || job.readyLetters > 0 || job.failedLetters > 0 || job.skippedLetters > 0) {
+    return true;
+  }
+
+  if (job.readyParts > 0 || job.printedParts > 0) {
+    return true;
+  }
+
   return job.parts.some((part) =>
-    Boolean(part.readyAt) || ['ReadyToPrint', 'PartiallyReady', 'Printed'].includes(part.status));
+    Boolean(part.readyAt)
+    || Boolean(part.printedAt)
+    || ['ReadyToPrint', 'PartiallyReady', 'Printed'].includes(part.status));
 }
 
 function isJobStale(job: FollowUpPrintJob, pageOpenedAt: number | null): boolean {
   if (pageOpenedAt === null) return false;
+
   const now = Date.now();
+
   if (now - pageOpenedAt < STALE_PAGE_GRACE_MS) return false;
+
   if (!(['Queued', 'Processing'] as FollowUpPrintJobStatus[]).includes(job.status)) return false;
+
   if (hasJobProgress(job)) return false;
+
   const createdAt = hasReliableCreatedAt(job.createdAt, now);
   return createdAt !== null && now - createdAt > STALE_THRESHOLD_MS;
 }
