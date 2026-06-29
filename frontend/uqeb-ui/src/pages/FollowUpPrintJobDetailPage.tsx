@@ -74,7 +74,13 @@ const STALE_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
 
 function isJobStale(job: FollowUpPrintJob): boolean {
   if (!(['Queued', 'Processing'] as FollowUpPrintJobStatus[]).includes(job.status)) return false;
-  return Date.now() - new Date(job.createdAt).getTime() > STALE_THRESHOLD_MS;
+  const createdAt = Date.parse(job.createdAt);
+  if (!Number.isFinite(createdAt)) return false;
+  if (Date.now() - createdAt < STALE_THRESHOLD_MS) return false;
+  if (job.startedAt) return false;
+  if (job.processedLetters > 0 || job.readyLetters > 0 || job.readyParts > 0) return false;
+  if (job.parts.some((part) => isPartPrintable(part) || Boolean(part.readyAt))) return false;
+  return true;
 }
 
 function getJobGuidanceAlert(

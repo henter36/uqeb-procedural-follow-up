@@ -89,29 +89,25 @@ public sealed class FollowUpPrintEligibilityService : IFollowUpPrintEligibilityS
         var page = Math.Max(filter.Page, 1);
         var pageSize = Math.Clamp(filter.PageSize, 1, _options.AbsoluteMaxBatchPrintSize);
 
-        var totalCount = await eligibleQuery.CountAsync(cancellationToken);
-        var rows = await eligibleQuery
+        var eligibleRows = await eligibleQuery
             .OrderBy(x => x.ReferenceDate)
             .ThenBy(x => x.IncomingNumber)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
             .ToListAsync(cancellationToken);
 
-        var targetsByTransaction = await _renderService.ResolveTargetEntitiesBulkAsync(
-            rows.Select(r => r.TransactionId).ToList(),
-            cancellationToken);
+        var rowsWithTargets = await BuildRowsWithValidTargetsAsync(eligibleRows, cancellationToken);
+        var totalCount = rowsWithTargets.Count;
+        var pageRows = rowsWithTargets
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToList();
 
         return new PagedEligibleTransactionsDto
         {
             TotalCount = totalCount,
             Page = page,
             PageSize = pageSize,
-            Items = rows
-                .Select(row =>
-                {
-                    targetsByTransaction.TryGetValue(row.TransactionId, out var targets);
-                    return MapEligible(row, today, snapshot.ExcludeRecentlyPrinted, exclusionCutoff, _timeZone, targets ?? []);
-                })
+            Items = pageRows
+                .Select(row => MapEligible(row.Candidate, today, snapshot.ExcludeRecentlyPrinted, exclusionCutoff, _timeZone, row.ValidTargets))
                 .ToList(),
         };
     }
@@ -172,9 +168,6 @@ public sealed class FollowUpPrintEligibilityService : IFollowUpPrintEligibilityS
                 continue;
             }
 
-            // Count only targets that will actually become payloads: exactly one positive
-            // ID, de-duplicated. Mirrors the logic in FollowUpPrintJobService.BuildValidCandidates
-            // so the preview count matches what the job will actually contain.
             var validCount = CountValidUniqueTargets(targets);
             if (validCount == 0)
             {
@@ -287,7 +280,7 @@ public sealed class FollowUpPrintEligibilityService : IFollowUpPrintEligibilityS
         if (currentUser?.Role == UserRole.DepartmentUser && currentUser.DepartmentId.HasValue)
         {
             var departmentId = currentUser.DepartmentId.Value;
-            query = query.Where(t => t.Assignments.Any(a => a.DepartmentId == departmentId));
+            query = query.Where(t => t.Assignments.Any(a => a.DepartmentId == departmentId && a.Status == AssignmentStatus.Active));
         }
 
         return query;
@@ -344,7 +337,8 @@ public sealed class FollowUpPrintEligibilityService : IFollowUpPrintEligibilityS
         var result = new List<EligibleCandidateWithTargets>();
         foreach (var candidate in candidates)
         {
-            if (!targetsByTransaction.TryGetValue(candidate.TransactionId, out var targets) || targets.Count == 0)
+            if (!targetsByTransaction.TryGetValue(candidate.TransactionId, out var targets) ||
+                CountValidUniqueTargets(targets) == 0)
                 continue;
 
             result.Add(new EligibleCandidateWithTargets
@@ -376,16 +370,9 @@ public sealed class FollowUpPrintEligibilityService : IFollowUpPrintEligibilityS
                 continue;
 
             var sequence = FollowUpSequenceCalculator.CalculateExpectedSequence(candidate.FollowUpCount);
-            var seen = new HashSet<(int?, int?)>();
-            foreach (var target in targets)
+            foreach (var target in GetValidUniqueTargets(targets))
             {
-                // Mirror FollowUpPrintJobService.BuildValidCandidates: valid shape + unique IDs.
-                var hasDept = target.DepartmentId is > 0;
-                var hasEntity = target.ExternalPartyId is > 0;
-                if (!(hasDept ^ hasEntity)) continue;
-                var deptId = hasDept ? target.DepartmentId : null;
-                var entityId = hasEntity ? target.ExternalPartyId : null;
-                if (!seen.Add((deptId, entityId))) continue;
+                var (deptId, entityId) = NormalizeTargetIds(target);
 
                 payloads.Add(new FollowUpPrintJobLetterPayload
                 {
@@ -441,18 +428,61 @@ public sealed class FollowUpPrintEligibilityService : IFollowUpPrintEligibilityS
     /// Mirrors FollowUpPrintJobService.BuildValidCandidates so preview counts match actual job counts.
     /// </summary>
     private static int CountValidUniqueTargets(IReadOnlyList<FollowUpLetterTargetEntity> targets)
+        => GetValidUniqueTargets(targets).Count;
+
+    private static List<FollowUpLetterTargetEntity> GetValidUniqueTargets(IReadOnlyList<FollowUpLetterTargetEntity> targets)
     {
         var seen = new HashSet<(int?, int?)>();
-        var count = 0;
+        var validTargets = new List<FollowUpLetterTargetEntity>();
         foreach (var target in targets)
         {
-            var hasDept = target.DepartmentId is > 0;
-            var hasEntity = target.ExternalPartyId is > 0;
-            if (!(hasDept ^ hasEntity)) continue;
-            if (seen.Add((hasDept ? target.DepartmentId : null, hasEntity ? target.ExternalPartyId : null)))
-                count++;
+            if (!IsValidTargetShape(target))
+                continue;
+
+            if (seen.Add(BuildDeduplicationKey(target)))
+                validTargets.Add(target);
         }
-        return count;
+        return validTargets;
+    }
+
+    private static bool IsValidTargetShape(FollowUpLetterTargetEntity target)
+    {
+        var hasDept = target.DepartmentId is > 0;
+        var hasEntity = target.ExternalPartyId is > 0;
+        return hasDept ^ hasEntity;
+    }
+
+    private static (int? DepartmentId, int? ExternalPartyId) NormalizeTargetIds(FollowUpLetterTargetEntity target) => (
+        target.DepartmentId is > 0 ? target.DepartmentId : null,
+        target.ExternalPartyId is > 0 ? target.ExternalPartyId : null);
+
+    private static (int? DepartmentId, int? ExternalPartyId) BuildDeduplicationKey(FollowUpLetterTargetEntity target)
+        => NormalizeTargetIds(target);
+
+    private async Task<List<CandidateRowWithTargets>> BuildRowsWithValidTargetsAsync(
+        IReadOnlyList<CandidateRow> candidates,
+        CancellationToken cancellationToken)
+    {
+        if (candidates.Count == 0)
+            return [];
+
+        var targetsByTransaction = await _renderService.ResolveTargetEntitiesBulkAsync(
+            candidates.Select(c => c.TransactionId).ToList(),
+            cancellationToken);
+
+        var result = new List<CandidateRowWithTargets>();
+        foreach (var candidate in candidates)
+        {
+            if (!targetsByTransaction.TryGetValue(candidate.TransactionId, out var targets))
+                continue;
+
+            var validTargets = GetValidUniqueTargets(targets);
+            if (validTargets.Count == 0)
+                continue;
+
+            result.Add(new CandidateRowWithTargets(candidate, validTargets));
+        }
+        return result;
     }
 
     private DateTime ComputeExclusionThresholdUtc(DateTime exclusionCutoffDisplayDate)
@@ -492,4 +522,8 @@ public sealed class FollowUpPrintEligibilityService : IFollowUpPrintEligibilityS
         public DateTime ReferenceDate { get; init; }
         public DateTime? LastPrintRequestedAt { get; init; }
     }
+
+    private sealed record CandidateRowWithTargets(
+        CandidateRow Candidate,
+        IReadOnlyList<FollowUpLetterTargetEntity> ValidTargets);
 }

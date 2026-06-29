@@ -124,7 +124,7 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         var validCandidates = BuildValidCandidates(rawCandidates);
 
         if (validCandidates.Count == 0)
-            throw new FollowUpPrintValidationException("لا توجد جهات صالحة للطباعة وفق الفلاتر الحالية.");
+            throw new FollowUpPrintValidationException("لا توجد معاملات أو جهات صالحة للطباعة وفق الفلاتر الحالية.");
 
         var counts = new FollowUpPrintJobCounts(
             validCandidates.Count,
@@ -824,45 +824,7 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         var result = new List<EligibleCandidateWithTargets>();
         foreach (var candidate in candidates)
         {
-            var seen = new HashSet<(int?, int?)>();
-            var validTargets = new List<FollowUpLetterTargetEntity>();
-            foreach (var target in candidate.Targets)
-            {
-                if (!HasValidTargetShape(target))
-                {
-                    _logger.LogWarning(
-                        "Skipping target with invalid shape. " +
-                        "TransactionId={TransactionId}, DepartmentId={DepartmentId}, " +
-                        "ExternalPartyId={ExternalPartyId}, TargetName={TargetName}. " +
-                        "Reason=InvalidTargetShape",
-                        candidate.TransactionId,
-                        target.DepartmentId,
-                        target.ExternalPartyId,
-                        target.Name);
-                    continue;
-                }
-
-                // Normalize IDs (treat 0 as null) before de-duplication so the key
-                // matches what will actually be stored in the payload.
-                var deptId = target.DepartmentId is > 0 ? target.DepartmentId : null;
-                var entityId = target.ExternalPartyId is > 0 ? target.ExternalPartyId : null;
-
-                if (!seen.Add((deptId, entityId)))
-                {
-                    _logger.LogWarning(
-                        "Skipping duplicate target. " +
-                        "TransactionId={TransactionId}, DepartmentId={DepartmentId}, " +
-                        "ExternalPartyId={ExternalPartyId}, TargetName={TargetName}. " +
-                        "Reason=DuplicateTarget",
-                        candidate.TransactionId,
-                        deptId,
-                        entityId,
-                        target.Name);
-                    continue;
-                }
-
-                validTargets.Add(target);
-            }
+            var validTargets = BuildValidTargets(candidate);
 
             if (validTargets.Count > 0)
                 result.Add(new EligibleCandidateWithTargets
@@ -875,6 +837,37 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         return result;
     }
 
+    private List<FollowUpLetterTargetEntity> BuildValidTargets(EligibleCandidateWithTargets candidate)
+    {
+        var seen = new HashSet<(int?, int?)>();
+        var validTargets = new List<FollowUpLetterTargetEntity>();
+        foreach (var target in candidate.Targets)
+            TryAddValidTarget(candidate.TransactionId, target, seen, validTargets);
+        return validTargets;
+    }
+
+    private void TryAddValidTarget(
+        int transactionId,
+        FollowUpLetterTargetEntity target,
+        HashSet<(int?, int?)> seen,
+        List<FollowUpLetterTargetEntity> validTargets)
+    {
+        if (!HasValidTargetShape(target))
+        {
+            LogSkippedInvalidTarget(transactionId, target);
+            return;
+        }
+
+        var key = BuildDeduplicationKey(target);
+        if (!seen.Add(key))
+        {
+            LogSkippedDuplicateTarget(transactionId, target, key);
+            return;
+        }
+
+        validTargets.Add(target);
+    }
+
     /// <summary>
     /// A target has a valid shape when exactly one of DepartmentId / ExternalPartyId is a positive integer.
     /// Zero is treated as absent — it would not satisfy a FK on the departments/parties tables.
@@ -884,6 +877,42 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         var hasDept = target.DepartmentId is > 0;
         var hasEntity = target.ExternalPartyId is > 0;
         return hasDept ^ hasEntity;
+    }
+
+    private static (int? DepartmentId, int? ExternalPartyId) NormalizeTargetIds(FollowUpLetterTargetEntity target) => (
+        target.DepartmentId is > 0 ? target.DepartmentId : null,
+        target.ExternalPartyId is > 0 ? target.ExternalPartyId : null);
+
+    private static (int? DepartmentId, int? ExternalPartyId) BuildDeduplicationKey(FollowUpLetterTargetEntity target)
+        => NormalizeTargetIds(target);
+
+    private void LogSkippedInvalidTarget(int transactionId, FollowUpLetterTargetEntity target)
+    {
+        _logger.LogWarning(
+            "Skipping target with invalid shape. " +
+            "TransactionId={TransactionId}, DepartmentId={DepartmentId}, " +
+            "ExternalPartyId={ExternalPartyId}, TargetName={TargetName}. " +
+            "Reason=InvalidTargetShape",
+            transactionId,
+            target.DepartmentId,
+            target.ExternalPartyId,
+            target.Name);
+    }
+
+    private void LogSkippedDuplicateTarget(
+        int transactionId,
+        FollowUpLetterTargetEntity target,
+        (int? DepartmentId, int? ExternalPartyId) key)
+    {
+        _logger.LogWarning(
+            "Skipping duplicate target. " +
+            "TransactionId={TransactionId}, DepartmentId={DepartmentId}, " +
+            "ExternalPartyId={ExternalPartyId}, TargetName={TargetName}. " +
+            "Reason=DuplicateTarget",
+            transactionId,
+            key.DepartmentId,
+            key.ExternalPartyId,
+            target.Name);
     }
 
     private async Task PersistIdempotencyKeyAsync(

@@ -52,6 +52,10 @@ export default function FollowUpPrintEligiblePage() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
+  const resetCreationIntent = useCallback(() => {
+    setIdempotencyKey(createIdempotencyKey());
+  }, []);
+
   const buildFilter = useCallback(() => ({
     daysSinceLastFollowUp: appliedFilters.daysSinceLastFollowUp,
     excludeRecentlyPrinted: appliedFilters.excludeRecentlyPrinted,
@@ -130,7 +134,7 @@ export default function FollowUpPrintEligiblePage() {
     setAppliedFilters({ ...draftFilters, page: 1 });
     // New filter intent → new idempotency key so a subsequent job creation
     // is treated as a fresh request, not a retry of the previous one.
-    setIdempotencyKey(createIdempotencyKey());
+    resetCreationIntent();
   };
 
   const renderTransactionsContent = () => {
@@ -175,8 +179,14 @@ export default function FollowUpPrintEligiblePage() {
           pageSize={appliedFilters.pageSize}
           total={totalCount}
           itemCount={items.length}
-          onPageChange={(page) => setAppliedFilters((prev) => ({ ...prev, page }))}
-          onPageSizeChange={(pageSize) => setAppliedFilters((prev) => ({ ...prev, pageSize, page: 1 }))}
+          onPageChange={(page) => {
+            setAppliedFilters((prev) => ({ ...prev, page }));
+            resetCreationIntent();
+          }}
+          onPageSizeChange={(pageSize) => {
+            setAppliedFilters((prev) => ({ ...prev, pageSize, page: 1 }));
+            resetCreationIntent();
+          }}
         />
       </>
     );
@@ -205,6 +215,7 @@ export default function FollowUpPrintEligiblePage() {
         signatoryNameOverride: signatoryNameOverride.trim() || undefined,
       });
       // Navigate to the job detail page so the user can track progress and print
+      resetCreationIntent();
       navigate(`/follow-up-print/jobs/${res.data.id}`);
     } catch (err: unknown) {
       const status = (err as { response?: { status?: number } })?.response?.status;
@@ -318,6 +329,7 @@ export default function FollowUpPrintEligiblePage() {
               onChange={(e) => {
                 const newId = e.target.value;
                 const tmpl = templates.find((t) => String(t.id) === newId);
+                resetCreationIntent();
                 if (!tmpl) { setTemplateId(newId); return; }
                 const hasDefaults = tmpl.defaultSignatoryPosition || tmpl.defaultSignatoryName || tmpl.defaultSignatoryRank;
                 const hasManualValues = signatoryEditedManually && (signatoryPosition || signatoryRank || signatoryNameOverride);
@@ -344,7 +356,7 @@ export default function FollowUpPrintEligiblePage() {
                 type="number"
                 min={1}
                 value={responseDeadlineDays}
-                onChange={(e) => setResponseDeadlineDays(e.target.value)}
+                onChange={(e) => { setResponseDeadlineDays(e.target.value); resetCreationIntent(); }}
               />
             </div>
             <div className="form-group">
@@ -352,7 +364,7 @@ export default function FollowUpPrintEligiblePage() {
               <input
                 id="signatory-position"
                 value={signatoryPosition}
-                onChange={(e) => { setSignatoryPosition(e.target.value); setSignatoryEditedManually(true); }}
+                onChange={(e) => { setSignatoryPosition(e.target.value); setSignatoryEditedManually(true); resetCreationIntent(); }}
                 placeholder="مدير الإدارة"
               />
             </div>
@@ -361,7 +373,7 @@ export default function FollowUpPrintEligiblePage() {
               <input
                 id="signatory-rank"
                 value={signatoryRank}
-                onChange={(e) => { setSignatoryRank(e.target.value); setSignatoryEditedManually(true); }}
+                onChange={(e) => { setSignatoryRank(e.target.value); setSignatoryEditedManually(true); resetCreationIntent(); }}
                 placeholder="عميد"
               />
             </div>
@@ -370,7 +382,7 @@ export default function FollowUpPrintEligiblePage() {
               <input
                 id="signatory-name-override"
                 value={signatoryNameOverride}
-                onChange={(e) => { setSignatoryNameOverride(e.target.value); setSignatoryEditedManually(true); }}
+                onChange={(e) => { setSignatoryNameOverride(e.target.value); setSignatoryEditedManually(true); resetCreationIntent(); }}
                 placeholder="اترك فارغاً لاستخدام اسم المستخدم الحالي"
               />
             </div>
