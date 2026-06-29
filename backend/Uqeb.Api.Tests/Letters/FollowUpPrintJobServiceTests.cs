@@ -1,8 +1,10 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Uqeb.Api.Configuration;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.FollowUpPrint;
+using Uqeb.Api.Exceptions;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Models.Letters;
@@ -28,7 +30,8 @@ public class FollowUpPrintJobServiceTests
             renderService,
             access ?? new FollowUpPrintAccessService(db),
             audit ?? new NoOpAuditService(),
-            LettersTestInfrastructure.CreateOptions(options));
+            LettersTestInfrastructure.CreateOptions(options),
+            NullLogger<FollowUpPrintJobService>.Instance);
 
     internal static async Task<(FollowUpPrintJob Job, FollowUpPrintJobPart Part)> SeedReadyPartAsync(AppDbContext db)
     {
@@ -231,7 +234,7 @@ public class FollowUpPrintJobServiceTests
         var eligibility = new CountingEligibilityService([]);
         var service = CreateService(db, eligibility, new StubRenderService());
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<FollowUpPrintValidationException>(() =>
             service.CreateJobAsync(
                 new CreateFollowUpPrintJobRequest
                 {

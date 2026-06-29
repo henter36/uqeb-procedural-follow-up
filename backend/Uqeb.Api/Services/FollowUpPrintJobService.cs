@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Uqeb.Api.Configuration;
 using Uqeb.Api.Data;
@@ -46,6 +47,7 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
     private readonly IFollowUpPrintAccessService _access;
     private readonly IAuditService _audit;
     private readonly FollowUpLettersOptions _options;
+    private readonly ILogger<FollowUpPrintJobService> _logger;
 
     public FollowUpPrintJobService(
         AppDbContext db,
@@ -53,7 +55,8 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         IFollowUpLetterRenderService renderService,
         IFollowUpPrintAccessService access,
         IAuditService audit,
-        IOptions<FollowUpLettersOptions> options)
+        IOptions<FollowUpLettersOptions> options,
+        ILogger<FollowUpPrintJobService> logger)
     {
         _db = db;
         _eligibility = eligibility;
@@ -61,6 +64,7 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         _access = access;
         _audit = audit;
         _options = options.Value;
+        _logger = logger;
     }
 
     public async Task<FollowUpPrintJobDto> CreateJobAsync(
@@ -109,17 +113,22 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
             throw;
         }
 
-        var eligibleCandidates = await _eligibility.BuildEligibleCandidatesWithTargetsAsync(
+        var rawCandidates = await _eligibility.BuildEligibleCandidatesWithTargetsAsync(
             request.Filter,
             currentUser,
             cancellationToken);
 
-        var counts = new FollowUpPrintJobCounts(
-            eligibleCandidates.Count,
-            eligibleCandidates.Sum(candidate => candidate.Targets.Count));
+        // Filter to targets with exactly one positive ID before creating anything in the DB.
+        // This prevents CK_FollowUpPrintJobPayloads_TargetShape violations and ensures
+        // TotalLetters/TotalTransactions reflect only storable payloads.
+        var validCandidates = BuildValidCandidates(rawCandidates);
 
-        if (counts.Transactions == 0 || counts.Letters == 0)
-            throw new InvalidOperationException("لا توجد معاملات مستحقة للتعقيب ضمن الفلاتر المحددة.");
+        if (validCandidates.Count == 0)
+            throw new FollowUpPrintValidationException("لا توجد معاملات أو جهات صالحة للطباعة وفق الفلاتر الحالية.");
+
+        var counts = new FollowUpPrintJobCounts(
+            validCandidates.Count,
+            validCandidates.Sum(candidate => candidate.Targets.Count));
 
         var template = await ResolveActiveTemplateAsync(request.TemplateId, cancellationToken);
         var snapshot = BuildSnapshot(request.Filter);
@@ -141,7 +150,7 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
 
             ordinal = await AddPayloadsForCandidatesAsync(
                 job,
-                eligibleCandidates,
+                validCandidates,
                 template,
                 currentUser,
                 request.ResponseDeadlineDays,
@@ -150,6 +159,14 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
 
             await PersistIdempotencyKeyAsync(request, currentUser, requestHash, job.Id, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (SqlExceptionHelper.IsCheckConstraintViolation(ex, "CK_FollowUpPrintJobPayloads_TargetShape"))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            _db.ChangeTracker.Clear();
+            throw new FollowUpPrintValidationException(
+                "بعض الجهات المستهدفة ليست مرتبطة بإدارة أو طرف خارجي بمعرّف صالح. تحقق من بيانات المعاملات المختارة.",
+                ex);
         }
         catch (DbUpdateException ex) when (SqlExceptionHelper.IsDuplicateKey(ex))
         {
@@ -167,10 +184,57 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
             throw;
         }
 
-        await FollowUpPrintAuditWriter.LogJobQueuedAsync(_audit, currentUser.UserId, job.Id, $"letters={ordinal};batchSize={batchSize}");
+        // Audit is best-effort: the job is already committed; do not fail the response over an audit write.
+        try
+        {
+            await FollowUpPrintAuditWriter.LogJobQueuedAsync(_audit, currentUser.UserId, job.Id, $"letters={ordinal};batchSize={batchSize}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Audit log failed for committed print job {JobId}. Job was created successfully.", job.Id);
+        }
 
-        return (await GetJobAsync(job.Id, currentUser, cancellationToken))!;
+        // Use CancellationToken.None: the original token may be cancelled if the client disconnected
+        // after commit, but the job is committed — we must return a valid response regardless.
+        try
+        {
+            var dto = await GetJobAsync(job.Id, currentUser, CancellationToken.None);
+            if (dto != null)
+                return dto;
+            _logger.LogWarning("GetJobAsync returned null for committed print job {JobId}. Returning fallback DTO.", job.Id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "GetJobAsync failed for committed print job {JobId}. Returning fallback DTO.", job.Id);
+        }
+
+        return BuildFallbackJobDto(job);
     }
+
+    private static FollowUpPrintJobDto BuildFallbackJobDto(FollowUpPrintJob job) => new()
+    {
+        Id = job.Id,
+        Status = job.Status,
+        TemplateId = job.TemplateId,
+        TotalTransactions = job.TotalTransactions,
+        TotalLetters = job.TotalLetters,
+        ProcessedLetters = job.ProcessedLetters,
+        ReadyLetters = job.ReadyLetters,
+        FailedLetters = job.FailedLetters,
+        SkippedLetters = job.SkippedLetters,
+        TotalParts = job.TotalParts,
+        ReadyParts = job.ReadyParts,
+        PrintedParts = job.PrintedParts,
+        CurrentPart = job.CurrentPart,
+        CreatedAt = job.CreatedAt,
+        StartedAt = job.StartedAt,
+        ReadyAt = job.ReadyAt,
+        CompletedAt = job.CompletedAt,
+        FailedAt = job.FailedAt,
+        CancelledAt = job.CancelledAt,
+        FailureReason = job.FailureReason,
+        Parts = [],
+    };
 
     public Task<FollowUpPrintEligibilityPreviewDto> PreviewJobAsync(
         CreateFollowUpPrintJobRequest request,
@@ -679,7 +743,7 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
 
     private async Task<int> AddPayloadsForCandidatesAsync(
         FollowUpPrintJob job,
-        IReadOnlyList<EligibleCandidateWithTargets> eligibleCandidates,
+        IReadOnlyList<EligibleCandidateWithTargets> validCandidates,
         LetterTemplate template,
         ICurrentUserService currentUser,
         int? responseDeadlineDays,
@@ -687,11 +751,16 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
         CancellationToken cancellationToken)
     {
         var ordinal = 0;
-        foreach (var candidate in eligibleCandidates)
+        foreach (var candidate in validCandidates)
         {
             var sequence = FollowUpSequenceCalculator.CalculateExpectedSequence(candidate.FollowUpCount);
             foreach (var target in candidate.Targets)
             {
+                // All candidates here are pre-validated by BuildValidCandidates.
+                // Normalize: treat 0 as null so the stored value satisfies CK_FollowUpPrintJobPayloads_TargetShape.
+                var deptId = target.DepartmentId is > 0 ? target.DepartmentId : null;
+                var entityId = target.ExternalPartyId is > 0 ? target.ExternalPartyId : null;
+
                 ordinal++;
                 var document = await _renderService.BuildDocumentAsync(new FollowUpLetterBuildRequest
                 {
@@ -712,8 +781,8 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
                     JobId = job.Id,
                     PayloadOrdinal = ordinal,
                     TransactionId = candidate.TransactionId,
-                    TargetDepartmentId = target.DepartmentId,
-                    TargetEntityId = target.ExternalPartyId,
+                    TargetDepartmentId = deptId,
+                    TargetEntityId = entityId,
                     TargetEntityName = target.Name,
                     FollowUpSequence = sequence,
                     ResponseDeadlineDays = responseDeadlineDays,
@@ -736,9 +805,114 @@ public sealed class FollowUpPrintJobService : IFollowUpPrintJobService
             }
         }
 
+        // TotalLetters and TotalTransactions are already set correctly from valid counts
+        // in CreateQueuedJobEntityAsync; only NextPayloadOrdinal needs to be updated here.
         job.NextPayloadOrdinal = ordinal;
         await _db.SaveChangesAsync(cancellationToken);
         return ordinal;
+    }
+
+    /// <summary>
+    /// Returns candidates filtered to only valid, unique targets.
+    /// A target is valid when exactly one of DepartmentId / ExternalPartyId is a positive integer.
+    /// Duplicate targets (same normalized IDs within a transaction) are also dropped.
+    /// Candidates with no valid targets after filtering are excluded entirely.
+    /// </summary>
+    private IReadOnlyList<EligibleCandidateWithTargets> BuildValidCandidates(
+        IReadOnlyList<EligibleCandidateWithTargets> candidates)
+    {
+        var result = new List<EligibleCandidateWithTargets>();
+        foreach (var candidate in candidates)
+        {
+            var validTargets = BuildValidTargets(candidate);
+
+            if (validTargets.Count > 0)
+                result.Add(new EligibleCandidateWithTargets
+                {
+                    TransactionId = candidate.TransactionId,
+                    FollowUpCount = candidate.FollowUpCount,
+                    Targets = validTargets,
+                });
+        }
+        return result;
+    }
+
+    private List<FollowUpLetterTargetEntity> BuildValidTargets(EligibleCandidateWithTargets candidate)
+    {
+        var seen = new HashSet<(int?, int?)>();
+        var validTargets = new List<FollowUpLetterTargetEntity>();
+        foreach (var target in candidate.Targets)
+            TryAddValidTarget(candidate.TransactionId, target, seen, validTargets);
+        return validTargets;
+    }
+
+    private void TryAddValidTarget(
+        int transactionId,
+        FollowUpLetterTargetEntity target,
+        HashSet<(int?, int?)> seen,
+        List<FollowUpLetterTargetEntity> validTargets)
+    {
+        if (!HasValidTargetShape(target))
+        {
+            LogSkippedInvalidTarget(transactionId, target);
+            return;
+        }
+
+        var key = BuildDeduplicationKey(target);
+        if (!seen.Add(key))
+        {
+            LogSkippedDuplicateTarget(transactionId, target, key);
+            return;
+        }
+
+        validTargets.Add(target);
+    }
+
+    /// <summary>
+    /// A target has a valid shape when exactly one of DepartmentId / ExternalPartyId is a positive integer.
+    /// Zero is treated as absent — it would not satisfy a FK on the departments/parties tables.
+    /// </summary>
+    private static bool HasValidTargetShape(FollowUpLetterTargetEntity target)
+    {
+        var hasDept = target.DepartmentId is > 0;
+        var hasEntity = target.ExternalPartyId is > 0;
+        return hasDept ^ hasEntity;
+    }
+
+    private static (int? DepartmentId, int? ExternalPartyId) NormalizeTargetIds(FollowUpLetterTargetEntity target) => (
+        target.DepartmentId is > 0 ? target.DepartmentId : null,
+        target.ExternalPartyId is > 0 ? target.ExternalPartyId : null);
+
+    private static (int? DepartmentId, int? ExternalPartyId) BuildDeduplicationKey(FollowUpLetterTargetEntity target)
+        => NormalizeTargetIds(target);
+
+    private void LogSkippedInvalidTarget(int transactionId, FollowUpLetterTargetEntity target)
+    {
+        _logger.LogWarning(
+            "Skipping target with invalid shape. " +
+            "TransactionId={TransactionId}, DepartmentId={DepartmentId}, " +
+            "ExternalPartyId={ExternalPartyId}, TargetName={TargetName}. " +
+            "Reason=InvalidTargetShape",
+            transactionId,
+            target.DepartmentId,
+            target.ExternalPartyId,
+            target.Name);
+    }
+
+    private void LogSkippedDuplicateTarget(
+        int transactionId,
+        FollowUpLetterTargetEntity target,
+        (int? DepartmentId, int? ExternalPartyId) key)
+    {
+        _logger.LogWarning(
+            "Skipping duplicate target. " +
+            "TransactionId={TransactionId}, DepartmentId={DepartmentId}, " +
+            "ExternalPartyId={ExternalPartyId}, TargetName={TargetName}. " +
+            "Reason=DuplicateTarget",
+            transactionId,
+            key.DepartmentId,
+            key.ExternalPartyId,
+            target.Name);
     }
 
     private async Task PersistIdempotencyKeyAsync(

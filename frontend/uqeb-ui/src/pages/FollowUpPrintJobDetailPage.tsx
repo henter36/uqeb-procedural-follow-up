@@ -71,10 +71,44 @@ function renderPartAction(jobId: number, part: FollowUpPrintJobPart): ReactNode 
 }
 
 const STALE_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
+const STALE_PAGE_GRACE_MS = 2 * 60 * 1000; // 2 minutes
 
-function isJobStale(job: FollowUpPrintJob): boolean {
-  if (!(['Queued', 'Processing'] as FollowUpPrintJobStatus[]).includes(job.status)) return false;
-  return Date.now() - new Date(job.createdAt).getTime() > STALE_THRESHOLD_MS;
+function hasReliableCreatedAt(createdAt: string, now: number): number | null {
+  if (!/(?:[zZ]|[+-]\d{2}:\d{2})$/.test(createdAt)) return null;
+  const parsed = Date.parse(createdAt);
+  if (!Number.isFinite(parsed)) return null;
+  if (now - parsed < 0) return null;
+  return parsed;
+}
+
+function hasJobProgress(job: FollowUpPrintJob): boolean {
+  if (job.processedLetters > 0 || job.readyLetters > 0 || job.failedLetters > 0 || job.skippedLetters > 0) {
+    return true;
+  }
+
+  if (job.readyParts > 0 || job.printedParts > 0) {
+    return true;
+  }
+
+  return job.parts.some((part) =>
+    Boolean(part.readyAt)
+    || Boolean(part.printedAt)
+    || ['ReadyToPrint', 'PartiallyReady', 'Printed'].includes(part.status));
+}
+
+function isJobStale(job: FollowUpPrintJob, pageOpenedAt: number | null): boolean {
+  if (pageOpenedAt === null) return false;
+
+  const now = Date.now();
+
+  if (now - pageOpenedAt < STALE_PAGE_GRACE_MS) return false;
+
+  if (!(['Queued', 'Claimed', 'Processing'] as FollowUpPrintJobStatus[]).includes(job.status)) return false;
+
+  if (hasJobProgress(job)) return false;
+
+  const createdAt = hasReliableCreatedAt(job.createdAt, now);
+  return createdAt !== null && now - createdAt > STALE_THRESHOLD_MS;
 }
 
 function getJobGuidanceAlert(
@@ -143,6 +177,8 @@ export default function FollowUpPrintJobDetailPage() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const pollSeq = useRef(0);
+  // eslint-disable-next-line react-hooks/purity -- stable client observation timestamp for stale-job suppression.
+  const pageOpenedAtRef = useRef(Date.now());
   const isTerminalStatus = job ? ['Completed', 'Cancelled', 'Expired', 'Failed'].includes(job.status) : false;
 
   const loadJob = useCallback(async (active: () => boolean) => {
@@ -263,7 +299,8 @@ export default function FollowUpPrintJobDetailPage() {
 
       <Alert variant={guidanceVariant}>{guidanceMessage}</Alert>
 
-      {isJobStale(job) && (
+      {/* eslint-disable-next-line react-hooks/refs -- read-only timestamp captured at mount for stale-job suppression. */}
+      {isJobStale(job, pageOpenedAtRef.current) && (
         <Alert variant="error">
           يبدو أن تجهيز الخطابات متوقف أو لم يكتمل. يرجى إعادة محاولة إنشاء المهمة أو مراجعة سجل الأخطاء.
         </Alert>

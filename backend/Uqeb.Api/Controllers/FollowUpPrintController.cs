@@ -69,6 +69,10 @@ public class FollowUpPrintController : ControllerBase
             var job = await _jobs.CreateJobAsync(request, _currentUser, cancellationToken);
             return Accepted(job);
         }
+        catch (FollowUpPrintValidationException ex)
+        {
+            return UnprocessableEntity(new { message = ex.Message });
+        }
         catch (FollowUpPrintConflictException ex)
         {
             return Conflict(new { message = ex.Message });

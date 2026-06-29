@@ -360,17 +360,86 @@ public class FollowUpPrintEligibilityServiceTests
     }
 
     [Fact]
-    public async Task GetEligibleAsync_NullPrimaryTargetEntity_WhenNoTarget()
+    public async Task GetEligibleAsync_DoesNotReturnTransaction_WhenNoValidTargets()
     {
-        await using var db = LettersTestInfrastructure.CreateDb(nameof(GetEligibleAsync_NullPrimaryTargetEntity_WhenNoTarget));
-        var renderService = new PerTransactionRenderService(new Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>>());
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(GetEligibleAsync_DoesNotReturnTransaction_WhenNoValidTargets));
+        var renderService = new PerTransactionRenderService(new Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>>
+        {
+            [1] = [new FollowUpLetterTargetEntity("صفر", DepartmentId: 0, ExternalPartyId: null)],
+        });
         var service = CreateService(db, Today, renderService);
         await SeedEligibleTransactionAsync(db, 1, Today.AddDays(-15));
 
         var result = await service.GetEligibleAsync(new FollowUpPrintFilterRequest { DaysSinceLastFollowUp = 10 }, new TestCurrentUser(1));
 
-        Assert.Single(result.Items);
-        Assert.Null(result.Items[0].PrimaryTargetEntity);
+        Assert.Empty(result.Items);
+        Assert.Equal(0, result.TotalCount);
+    }
+
+    [Fact]
+    public async Task PreviewAsync_DoesNotCountInvalidTargets()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(PreviewAsync_DoesNotCountInvalidTargets));
+        var renderService = new PerTransactionRenderService(new Dictionary<int, IReadOnlyList<FollowUpLetterTargetEntity>>
+        {
+            [1] =
+            [
+                new FollowUpLetterTargetEntity("صفر", DepartmentId: 0, ExternalPartyId: null),
+                new FollowUpLetterTargetEntity("مزدوج", DepartmentId: 1, ExternalPartyId: 2),
+            ],
+            [2] =
+            [
+                new FollowUpLetterTargetEntity("إدارة", DepartmentId: 5, ExternalPartyId: 0),
+                new FollowUpLetterTargetEntity("إدارة مكررة", DepartmentId: 5, ExternalPartyId: null),
+                new FollowUpLetterTargetEntity("طرف", DepartmentId: 0, ExternalPartyId: 7),
+            ],
+        });
+        var service = CreateService(db, Today, renderService);
+        await SeedEligibleTransactionAsync(db, 1, Today.AddDays(-15));
+        await SeedEligibleTransactionAsync(db, 2, Today.AddDays(-15));
+
+        var preview = await service.PreviewAsync(
+            new FollowUpPrintFilterRequest
+            {
+                DaysSinceLastFollowUp = 10,
+                ExcludeRecentlyPrinted = false,
+            },
+            batchSize: 25,
+            new TestCurrentUser(1));
+
+        Assert.Equal(2, preview.MatchedCount);
+        Assert.Equal(1, preview.EligibleTransactionCount);
+        Assert.Equal(1, preview.NoTargetCount);
+        Assert.Equal(2, preview.EstimatedLetterCount);
+    }
+
+    [Fact]
+    public async Task GetEligibleAsync_DepartmentUserDoesNotSeeInactiveAssignment()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(GetEligibleAsync_DepartmentUserDoesNotSeeInactiveAssignment));
+        var service = CreateService(db, Today);
+
+        await SeedEligibleTransactionAsync(db, 1, Today.AddDays(-15));
+        db.Assignments.Add(new Assignment
+        {
+            TransactionId = 1,
+            DepartmentId = 5,
+            AssignedDate = Today.AddDays(-20),
+            Status = AssignmentStatus.Completed,
+            CreatedById = 1,
+            CreatedAt = Today.AddDays(-20),
+        });
+        await db.SaveChangesAsync();
+
+        var result = await service.GetEligibleAsync(
+            new FollowUpPrintFilterRequest
+            {
+                DaysSinceLastFollowUp = 10,
+                ExcludeRecentlyPrinted = false,
+            },
+            new TestCurrentUser(1, UserRole.DepartmentUser, departmentId: 5));
+
+        Assert.Empty(result.Items);
     }
 
     [Fact]
@@ -393,6 +462,155 @@ public class FollowUpPrintEligibilityServiceTests
         await service.GetEligibleAsync(new FollowUpPrintFilterRequest { DaysSinceLastFollowUp = 10, PageSize = 10 }, new TestCurrentUser(1));
 
         Assert.Equal(1, callCount);
+    }
+
+    // ── transactions without any registered FollowUp ──────────────────────────
+
+    [Fact]
+    public async Task GetEligibleAsync_TransactionWithNoFollowUps_OldIncomingDate_Appears()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(GetEligibleAsync_TransactionWithNoFollowUps_OldIncomingDate_Appears));
+        var service = CreateService(db, Today);
+
+        // No FollowUps: ReferenceDate falls back to IncomingDate
+        await SeedTransactionWithoutFollowUpAsync(db, transactionId: 100, incomingDate: Today.AddDays(-20));
+
+        var result = await service.GetEligibleAsync(
+            new FollowUpPrintFilterRequest
+            {
+                DaysSinceLastFollowUp = 10,
+                ExcludeRecentlyPrinted = false,
+                Page = 1,
+                PageSize = 25,
+            },
+            new TestCurrentUser(1));
+
+        Assert.Single(result.Items);
+        Assert.Equal(100, result.Items[0].TransactionId);
+        Assert.Equal(1, result.Items[0].ExpectedFollowUpSequence); // 0 registered → next is 1
+    }
+
+    [Fact]
+    public async Task GetEligibleAsync_TransactionWithNoFollowUps_ActiveAssignment_UsesAssignmentDate()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(GetEligibleAsync_TransactionWithNoFollowUps_ActiveAssignment_UsesAssignmentDate));
+        var service = CreateService(db, Today);
+
+        // IncomingDate is only 3 days old — too recent without assignment
+        // but the active assignment date is 15 days old → should appear
+        await SeedTransactionWithoutFollowUpAsync(db, transactionId: 101, incomingDate: Today.AddDays(-3));
+
+        db.Assignments.Add(new Assignment
+        {
+            TransactionId = 101,
+            DepartmentId = 1,
+            AssignedDate = Today.AddDays(-15),
+            Status = AssignmentStatus.Active,
+            CreatedById = 1,
+            CreatedAt = Today.AddDays(-15),
+        });
+        await db.SaveChangesAsync();
+
+        var result = await service.GetEligibleAsync(
+            new FollowUpPrintFilterRequest
+            {
+                DaysSinceLastFollowUp = 10,
+                ExcludeRecentlyPrinted = false,
+                Page = 1,
+                PageSize = 25,
+            },
+            new TestCurrentUser(1));
+
+        Assert.Single(result.Items);
+        Assert.Equal(101, result.Items[0].TransactionId);
+    }
+
+    [Fact]
+    public async Task GetEligibleAsync_TransactionWithNoFollowUps_PrintedRecently_ExcludeTrue_DoesNotAppear()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(GetEligibleAsync_TransactionWithNoFollowUps_PrintedRecently_ExcludeTrue_DoesNotAppear));
+        var service = CreateService(db, Today);
+
+        // Old enough by date but printed 3 days ago — should be excluded
+        await SeedTransactionWithoutFollowUpAsync(
+            db,
+            transactionId: 102,
+            incomingDate: Today.AddDays(-20),
+            lastPrintRequestedAt: Today.AddDays(-3));
+
+        var result = await service.GetEligibleAsync(
+            new FollowUpPrintFilterRequest
+            {
+                DaysSinceLastFollowUp = 10,
+                ExcludeRecentlyPrinted = true,
+                PrintedLetterExclusionDays = 7,
+                Page = 1,
+                PageSize = 25,
+            },
+            new TestCurrentUser(1));
+
+        Assert.Empty(result.Items);
+    }
+
+    [Fact]
+    public async Task GetEligibleAsync_TransactionWithNoFollowUps_PrintedRecently_ExcludeFalse_Appears()
+    {
+        await using var db = LettersTestInfrastructure.CreateDb(nameof(GetEligibleAsync_TransactionWithNoFollowUps_PrintedRecently_ExcludeFalse_Appears));
+        var service = CreateService(db, Today);
+
+        await SeedTransactionWithoutFollowUpAsync(
+            db,
+            transactionId: 103,
+            incomingDate: Today.AddDays(-20),
+            lastPrintRequestedAt: Today.AddDays(-3));
+
+        var result = await service.GetEligibleAsync(
+            new FollowUpPrintFilterRequest
+            {
+                DaysSinceLastFollowUp = 10,
+                ExcludeRecentlyPrinted = false,
+                PrintedLetterExclusionDays = 7,
+                Page = 1,
+                PageSize = 25,
+            },
+            new TestCurrentUser(1));
+
+        Assert.Single(result.Items);
+        Assert.Equal(103, result.Items[0].TransactionId);
+    }
+
+    private static async Task SeedTransactionWithoutFollowUpAsync(
+        AppDbContext db,
+        int transactionId,
+        DateTime incomingDate,
+        DateTime? lastPrintRequestedAt = null)
+    {
+        db.Transactions.Add(new Transaction
+        {
+            Id = transactionId,
+            InternalTrackingNumber = $"INT-{transactionId}",
+            IncomingNumber = $"IN-{transactionId}",
+            IncomingDate = incomingDate,
+            Subject = $"معاملة بلا تعقيب {transactionId}",
+            Status = TransactionStatus.InProgress,
+            Priority = Priority.Normal,
+            CreatedAt = DateTime.UtcNow,
+        });
+
+        if (lastPrintRequestedAt.HasValue)
+        {
+            db.FollowUpLetterPrintRecords.Add(new FollowUpLetterPrintRecord
+            {
+                TransactionId = transactionId,
+                TemplateId = 1,
+                FollowUpSequence = 1,
+                PrintRequestedAt = lastPrintRequestedAt.Value,
+                PrintRequestedById = 1,
+                CreatedAt = lastPrintRequestedAt.Value,
+            });
+        }
+
+        await db.SaveChangesAsync();
     }
 
     private sealed class PerTransactionRenderService : StubRenderService

@@ -19,6 +19,13 @@ public static class SqlExceptionHelper
         return sql.Message.Contains(indexOrConstraintName, StringComparison.OrdinalIgnoreCase);
     }
 
+    public static bool IsCheckConstraintViolation(DbUpdateException ex, string constraintName)
+    {
+        if (!TryGetSqlException(ex, out var sql)) return false;
+        if (sql.Number != 547) return false;
+        return sql.Message.Contains(constraintName, StringComparison.OrdinalIgnoreCase);
+    }
+
     public static bool IsDeadlock(Exception ex) =>
         TryGetSqlException(ex, out var sql) && sql.Number == 1205;
 
