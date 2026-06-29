@@ -103,7 +103,7 @@ function isJobStale(job: FollowUpPrintJob, pageOpenedAt: number | null): boolean
 
   if (now - pageOpenedAt < STALE_PAGE_GRACE_MS) return false;
 
-  if (!(['Queued', 'Processing'] as FollowUpPrintJobStatus[]).includes(job.status)) return false;
+  if (!(['Queued', 'Claimed', 'Processing'] as FollowUpPrintJobStatus[]).includes(job.status)) return false;
 
   if (hasJobProgress(job)) return false;
 

@@ -152,6 +152,13 @@ describe('FollowUpPrintJobDetailPage stale warning', () => {
     expect(screen.queryByText(staleMessage)).not.toBeInTheDocument();
   });
 
+  it('shows stale warning for an old claimed job without progress', async () => {
+    mockPageOpenedAfterGrace();
+    await renderJob(buildJob({ status: 'Claimed', createdAt: '2026-06-29T07:00:00Z' }));
+
+    expect(screen.getByText(staleMessage)).toBeInTheDocument();
+  });
+
   it('shows stale warning for an old queued job without progress', async () => {
     mockPageOpenedAfterGrace();
     await renderJob(buildJob({ status: 'Queued', createdAt: '2026-06-29T07:00:00Z' }));
