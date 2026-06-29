@@ -74,7 +74,7 @@ const STALE_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
 const STALE_PAGE_GRACE_MS = 2 * 60 * 1000; // 2 minutes
 
 function hasReliableCreatedAt(createdAt: string, now: number): number | null {
-  if (!/[zZ]|[+-]\d{2}:\d{2}$/.test(createdAt)) return null;
+  if (!/(?:[zZ]|[+-]\d{2}:\d{2})$/.test(createdAt)) return null;
   const parsed = Date.parse(createdAt);
   if (!Number.isFinite(parsed)) return null;
   if (now - parsed < 0) return null;
