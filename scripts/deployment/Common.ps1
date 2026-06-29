@@ -2808,16 +2808,15 @@ function Invoke-PlaywrightChromiumInstall {
         throw "ملف Playwright غير موجود بعد نشر API: $PlaywrightScriptPath"
     }
 
-    $processEnvironment = [System.Environment]::GetEnvironmentVariables('Process')
-    $hadPreviousBrowsersPath = $processEnvironment.Contains('PLAYWRIGHT_BROWSERS_PATH')
+    $hadPreviousBrowsersPath = Test-Path -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH'
     $previousBrowsersPath = if ($hadPreviousBrowsersPath) {
-        [System.Environment]::GetEnvironmentVariable('PLAYWRIGHT_BROWSERS_PATH', 'Process')
+        (Get-Item -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH').Value
     }
     else {
         $null
     }
 
-    [System.Environment]::SetEnvironmentVariable('PLAYWRIGHT_BROWSERS_PATH', $BrowsersRoot, 'Process')
+    Set-Item -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH' -Value $BrowsersRoot
     try {
         Ensure-Directory $BrowsersRoot
         $null = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $PlaywrightScriptPath install chromium 2>&1
@@ -2827,10 +2826,12 @@ function Invoke-PlaywrightChromiumInstall {
     }
     finally {
         if ($hadPreviousBrowsersPath) {
-            [System.Environment]::SetEnvironmentVariable('PLAYWRIGHT_BROWSERS_PATH', $previousBrowsersPath, 'Process')
+            Set-Item -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH' -Value $previousBrowsersPath
         }
         else {
-            [System.Environment]::SetEnvironmentVariable('PLAYWRIGHT_BROWSERS_PATH', $null, 'Process')
+            Remove-Item `
+                -LiteralPath 'Env:PLAYWRIGHT_BROWSERS_PATH' `
+                -ErrorAction SilentlyContinue
         }
     }
 
