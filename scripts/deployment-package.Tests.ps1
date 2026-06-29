@@ -191,8 +191,11 @@ Describe 'Production deployment wrapper safety' {
 
     It 'writes legacy run-api wrapper with all-interface binding' {
         $content = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'deploy-production-v2.ps1') -Raw
-        $content | Should -Match 'ASPNETCORE_URLS=http://0\.0\.0\.0'
+        $content | Should -Match '\$effectiveApiBinding = "http://0\.0\.0\.0:\$ApiPort"'
+        $content | Should -Match 'ASPNETCORE_URLS=\$effectiveApiBinding'
         $content | Should -Not -Match 'ASPNETCORE_URLS=http://\$ApiBindAddress'
+        $content | Should -Match 'ApiBinding=\$effectiveApiBinding'
+        $content | Should -Not -Match 'ApiBinding=http://\$ApiBindAddress'
     }
 }
 

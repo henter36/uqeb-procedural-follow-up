@@ -151,7 +151,8 @@ $apiDll = Join-Path $apiTarget "Uqeb.Api.dll"
 $apiLog = Join-Path $logsTarget "api-runtime.log"
 $launchCommand = if (Test-Path $apiExecutable) { '"'+$apiExecutable+'"' } else { 'dotnet "'+$apiDll+'"' }
 $runApiPath = Join-Path $InstallRoot "run-api.cmd"
-$runApi = "@echo off`r`ncd /d `"$apiTarget`"`r`nset ASPNETCORE_ENVIRONMENT=Production`r`nset DOTNET_ENVIRONMENT=Production`r`nset ASPNETCORE_URLS=http://0.0.0.0`:$ApiPort`r`n$launchCommand >> `"$apiLog`" 2>&1`r`n"
+$effectiveApiBinding = "http://0.0.0.0:$ApiPort"
+$runApi = "@echo off`r`ncd /d `"$apiTarget`"`r`nset ASPNETCORE_ENVIRONMENT=Production`r`nset DOTNET_ENVIRONMENT=Production`r`nset ASPNETCORE_URLS=$effectiveApiBinding`r`n$launchCommand >> `"$apiLog`" 2>&1`r`n"
 Set-Content $runApiPath $runApi -Encoding ASCII
 $action = New-ScheduledTaskAction -Execute $env:ComSpec -Argument ('/c "'+$runApiPath+'"') -WorkingDirectory $apiTarget
 Set-ScheduledTask -TaskName $ScheduledTaskName -Action $action | Out-Null
@@ -191,7 +192,7 @@ catch {
     )
 }
 
-$buildInfo = "DeployedAt=$(Get-Date -Format s)`r`nApiTarget=$apiTarget`r`nWebTarget=$webTarget`r`nApiBinding=http://$ApiBindAddress`:$ApiPort`r`nBackup=$backup"
+$buildInfo = "DeployedAt=$(Get-Date -Format s)`r`nApiTarget=$apiTarget`r`nWebTarget=$webTarget`r`nApiBinding=$effectiveApiBinding`r`nBackup=$backup"
 Set-Content (Join-Path $InstallRoot "BUILD_INFO.txt") $buildInfo -Encoding UTF8
 Write-Step "Deployment completed successfully"
 Write-Output ("Backup: " + $backup)
