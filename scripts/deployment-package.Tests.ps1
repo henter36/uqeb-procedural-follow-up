@@ -1107,16 +1107,15 @@ Describe 'install-production-package.ps1 scenarios' {
     }
 
     It 'passes production bind address to run-api writer while run-api content is all-interface bound' {
-        Mock Write-ApiRunScript {
-            param($RunScriptPath, $ApiBindAddress)
-            Set-Content -LiteralPath $RunScriptPath -Value "set ASPNETCORE_URLS=http://0.0.0.0:5000" -Encoding ASCII
-        }
-
         $env = New-InstallTestEnvironment -CommonPath $script:CommonPath
         'exit 0' | Set-Content (Join-Path $env.ToolsRoot 'verify-deployment-health.ps1') -Encoding ASCII
 
         Invoke-TestInstallScript -InstallScript $script:InstallScript -Environment $env | Out-Null
-        Assert-MockCalled Write-ApiRunScript -ParameterFilter { $ApiBindAddress -eq '10.0.177.17' } -Times 1 -Exactly
+
+        $runScriptPath = Join-Path $env.InstallRoot 'run-api.cmd'
+        $runScript = Get-Content -LiteralPath $runScriptPath -Raw
+        $runScript | Should -Match 'ASPNETCORE_URLS=http://0\.0\.0\.0:5000'
+        $runScript | Should -Not -Match 'ASPNETCORE_URLS=http://10\.0\.177\.17:5000'
     }
 
     It 'derives ApiBaseUrl from ApiBindAddress and ApiPort when URL is omitted' {
@@ -1298,6 +1297,7 @@ Describe 'Production database backup functions' {
     }
 
     It 'invokes global SQL handler' {
+        $script:SqlHandlerReceivedConnectionString = $true
         $global:SqlDeploymentCommandHandler = {
             param(
                 [string]$Server,
@@ -1306,10 +1306,31 @@ Describe 'Production database backup functions' {
                 [bool]$Scalar,
                 [bool]$DataTable
             )
+            $script:SqlHandlerReceivedConnectionString = $PSBoundParameters.ContainsKey('ConnectionString')
             return "handled:$CommandText"
         }
 
         Invoke-SqlDeploymentCommand -Server '.' -Database 'master' -CommandText 'PING' | Should -Be 'handled:PING'
+        $script:SqlHandlerReceivedConnectionString | Should -BeFalse
+    }
+
+    It 'passes ConnectionString to SQL handler only when explicitly supported' {
+        $script:SqlHandlerReceivedConnectionString = ''
+        $global:SqlDeploymentCommandHandler = {
+            param(
+                [string]$Server,
+                [string]$Database,
+                [string]$ConnectionString,
+                [string]$CommandText,
+                [bool]$Scalar,
+                [bool]$DataTable
+            )
+            $script:SqlHandlerReceivedConnectionString = $ConnectionString
+            return "handled:$CommandText"
+        }
+
+        Invoke-SqlDeploymentCommand -Server '.' -Database 'master' -ConnectionString $script:TestConnectionString -CommandText 'PING' | Should -Be 'handled:PING'
+        $script:SqlHandlerReceivedConnectionString | Should -Be $script:TestConnectionString
     }
 
     It 'returns DataTable from SQL test handler' {
