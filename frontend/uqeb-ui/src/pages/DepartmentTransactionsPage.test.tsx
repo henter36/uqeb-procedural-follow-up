@@ -170,6 +170,16 @@ describe('DepartmentTransactionsPage', () => {
     });
   });
 
+  it('clearing textarea does not revert to original text', async () => {
+    mockApi.getById.mockResolvedValue({ data: detailDraft } as never);
+    renderPage();
+    await waitFor(() => screen.getByText('تعديل الإفادة'));
+    fireEvent.click(screen.getByText('تعديل الإفادة'));
+    await waitFor(() => screen.getByDisplayValue('نص الرد'));
+    fireEvent.change(screen.getByDisplayValue('نص الرد'), { target: { value: '' } });
+    expect(screen.queryByDisplayValue('نص الرد')).toBeNull();
+  });
+
   it('form text does not leak between responses', async () => {
     const detail2: DepartmentResponseDto = { ...detailDraft, id: 2, responseText: 'نص ثانٍ' };
     mockApi.getById

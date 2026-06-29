@@ -570,6 +570,57 @@ public class DepartmentResponseServiceTests
     }
 
     [Fact]
+    public async Task Create_AdminCanCreateWithExplicitDepartmentId()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(Create_AdminCanCreateWithExplicitDepartmentId));
+        var service = BuildService(db);
+        var admin = new FakeUser { UserId = userId, Role = UserRole.Admin, DepartmentId = null };
+
+        var dto = await service.CreateAsync(
+            new CreateDepartmentResponseRequest(txId, "نص", deptId),
+            admin);
+
+        Assert.Equal("Draft", dto.Status);
+        Assert.Equal(deptId, dto.DepartmentId);
+    }
+
+    [Fact]
+    public async Task Create_AdminWithoutDepartmentIdOrRequestDepartmentIdThrows()
+    {
+        var (db, txId, _, userId) = await SeedAsync(nameof(Create_AdminWithoutDepartmentIdOrRequestDepartmentIdThrows));
+        var service = BuildService(db);
+        var admin = new FakeUser { UserId = userId, Role = UserRole.Admin, DepartmentId = null };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), admin));
+    }
+
+    [Fact]
+    public async Task Create_DepartmentUserCannotCreateForUnassignedTransaction()
+    {
+        var (db, _, deptId, userId) = await SeedAsync(nameof(Create_DepartmentUserCannotCreateForUnassignedTransaction));
+        var service = BuildService(db);
+        var user = new FakeUser { UserId = userId, DepartmentId = deptId };
+
+        // Add a second transaction with no assignment to this dept
+        var user2 = await db.Users.FirstAsync();
+        var tx2 = new Transaction
+        {
+            InternalTrackingNumber = "TX-9999",
+            IncomingNumber = "IN-999",
+            IncomingDate = DateTime.UtcNow,
+            Subject = "معاملة غير مسندة",
+            Status = TransactionStatus.New,
+            CreatedById = user2.Id,
+        };
+        db.Transactions.Add(tx2);
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateAsync(new CreateDepartmentResponseRequest(tx2.Id, "نص"), user));
+    }
+
+    [Fact]
     public async Task Upload_RejectsFileLargerThan10MB()
     {
         var (db, txId, deptId, userId) = await SeedAsync(nameof(Upload_RejectsFileLargerThan10MB));

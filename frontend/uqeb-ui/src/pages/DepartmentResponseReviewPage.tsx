@@ -164,7 +164,7 @@ export default function DepartmentResponseReviewPage() {
 
           <div className="card">
             <div className="card-body">
-              <label className="form-label">نص الرد</label>
+              <div className="form-label">نص الرد</div>
               <p className="whitespace-pre-wrap text-sm text-gray-700 mt-1 p-3 bg-gray-50 rounded">
                 {detail.responseText}
               </p>
@@ -195,8 +195,9 @@ export default function DepartmentResponseReviewPage() {
           {isPendingReview && (
             <div className="card">
               <div className="card-body space-y-3">
-                <label className="form-label">ملاحظة المراجع (مطلوبة عند الإعادة أو الرفض)</label>
+                <label className="form-label" htmlFor="review-note">ملاحظة المراجع (مطلوبة عند الإعادة أو الرفض)</label>
                 <textarea
+                  id="review-note"
                   className="form-input"
                   rows={4}
                   value={reviewNote}

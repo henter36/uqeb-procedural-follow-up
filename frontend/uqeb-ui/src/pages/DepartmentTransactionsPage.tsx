@@ -19,6 +19,29 @@ const STATUS_BADGE: Record<string, string> = {
   Rejected: 'badge-rejected',
 };
 
+function TransactionActionCell({ tx, onOpenCreate, onOpenDetail }: {
+  tx: DepartmentTransactionResponseItemDto;
+  onOpenCreate: () => void;
+  onOpenDetail: () => void;
+}) {
+  if (tx.canCreateResponse) {
+    return <button className="text-green-600 hover:underline text-sm" onClick={onOpenCreate}>تسجيل إفادة</button>;
+  }
+  if (tx.canEditResponse) {
+    return <button className="text-blue-600 hover:underline text-sm" onClick={onOpenDetail}>تعديل الإفادة</button>;
+  }
+  if (tx.departmentResponseStatus === 'SubmittedForReview') {
+    return <button className="text-gray-400 text-sm cursor-not-allowed" disabled>بانتظار المراجعة</button>;
+  }
+  if (tx.departmentResponseStatus === 'Approved') {
+    return <span className="text-green-600 text-xs font-medium">معتمدة</span>;
+  }
+  if (tx.departmentResponseStatus === 'Rejected') {
+    return <span className="text-red-600 text-xs font-medium">مرفوضة</span>;
+  }
+  return null;
+}
+
 function statusBadge(status: string) {
   const cls = STATUS_BADGE[status] ?? 'badge-draft';
   return (
@@ -211,8 +234,9 @@ export default function DepartmentTransactionsPage() {
               <span className="font-medium">{view.subject}</span>
             </div>
             <div>
-              <label className="form-label">نص الرد *</label>
+              <label className="form-label" htmlFor="new-response-text">نص الرد *</label>
               <textarea
+                id="new-response-text"
                 className="form-input"
                 rows={6}
                 value={form.responseText}
@@ -279,8 +303,9 @@ export default function DepartmentTransactionsPage() {
           {isEditable ? (
             <div className="card">
               <div className="card-body space-y-3">
-                <label className="form-label">نص الرد *</label>
+                <label className="form-label" htmlFor="edit-response-text">نص الرد *</label>
                 <textarea
+                  id="edit-response-text"
                   className="form-input"
                   rows={7}
                   value={form.responseText}
@@ -299,7 +324,7 @@ export default function DepartmentTransactionsPage() {
           ) : (
             <div className="card">
               <div className="card-body">
-                <label className="form-label">نص الرد</label>
+                <div className="form-label">نص الرد</div>
                 <p className="whitespace-pre-wrap text-sm text-gray-700 mt-1">{detail.responseText}</p>
               </div>
             </div>
@@ -388,27 +413,11 @@ export default function DepartmentTransactionsPage() {
                   </td>
                   <td>{tx.assignedDate ? new Date(tx.assignedDate).toLocaleDateString('ar-SA') : '—'}</td>
                   <td>
-                    {tx.canCreateResponse && (
-                      <button className="text-green-600 hover:underline text-sm" onClick={() => openCreate(tx)}>
-                        تسجيل إفادة
-                      </button>
-                    )}
-                    {tx.canEditResponse && (
-                      <button className="text-blue-600 hover:underline text-sm" onClick={() => openDetail(tx.departmentResponseId!)}>
-                        تعديل الإفادة
-                      </button>
-                    )}
-                    {tx.departmentResponseStatus === 'SubmittedForReview' && (
-                      <button className="text-gray-400 text-sm cursor-not-allowed" disabled>
-                        بانتظار المراجعة
-                      </button>
-                    )}
-                    {tx.departmentResponseStatus === 'Approved' && (
-                      <span className="text-green-600 text-xs font-medium">معتمدة</span>
-                    )}
-                    {tx.departmentResponseStatus === 'Rejected' && (
-                      <span className="text-red-600 text-xs font-medium">مرفوضة</span>
-                    )}
+                    <TransactionActionCell
+                      tx={tx}
+                      onOpenCreate={() => openCreate(tx)}
+                      onOpenDetail={() => openDetail(tx.departmentResponseId!)}
+                    />
                   </td>
                 </tr>
               ))}

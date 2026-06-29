@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Uqeb.Api.DTOs.DepartmentResponses;
 
 public record DepartmentResponseDto(
@@ -40,9 +42,12 @@ public record DepartmentResponseSummaryDto(
     DateTime CreatedAt
 );
 
+// RowVersion exists on DepartmentResponse for optimistic concurrency but is not yet wired
+// end-to-end through DTOs / requests / DbUpdateConcurrencyException handling. Deferred to a future PR.
 public record CreateDepartmentResponseRequest(
-    int TransactionId,
-    string ResponseText
+    [property: JsonRequired] int TransactionId,
+    [property: JsonRequired] string ResponseText,
+    int? DepartmentId = null
 );
 
 public record UpdateDepartmentResponseRequest(

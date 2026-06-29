@@ -26,6 +26,10 @@ public interface IDepartmentResponseService
 public class DepartmentResponseService : IDepartmentResponseService
 {
     private const long MaxFileSizeBytes = 10 * 1024 * 1024; // 10 MB
+    private const string DepartmentResponseEntityName = "DepartmentResponse";
+    private const string DepartmentResponseAttachmentEntityName = "DepartmentResponseAttachment";
+    private const string ResponseNotFoundMessage = "الرد غير موجود.";
+
     private static readonly HashSet<string> AllowedExtensions = new(StringComparer.OrdinalIgnoreCase)
         { ".pdf", ".jpg", ".jpeg", ".png", ".docx" };
     private static readonly HashSet<string> BlockedExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -42,6 +46,21 @@ public class DepartmentResponseService : IDepartmentResponseService
         var basePath = config["FileStorage:Path"] ?? Path.Combine(Directory.GetCurrentDirectory(), "Attachments");
         _storagePath = Path.Combine(basePath, "DepartmentResponses");
         Directory.CreateDirectory(_storagePath);
+    }
+
+    private static int ResolveDepartmentIdForCreate(
+        CreateDepartmentResponseRequest request,
+        ICurrentUserService currentUser)
+    {
+        if (currentUser.Role is UserRole.Admin or UserRole.Supervisor or UserRole.DataEntry)
+        {
+            return request.DepartmentId
+                ?? currentUser.DepartmentId
+                ?? throw new InvalidOperationException("يجب تحديد الإدارة عند إنشاء إفادة نيابة عن إدارة أخرى.");
+        }
+
+        return currentUser.DepartmentId
+            ?? throw new InvalidOperationException("المستخدم غير مرتبط بإدارة.");
     }
 
     private static void RequireReviewer(ICurrentUserService currentUser)
@@ -131,11 +150,8 @@ public class DepartmentResponseService : IDepartmentResponseService
 
     public async Task<List<DepartmentResponseSummaryDto>> GetMyDepartmentResponsesAsync(ICurrentUserService currentUser)
     {
-        if (currentUser.Role == UserRole.DepartmentUser)
-        {
-            if (!currentUser.DepartmentId.HasValue)
-                return [];
-        }
+        if (currentUser.Role == UserRole.DepartmentUser && !currentUser.DepartmentId.HasValue)
+            return [];
 
         var query = _db.DepartmentResponses
             .Include(r => r.Transaction)
@@ -192,21 +208,17 @@ public class DepartmentResponseService : IDepartmentResponseService
 
     public async Task<DepartmentResponseDto> CreateAsync(CreateDepartmentResponseRequest request, ICurrentUserService currentUser)
     {
-        var transaction = await _db.Transactions.FindAsync(request.TransactionId)
-            ?? throw new InvalidOperationException("المعاملة غير موجودة.");
+        if (!await _db.Transactions.AnyAsync(t => t.Id == request.TransactionId))
+            throw new InvalidOperationException("المعاملة غير موجودة.");
 
-        if (currentUser.Role == UserRole.DepartmentUser && currentUser.DepartmentId.HasValue)
-        {
-            var isAssigned = await _db.Assignments.AnyAsync(a =>
-                a.TransactionId == request.TransactionId &&
-                a.DepartmentId == currentUser.DepartmentId.Value &&
-                a.Status == AssignmentStatus.Active);
-            if (!isAssigned)
-                throw new InvalidOperationException("لا يوجد تكليف نشط لإدارتك في هذه المعاملة.");
-        }
+        var deptId = ResolveDepartmentIdForCreate(request, currentUser);
 
-        var deptId = currentUser.DepartmentId
-            ?? throw new InvalidOperationException("المستخدم غير مرتبط بإدارة.");
+        var isAssigned = await _db.Assignments.AnyAsync(a =>
+            a.TransactionId == request.TransactionId &&
+            a.DepartmentId == deptId &&
+            a.Status == AssignmentStatus.Active);
+        if (!isAssigned)
+            throw new InvalidOperationException("لا يوجد تكليف نشط لهذه الإدارة في هذه المعاملة.");
 
         var alreadyExists = await _db.DepartmentResponses.AnyAsync(r =>
             r.TransactionId == request.TransactionId && r.DepartmentId == deptId);
@@ -229,7 +241,7 @@ public class DepartmentResponseService : IDepartmentResponseService
         _audit.TrackLog(
             currentUser.UserId,
             AuditAction.DepartmentResponseCreated,
-            "DepartmentResponse",
+            DepartmentResponseEntityName,
             response.Id,
             response.TransactionId,
             null,
@@ -242,7 +254,7 @@ public class DepartmentResponseService : IDepartmentResponseService
     public async Task<DepartmentResponseDto> UpdateAsync(int id, UpdateDepartmentResponseRequest request, ICurrentUserService currentUser)
     {
         var response = await _db.DepartmentResponses.FindAsync(id)
-            ?? throw new InvalidOperationException("الرد غير موجود.");
+            ?? throw new InvalidOperationException(ResponseNotFoundMessage);
 
         RequireDepartmentOwnership(response, currentUser);
         RequireEditableStatus(response);
@@ -250,7 +262,7 @@ public class DepartmentResponseService : IDepartmentResponseService
         response.ResponseText = request.ResponseText;
         response.UpdatedAt = DateTime.UtcNow;
 
-        _audit.TrackLog(currentUser.UserId, AuditAction.DepartmentResponseUpdated, "DepartmentResponse", id, response.TransactionId, null, null);
+        _audit.TrackLog(currentUser.UserId, AuditAction.DepartmentResponseUpdated, DepartmentResponseEntityName, id, response.TransactionId, null, null);
         await _db.SaveChangesAsync();
 
         return MapToDto((await LoadWithDetailsAsync(id))!);
@@ -259,7 +271,7 @@ public class DepartmentResponseService : IDepartmentResponseService
     public async Task<DepartmentResponseDto> SubmitAsync(int id, ICurrentUserService currentUser)
     {
         var response = await _db.DepartmentResponses.FindAsync(id)
-            ?? throw new InvalidOperationException("الرد غير موجود.");
+            ?? throw new InvalidOperationException(ResponseNotFoundMessage);
 
         RequireDepartmentOwnership(response, currentUser);
 
@@ -278,7 +290,7 @@ public class DepartmentResponseService : IDepartmentResponseService
         response.ReviewNote = null;
         response.UpdatedAt = DateTime.UtcNow;
 
-        _audit.TrackLog(currentUser.UserId, AuditAction.DepartmentResponseSubmitted, "DepartmentResponse", id, response.TransactionId, previousStatus.ToString(), DepartmentResponseStatus.SubmittedForReview.ToString());
+        _audit.TrackLog(currentUser.UserId, AuditAction.DepartmentResponseSubmitted, DepartmentResponseEntityName, id, response.TransactionId, previousStatus.ToString(), DepartmentResponseStatus.SubmittedForReview.ToString());
         await _db.SaveChangesAsync();
 
         return MapToDto((await LoadWithDetailsAsync(id))!);
@@ -289,7 +301,7 @@ public class DepartmentResponseService : IDepartmentResponseService
         RequireReviewer(currentUser);
 
         var response = await _db.DepartmentResponses.FindAsync(id)
-            ?? throw new InvalidOperationException("الرد غير موجود.");
+            ?? throw new InvalidOperationException(ResponseNotFoundMessage);
 
         if (response.Status != DepartmentResponseStatus.SubmittedForReview)
             throw new InvalidOperationException("لا يمكن قبول الرد إلا إذا كان في حالة 'مقدّم للمراجعة'.");
@@ -299,7 +311,7 @@ public class DepartmentResponseService : IDepartmentResponseService
         response.ReviewedAt = DateTime.UtcNow;
         response.UpdatedAt = DateTime.UtcNow;
 
-        _audit.TrackLog(currentUser.UserId, AuditAction.DepartmentResponseApproved, "DepartmentResponse", id, response.TransactionId, DepartmentResponseStatus.SubmittedForReview.ToString(), DepartmentResponseStatus.Approved.ToString());
+        _audit.TrackLog(currentUser.UserId, AuditAction.DepartmentResponseApproved, DepartmentResponseEntityName, id, response.TransactionId, DepartmentResponseStatus.SubmittedForReview.ToString(), DepartmentResponseStatus.Approved.ToString());
         await _db.SaveChangesAsync();
 
         return MapToDto((await LoadWithDetailsAsync(id))!);
@@ -310,7 +322,7 @@ public class DepartmentResponseService : IDepartmentResponseService
         RequireReviewer(currentUser);
 
         var response = await _db.DepartmentResponses.FindAsync(id)
-            ?? throw new InvalidOperationException("الرد غير موجود.");
+            ?? throw new InvalidOperationException(ResponseNotFoundMessage);
 
         if (response.Status != DepartmentResponseStatus.SubmittedForReview)
             throw new InvalidOperationException("لا يمكن إعادة الرد إلا إذا كان في حالة 'مقدّم للمراجعة'.");
@@ -324,7 +336,7 @@ public class DepartmentResponseService : IDepartmentResponseService
         response.ReviewNote = request.ReviewNote;
         response.UpdatedAt = DateTime.UtcNow;
 
-        _audit.TrackLog(currentUser.UserId, AuditAction.DepartmentResponseReturned, "DepartmentResponse", id, response.TransactionId, DepartmentResponseStatus.SubmittedForReview.ToString(), DepartmentResponseStatus.ReturnedForCorrection.ToString());
+        _audit.TrackLog(currentUser.UserId, AuditAction.DepartmentResponseReturned, DepartmentResponseEntityName, id, response.TransactionId, DepartmentResponseStatus.SubmittedForReview.ToString(), DepartmentResponseStatus.ReturnedForCorrection.ToString());
         await _db.SaveChangesAsync();
 
         return MapToDto((await LoadWithDetailsAsync(id))!);
@@ -335,7 +347,7 @@ public class DepartmentResponseService : IDepartmentResponseService
         RequireReviewer(currentUser);
 
         var response = await _db.DepartmentResponses.FindAsync(id)
-            ?? throw new InvalidOperationException("الرد غير موجود.");
+            ?? throw new InvalidOperationException(ResponseNotFoundMessage);
 
         if (response.Status != DepartmentResponseStatus.SubmittedForReview)
             throw new InvalidOperationException("لا يمكن رفض الرد إلا إذا كان في حالة 'مقدّم للمراجعة'.");
@@ -349,7 +361,7 @@ public class DepartmentResponseService : IDepartmentResponseService
         response.ReviewNote = request.ReviewNote;
         response.UpdatedAt = DateTime.UtcNow;
 
-        _audit.TrackLog(currentUser.UserId, AuditAction.DepartmentResponseRejected, "DepartmentResponse", id, response.TransactionId, DepartmentResponseStatus.SubmittedForReview.ToString(), DepartmentResponseStatus.Rejected.ToString());
+        _audit.TrackLog(currentUser.UserId, AuditAction.DepartmentResponseRejected, DepartmentResponseEntityName, id, response.TransactionId, DepartmentResponseStatus.SubmittedForReview.ToString(), DepartmentResponseStatus.Rejected.ToString());
         await _db.SaveChangesAsync();
 
         return MapToDto((await LoadWithDetailsAsync(id))!);
@@ -358,7 +370,7 @@ public class DepartmentResponseService : IDepartmentResponseService
     public async Task<DepartmentResponseAttachmentDto> UploadAttachmentAsync(int id, IFormFile file, ICurrentUserService currentUser)
     {
         var response = await _db.DepartmentResponses.FindAsync(id)
-            ?? throw new InvalidOperationException("الرد غير موجود.");
+            ?? throw new InvalidOperationException(ResponseNotFoundMessage);
 
         RequireDepartmentOwnership(response, currentUser);
         RequireEditableStatus(response);
@@ -422,7 +434,7 @@ public class DepartmentResponseService : IDepartmentResponseService
             _audit.TrackLog(
                 currentUser.UserId,
                 AuditAction.DepartmentResponseAttachmentUploaded,
-                "DepartmentResponseAttachment",
+                DepartmentResponseAttachmentEntityName,
                 attachment.Id,
                 response.TransactionId,
                 null,
@@ -449,7 +461,7 @@ public class DepartmentResponseService : IDepartmentResponseService
     public async Task DeleteAttachmentAsync(int id, int attachmentId, ICurrentUserService currentUser)
     {
         var response = await _db.DepartmentResponses.FindAsync(id)
-            ?? throw new InvalidOperationException("الرد غير موجود.");
+            ?? throw new InvalidOperationException(ResponseNotFoundMessage);
 
         RequireDepartmentOwnership(response, currentUser);
         RequireEditableStatus(response);
@@ -462,7 +474,7 @@ public class DepartmentResponseService : IDepartmentResponseService
         attachment.DeletedByUserId = currentUser.UserId;
         attachment.DeletedAt = DateTime.UtcNow;
 
-        _audit.TrackLog(currentUser.UserId, AuditAction.DepartmentResponseAttachmentDeleted, "DepartmentResponseAttachment", attachmentId, response.TransactionId, attachment.OriginalFileName, null);
+        _audit.TrackLog(currentUser.UserId, AuditAction.DepartmentResponseAttachmentDeleted, DepartmentResponseAttachmentEntityName, attachmentId, response.TransactionId, attachment.OriginalFileName, null);
         await _db.SaveChangesAsync();
     }
 
