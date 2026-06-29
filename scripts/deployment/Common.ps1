@@ -362,9 +362,15 @@ function Ensure-Directory {
 
 function Test-DirectoryHasContent {
     param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $false
+    }
+
     if (-not (Test-Path -LiteralPath $Path)) {
         return $false
     }
+
     return $null -ne (Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue | Select-Object -First 1)
 }
 
@@ -737,7 +743,10 @@ function Assert-RollbackConfigurationAvailable {
         [bool]$HasApplicationBackup
     )
 
-    if ($HasApplicationBackup -and -not (Test-Path -LiteralPath $ConfigSource)) {
+    if ($HasApplicationBackup -and (
+        [string]::IsNullOrWhiteSpace($ConfigSource) -or
+        -not (Test-Path -LiteralPath $ConfigSource)
+    )) {
         throw "إعداد الإنتاج المعتمد غير موجود أثناء file rollback: $ConfigSource"
     }
 }

@@ -630,6 +630,10 @@ Describe 'Application file copy policy' {
 
 Describe 'Invoke-DeploymentFileRollback' {
     It 'restores API and Web atomically without stale API files' {
+        Test-DirectoryHasContent '' | Should -BeFalse
+        Test-DirectoryHasContent '   ' | Should -BeFalse
+        Test-DirectoryHasContent $null | Should -BeFalse
+
         $backupApi = New-TempDirectory
         $backupWeb = New-TempDirectory
         $apiTarget = New-TempDirectory
@@ -696,6 +700,16 @@ Describe 'Invoke-DeploymentFileRollback' {
         (Get-Content (Join-Path $apiTarget 'Uqeb.Api.dll') -Raw).Trim() | Should -Be 'new-api'
         Test-Path (Join-Path $apiTarget 'failed-release-only.dll') | Should -BeTrue
         (Get-Content (Join-Path $webTarget 'index.html') -Raw).Trim() | Should -Be 'new-web'
+
+        {
+            Invoke-DeploymentFileRollback `
+                -BackupApi $backupApi `
+                -BackupWeb $backupWeb `
+                -ApiTarget $apiTarget `
+                -WebTarget $webTarget `
+                -ConfigTarget $configTarget `
+                -ConfigSource ''
+        } | Should -Throw '*إعداد الإنتاج المعتمد غير موجود أثناء file rollback*'
     }
 }
 
