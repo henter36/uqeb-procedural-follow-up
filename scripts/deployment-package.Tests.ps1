@@ -1212,6 +1212,196 @@ Describe 'install-production-package.ps1 scenarios' {
     }
 }
 
+Describe 'UqebApi Scheduled Task reconciliation' {
+    BeforeEach {
+        Ensure-ScheduledTaskCommandStubs
+        $global:UqebTestTaskExists = $true
+        $global:UqebTestTaskAction = [pscustomobject]@{
+            Execute = 'C:\Uqeb\run-api.cmd'
+            Arguments = ''
+            WorkingDirectory = 'C:\Uqeb'
+        }
+        $global:UqebTestSetCalls = 0
+        $global:UqebTestRegisterCalls = 0
+
+        Mock Get-ScheduledTask {
+            if (-not $global:UqebTestTaskExists) {
+                return $null
+            }
+
+            return [pscustomobject]@{
+                TaskName = 'UqebApi'
+                Actions = @($global:UqebTestTaskAction)
+            }
+        }
+        Mock New-ScheduledTaskAction {
+            param([string]$Execute, [string]$Argument = '', [string]$WorkingDirectory = '')
+            return [pscustomobject]@{
+                Execute = $Execute
+                Arguments = $Argument
+                WorkingDirectory = $WorkingDirectory
+            }
+        }
+        Mock Set-ScheduledTask {
+            param([string]$TaskName, [object]$Action)
+            $global:UqebTestSetCalls++
+            $global:UqebTestTaskAction = $Action
+        }
+        Mock New-ScheduledTaskTrigger {
+            return [pscustomobject]@{ AtStartup = $true }
+        }
+        Mock New-ScheduledTaskPrincipal {
+            param([string]$UserId, [string]$RunLevel)
+            return [pscustomobject]@{ UserId = $UserId; RunLevel = $RunLevel }
+        }
+        Mock Register-ScheduledTask {
+            param([string]$TaskName, [object]$Action, [object]$Trigger, [object]$Principal)
+            $global:UqebTestRegisterCalls++
+            $global:UqebTestTaskExists = $true
+            $global:UqebTestTaskAction = $Action
+            $Trigger.AtStartup | Should -BeTrue
+            $Principal.UserId | Should -Be 'SYSTEM'
+            $Principal.RunLevel | Should -Be 'Highest'
+        }
+        Mock New-UqebScheduledTaskRunApiAction {
+            param([string]$RunApiPath, [string]$InstallRoot, [string]$Arguments = '')
+            return [pscustomobject]@{
+                Execute = $RunApiPath
+                Arguments = $Arguments
+                WorkingDirectory = $InstallRoot
+                CreatedBy = 'New-UqebScheduledTaskRunApiAction'
+            }
+        }
+        Mock Set-UqebApiScheduledTaskAction {
+            param([string]$TaskName, [object]$Action)
+            $global:UqebTestSetCalls++
+            $TaskName | Should -Be 'UqebApi'
+            $Action.Execute | Should -Be (Join-ScheduledTaskWindowsPath -Root 'C:\Uqeb' -Child 'run-api.cmd')
+            $Action.WorkingDirectory | Should -Be 'C:\Uqeb'
+            $Action.CreatedBy | Should -Be 'New-UqebScheduledTaskRunApiAction'
+            $global:UqebTestTaskAction = $Action
+        }
+        Mock Register-UqebApiScheduledTask {
+            param([string]$TaskName, [object]$Action)
+            $global:UqebTestRegisterCalls++
+            $TaskName | Should -Be 'UqebApi'
+            $Action.Execute | Should -Be (Join-ScheduledTaskWindowsPath -Root 'C:\Uqeb' -Child 'run-api.cmd')
+            $Action.WorkingDirectory | Should -Be 'C:\Uqeb'
+            $Action.CreatedBy | Should -Be 'New-UqebScheduledTaskRunApiAction'
+            $global:UqebTestTaskExists = $true
+            $global:UqebTestTaskAction = $Action
+        }
+    }
+
+    It 'creates UqebApi task with run-api.cmd action when it is missing' {
+        $global:UqebTestTaskExists = $false
+        $expectedRunApiPath = Join-ScheduledTaskWindowsPath -Root 'C:\Uqeb' -Child 'run-api.cmd'
+
+        $result = Sync-UqebApiScheduledTask -TaskName 'UqebApi' -InstallRoot 'C:\Uqeb'
+
+        $result.Created | Should -BeTrue
+        $result.ActionValid | Should -BeTrue
+        $result.After.Execute | Should -Be $expectedRunApiPath
+        $result.After.WorkingDirectory | Should -Be 'C:\Uqeb'
+        $global:UqebTestRegisterCalls | Should -Be 1
+    }
+
+    It 'corrects existing cmd.exe-only action to run-api.cmd' {
+        $expectedRunApiPath = Join-ScheduledTaskWindowsPath -Root 'C:\Uqeb' -Child 'run-api.cmd'
+        $global:UqebTestTaskAction = [pscustomobject]@{
+            Execute = 'C:\WINDOWS\system32\cmd.exe'
+            Arguments = ''
+            WorkingDirectory = 'C:\Uqeb'
+        }
+
+        $result = Sync-UqebApiScheduledTask -TaskName 'UqebApi' -InstallRoot 'C:\Uqeb'
+
+        $result.Updated | Should -BeTrue
+        $result.Before.Execute | Should -Be 'C:\WINDOWS\system32\cmd.exe'
+        $result.After.Execute | Should -Be $expectedRunApiPath
+        $result.After.Arguments | Should -Be ''
+        $result.After.WorkingDirectory | Should -Be 'C:\Uqeb'
+        $global:UqebTestSetCalls | Should -Be 1
+    }
+
+    It 'does not update an already correct scheduled task' {
+        $result = Sync-UqebApiScheduledTask -TaskName 'UqebApi' -InstallRoot 'C:\Uqeb'
+
+        $result.Created | Should -BeFalse
+        $result.Updated | Should -BeFalse
+        $result.ActionValid | Should -BeTrue
+        $global:UqebTestSetCalls | Should -Be 0
+        $global:UqebTestRegisterCalls | Should -Be 0
+    }
+
+    It 'handles an empty scheduled task action list under strict mode' {
+        $task = [pscustomobject]@{
+            TaskName = 'UqebApi'
+            Actions = @()
+        }
+
+        {
+            $action = Get-UqebScheduledTaskFirstAction -Task $task
+            $action | Should -BeNullOrEmpty
+            $details = Get-UqebApiScheduledTaskActionDetails -Task $task
+            $details.Execute | Should -Be ''
+            $details.Arguments | Should -Be ''
+            $details.WorkingDirectory | Should -Be ''
+        } | Should -Not -Throw
+    }
+
+    It 'accepts run-api.cmd as the deployment report executable' {
+        $validation = Test-UqebApiScheduledTaskAction `
+            -Execute 'C:\Uqeb\run-api.cmd' `
+            -Arguments '' `
+            -WorkingDirectory 'C:\Uqeb' `
+            -InstallRoot 'C:\Uqeb'
+
+        $validation.IsValid | Should -BeTrue
+        $validation.Reason | Should -Be 'ok'
+    }
+
+    It 'rejects cmd.exe without explicit run-api.cmd arguments' {
+        $validation = Test-UqebApiScheduledTaskAction `
+            -Execute 'C:\WINDOWS\system32\cmd.exe' `
+            -Arguments '' `
+            -WorkingDirectory 'C:\Uqeb' `
+            -InstallRoot 'C:\Uqeb'
+
+        $validation.IsValid | Should -BeFalse
+        $validation.Reason | Should -Be 'cmd_exe_without_run_api_argument'
+    }
+
+    It 'allows a legacy cmd.exe wrapper only when arguments explicitly call run-api.cmd' {
+        $validation = Test-UqebApiScheduledTaskAction `
+            -Execute 'C:\WINDOWS\system32\cmd.exe' `
+            -Arguments '/c "C:\Uqeb\run-api.cmd"' `
+            -WorkingDirectory 'C:\Uqeb' `
+            -InstallRoot 'C:\Uqeb'
+
+        $validation.IsValid | Should -BeTrue
+        $validation.Reason | Should -Be 'cmd_exe_wrapper'
+    }
+
+    It 'deployment report records scheduled task arguments and action validity' {
+        $content = Get-Content -LiteralPath (Join-Path $script:RepoScriptsRoot 'deploy-production-fast.ps1') -Raw
+
+        $content | Should -Match '"ScheduledTaskExecutable"'
+        $content | Should -Match '"ScheduledTaskArguments"'
+        $content | Should -Match '"ScheduledTaskWorkingDirectory"'
+        $content | Should -Match '"ScheduledTaskActionValid"'
+        $content | Should -Match 'Test-UqebApiScheduledTaskAction'
+        $content | Should -Not -Match 'يشير إلى executable غير متوقع'
+    }
+
+    It 'installer reconciles the scheduled task after writing run-api.cmd and before health verification' {
+        $content = Get-Content -LiteralPath $script:InstallScript -Raw
+        $pattern = 'Write-ApiRunScript[\s\S]+?Sync-UqebApiScheduledTask[\s\S]+?Write-DeployStep "تشغيل API"[\s\S]+?Write-DeployStep "فحص صحة API"'
+
+        $content | Should -Match $pattern
+    }
+}
+
 Describe 'Release promotion and rollback state' {
     BeforeEach {
         if (-not (Get-Command Stop-ScheduledTask -ErrorAction SilentlyContinue)) {

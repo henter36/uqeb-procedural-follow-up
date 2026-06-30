@@ -79,6 +79,10 @@ $promotionStarted = $false
 $promotionCompleted = $false
 $requiredMigrationMissing = $false
 $packageArchiveStatus = "لم تُنفَّذ"
+$scheduledTaskBefore = $null
+$scheduledTaskAfter = $null
+$scheduledTaskActionValid = $false
+$scheduledTaskReconcileStatus = "لم يُنفَّذ"
 
 try {
     if (-not (Test-IsAdministrator)) {
@@ -140,7 +144,7 @@ try {
     $packageValidated = $true
 
     if (-not (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue)) {
-        throw "مهمة الجدولة '$TaskName' غير موجودة."
+        Write-DeployInfo "مهمة الجدولة '$TaskName' غير موجودة وسيتم إنشاؤها بعد تحديث run-api.cmd."
     }
 
     $backupRoot = Join-Path $InstallRoot "backup"
@@ -297,6 +301,31 @@ try {
         -ApiBindAddress $ApiBindAddress `
         -PlaywrightBrowsersPath $PlaywrightBrowsersPath `
         -LogPath $logsPath
+
+    Write-DeployStep "مصالحة Scheduled Task"
+    $scheduledTaskReconcile = Sync-UqebApiScheduledTask `
+        -TaskName $TaskName `
+        -InstallRoot $InstallRoot
+    $scheduledTaskBefore = $scheduledTaskReconcile.Before
+    $scheduledTaskAfter = $scheduledTaskReconcile.After
+    $scheduledTaskActionValid = [bool]$scheduledTaskReconcile.ActionValid
+    $scheduledTaskReconcileStatus = if ($scheduledTaskReconcile.Created) {
+        "تم الإنشاء"
+    }
+    elseif ($scheduledTaskReconcile.Updated) {
+        "تم التصحيح"
+    }
+    else {
+        "مطابق"
+    }
+    Write-DeployInfo ("ScheduledTask before: Execute='{0}', Arguments='{1}', WorkingDirectory='{2}'" -f `
+            $scheduledTaskBefore.Execute, $scheduledTaskBefore.Arguments, $scheduledTaskBefore.WorkingDirectory)
+    Write-DeployInfo ("ScheduledTask after: Execute='{0}', Arguments='{1}', WorkingDirectory='{2}', Valid='{3}'" -f `
+            $scheduledTaskAfter.Execute, $scheduledTaskAfter.Arguments, $scheduledTaskAfter.WorkingDirectory, $scheduledTaskActionValid)
+
+    if (-not $scheduledTaskActionValid) {
+        throw "فشل تثبيت تعريف Scheduled Task '$TaskName': $($scheduledTaskReconcile.Reason)"
+    }
 
     $releaseInfo = [ordered]@{
         deployedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
@@ -517,6 +546,18 @@ finally {
     Write-DeployInfo ("حالة migrations: " + $databaseStatus)
     Write-DeployInfo ("صحة API: " + $apiHealth)
     Write-DeployInfo ("حالة أرشفة الحزمة: " + $packageArchiveStatus)
+    Write-DeployInfo ("حالة Scheduled Task: " + $scheduledTaskReconcileStatus)
+    if ($scheduledTaskBefore) {
+        Write-DeployInfo ("ScheduledTaskBeforeExecutable: " + $scheduledTaskBefore.Execute)
+        Write-DeployInfo ("ScheduledTaskBeforeArguments: " + $scheduledTaskBefore.Arguments)
+        Write-DeployInfo ("ScheduledTaskBeforeWorkingDirectory: " + $scheduledTaskBefore.WorkingDirectory)
+    }
+    if ($scheduledTaskAfter) {
+        Write-DeployInfo ("ScheduledTaskExecutable: " + $scheduledTaskAfter.Execute)
+        Write-DeployInfo ("ScheduledTaskArguments: " + $scheduledTaskAfter.Arguments)
+        Write-DeployInfo ("ScheduledTaskWorkingDirectory: " + $scheduledTaskAfter.WorkingDirectory)
+    }
+    Write-DeployInfo ("ScheduledTaskActionValid: " + $scheduledTaskActionValid.ToString().ToLowerInvariant())
     Write-DeployInfo ("مسار rollback-state: " + $rollbackStatePath)
     Write-DeployInfo ("مسار current API: " + $currentApiPath)
     Write-DeployInfo ("مسار النسخة الاحتياطية للملفات: " + $backupPath)

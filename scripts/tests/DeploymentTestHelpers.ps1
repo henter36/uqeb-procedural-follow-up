@@ -265,6 +265,33 @@ function Ensure-ScheduledTaskCommandStubs {
     if (-not (Get-Command Start-ScheduledTask -ErrorAction SilentlyContinue)) {
         function script:Start-ScheduledTask { param([string]$TaskName) }
     }
+    if (-not (Get-Command New-ScheduledTaskAction -ErrorAction SilentlyContinue)) {
+        function script:New-ScheduledTaskAction {
+            param([string]$Execute, [string]$Argument = '', [string]$WorkingDirectory = '')
+            return [pscustomobject]@{
+                Execute = $Execute
+                Arguments = $Argument
+                WorkingDirectory = $WorkingDirectory
+            }
+        }
+    }
+    if (-not (Get-Command Set-ScheduledTask -ErrorAction SilentlyContinue)) {
+        function script:Set-ScheduledTask { param([string]$TaskName, [object]$Action) }
+    }
+    if (-not (Get-Command New-ScheduledTaskTrigger -ErrorAction SilentlyContinue)) {
+        function script:New-ScheduledTaskTrigger { param([switch]$AtStartup) return [pscustomobject]@{ AtStartup = [bool]$AtStartup } }
+    }
+    if (-not (Get-Command New-ScheduledTaskPrincipal -ErrorAction SilentlyContinue)) {
+        function script:New-ScheduledTaskPrincipal {
+            param([string]$UserId, [string]$RunLevel)
+            return [pscustomobject]@{ UserId = $UserId; RunLevel = $RunLevel }
+        }
+    }
+    if (-not (Get-Command Register-ScheduledTask -ErrorAction SilentlyContinue)) {
+        function script:Register-ScheduledTask {
+            param([string]$TaskName, [object]$Action, [object]$Trigger, [object]$Principal, [switch]$Force)
+        }
+    }
     if (-not (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue)) {
         function script:Get-NetTCPConnection { return @() }
     }
@@ -297,9 +324,51 @@ function Register-StandardDeploymentInstallMocks {
     Ensure-ScheduledTaskCommandStubs
 
     Mock Test-IsAdministrator { $true }
-    Mock Get-ScheduledTask { return [pscustomobject]@{ TaskName = 'UqebApi' } }
+    $global:UqebScheduledTaskAction = [pscustomobject]@{
+        Execute = ''
+        Arguments = ''
+        WorkingDirectory = ''
+    }
+    Mock Get-ScheduledTask { return [pscustomobject]@{ TaskName = 'UqebApi'; Actions = @($global:UqebScheduledTaskAction) } }
     Mock Stop-ScheduledTask {}
     Mock Start-ScheduledTask {}
+    Mock New-ScheduledTaskAction {
+        param([string]$Execute, [string]$Argument = '', [string]$WorkingDirectory = '')
+        return [pscustomobject]@{
+            Execute = $Execute
+            Arguments = $Argument
+            WorkingDirectory = $WorkingDirectory
+        }
+    }
+    Mock Set-ScheduledTask {
+        param([string]$TaskName, [object]$Action)
+        $global:UqebScheduledTaskAction = $Action
+    }
+    Mock New-ScheduledTaskTrigger { return [pscustomobject]@{ AtStartup = $true } }
+    Mock New-ScheduledTaskPrincipal {
+        param([string]$UserId, [string]$RunLevel)
+        return [pscustomobject]@{ UserId = $UserId; RunLevel = $RunLevel }
+    }
+    Mock Register-ScheduledTask {
+        param([string]$TaskName, [object]$Action, [object]$Trigger, [object]$Principal)
+        $global:UqebScheduledTaskAction = $Action
+    }
+    Mock New-UqebScheduledTaskRunApiAction {
+        param([string]$RunApiPath, [string]$InstallRoot, [string]$Arguments = '')
+        return [pscustomobject]@{
+            Execute = $RunApiPath
+            Arguments = $Arguments
+            WorkingDirectory = $InstallRoot
+        }
+    }
+    Mock Set-UqebApiScheduledTaskAction {
+        param([string]$TaskName, [object]$Action)
+        $global:UqebScheduledTaskAction = $Action
+    }
+    Mock Register-UqebApiScheduledTask {
+        param([string]$TaskName, [object]$Action)
+        $global:UqebScheduledTaskAction = $Action
+    }
     Mock Stop-ApiListenersOnPort {}
     Mock Wait-PortReleased { $true }
     Mock Test-PortListener { $true }
