@@ -79,12 +79,47 @@ public class BuildInfoServiceTests
         Assert.IsType<AuthorizeAttribute>(authorizeAttribute);
     }
 
-    private static BuildInfoService CreateService(BuildInfoOptions options, string environmentName) =>
+    [Theory]
+    [InlineData("production", "Production")]
+    [InlineData("PROD", "Production")]
+    [InlineData("staging-blue", "Staging")]
+    [InlineData("dev-local", "Development")]
+    [InlineData("secret-internal-name", "Unknown")]
+    [InlineData(null, "Unknown")]
+    [InlineData("", "Unknown")]
+    [InlineData("   ", "Unknown")]
+    public void GetVersion_NormalizesEnvironmentWithoutExposingUnknownNames(string? environmentName, string expected)
+    {
+        var service = CreateService(new BuildInfoOptions(), environmentName);
+
+        var result = service.GetVersion();
+
+        Assert.Equal(expected, result.Environment);
+    }
+
+    [Theory]
+    [InlineData("abcdef1234567890abcdef1234567890abcdef12", "abcdef1")]
+    [InlineData("abc1234", "abc1234")]
+    [InlineData("ABCDEF1234567890", "abcdef1")]
+    [InlineData(" local ", "local")]
+    [InlineData("not-a-sha", "local")]
+    [InlineData("", "local")]
+    [InlineData(null, "local")]
+    public void GetVersion_NormalizesCommitSha(string? commitSha, string expected)
+    {
+        var service = CreateService(new BuildInfoOptions { CommitSha = commitSha }, "Production");
+
+        var result = service.GetVersion();
+
+        Assert.Equal(expected, result.BackendCommitSha);
+    }
+
+    private static BuildInfoService CreateService(BuildInfoOptions options, string? environmentName) =>
         new(Options.Create(options), new TestHostEnvironment(environmentName));
 
-    private sealed class TestHostEnvironment(string environmentName) : IHostEnvironment
+    private sealed class TestHostEnvironment(string? environmentName) : IHostEnvironment
     {
-        public string EnvironmentName { get; set; } = environmentName;
+        public string EnvironmentName { get; set; } = environmentName!;
 
         public string ApplicationName { get; set; } = "Uqeb.Api.Tests";
 

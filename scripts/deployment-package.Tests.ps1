@@ -2163,6 +2163,29 @@ Describe 'build-production-package.ps1 policy' {
         $content | Should -Not -Match 'npm ci\s+npm test'
     }
 
+    It 'validates frontend dist API URL after production build' {
+        $content = Get-Content (Join-Path $PSScriptRoot 'build-production-package.ps1') -Raw
+        $content | Should -Match 'function Assert-FrontendDistApiBaseUrl'
+        $content | Should -Match 'Assert-FrontendDistApiBaseUrl'
+        $content | Should -Match 'ProductionApiBaseUrl'
+        $content | Should -Match 'Get-ChildItem -LiteralPath \$DistPath -Recurse -File'
+    }
+
+    It 'rejects local API URLs from frontend dist' {
+        $content = Get-Content (Join-Path $PSScriptRoot 'build-production-package.ps1') -Raw
+        $content | Should -Match 'localhost:5000'
+        $content | Should -Match '127\.0\.0\.1:5000'
+        $content | Should -Match 'http://localhost'
+        $content | Should -Match 'http://127\.0\.0\.1'
+    }
+
+    It 'requires build metadata in production package structure checks' {
+        $repoRoot = Split-Path $PSScriptRoot -Parent
+        $workflowPath = Join-Path (Join-Path (Join-Path $repoRoot '.github') 'workflows') 'deployment-package.yml'
+        $workflow = Get-Content -LiteralPath $workflowPath -Raw
+        $workflow | Should -Match 'api\\build-info\.json'
+    }
+
     It 'uses UTC for package version stamp' {
         $content = Get-Content (Join-Path $PSScriptRoot 'build-production-package.ps1') -Raw
         $content | Should -Match '\[DateTime\]::UtcNow\.ToString\("yyyyMMdd-HHmmss"\)'

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { systemApi } from '../../api/services';
 import type { SystemVersionInfo } from '../../api/types';
 import { frontendVersionInfo, type FrontendVersionInfo } from '../../version';
@@ -7,6 +7,7 @@ type AppVersionInfoProps = Readonly<{
   frontendInfo?: FrontendVersionInfo;
   loadBackendVersion?: () => Promise<SystemVersionInfo>;
   initiallyOpen?: boolean;
+  panelId?: string;
 }>;
 
 type BackendVersionState =
@@ -37,31 +38,49 @@ export default function AppVersionInfo({
   frontendInfo = frontendVersionInfo,
   loadBackendVersion = defaultLoadBackendVersion,
   initiallyOpen = false,
+  panelId,
 }: AppVersionInfoProps) {
+  const generatedPanelId = useId();
+  const resolvedPanelId = panelId ?? `app-version-info-panel-${generatedPanelId}`;
   const [open, setOpen] = useState(initiallyOpen);
   const [backendVersion, setBackendVersion] = useState<BackendVersionState>({ status: 'idle' });
   const requestedBackendVersion = useRef(false);
+  const backendVersionRequestInFlight = useRef(false);
+  const backendVersionRequestId = useRef(0);
 
   useEffect(() => {
-    if (!open || requestedBackendVersion.current) return;
+    if (!open || requestedBackendVersion.current || backendVersionRequestInFlight.current) return;
 
     let active = true;
-    requestedBackendVersion.current = true;
+    const requestId = backendVersionRequestId.current + 1;
+    backendVersionRequestId.current = requestId;
+    backendVersionRequestInFlight.current = true;
     setBackendVersion({ status: 'loading' });
 
     loadBackendVersion()
       .then((data) => {
-        if (active) setBackendVersion({ status: 'success', data });
+        if (active) {
+          requestedBackendVersion.current = true;
+          setBackendVersion({ status: 'success', data });
+        }
       })
       .catch(() => {
         if (active) {
           setBackendVersion({ status: 'error' });
           requestedBackendVersion.current = false;
         }
+      })
+      .finally(() => {
+        if (backendVersionRequestId.current === requestId) {
+          backendVersionRequestInFlight.current = false;
+        }
       });
 
     return () => {
       active = false;
+      if (backendVersionRequestId.current === requestId) {
+        backendVersionRequestInFlight.current = false;
+      }
     };
   }, [loadBackendVersion, open]);
 
@@ -72,13 +91,13 @@ export default function AppVersionInfo({
         className="app-version-info-button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
-        aria-controls="app-version-info-panel"
+        aria-controls={resolvedPanelId}
       >
         معلومات الإصدار
       </button>
 
       {open && (
-        <output id="app-version-info-panel" className="app-version-info-panel" aria-live="polite">
+        <output id={resolvedPanelId} className="app-version-info-panel" aria-live="polite">
           <p>
             الواجهة: v{frontendInfo.frontendVersion} - commit {frontendInfo.frontendCommitSha} - built{' '}
             {formatBuildTime(frontendInfo.frontendBuildTimeUtc)}

@@ -108,4 +108,27 @@ describe('AppVersionInfo', () => {
     await waitFor(() => expect(loadBackendVersion).toHaveBeenCalledTimes(2));
     expect(await screen.findByText(/الخادم: v20260630-103000/)).toBeInTheDocument();
   });
+
+  it('allows retrying after reopening the panel while the previous request is still pending', async () => {
+    let resolveFirstRequest: (value: SystemVersionInfo) => void = () => undefined;
+    const firstRequest = new Promise<SystemVersionInfo>((resolve) => {
+      resolveFirstRequest = resolve;
+    });
+    const loadBackendVersion = vi.fn()
+      .mockReturnValueOnce(firstRequest)
+      .mockResolvedValueOnce(backendInfo);
+    const user = userEvent.setup();
+
+    render(<AppVersionInfo frontendInfo={frontendInfo} loadBackendVersion={loadBackendVersion} />);
+
+    await user.click(screen.getByRole('button', { name: 'معلومات الإصدار' }));
+    expect(screen.getByText('جاري قراءة إصدار الخادم...')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'معلومات الإصدار' }));
+    await user.click(screen.getByRole('button', { name: 'معلومات الإصدار' }));
+
+    await waitFor(() => expect(loadBackendVersion).toHaveBeenCalledTimes(2));
+    resolveFirstRequest(backendInfo);
+    expect(await screen.findByText(/الخادم: v20260630-103000/)).toBeInTheDocument();
+  });
 });

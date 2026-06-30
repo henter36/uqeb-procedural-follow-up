@@ -17,6 +17,7 @@ public sealed partial class BuildInfoService(
     IHostEnvironment environment) : IBuildInfoService
 {
     private const string LocalValue = "local";
+    private const int ShortCommitLength = 7;
 
     public SystemVersionDto GetVersion()
     {
@@ -55,7 +56,7 @@ public sealed partial class BuildInfoService(
             return LocalValue;
 
         return CommitShaRegex().IsMatch(trimmed)
-            ? trimmed[..Math.Min(trimmed.Length, 7)].ToLowerInvariant()
+            ? trimmed[..Math.Min(trimmed.Length, ShortCommitLength)].ToLowerInvariant()
             : LocalValue;
     }
 
@@ -73,14 +74,23 @@ public sealed partial class BuildInfoService(
             : null;
     }
 
-    private static string NormalizeEnvironment(string? value) =>
-        value switch
-        {
-            "Development" => "Development",
-            "Staging" => "Staging",
-            "Production" => "Production",
-            _ => "Unknown"
-        };
+    private static string NormalizeEnvironment(string? value)
+    {
+        var normalized = value?.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(normalized))
+            return "Unknown";
+
+        if (normalized is "development" or "dev" || normalized.StartsWith("dev-", StringComparison.Ordinal))
+            return "Development";
+
+        if (normalized is "staging" or "stage" || normalized.StartsWith("staging-", StringComparison.Ordinal))
+            return "Staging";
+
+        if (normalized is "production" or "prod" || normalized.StartsWith("prod-", StringComparison.Ordinal))
+            return "Production";
+
+        return "Unknown";
+    }
 
     [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")]
     private static partial Regex SafeVersionRegex();

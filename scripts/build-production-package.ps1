@@ -64,6 +64,70 @@ function Ensure-DotNetEfToolAvailable {
     }
 }
 
+function Assert-FrontendDistApiBaseUrl {
+    param(
+        [string]$DistPath,
+        [string]$ProductionApiBaseUrl
+    )
+
+    if (-not (Test-Path -LiteralPath $DistPath)) {
+        throw "مجلد بناء Frontend غير موجود: $DistPath"
+    }
+
+    $textExtensions = @(".js", ".css", ".html")
+    $distFiles = Get-ChildItem -LiteralPath $DistPath -Recurse -File |
+        Where-Object { $textExtensions -contains $_.Extension.ToLowerInvariant() }
+
+    if (-not $distFiles) {
+        throw "لا توجد ملفات نصية قابلة للفحص داخل بناء Frontend."
+    }
+
+    $expectedMarkers = New-Object System.Collections.Generic.List[string]
+    $expectedMarkers.Add($ProductionApiBaseUrl.TrimEnd('/'))
+    try {
+        $productionUri = [Uri]$ProductionApiBaseUrl
+        if (-not [string]::IsNullOrWhiteSpace($productionUri.Authority)) {
+            $expectedMarkers.Add($productionUri.Authority)
+        }
+    }
+    catch {
+        Write-DeployInfo "تعذر تفسير ProductionApiBaseUrl كعنوان URL كامل؛ سيتم فحص النص كما هو."
+    }
+
+    $forbiddenMarkers = @(
+        "localhost:5000",
+        "127.0.0.1:5000",
+        "http://localhost",
+        "http://127.0.0.1"
+    )
+
+    $foundProductionApi = $false
+    $forbiddenHits = New-Object System.Collections.Generic.List[string]
+
+    foreach ($file in $distFiles) {
+        $content = Get-Content -LiteralPath $file.FullName -Raw
+        foreach ($expected in $expectedMarkers) {
+            if ($content.IndexOf($expected, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                $foundProductionApi = $true
+            }
+        }
+
+        foreach ($forbidden in $forbiddenMarkers) {
+            if ($content.IndexOf($forbidden, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                $forbiddenHits.Add("$($file.FullName): $forbidden")
+            }
+        }
+    }
+
+    if (-not $foundProductionApi) {
+        throw "بناء Frontend لا يحتوي عنوان API الإنتاجي المتوقع: $ProductionApiBaseUrl"
+    }
+
+    if ($forbiddenHits.Count -gt 0) {
+        throw "بناء Frontend يحتوي عناوين API محلية غير صالحة للإنتاج: $($forbiddenHits -join '; ')"
+    }
+}
+
 Write-DeployStep "التحقق من المتطلبات"
 foreach ($tool in @("dotnet", "node", "npm", "powershell")) {
     if (-not (Test-CommandAvailable $tool)) {
@@ -169,6 +233,10 @@ try {
         $env:VITE_BUILD_TIME_UTC = $buildTimestampUtc
         npm run build
     }
+
+    Assert-FrontendDistApiBaseUrl `
+        -DistPath (Join-Path $frontendRoot "dist") `
+        -ProductionApiBaseUrl $ProductionApiBaseUrl
 }
 finally {
     Pop-Location
