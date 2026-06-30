@@ -104,9 +104,8 @@ if ($drive.Free -and $drive.Free -lt 2GB) {
     throw "مساحة القرص المتاحة منخفضة لبناء الحزمة (أقل من 2GB)."
 }
 
-$buildTimeUtc = (Get-Date).ToUniversalTime()
-$versionStamp = $buildTimeUtc.ToString("yyyyMMdd-HHmmss")
-$buildTimestampUtc = $buildTimeUtc.ToString("o")
+$versionStamp = [DateTime]::UtcNow.ToString("yyyyMMdd-HHmmss")
+$buildTimestampUtc = [DateTime]::UtcNow.ToString("o")
 $commitSha = ""
 try {
     $commitSha = (git -C $repoRoot rev-parse HEAD 2>$null).Trim()

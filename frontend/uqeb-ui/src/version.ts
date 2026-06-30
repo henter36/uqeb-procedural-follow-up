@@ -7,14 +7,13 @@ export interface FrontendVersionInfo {
 const DEFAULT_FRONTEND_VERSION = '0.0.0';
 
 function normalizeValue(value: string | undefined): string | null {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
+  return value?.trim() || null;
 }
 
 function normalizeCommitSha(value: string | undefined): string {
   const trimmed = normalizeValue(value);
-  if (!trimmed || trimmed.toLowerCase() === 'local') return 'local';
-  return /^[a-fA-F0-9]{7,40}$/.test(trimmed) ? trimmed.slice(0, 7).toLowerCase() : 'local';
+  if (trimmed?.toLowerCase() === 'local') return 'local';
+  return trimmed && /^[a-fA-F0-9]{7,40}$/.test(trimmed) ? trimmed.slice(0, 7).toLowerCase() : 'local';
 }
 
 export const frontendVersionInfo: FrontendVersionInfo = {

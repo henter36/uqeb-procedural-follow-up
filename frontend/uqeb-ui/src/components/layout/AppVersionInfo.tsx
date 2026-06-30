@@ -26,6 +26,7 @@ function formatBuildTime(value: string | null | undefined): string {
   if (Number.isNaN(date.getTime())) return 'غير متاح';
 
   return `${new Intl.DateTimeFormat('ar-SA', {
+    calendar: 'gregory',
     dateStyle: 'medium',
     timeStyle: 'short',
     timeZone: 'UTC',
@@ -53,7 +54,10 @@ export default function AppVersionInfo({
         if (active) setBackendVersion({ status: 'success', data });
       })
       .catch(() => {
-        if (active) setBackendVersion({ status: 'error' });
+        if (active) {
+          setBackendVersion({ status: 'error' });
+          requestedBackendVersion.current = false;
+        }
       });
 
     return () => {
@@ -74,7 +78,7 @@ export default function AppVersionInfo({
       </button>
 
       {open && (
-        <div id="app-version-info-panel" className="app-version-info-panel" role="status">
+        <output id="app-version-info-panel" className="app-version-info-panel" aria-live="polite">
           <p>
             الواجهة: v{frontendInfo.frontendVersion} - commit {frontendInfo.frontendCommitSha} - built{' '}
             {formatBuildTime(frontendInfo.frontendBuildTimeUtc)}
@@ -85,13 +89,13 @@ export default function AppVersionInfo({
           {backendVersion.status === 'success' && (
             <>
               <p>
-                الباك: v{backendVersion.data.backendVersion} - commit {backendVersion.data.backendCommitSha} - built{' '}
+                الخادم: v{backendVersion.data.backendVersion} - commit {backendVersion.data.backendCommitSha} - built{' '}
                 {formatBuildTime(backendVersion.data.backendBuildTimeUtc)}
               </p>
               <p>البيئة: {backendVersion.data.environment}</p>
             </>
           )}
-        </div>
+        </output>
       )}
     </div>
   );

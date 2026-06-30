@@ -16,6 +16,8 @@ public sealed partial class BuildInfoService(
     IOptions<BuildInfoOptions> options,
     IHostEnvironment environment) : IBuildInfoService
 {
+    private const string LocalValue = "local";
+
     public SystemVersionDto GetVersion()
     {
         var value = options.Value;
@@ -34,7 +36,7 @@ public sealed partial class BuildInfoService(
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
             .InformationalVersion;
         var normalized = NormalizeVersion(informationalVersion?.Split('+', 2)[0]);
-        return normalized ?? assembly.GetName().Version?.ToString() ?? "local";
+        return normalized ?? assembly.GetName().Version?.ToString() ?? LocalValue;
     }
 
     private static string? NormalizeVersion(string? value)
@@ -49,12 +51,12 @@ public sealed partial class BuildInfoService(
     private static string NormalizeCommitSha(string? value)
     {
         var trimmed = value?.Trim();
-        if (string.IsNullOrWhiteSpace(trimmed) || trimmed.Equals("local", StringComparison.OrdinalIgnoreCase))
-            return "local";
+        if (string.IsNullOrWhiteSpace(trimmed) || trimmed.Equals(LocalValue, StringComparison.OrdinalIgnoreCase))
+            return LocalValue;
 
         return CommitShaRegex().IsMatch(trimmed)
             ? trimmed[..Math.Min(trimmed.Length, 7)].ToLowerInvariant()
-            : "local";
+            : LocalValue;
     }
 
     private static DateTimeOffset? ParseBuildTime(string? value)

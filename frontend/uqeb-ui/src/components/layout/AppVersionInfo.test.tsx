@@ -45,7 +45,7 @@ describe('AppVersionInfo', () => {
       />,
     );
 
-    expect(await screen.findByText(/الباك: v20260630-103000/)).toBeInTheDocument();
+    expect(await screen.findByText(/الخادم: v20260630-103000/)).toBeInTheDocument();
     expect(screen.getByText(/commit def5678/)).toBeInTheDocument();
     expect(screen.getByText('البيئة: Production')).toBeInTheDocument();
   });
@@ -75,7 +75,7 @@ describe('AppVersionInfo', () => {
     expect(screen.getByText(/الواجهة: v0\.0\.0/)).toBeInTheDocument();
     expect(screen.getByText(/commit local/)).toBeInTheDocument();
     expect(screen.getAllByText(/غير متاح/).length).toBeGreaterThan(0);
-    expect(await screen.findByText(/الباك: v20260630-103000/)).toBeInTheDocument();
+    expect(await screen.findByText(/الخادم: v20260630-103000/)).toBeInTheDocument();
   });
 
   it('loads backend version only after the panel is opened', async () => {
@@ -88,5 +88,24 @@ describe('AppVersionInfo', () => {
     await user.click(screen.getByRole('button', { name: 'معلومات الإصدار' }));
 
     await waitFor(() => expect(loadBackendVersion).toHaveBeenCalledOnce());
+  });
+
+  it('allows retrying backend version request after a failed attempt', async () => {
+    const loadBackendVersion = vi.fn()
+      .mockRejectedValueOnce(new Error('network'))
+      .mockResolvedValueOnce(backendInfo);
+    const user = userEvent.setup();
+
+    render(<AppVersionInfo frontendInfo={frontendInfo} loadBackendVersion={loadBackendVersion} />);
+
+    await user.click(screen.getByRole('button', { name: 'معلومات الإصدار' }));
+    expect(await screen.findByText('تعذر قراءة إصدار الخادم.')).toBeInTheDocument();
+    expect(loadBackendVersion).toHaveBeenCalledOnce();
+
+    await user.click(screen.getByRole('button', { name: 'معلومات الإصدار' }));
+    await user.click(screen.getByRole('button', { name: 'معلومات الإصدار' }));
+
+    await waitFor(() => expect(loadBackendVersion).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(/الخادم: v20260630-103000/)).toBeInTheDocument();
   });
 });
