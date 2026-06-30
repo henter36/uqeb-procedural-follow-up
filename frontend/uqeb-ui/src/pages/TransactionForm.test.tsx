@@ -82,7 +82,7 @@ function getResponseSection() {
 
 async function openOutgoingDepartmentsDropdown(user: ReturnType<typeof userEvent.setup>) {
   const routingSection = getRoutingSection();
-  await user.click(within(routingSection).getByRole('button', { name: /لم يتم اختيار أي إدارة|إدارة واحدة مختارة|2 إدارات مختارة/ }));
+  await user.click(within(routingSection).getByRole('button', { name: /لم يتم اختيار أي إدارة|إدارة واحدة مختارة|إدارتان مختارتان/ }));
   return routingSection;
 }
 
@@ -476,7 +476,7 @@ describe('TransactionForm searchable selects', () => {
     await user.click(within(routingSection).getByLabelText('إدارة داخلية'));
     await user.click(within(routingSection).getByLabelText('إدارة المتابعة'));
 
-    expect(within(routingSection).getByText('2 إدارات مختارة')).toBeInTheDocument();
+    expect(within(routingSection).getByText('إدارتان مختارتان')).toBeInTheDocument();
     expect(within(routingSection).getByRole('button', { name: 'إزالة إدارة داخلية' })).toBeInTheDocument();
     expect(within(routingSection).getByRole('button', { name: 'إزالة إدارة المتابعة' })).toBeInTheDocument();
   });
@@ -515,9 +515,9 @@ describe('TransactionForm searchable selects', () => {
     await fillValidCreateForm(user);
 
     const outgoingSection = getOutgoingSection();
-    const routingSection = await openOutgoingDepartmentsDropdown(user);
     await user.type(getFieldInSection(outgoingSection, 'رقم الصادر'), 'OUT-100');
     await user.type(getFieldInSection(outgoingSection, 'تاريخ الصادر (ميلادي)'), '2026-06-05');
+    const routingSection = await openOutgoingDepartmentsDropdown(user);
     await user.click(within(routingSection).getByLabelText('إدارة داخلية'));
     await user.click(within(routingSection).getByLabelText('إدارة المتابعة'));
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
@@ -657,7 +657,7 @@ describe('TransactionForm validation feedback', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('اختر جهة داخلية واحدة على الأقل.');
   });
 
-  it('CreateTransaction_MissingOutgoingDepartmentIds_SetsAriaInvalid', async () => {
+  it('CreateTransaction_MissingOutgoingDepartmentIds_SetsInvalidClassAndDescribedBy', async () => {
     const user = userEvent.setup();
     renderCreateForm();
     await waitForFormReady();
@@ -671,7 +671,8 @@ describe('TransactionForm validation feedback', () => {
     const outgoingDepartments = document.querySelector<HTMLElement>('[data-field-name="outgoingDepartmentIds"]');
     expect(outgoingDepartments).not.toBeNull();
     await waitFor(() => {
-      expect(outgoingDepartments).toHaveAttribute('aria-invalid', 'true');
+      expect(outgoingDepartments).toHaveClass('is-invalid');
+      expect(outgoingDepartments).not.toHaveAttribute('aria-invalid');
       expect(outgoingDepartments).toHaveAttribute('aria-describedby', 'outgoingDepartmentIds-error');
     });
   });

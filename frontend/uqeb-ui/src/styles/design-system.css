@@ -1527,8 +1527,10 @@
   display: grid;
   gap: var(--space-1);
   padding: var(--space-2);
-  max-height: 240px;
-  overflow-y: auto;
+}
+
+.multi-select-container {
+  position: relative;
 }
 
 .multi-select-trigger {
@@ -1548,17 +1550,23 @@
   margin-bottom: var(--space-2);
 }
 
-.multi-select-trigger[aria-invalid="true"] {
+.multi-select-trigger.is-invalid {
   border-color: var(--color-danger);
 }
 
 .multi-select-panel {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  right: 0;
+  z-index: 20;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-surface);
   padding: var(--space-2);
   box-shadow: var(--shadow-sm);
-  margin-bottom: var(--space-2);
+  max-height: 18rem;
+  overflow-y: auto;
 }
 
 .multi-select-chips {

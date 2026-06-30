@@ -18,7 +18,7 @@ const departments = [
 
 async function openDepartmentsDropdown(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', {
-    name: /لم يتم اختيار أي إدارة|إدارة واحدة مختارة|2 إدارات مختارة/,
+    name: /لم يتم اختيار أي إدارة|إدارة واحدة مختارة|إدارتان مختارتان/,
   }));
 }
 

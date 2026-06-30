@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
 type Option = Readonly<{ id: number; name: string; isActive?: boolean }>;
 
@@ -16,7 +16,9 @@ type Props = Readonly<{
 function formatSelectedCount(count: number) {
   if (count === 0) return 'لم يتم اختيار أي إدارة';
   if (count === 1) return 'إدارة واحدة مختارة';
-  return `${count} إدارات مختارة`;
+  if (count === 2) return 'إدارتان مختارتان';
+  if (count >= 3 && count <= 10) return `${count} إدارات مختارة`;
+  return `${count} إدارة مختارة`;
 }
 
 export default function MultiSelect({
@@ -31,6 +33,8 @@ export default function MultiSelect({
 }: Props) {
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const generatedPanelId = useId();
 
   const showSearch = options.length > 6;
   const selectedOptions = useMemo(
@@ -50,20 +54,42 @@ export default function MultiSelect({
   };
   const remove = (id: number) => onChange(selected.filter((x) => x !== id));
   const selectedCountLabel = formatSelectedCount(selected.length);
-  const listboxId = dataFieldName ? `${dataFieldName}-options` : undefined;
+  const panelId = dataFieldName ? `${dataFieldName}-options` : generatedPanelId;
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen]);
 
   return (
-    <div className="form-group">
+    <div className="form-group multi-select-container" ref={containerRef}>
       {label && <label>{label}{required ? ' *' : ''}</label>}
       <button
         type="button"
-        className="multi-select-trigger"
+        className={`multi-select-trigger${invalid ? ' is-invalid' : ''}`}
         onClick={() => setIsOpen((open) => !open)}
-        aria-haspopup="listbox"
         aria-expanded={isOpen}
-        aria-controls={listboxId}
+        aria-controls={isOpen ? panelId : undefined}
         data-field-name={dataFieldName}
-        aria-invalid={invalid ? true : undefined}
         aria-describedby={describedBy}
       >
         <span>{selectedCountLabel}</span>
@@ -79,14 +105,14 @@ export default function MultiSelect({
               onClick={() => remove(option.id)}
               aria-label={`إزالة ${option.name}`}
             >
-                <span className="multi-select-chip-text" title={option.name}>{option.name}</span>
-                <span aria-hidden="true">×</span>
-              </button>
+              <span className="multi-select-chip-text" title={option.name}>{option.name}</span>
+              <span aria-hidden="true">×</span>
+            </button>
           ))}
         </div>
       )}
       {isOpen && (
-        <div className="multi-select-panel">
+        <div id={panelId} className="multi-select-panel">
           {showSearch && (
             <input
               className="multi-select-search"
@@ -95,13 +121,11 @@ export default function MultiSelect({
               onChange={(e) => setQuery(e.target.value)}
             />
           )}
-          <div id={listboxId} className="multi-select" role="listbox" aria-multiselectable="true">
+          <div className="multi-select">
             {filtered.map((o) => (
               <label
                 key={o.id}
                 className={`multi-select-item${o.isActive === false ? ' is-inactive' : ''}`}
-                role="option"
-                aria-selected={selected.includes(o.id)}
               >
                 <input
                   className="multi-select-checkbox"
