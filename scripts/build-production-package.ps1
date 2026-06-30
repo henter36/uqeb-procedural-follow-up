@@ -126,7 +126,9 @@ function Assert-FrontendDistApiBaseUrl {
         "localhost:5000",
         "127.0.0.1:5000",
         "http://localhost",
-        "http://127.0.0.1"
+        "https://localhost",
+        "http://127.0.0.1",
+        "https://127.0.0.1"
     )
 
     $foundProductionApi = $false

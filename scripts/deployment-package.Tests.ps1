@@ -2176,7 +2176,9 @@ Describe 'build-production-package.ps1 policy' {
         $content | Should -Match 'localhost:5000'
         $content | Should -Match '127\.0\.0\.1:5000'
         $content | Should -Match 'http://localhost'
+        $content | Should -Match 'https://localhost'
         $content | Should -Match 'http://127\.0\.0\.1'
+        $content | Should -Match 'https://127\.0\.0\.1'
     }
 
     It 'requires build metadata in production package structure checks' {
@@ -2255,6 +2257,22 @@ Describe 'Assert-FrontendDistApiBaseUrl' {
     It 'fails when http://127.0.0.1 appears in a JS file' {
         $dist = New-TempDirectory
         Set-Content (Join-Path $dist 'ScannerPanel.js') -Value 'const a="http://10.0.177.17:5000/api";const b="http://127.0.0.1:5055"' -Encoding UTF8
+
+        { Assert-FrontendDistApiBaseUrl -DistPath $dist -ProductionApiBaseUrl 'http://10.0.177.17:5000/api' } |
+            Should -Throw '*عناوين API محلية*'
+    }
+
+    It 'fails when https://localhost appears in a JS file' {
+        $dist = New-TempDirectory
+        Set-Content (Join-Path $dist 'index.js') -Value 'const a="http://10.0.177.17:5000/api";const b="https://localhost:5080/api"' -Encoding UTF8
+
+        { Assert-FrontendDistApiBaseUrl -DistPath $dist -ProductionApiBaseUrl 'http://10.0.177.17:5000/api' } |
+            Should -Throw '*عناوين API محلية*'
+    }
+
+    It 'fails when https://127.0.0.1 appears in a JS file' {
+        $dist = New-TempDirectory
+        Set-Content (Join-Path $dist 'ScannerPanel.js') -Value 'const a="http://10.0.177.17:5000/api";const b="https://127.0.0.1:5055"' -Encoding UTF8
 
         { Assert-FrontendDistApiBaseUrl -DistPath $dist -ProductionApiBaseUrl 'http://10.0.177.17:5000/api' } |
             Should -Throw '*عناوين API محلية*'
