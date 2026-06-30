@@ -2205,4 +2205,70 @@ Describe 'build-production-package.ps1 policy' {
         $installContent | Should -Match 'Test-RequiredMigrationPresent'
         $installContent | Should -Match 'deprecated and no longer required'
     }
+
+    It 'uses helper functions for commit SHA and build-info JSON' {
+        $content = Get-Content (Join-Path $PSScriptRoot 'build-production-package.ps1') -Raw
+        $content | Should -Match 'function Get-RepositoryCommitSha'
+        $content | Should -Match 'function Write-ApiPublishBuildInfo'
+        $content | Should -Match 'Get-RepositoryCommitSha -RepoPath'
+        $content | Should -Match 'Write-ApiPublishBuildInfo'
+    }
+}
+
+Describe 'Assert-FrontendDistApiBaseUrl' {
+    BeforeAll {
+        $buildScriptPath = Join-Path $PSScriptRoot 'build-production-package.ps1'
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($buildScriptPath, [ref]$null, [ref]$null)
+        $fns = $ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst]
+        }, $false)
+        foreach ($fn in $fns) {
+            Invoke-Expression $fn.Extent.Text
+        }
+    }
+
+    It 'passes when production URL is present and no forbidden URLs exist' {
+        $dist = New-TempDirectory
+        Set-Content (Join-Path $dist 'index.js') -Value 'const b="http://10.0.177.17:5000/api"' -Encoding UTF8
+
+        { Assert-FrontendDistApiBaseUrl -DistPath $dist -ProductionApiBaseUrl 'http://10.0.177.17:5000/api' } |
+            Should -Not -Throw
+    }
+
+    It 'fails when production URL is absent from all dist files' {
+        $dist = New-TempDirectory
+        Set-Content (Join-Path $dist 'index.js') -Value 'const b="/api"' -Encoding UTF8
+
+        { Assert-FrontendDistApiBaseUrl -DistPath $dist -ProductionApiBaseUrl 'http://10.0.177.17:5000/api' } |
+            Should -Throw '*عنوان API الإنتاجي المتوقع*'
+    }
+
+    It 'fails when http://localhost appears in a JS file' {
+        $dist = New-TempDirectory
+        Set-Content (Join-Path $dist 'index.js') -Value 'const a="http://10.0.177.17:5000/api";const b="http://localhost:5080/api"' -Encoding UTF8
+
+        { Assert-FrontendDistApiBaseUrl -DistPath $dist -ProductionApiBaseUrl 'http://10.0.177.17:5000/api' } |
+            Should -Throw '*عناوين API محلية*'
+    }
+
+    It 'fails when http://127.0.0.1 appears in a JS file' {
+        $dist = New-TempDirectory
+        Set-Content (Join-Path $dist 'ScannerPanel.js') -Value 'const a="http://10.0.177.17:5000/api";const b="http://127.0.0.1:5055"' -Encoding UTF8
+
+        { Assert-FrontendDistApiBaseUrl -DistPath $dist -ProductionApiBaseUrl 'http://10.0.177.17:5000/api' } |
+            Should -Throw '*عناوين API محلية*'
+    }
+
+    It 'fails when dist directory does not exist' {
+        { Assert-FrontendDistApiBaseUrl -DistPath 'C:\DoesNotExist\dist' -ProductionApiBaseUrl 'http://10.0.177.17:5000/api' } |
+            Should -Throw '*غير موجود*'
+    }
+
+    It 'fails when dist contains no scannable text files' {
+        $dist = New-TempDirectory
+
+        { Assert-FrontendDistApiBaseUrl -DistPath $dist -ProductionApiBaseUrl 'http://10.0.177.17:5000/api' } |
+            Should -Throw '*لا توجد ملفات*'
+    }
 }

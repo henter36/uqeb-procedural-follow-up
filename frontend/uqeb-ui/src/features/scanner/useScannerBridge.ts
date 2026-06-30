@@ -4,6 +4,7 @@ import {
   getBridgeStatus,
   getScanFile,
   getScanners,
+  isScannerConfigured,
   isScannerMockMode,
   scanDocument,
 } from './scannerBridgeClient';
@@ -65,6 +66,12 @@ export function useScannerBridge(): UseScannerBridgeState {
     setScanResult(null);
     setPreviewUrl(null);
     setIsRotated(false);
+
+    if (!isScannerMockMode() && !isScannerConfigured()) {
+      setPhase('offline');
+      setErrorMessage('خدمة الماسح غير مهيأة.');
+      return;
+    }
 
     try {
       const status = await getBridgeStatus();

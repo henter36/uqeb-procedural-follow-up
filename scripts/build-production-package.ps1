@@ -51,6 +51,34 @@ function Invoke-ExternalCommand {
     }
 }
 
+function Get-RepositoryCommitSha {
+    param([string]$RepoPath)
+    try {
+        return (git -C $RepoPath rev-parse HEAD 2>$null).Trim()
+    }
+    catch {
+        return ""
+    }
+}
+
+function Write-ApiPublishBuildInfo {
+    param(
+        [string]$PublishDir,
+        [string]$Version,
+        [string]$CommitSha,
+        [string]$BuildTimeUtc
+    )
+    $info = [ordered]@{
+        BuildInfo = [ordered]@{
+            Version      = $Version
+            CommitSha    = $CommitSha
+            BuildTimeUtc = $BuildTimeUtc
+        }
+    }
+    $path = Join-Path $PublishDir "build-info.json"
+    ($info | ConvertTo-Json -Depth 4) | Set-Content -LiteralPath $path -Encoding UTF8
+}
+
 function Ensure-DotNetEfToolAvailable {
     & dotnet ef --version *> $null
     if ($LASTEXITCODE -eq 0) {
@@ -170,13 +198,7 @@ if ($drive.Free -and $drive.Free -lt 2GB) {
 
 $versionStamp = [DateTime]::UtcNow.ToString("yyyyMMdd-HHmmss")
 $buildTimestampUtc = [DateTime]::UtcNow.ToString("o")
-$commitSha = ""
-try {
-    $commitSha = (git -C $repoRoot rev-parse HEAD 2>$null).Trim()
-}
-catch {
-    $commitSha = ""
-}
+$commitSha = Get-RepositoryCommitSha -RepoPath $repoRoot
 
 if ($SkipPlaywrightBrowserDownload) {
     if ([string]::IsNullOrWhiteSpace($PlaywrightBrowsersSourcePath)) {
@@ -251,15 +273,11 @@ Invoke-ExternalCommand "نشر Backend (Release)" {
     dotnet publish $backendProject -c Release -o $publishDir
 }
 
-$buildInfo = [ordered]@{
-    BuildInfo = [ordered]@{
-        Version = $versionStamp
-        CommitSha = $commitSha
-        BuildTimeUtc = $buildTimestampUtc
-    }
-}
-$buildInfoPath = Join-Path $publishDir "build-info.json"
-($buildInfo | ConvertTo-Json -Depth 4) | Set-Content -LiteralPath $buildInfoPath -Encoding UTF8
+Write-ApiPublishBuildInfo `
+    -PublishDir $publishDir `
+    -Version $versionStamp `
+    -CommitSha $commitSha `
+    -BuildTimeUtc $buildTimestampUtc
 
 $playwrightScript = Join-Path $publishDir "playwright.ps1"
 if (-not (Test-Path -LiteralPath $playwrightScript)) {
