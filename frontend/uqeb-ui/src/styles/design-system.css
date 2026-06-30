@@ -309,6 +309,9 @@
 }
 
 .app-version-info-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
   margin-top: var(--space-2);
   padding: var(--space-2);
   border-radius: var(--radius-sm);
@@ -317,12 +320,9 @@
   line-height: var(--line-height-relaxed);
 }
 
-.app-version-info-panel p {
+.app-version-info-panel p,
+.app-version-info-panel output {
   margin: 0;
-}
-
-.app-version-info-panel p + p {
-  margin-top: var(--space-1);
 }
 
 .app-sidebar.collapsed .app-version-info {
