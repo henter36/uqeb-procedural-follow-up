@@ -1334,6 +1334,25 @@ Describe 'UqebApi Scheduled Task reconciliation' {
         $global:UqebTestRegisterCalls | Should -Be 0
     }
 
+    It 'ExistingScheduledTask_DirectLegacyApiExe_CanBeReconciledToRunApiCmd' {
+        $legacyApiExePath = Get-UqebLegacyApiExecutablePath -InstallRoot 'C:\Uqeb'
+        $expectedRunApiPath = Join-ScheduledTaskWindowsPath -Root 'C:\Uqeb' -Child 'run-api.cmd'
+        $global:UqebTestTaskAction = [pscustomobject]@{
+            Execute = $legacyApiExePath
+            Arguments = ''
+            WorkingDirectory = 'C:\Uqeb'
+        }
+
+        $result = Sync-UqebApiScheduledTask -TaskName 'UqebApi' -InstallRoot 'C:\Uqeb'
+
+        $result.Updated | Should -BeTrue
+        $result.Before.Execute | Should -Be $legacyApiExePath
+        $result.After.Execute | Should -Be $expectedRunApiPath
+        $result.After.WorkingDirectory | Should -Be 'C:\Uqeb'
+        $result.ActionValid | Should -BeTrue
+        $global:UqebTestSetCalls | Should -Be 1
+    }
+
     It 'handles an empty scheduled task action list under strict mode' {
         $task = [pscustomobject]@{
             TaskName = 'UqebApi'
@@ -1361,6 +1380,52 @@ Describe 'UqebApi Scheduled Task reconciliation' {
         $validation.Reason | Should -Be 'ok'
     }
 
+    It 'ExistingScheduledTask_RunApiCmd_RemainsValid' {
+        $validation = Test-UqebApiScheduledTaskAction `
+            -Execute 'C:\Uqeb\run-api.cmd' `
+            -Arguments '' `
+            -WorkingDirectory 'C:\Uqeb' `
+            -InstallRoot 'C:\Uqeb'
+
+        $validation.IsValid | Should -BeTrue
+        $validation.Reason | Should -Be 'ok'
+        $validation.ShouldReconcile | Should -BeFalse
+    }
+
+    It 'ExistingScheduledTask_DirectLegacyApiExe_IsAcceptedAsLegacy' {
+        $validation = Test-UqebApiScheduledTaskAction `
+            -Execute (Get-UqebLegacyApiExecutablePath -InstallRoot 'C:\Uqeb') `
+            -Arguments '' `
+            -WorkingDirectory 'C:\Uqeb' `
+            -InstallRoot 'C:\Uqeb'
+
+        $validation.IsValid | Should -BeTrue
+        $validation.Reason | Should -Be 'legacy_executable'
+        $validation.ShouldReconcile | Should -BeTrue
+    }
+
+    It 'ExistingScheduledTask_DirectLegacyApiExe_WithWrongWorkingDirectory_IsRejected' {
+        $validation = Test-UqebApiScheduledTaskAction `
+            -Execute (Get-UqebLegacyApiExecutablePath -InstallRoot 'C:\Uqeb') `
+            -Arguments '' `
+            -WorkingDirectory 'C:\Uqeb\current\api' `
+            -InstallRoot 'C:\Uqeb'
+
+        $validation.IsValid | Should -BeFalse
+        $validation.Reason | Should -Be 'working_directory_mismatch'
+    }
+
+    It 'ExistingScheduledTask_UnexpectedExe_IsRejected' {
+        $validation = Test-UqebApiScheduledTaskAction `
+            -Execute 'C:\Uqeb\publish\api\Uqeb.Api.exe' `
+            -Arguments '' `
+            -WorkingDirectory 'C:\Uqeb' `
+            -InstallRoot 'C:\Uqeb'
+
+        $validation.IsValid | Should -BeFalse
+        $validation.Reason | Should -Be 'unexpected_executable'
+    }
+
     It 'rejects cmd.exe without explicit run-api.cmd arguments' {
         $validation = Test-UqebApiScheduledTaskAction `
             -Execute 'C:\WINDOWS\system32\cmd.exe' `
@@ -1381,6 +1446,18 @@ Describe 'UqebApi Scheduled Task reconciliation' {
 
         $validation.IsValid | Should -BeTrue
         $validation.Reason | Should -Be 'cmd_exe_wrapper'
+    }
+
+    It 'ExistingScheduledTask_CmdExeWrapper_RemainsValid' {
+        $validation = Test-UqebApiScheduledTaskAction `
+            -Execute 'C:\WINDOWS\system32\cmd.exe' `
+            -Arguments '/c "C:\Uqeb\run-api.cmd"' `
+            -WorkingDirectory 'C:\Uqeb' `
+            -InstallRoot 'C:\Uqeb'
+
+        $validation.IsValid | Should -BeTrue
+        $validation.Reason | Should -Be 'cmd_exe_wrapper'
+        $validation.ShouldReconcile | Should -BeTrue
     }
 
     It 'deployment report records scheduled task arguments and action validity' {

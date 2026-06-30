@@ -2807,6 +2807,28 @@ function Test-UqebScheduledTaskArgumentsContainRunApi {
         $Arguments.IndexOf($runApiPathUnix, [StringComparison]::OrdinalIgnoreCase) -ge 0
 }
 
+function Get-UqebLegacyApiExecutablePath {
+    param([Parameter(Mandatory = $true)][string]$InstallRoot)
+
+    return Join-ScheduledTaskWindowsPath `
+        -Root (Join-ScheduledTaskWindowsPath -Root $InstallRoot -Child 'current\api') `
+        -Child 'Uqeb.Api.exe'
+}
+
+function Test-UqebScheduledTaskExecuteIsLegacyApiExe {
+    param(
+        [string]$ExecuteNorm,
+        [Parameter(Mandatory = $true)][string]$InstallRoot
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ExecuteNorm)) {
+        return $false
+    }
+
+    $legacyApiExeNorm = Normalize-ScheduledTaskPath -Path (Get-UqebLegacyApiExecutablePath -InstallRoot $InstallRoot)
+    return $ExecuteNorm -eq $legacyApiExeNorm
+}
+
 function Get-UqebScheduledTaskCmdWrapperReason {
     param(
         [bool]$WorkingDirectoryValid,
@@ -2822,6 +2844,20 @@ function Get-UqebScheduledTaskCmdWrapperReason {
     }
 
     return 'cmd_exe_wrapper'
+}
+
+function New-UqebScheduledTaskActionValidation {
+    param(
+        [bool]$IsValid,
+        [string]$Reason,
+        [bool]$ShouldReconcile = $false
+    )
+
+    return [pscustomobject]@{
+        IsValid = $IsValid
+        Reason = $Reason
+        ShouldReconcile = $ShouldReconcile
+    }
 }
 
 function Test-UqebScheduledTaskActionMatches {
@@ -2840,10 +2876,9 @@ function Test-UqebScheduledTaskActionMatches {
     $workingDirectoryValid = $workingDirectoryNorm -eq $installRootNorm
 
     if ($executeNorm -eq $runApiNorm) {
-        return [pscustomobject]@{
-            IsValid = $workingDirectoryValid
-            Reason = if ($workingDirectoryValid) { 'ok' } else { 'working_directory_mismatch' }
-        }
+        return New-UqebScheduledTaskActionValidation `
+            -IsValid $workingDirectoryValid `
+            -Reason $(if ($workingDirectoryValid) { 'ok' } else { 'working_directory_mismatch' })
     }
 
     if (Test-UqebScheduledTaskExecuteIsCmd -ExecuteNorm $executeNorm) {
@@ -2851,18 +2886,22 @@ function Test-UqebScheduledTaskActionMatches {
             -Arguments $Arguments `
             -RunApiPath $runApiPath
 
-        return [pscustomobject]@{
-            IsValid = $workingDirectoryValid -and $argumentsContainRunScript
-            Reason = Get-UqebScheduledTaskCmdWrapperReason `
+        return New-UqebScheduledTaskActionValidation `
+            -IsValid ($workingDirectoryValid -and $argumentsContainRunScript) `
+            -Reason (Get-UqebScheduledTaskCmdWrapperReason `
                 -WorkingDirectoryValid $workingDirectoryValid `
-                -ArgumentsContainRunScript $argumentsContainRunScript
-        }
+                -ArgumentsContainRunScript $argumentsContainRunScript) `
+            -ShouldReconcile ($workingDirectoryValid -and $argumentsContainRunScript)
     }
 
-    return [pscustomobject]@{
-        IsValid = $false
-        Reason = 'unexpected_executable'
+    if (Test-UqebScheduledTaskExecuteIsLegacyApiExe -ExecuteNorm $executeNorm -InstallRoot $InstallRoot) {
+        return New-UqebScheduledTaskActionValidation `
+            -IsValid $workingDirectoryValid `
+            -Reason $(if ($workingDirectoryValid) { 'legacy_executable' } else { 'working_directory_mismatch' }) `
+            -ShouldReconcile $workingDirectoryValid
     }
+
+    return New-UqebScheduledTaskActionValidation -IsValid $false -Reason 'unexpected_executable'
 }
 
 function Test-UqebApiScheduledTaskAction {
@@ -2954,14 +2993,14 @@ function Sync-UqebApiScheduledTask {
         -WorkingDirectory $before.WorkingDirectory `
         -InstallRoot $InstallRoot
 
-    if ($task -and $validation.IsValid -and $validation.Reason -eq 'ok') {
+    if ($task -and $validation.IsValid -and -not $validation.ShouldReconcile) {
         return New-UqebScheduledTaskSyncResult `
             -Created $false `
             -Updated $false `
             -Before $before `
             -After $before `
             -ActionValid $true `
-            -Reason 'ok'
+            -Reason ([string]$validation.Reason)
     }
 
     $action = New-UqebScheduledTaskRunApiAction -RunApiPath $runApiPath -InstallRoot $InstallRoot
