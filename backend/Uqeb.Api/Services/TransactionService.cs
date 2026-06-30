@@ -1143,10 +1143,10 @@ public class TransactionService : ITransactionService
     {
         if (t.RequiresResponse)
         {
-            var incompleteDepartmentNames = await GetIncompleteDepartmentResponseNamesAsync(t.Id);
-            if (incompleteDepartmentNames.Count > 0)
+            var departmentResponseFailures = await GetDepartmentResponseClosureFailuresAsync(t.Id);
+            if (departmentResponseFailures.Count > 0)
                 throw new InvalidOperationException(
-                    $"لا يمكن إغلاق المعاملة لوجود إفادات ناقصة أو غير معتمدة: {string.Join("، ", incompleteDepartmentNames)}");
+                    $"لا يمكن إغلاق المعاملة: {string.Join("؛ ", departmentResponseFailures)}");
         }
 
         var pending = await _db.Assignments
@@ -1167,13 +1167,13 @@ public class TransactionService : ITransactionService
             throw new InvalidOperationException("لا يمكن إغلاق المعاملة قبل تسجيل الإفادة.");
     }
 
-    private async Task<List<string>> GetIncompleteDepartmentResponseNamesAsync(int transactionId)
+    private async Task<List<string>> GetDepartmentResponseClosureFailuresAsync(int transactionId)
     {
         var requiredDepartments = await _db.Assignments
             .AsNoTracking()
             .Where(a => a.TransactionId == transactionId &&
                 a.RequiresReply &&
-                a.Status != AssignmentStatus.Cancelled)
+                a.Status == AssignmentStatus.Active)
             .Select(a => new { a.DepartmentId, a.Department.Name })
             .Distinct()
             .ToListAsync();
@@ -1181,21 +1181,75 @@ public class TransactionService : ITransactionService
         if (requiredDepartments.Count == 0)
             return [];
 
-        var approvedDepartmentIds = await _db.DepartmentResponses
+        var requiredDepartmentIds = requiredDepartments.Select(d => d.DepartmentId).ToHashSet();
+        var responses = await _db.DepartmentResponses
             .AsNoTracking()
+            .Include(r => r.SubmittedBy)
+            .Include(r => r.ReviewedBy)
             .Where(r => r.TransactionId == transactionId &&
-                r.Status == DepartmentResponseStatus.Approved)
-            .Select(r => r.DepartmentId)
-            .Distinct()
+                requiredDepartmentIds.Contains(r.DepartmentId))
             .ToListAsync();
+        var hasDifferentDepartmentResponse = await _db.DepartmentResponses
+            .AsNoTracking()
+            .AnyAsync(r => r.TransactionId == transactionId &&
+                !requiredDepartmentIds.Contains(r.DepartmentId));
 
-        var approved = approvedDepartmentIds.ToHashSet();
+        var responseByDepartment = responses
+            .GroupBy(r => r.DepartmentId)
+            .ToDictionary(
+                group => group.Key,
+                group => group.OrderByDescending(r => r.UpdatedAt ?? r.CreatedAt).First());
         return requiredDepartments
-            .Where(d => !approved.Contains(d.DepartmentId))
-            .Select(d => d.Name)
+            .Select(d => GetDepartmentResponseClosureFailure(
+                d.Name,
+                responseByDepartment.GetValueOrDefault(d.DepartmentId),
+                hasDifferentDepartmentResponse))
+            .Where(failure => !string.IsNullOrWhiteSpace(failure))
+            .Select(failure => failure!)
             .OrderBy(name => name)
             .ToList();
     }
+
+    private static string? GetDepartmentResponseClosureFailure(
+        string departmentName,
+        DepartmentResponse? response,
+        bool hasDifferentDepartmentResponse)
+    {
+        if (response == null)
+        {
+            var reason = hasDifferentDepartmentResponse
+                ? "الإفادة المسجلة لا تخص الإدارة المطلوبة."
+                : "لا توجد إفادة مسجلة من الإدارة المطلوبة.";
+            return $"{departmentName}: {reason}";
+        }
+
+        if (IsDepartmentResponseSufficientForClosure(response))
+            return null;
+
+        return $"{departmentName}: {GetInsufficientDepartmentResponseReason(response.Status)}";
+    }
+
+    private static bool IsDepartmentResponseSufficientForClosure(DepartmentResponse response) =>
+        response.Status == DepartmentResponseStatus.Approved ||
+        IsReviewRole(response.SubmittedBy?.Role) ||
+        IsApprovedByReviewRole(response);
+
+    private static bool IsApprovedByReviewRole(DepartmentResponse response) =>
+        response.Status == DepartmentResponseStatus.Approved &&
+        IsReviewRole(response.ReviewedBy?.Role);
+
+    private static bool IsReviewRole(UserRole? role) =>
+        role is UserRole.Admin or UserRole.Supervisor or UserRole.DataEntry;
+
+    private static string GetInsufficientDepartmentResponseReason(DepartmentResponseStatus status) =>
+        status switch
+        {
+            DepartmentResponseStatus.Draft => "توجد إفادة محفوظة كمسودة ولم تُرسل أو تُعتمد بعد.",
+            DepartmentResponseStatus.SubmittedForReview => "توجد إفادة مرسلة للمراجعة لكنها لم تُعتمد بعد.",
+            DepartmentResponseStatus.ReturnedForCorrection => "الإفادة معادة للتعديل ولم تُعتمد بعد.",
+            DepartmentResponseStatus.Rejected => "الإفادة مرفوضة ولم تُعتمد بعد.",
+            _ => "لا يمكن إغلاق المعاملة لوجود إفادة غير معتمدة."
+        };
 
     private static void ApplyTransactionReplyStatus(Transaction t) =>
         WorkflowHelper.UpdateTransactionStatusFromAssignments(t);

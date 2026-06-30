@@ -17,11 +17,379 @@ import { todayLocalIso } from '../utils/localDate';
 
 interface Props { mode: 'create' | 'edit' }
 
+type TransactionFormState = {
+  incomingNumber: string;
+  incomingDate: string;
+  subject: string;
+  incomingSourceType: 'External' | 'Internal';
+  incomingFromPartyId: string | number;
+  incomingFromDepartmentId: string | number;
+  outgoingNumber: string;
+  outgoingDate: string;
+  outgoingDepartmentIds: number[];
+  responseType: string;
+  responseDueDays: string | number;
+  priority: string;
+  categoryId: string | number;
+  notes: string;
+};
+type ReferenceDataResults = readonly [
+  PromiseSettledResult<{ data: ExternalParty[] }>,
+  PromiseSettledResult<{ data: Department[] }>,
+  PromiseSettledResult<{ data: Category[] }>,
+];
+type TransactionValidationRule = {
+  field: string;
+  isInvalid: boolean;
+  message: string;
+};
+
 const OUTGOING_HINT = 'بيانات الصادر غير إلزامية، ولكن يجب إكمالها عند البدء بتعبئتها.';
 const OUTGOING_PARTIAL_ERROR = 'عند إدخال أي بيان من بيانات الصادر يجب إكمال رقم الصادر وتاريخ الصادر والإدارة الصادر لها.';
+// These mappings keep backend validation keys aligned with TransactionForm field names and error display order.
+// Update them when transaction DTO validation fields or form field names change.
+const FIELD_ORDER = [
+  'incomingNumber',
+  'incomingDate',
+  'subject',
+  'incomingSourceType',
+  'incomingFromPartyId',
+  'incomingFromDepartmentId',
+  'categoryId',
+  'priority',
+  'responseType',
+  'responseDueDays',
+  'outgoingNumber',
+  'outgoingDate',
+  'outgoingDepartmentIds',
+];
+const BACKEND_FIELD_MAP: Record<string, string> = {
+  IncomingNumber: 'incomingNumber',
+  IncomingDate: 'incomingDate',
+  Subject: 'subject',
+  IncomingSourceType: 'incomingSourceType',
+  IncomingFromPartyId: 'incomingFromPartyId',
+  IncomingFromDepartmentId: 'incomingFromDepartmentId',
+  CategoryId: 'categoryId',
+  Priority: 'priority',
+  ResponseType: 'responseType',
+  ResponseDueDays: 'responseDueDays',
+  OutgoingNumber: 'outgoingNumber',
+  OutgoingDate: 'outgoingDate',
+  OutgoingDepartmentIds: 'outgoingDepartmentIds',
+};
+
+function normalizeFieldName(name: string) {
+  const trimmed = name.split('.').at(-1) ?? name;
+  return BACKEND_FIELD_MAP[trimmed] ?? trimmed.charAt(0).toLowerCase() + trimmed.slice(1);
+}
+
+function normalizeFieldErrors(errors: Record<string, string>) {
+  return Object.fromEntries(
+    Object.entries(errors).map(([key, value]) => [normalizeFieldName(key), value]),
+  );
+}
 
 function hasOutgoingData(form: { outgoingNumber: string; outgoingDate: string; outgoingDepartmentIds: number[] }) {
   return Boolean(form.outgoingNumber.trim() || form.outgoingDate || form.outgoingDepartmentIds.length > 0);
+}
+
+function createInitialTransactionForm(): TransactionFormState {
+  return {
+    incomingNumber: '',
+    incomingDate: todayLocalIso(),
+    subject: '',
+    incomingSourceType: 'External',
+    incomingFromPartyId: '',
+    incomingFromDepartmentId: '',
+    outgoingNumber: '',
+    outgoingDate: '',
+    outgoingDepartmentIds: [],
+    responseType: 'External',
+    responseDueDays: '',
+    priority: 'Normal',
+    categoryId: '',
+    notes: '',
+  };
+}
+
+function buildTransactionFormState(t: TransactionDetail): TransactionFormState {
+  const isInternal = t.incomingSourceType === 'Internal';
+  return {
+    incomingNumber: t.incomingNumber,
+    incomingDate: t.incomingDate.split('T')[0],
+    subject: t.subject,
+    incomingSourceType: isInternal ? 'Internal' : 'External',
+    incomingFromPartyId: isInternal ? '' : (t.incomingFromPartyId ?? ''),
+    incomingFromDepartmentId: isInternal ? (t.incomingFromDepartmentId ?? '') : '',
+    outgoingNumber: t.outgoingNumber || '',
+    outgoingDate: t.outgoingDate?.split('T')[0] || '',
+    outgoingDepartmentIds: t.outgoingDepartments.map((o) => o.departmentId),
+    responseType: t.responseType ?? '',
+    responseDueDays: t.responseDueDays ?? '',
+    priority: t.priority,
+    categoryId: t.categoryId ?? '',
+    notes: t.notes || '',
+  };
+}
+
+function isMissingExternalIncomingParty(form: TransactionFormState): boolean {
+  return form.incomingSourceType === 'External' && !form.incomingFromPartyId;
+}
+
+function isMissingInternalIncomingDepartment(form: TransactionFormState): boolean {
+  return form.incomingSourceType === 'Internal' && !form.incomingFromDepartmentId;
+}
+
+function hasConflictingIncomingSources(form: TransactionFormState): boolean {
+  return Boolean(form.incomingFromPartyId && form.incomingFromDepartmentId);
+}
+
+function isMissingResponseType(form: TransactionFormState, mode: Props['mode']): boolean {
+  return !form.responseType || (mode === 'create' && form.responseType === 'None');
+}
+
+function isMissingResponseDueDays(form: TransactionFormState): boolean {
+  return form.responseType !== 'None' && !form.responseDueDays;
+}
+
+function isMissingOutgoingNumber(form: TransactionFormState, hasPartialOutgoingData: boolean): boolean {
+  return hasPartialOutgoingData && !form.outgoingNumber.trim();
+}
+
+function isMissingOutgoingDate(form: TransactionFormState, hasPartialOutgoingData: boolean): boolean {
+  return hasPartialOutgoingData && !form.outgoingDate;
+}
+
+function isMissingOutgoingDepartments(form: TransactionFormState, hasPartialOutgoingData: boolean): boolean {
+  return hasPartialOutgoingData && form.outgoingDepartmentIds.length === 0;
+}
+
+function getTransactionValidationRules(form: TransactionFormState, mode: Props['mode']): TransactionValidationRule[] {
+  const hasPartialOutgoingData = hasOutgoingData(form);
+
+  return [
+    { field: 'incomingNumber', isInvalid: !form.incomingNumber.trim(), message: 'رقم الوارد مطلوب.' },
+    { field: 'incomingDate', isInvalid: !form.incomingDate, message: 'تاريخ الوارد مطلوب.' },
+    { field: 'subject', isInvalid: !form.subject.trim(), message: 'الموضوع مطلوب.' },
+    { field: 'incomingSourceType', isInvalid: !form.incomingSourceType, message: 'يجب اختيار نوع الجهة الوارد منها.' },
+    { field: 'incomingFromPartyId', isInvalid: isMissingExternalIncomingParty(form), message: 'الجهة الوارد منها مطلوبة.' },
+    { field: 'incomingFromDepartmentId', isInvalid: isMissingInternalIncomingDepartment(form), message: 'الجهة الوارد منها مطلوبة.' },
+    { field: 'incomingSourceType', isInvalid: hasConflictingIncomingSources(form), message: 'لا يمكن اختيار جهة خارجية وإدارة داخلية في نفس الوقت.' },
+    { field: 'categoryId', isInvalid: !form.categoryId, message: 'التصنيف مطلوب.' },
+    { field: 'priority', isInvalid: !form.priority, message: 'الأولوية مطلوبة.' },
+    { field: 'outgoingNumber', isInvalid: isMissingOutgoingNumber(form, hasPartialOutgoingData), message: OUTGOING_PARTIAL_ERROR },
+    { field: 'outgoingDate', isInvalid: isMissingOutgoingDate(form, hasPartialOutgoingData), message: OUTGOING_PARTIAL_ERROR },
+    { field: 'outgoingDepartmentIds', isInvalid: isMissingOutgoingDepartments(form, hasPartialOutgoingData), message: OUTGOING_PARTIAL_ERROR },
+    { field: 'responseType', isInvalid: isMissingResponseType(form, mode), message: 'نوع الإفادة مطلوب.' },
+    { field: 'responseDueDays', isInvalid: isMissingResponseDueDays(form), message: 'عدد أيام الرد مطلوب عند طلب إفادة.' },
+  ];
+}
+
+function validateTransactionForm(form: TransactionFormState, mode: Props['mode']): Record<string, string> {
+  return getTransactionValidationRules(form, mode).reduce<Record<string, string>>((errs, rule) => {
+    if (rule.isInvalid) {
+      errs[rule.field] = rule.message;
+    }
+
+    return errs;
+  }, {});
+}
+
+function getValidationSummary(fieldErrors: Record<string, string>) {
+  return [
+    ...FIELD_ORDER.filter((field) => fieldErrors[field]).map((field) => [field, fieldErrors[field]] as const),
+    ...Object.entries(fieldErrors).filter(([field]) => !FIELD_ORDER.includes(field)),
+  ];
+}
+
+function getFirstInvalidField(errors: Record<string, string>) {
+  return FIELD_ORDER.find((field) => errors[field]) ?? Object.keys(errors)[0];
+}
+
+function readReferenceDataResults(results: ReferenceDataResults) {
+  const [partiesResult, departmentsResult, categoriesResult] = results;
+  return {
+    parties: partiesResult.status === 'fulfilled' ? partiesResult.value.data : null,
+    departments: departmentsResult.status === 'fulfilled' ? departmentsResult.value.data : null,
+    categories: categoriesResult.status === 'fulfilled' ? categoriesResult.value.data : null,
+    failed: [
+      partiesResult.status === 'rejected' ? 'الجهات الخارجية' : '',
+      departmentsResult.status === 'rejected' ? 'الإدارات' : '',
+      categoriesResult.status === 'rejected' ? 'التصنيفات' : '',
+    ].filter(Boolean),
+  };
+}
+
+function getTransactionFormHeader(mode: Props['mode']) {
+  return mode === 'create'
+    ? { title: 'إضافة معاملة', subtitle: 'إدخال بيانات معاملة جديدة' }
+    : { title: 'تعديل معاملة', subtitle: 'تعديل بيانات المعاملة الحالية' };
+}
+
+function toSelectValue(value: string | number) {
+  return value === '' ? '' : Number(value);
+}
+
+function TransactionValidationSummary({
+  hasFieldErrors,
+  validationSummary,
+}: Readonly<{
+  hasFieldErrors: boolean;
+  validationSummary: readonly (readonly [string, string])[];
+}>) {
+  if (!hasFieldErrors) return null;
+
+  return (
+    <Alert variant="error">
+      <div className="validation-summary">
+        <strong>يرجى تصحيح الحقول التالية:</strong>
+        <ul>
+          {validationSummary.map(([field, message]) => (
+            <li key={field}>{message}</li>
+          ))}
+        </ul>
+      </div>
+    </Alert>
+  );
+}
+
+function IncomingSourceTypeField({
+  value,
+  onChange,
+  error,
+  errorId,
+  formGroupClass,
+}: Readonly<{
+  value: TransactionFormState['incomingSourceType'];
+  onChange: (incomingSourceType: TransactionFormState['incomingSourceType']) => void;
+  error?: string;
+  errorId: string;
+  formGroupClass: string;
+}>) {
+  return (
+    <div className={formGroupClass}>
+      <label>نوع الجهة الوارد منها *</label>
+      <div className="radio-group">
+        <label className="radio-label">
+          <input
+            type="radio"
+            name="incomingSourceType"
+            value="External"
+            checked={value === 'External'}
+            onChange={() => onChange('External')}
+          />
+          <span>خارجية</span>
+        </label>
+        <label className="radio-label">
+          <input
+            type="radio"
+            name="incomingSourceType"
+            value="Internal"
+            checked={value === 'Internal'}
+            onChange={() => onChange('Internal')}
+          />
+          <span>داخلية</span>
+        </label>
+      </div>
+      {error && <span id={errorId} className="field-error">{error}</span>}
+    </div>
+  );
+}
+
+function IncomingSourceSelector({
+  sourceType,
+  incomingFromPartyId,
+  incomingFromDepartmentId,
+  partyOptions,
+  departmentOptions,
+  partyError,
+  departmentError,
+  partyErrorId,
+  departmentErrorId,
+  formGroupClass,
+  onPartyChange,
+  onDepartmentChange,
+}: Readonly<{
+  sourceType: TransactionFormState['incomingSourceType'];
+  incomingFromPartyId: string | number;
+  incomingFromDepartmentId: string | number;
+  partyOptions: SelectOption[];
+  departmentOptions: SelectOption[];
+  partyError?: string;
+  departmentError?: string;
+  partyErrorId: string;
+  departmentErrorId: string;
+  formGroupClass: string;
+  onPartyChange: (id: number | '') => void;
+  onDepartmentChange: (id: number | '') => void;
+}>) {
+  const isExternal = sourceType === 'External';
+  const error = isExternal ? partyError : departmentError;
+  const errorId = isExternal ? partyErrorId : departmentErrorId;
+
+  return (
+    <div className={formGroupClass}>
+      {isExternal ? (
+        <SearchableSelect
+          label="الجهة الوارد منها"
+          required
+          value={toSelectValue(incomingFromPartyId)}
+          onChange={onPartyChange}
+          options={partyOptions}
+          invalid={Boolean(partyError)}
+          describedBy={partyError ? partyErrorId : undefined}
+          dataFieldName="incomingFromPartyId"
+        />
+      ) : (
+        <SearchableSelect
+          label="الجهة الوارد منها"
+          required
+          value={toSelectValue(incomingFromDepartmentId)}
+          onChange={onDepartmentChange}
+          options={departmentOptions}
+          invalid={Boolean(departmentError)}
+          describedBy={departmentError ? departmentErrorId : undefined}
+          dataFieldName="incomingFromDepartmentId"
+        />
+      )}
+      {error && <span id={errorId} className="field-error">{error}</span>}
+    </div>
+  );
+}
+
+function TransactionFormActions({
+  mode,
+  isSubmitting,
+  onSaveAndOpenAttachments,
+  onCancel,
+}: Readonly<{
+  mode: Props['mode'];
+  isSubmitting: boolean;
+  onSaveAndOpenAttachments: () => void;
+  onCancel: () => void;
+}>) {
+  const saveLabel = isSubmitting ? 'جاري الحفظ...' : 'حفظ';
+  const saveAttachmentsLabel = isSubmitting ? 'جاري الحفظ...' : 'حفظ وفتح المرفقات';
+
+  return (
+    <div className="form-actions mt-4">
+      <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+        {saveLabel}
+      </button>
+      {mode === 'create' && (
+        <button
+          type="button"
+          className="btn btn-secondary"
+          disabled={isSubmitting}
+          onClick={onSaveAndOpenAttachments}
+        >
+          {saveAttachmentsLabel}
+        </button>
+      )}
+      <button type="button" className="btn btn-outline" onClick={onCancel}>إلغاء</button>
+    </div>
+  );
 }
 
 export default function TransactionForm({ mode }: Props) {
@@ -35,16 +403,8 @@ export default function TransactionForm({ mode }: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(mode === 'edit');
   const [referenceLoading, setReferenceLoading] = useState(true);
-  const [form, setForm] = useState({
-    incomingNumber: '', incomingDate: todayLocalIso(),
-    subject: '',
-    incomingSourceType: 'External' as 'External' | 'Internal',
-    incomingFromPartyId: '' as string | number,
-    incomingFromDepartmentId: '' as string | number,
-    outgoingNumber: '', outgoingDate: '', outgoingDepartmentIds: [] as number[],
-    responseType: 'External', responseDueDays: '' as string | number,
-    priority: 'Normal', categoryId: '' as string | number, notes: '',
-  });
+  const [form, setForm] = useState<TransactionFormState>(() => createInitialTransactionForm());
+  const header = getTransactionFormHeader(mode);
 
   const partyOptions: SelectOption[] = useMemo(
     () => parties.map((p) => ({ id: p.id, name: p.name, isActive: p.isActive, subLabel: p.type })),
@@ -77,15 +437,13 @@ export default function TransactionForm({ mode }: Props) {
         externalPartiesApi.getAll(activeOnly),
         departmentsApi.getAll(activeOnly),
         categoriesApi.getAll(activeOnly),
-      ]);
+      ] as const);
       if (cancelled) return;
-      const failed: string[] = [];
-      if (results[0].status === 'fulfilled') setParties(results[0].value.data);
-      else failed.push('الجهات الخارجية');
-      if (results[1].status === 'fulfilled') setDepartments(results[1].value.data);
-      else failed.push('الإدارات');
-      if (results[2].status === 'fulfilled') setCategories(results[2].value.data);
-      else failed.push('التصنيفات');
+      const { parties: loadedParties, departments: loadedDepartments, categories: loadedCategories, failed } =
+        readReferenceDataResults(results);
+      if (loadedParties) setParties(loadedParties);
+      if (loadedDepartments) setDepartments(loadedDepartments);
+      if (loadedCategories) setCategories(loadedCategories);
       if (failed.length > 0) setError(`تعذر تحميل: ${failed.join('، ')}`);
       setReferenceLoading(false);
     })();
@@ -95,24 +453,7 @@ export default function TransactionForm({ mode }: Props) {
   useEffect(() => {
     if (mode === 'edit' && id) {
       transactionsApi.getById(+id).then((res) => {
-        const t: TransactionDetail = res.data;
-        const isInternal = t.incomingSourceType === 'Internal';
-        setForm({
-          incomingNumber: t.incomingNumber,
-          incomingDate: t.incomingDate.split('T')[0],
-          subject: t.subject,
-          incomingSourceType: isInternal ? 'Internal' : 'External',
-          incomingFromPartyId: isInternal ? '' : (t.incomingFromPartyId ?? ''),
-          incomingFromDepartmentId: isInternal ? (t.incomingFromDepartmentId ?? '') : '',
-          outgoingNumber: t.outgoingNumber || '',
-          outgoingDate: t.outgoingDate?.split('T')[0] || '',
-          outgoingDepartmentIds: t.outgoingDepartments.map((o) => o.departmentId),
-          responseType: t.responseType === 'None' ? 'External' : t.responseType,
-          responseDueDays: t.responseDueDays ?? '',
-          priority: t.priority,
-          categoryId: t.categoryId ?? '',
-          notes: t.notes || '',
-        });
+        setForm(buildTransactionFormState(res.data));
       }).catch(() => {
         setError('تعذر تحميل المعاملة');
       }).finally(() => setLoading(false));
@@ -128,39 +469,26 @@ export default function TransactionForm({ mode }: Props) {
     });
   };
 
-  const validateClient = (): Record<string, string> => {
-    const errs: Record<string, string> = {};
-    if (!form.incomingNumber.trim()) errs.incomingNumber = 'رقم الوارد مطلوب';
-    if (!form.incomingDate) errs.incomingDate = 'تاريخ الوارد مطلوب';
-    if (!form.subject.trim()) errs.subject = 'الموضوع مطلوب';
-    if (!form.incomingSourceType) errs.incomingSourceType = 'يجب اختيار نوع الجهة الوارد منها.';
-    if (form.incomingSourceType === 'External' && !form.incomingFromPartyId)
-      errs.incomingFromPartyId = 'يجب اختيار جهة خارجية عند اختيار النوع خارجي.';
-    if (form.incomingSourceType === 'Internal' && !form.incomingFromDepartmentId)
-      errs.incomingFromDepartmentId = 'يجب اختيار إدارة عند اختيار النوع داخلي.';
-    if (form.incomingFromPartyId && form.incomingFromDepartmentId)
-      errs.incomingSourceType = 'لا يمكن اختيار جهة خارجية وإدارة داخلية في نفس الوقت.';
-    if (!form.categoryId) errs.categoryId = 'التصنيف مطلوب';
-    if (!form.priority) errs.priority = 'الأولوية مطلوبة';
+  const focusFirstInvalidField = (errors: Record<string, string>) => {
+    const firstInvalid = getFirstInvalidField(errors);
+    if (!firstInvalid) return;
 
-    if (hasOutgoingData(form)) {
-      if (!form.outgoingNumber.trim()) errs.outgoingNumber = OUTGOING_PARTIAL_ERROR;
-      if (!form.outgoingDate) errs.outgoingDate = OUTGOING_PARTIAL_ERROR;
-      if (form.outgoingDepartmentIds.length === 0) errs.outgoingDepartmentIds = OUTGOING_PARTIAL_ERROR;
-    }
+    globalThis.setTimeout(() => {
+      document.querySelector<HTMLElement>(`[data-field-name="${firstInvalid}"]`)?.focus();
+    }, 0);
+  };
 
-    if (!form.responseType || form.responseType === 'None') errs.responseType = 'نوع الإفادة مطلوب';
-    if (!form.responseDueDays) errs.responseDueDays = 'عدد أيام الرد مطلوب';
-
-    return errs;
+  const applyFieldErrors = (errors: Record<string, string>) => {
+    setFieldErrors(errors);
+    focusFirstInvalidField(errors);
   };
 
   const submit = async (submitMode: 'save' | 'saveAndOpenAttachments') => {
     if (isSubmitting) return;
     setError('');
-    const clientErrs = validateClient();
+    const clientErrs = validateTransactionForm(form, mode);
     if (Object.keys(clientErrs).length > 0) {
-      setFieldErrors(clientErrs);
+      applyFieldErrors(clientErrs);
       return;
     }
     setFieldErrors({});
@@ -178,8 +506,12 @@ export default function TransactionForm({ mode }: Props) {
         navigate(`/transactions/${id}`);
       }
     } catch (err: unknown) {
-      setFieldErrors(getFieldErrors(err));
-      setError(getApiErrorMessage(err));
+      const serverFieldErrors = normalizeFieldErrors(getFieldErrors(err));
+      if (Object.keys(serverFieldErrors).length > 0) {
+        applyFieldErrors(serverFieldErrors);
+      } else {
+        setError(getApiErrorMessage(err));
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -191,6 +523,21 @@ export default function TransactionForm({ mode }: Props) {
   };
 
   const fieldError = (name: string) => fieldErrors[name];
+  const hasFieldErrors = Object.keys(fieldErrors).length > 0;
+  const validationSummary = getValidationSummary(fieldErrors);
+  const fieldErrorId = (name: string) => `${name}-error`;
+  const fieldProps = (name: string) => ({
+    'data-field-name': name,
+    'aria-invalid': fieldError(name) ? true : undefined,
+    'aria-describedby': fieldError(name) ? fieldErrorId(name) : undefined,
+  });
+  const formGroupClass = (name: string, extra = '') => {
+    const errorClass = fieldError(name) ? ' has-error' : '';
+    const extraClass = extra ? ` ${extra}` : '';
+    return `form-group${errorClass}${extraClass}`;
+  };
+  const incomingSourceFieldName =
+    form.incomingSourceType === 'External' ? 'incomingFromPartyId' : 'incomingFromDepartmentId';
 
   if (loading || referenceLoading) {
     return (
@@ -203,108 +550,100 @@ export default function TransactionForm({ mode }: Props) {
   return (
     <div>
       <PageHeader
-        title={mode === 'create' ? 'إضافة معاملة' : 'تعديل معاملة'}
-        subtitle={mode === 'create' ? 'إدخال بيانات معاملة جديدة' : 'تعديل بيانات المعاملة الحالية'}
+        title={header.title}
+        subtitle={header.subtitle}
       />
       <form onSubmit={handleSubmit} noValidate>
-        {error && <Alert variant="error">{error}</Alert>}
+        <TransactionValidationSummary
+          hasFieldErrors={hasFieldErrors}
+          validationSummary={validationSummary}
+        />
+        {error && !hasFieldErrors && <Alert variant="error">{error}</Alert>}
 
         <FormSection title="بيانات الوارد">
           <div className="form-grid transaction-incoming-grid">
-            <div className="form-group">
+            <div className={formGroupClass('incomingNumber')}>
               <label>رقم الوارد *</label>
-              <input value={form.incomingNumber} onChange={(e) => setForm({ ...form, incomingNumber: e.target.value })} />
-              {fieldError('incomingNumber') && <span className="field-error">{fieldError('incomingNumber')}</span>}
+              <input {...fieldProps('incomingNumber')} value={form.incomingNumber} onChange={(e) => setForm({ ...form, incomingNumber: e.target.value })} />
+              {fieldError('incomingNumber') && <span id={fieldErrorId('incomingNumber')} className="field-error">{fieldError('incomingNumber')}</span>}
             </div>
-            <div className="form-group">
+            <div className={formGroupClass('incomingDate')}>
               <label>تاريخ الوارد * (ميلادي)</label>
-              <input type="date" value={form.incomingDate} onChange={(e) => setForm({ ...form, incomingDate: e.target.value })} />
+              <input {...fieldProps('incomingDate')} type="date" value={form.incomingDate} onChange={(e) => setForm({ ...form, incomingDate: e.target.value })} />
               {form.incomingDate && (
                 <small className="text-muted">التاريخ الهجري: {formatHijri(form.incomingDate)}</small>
               )}
-              {fieldError('incomingDate') && <span className="field-error">{fieldError('incomingDate')}</span>}
+              {fieldError('incomingDate') && <span id={fieldErrorId('incomingDate')} className="field-error">{fieldError('incomingDate')}</span>}
             </div>
-            <div className="form-group">
-              <label>نوع الجهة الوارد منها *</label>
-              <div className="radio-group">
-                <label className="radio-label">
-                  <input type="radio" name="incomingSourceType" value="External"
-                    checked={form.incomingSourceType === 'External'}
-                    onChange={() => handleSourceTypeChange('External')} />
-                  خارجية
-                </label>
-                <label className="radio-label">
-                  <input type="radio" name="incomingSourceType" value="Internal"
-                    checked={form.incomingSourceType === 'Internal'}
-                    onChange={() => handleSourceTypeChange('Internal')} />
-                  داخلية
-                </label>
-              </div>
-              {fieldError('incomingSourceType') && <span className="field-error">{fieldError('incomingSourceType')}</span>}
-            </div>
-            <div className="form-group">
-              {form.incomingSourceType === 'External' ? (
-                <SearchableSelect
-                  label="الجهة الوارد منها"
-                  required
-                  value={form.incomingFromPartyId === '' ? '' : Number(form.incomingFromPartyId)}
-                  onChange={(id) => setForm({ ...form, incomingFromPartyId: id, incomingFromDepartmentId: '' })}
-                  options={partyOptions}
-                />
-              ) : (
-                <SearchableSelect
-                  label="الجهة الوارد منها"
-                  required
-                  value={form.incomingFromDepartmentId === '' ? '' : Number(form.incomingFromDepartmentId)}
-                  onChange={(id) => setForm({ ...form, incomingFromDepartmentId: id, incomingFromPartyId: '' })}
-                  options={departmentOptions}
-                />
-              )}
-              {fieldError('incomingFromPartyId') && <span className="field-error">{fieldError('incomingFromPartyId')}</span>}
-              {fieldError('incomingFromDepartmentId') && <span className="field-error">{fieldError('incomingFromDepartmentId')}</span>}
-            </div>
-            <div className="form-group">
+            <IncomingSourceTypeField
+              value={form.incomingSourceType}
+              onChange={handleSourceTypeChange}
+              error={fieldError('incomingSourceType')}
+              errorId={fieldErrorId('incomingSourceType')}
+              formGroupClass={formGroupClass('incomingSourceType')}
+            />
+            <IncomingSourceSelector
+              sourceType={form.incomingSourceType}
+              incomingFromPartyId={form.incomingFromPartyId}
+              incomingFromDepartmentId={form.incomingFromDepartmentId}
+              partyOptions={partyOptions}
+              departmentOptions={departmentOptions}
+              partyError={fieldError('incomingFromPartyId')}
+              departmentError={fieldError('incomingFromDepartmentId')}
+              partyErrorId={fieldErrorId('incomingFromPartyId')}
+              departmentErrorId={fieldErrorId('incomingFromDepartmentId')}
+              formGroupClass={formGroupClass(incomingSourceFieldName)}
+              onPartyChange={(id) => setForm({ ...form, incomingFromPartyId: id, incomingFromDepartmentId: '' })}
+              onDepartmentChange={(id) => setForm({ ...form, incomingFromDepartmentId: id, incomingFromPartyId: '' })}
+            />
+            <div className={formGroupClass('categoryId')}>
               <SearchableSelect
                 label="التصنيف"
                 required
-                value={form.categoryId === '' ? '' : Number(form.categoryId)}
+                value={toSelectValue(form.categoryId)}
                 onChange={(id) => setForm({ ...form, categoryId: id })}
                 options={categoryOptions}
+                invalid={Boolean(fieldError('categoryId'))}
+                describedBy={fieldError('categoryId') ? fieldErrorId('categoryId') : undefined}
+                dataFieldName="categoryId"
               />
-              {fieldError('categoryId') && <span className="field-error">{fieldError('categoryId')}</span>}
+              {fieldError('categoryId') && <span id={fieldErrorId('categoryId')} className="field-error">{fieldError('categoryId')}</span>}
             </div>
-            <div className="form-group">
+            <div className={formGroupClass('priority')}>
               <label>الأولوية *</label>
-              <select value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>
+              <select {...fieldProps('priority')} value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>
                 <option value="Normal">عادي</option>
                 <option value="Urgent">عاجل</option>
                 <option value="VeryUrgent">عاجل جداً</option>
               </select>
-              {fieldError('priority') && <span className="field-error">{fieldError('priority')}</span>}
+              {fieldError('priority') && <span id={fieldErrorId('priority')} className="field-error">{fieldError('priority')}</span>}
             </div>
-            <div className="form-group transaction-subject-field">
+            <div className={formGroupClass('subject', 'transaction-subject-field')}>
               <label>الموضوع *</label>
-              <input value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
-              {fieldError('subject') && <span className="field-error">{fieldError('subject')}</span>}
+              <input {...fieldProps('subject')} value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
+              {fieldError('subject') && <span id={fieldErrorId('subject')} className="field-error">{fieldError('subject')}</span>}
             </div>
 
             <div className="form-subsection-divider">
               <h4 className="form-subsection-title">بيانات الإفادة والمهلة</h4>
             </div>
-            <div className="form-group">
+            <div className={formGroupClass('responseType')}>
               <label>نوع الإفادة *</label>
-              <select value={form.responseType} onChange={(e) => setForm({ ...form, responseType: e.target.value })}>
+              <select {...fieldProps('responseType')} value={form.responseType} onChange={(e) => setForm({ ...form, responseType: e.target.value })}>
+                {mode === 'edit' && form.responseType === 'None' && (
+                  <option value="None">لا تتطلب إفادة</option>
+                )}
                 <option value="External">إفادة للجهة</option>
                 <option value="Internal">إفادة داخلية</option>
                 <option value="Both">إفادة للجهة وداخلية</option>
               </select>
-              {fieldError('responseType') && <span className="field-error">{fieldError('responseType')}</span>}
+              {fieldError('responseType') && <span id={fieldErrorId('responseType')} className="field-error">{fieldError('responseType')}</span>}
             </div>
-            <div className="form-group">
+            <div className={formGroupClass('responseDueDays')}>
               <label>عدد الأيام للرد *</label>
-              <input type="number" min="1" value={form.responseDueDays}
+              <input {...fieldProps('responseDueDays')} type="number" min="1" value={form.responseDueDays}
                 onChange={(e) => setForm({ ...form, responseDueDays: e.target.value })} />
-              {fieldError('responseDueDays') && <span className="field-error">{fieldError('responseDueDays')}</span>}
+              {fieldError('responseDueDays') && <span id={fieldErrorId('responseDueDays')} className="field-error">{fieldError('responseDueDays')}</span>}
               {computedResponseDueDate && (
                 <small className="text-muted">
                   تاريخ الرد المطلوب: {formatDualDate(computedResponseDueDate)}
@@ -319,24 +658,27 @@ export default function TransactionForm({ mode }: Props) {
 
         <FormSection title="بيانات الصادر" description={OUTGOING_HINT}>
           <div className="form-grid">
-            <div className="form-group">
+            <div className={formGroupClass('outgoingNumber')}>
               <label>رقم الصادر</label>
-              <input value={form.outgoingNumber} onChange={(e) => setForm({ ...form, outgoingNumber: e.target.value })} />
-              {fieldError('outgoingNumber') && <span className="field-error">{fieldError('outgoingNumber')}</span>}
+              <input {...fieldProps('outgoingNumber')} value={form.outgoingNumber} onChange={(e) => setForm({ ...form, outgoingNumber: e.target.value })} />
+              {fieldError('outgoingNumber') && <span id={fieldErrorId('outgoingNumber')} className="field-error">{fieldError('outgoingNumber')}</span>}
             </div>
-            <div className="form-group">
+            <div className={formGroupClass('outgoingDate')}>
               <label>تاريخ الصادر (ميلادي)</label>
-              <input type="date" value={form.outgoingDate} onChange={(e) => setForm({ ...form, outgoingDate: e.target.value })} />
-              {fieldError('outgoingDate') && <span className="field-error">{fieldError('outgoingDate')}</span>}
+              <input {...fieldProps('outgoingDate')} type="date" value={form.outgoingDate} onChange={(e) => setForm({ ...form, outgoingDate: e.target.value })} />
+              {fieldError('outgoingDate') && <span id={fieldErrorId('outgoingDate')} className="field-error">{fieldError('outgoingDate')}</span>}
             </div>
-            <div className="form-group full-width">
+            <div className={formGroupClass('outgoingDepartmentIds', 'full-width')}>
               <MultiSelect
                 label="الجهة الصادر لها (إدارات)"
                 options={departments.map((d) => ({ id: d.id, name: d.name }))}
                 selected={form.outgoingDepartmentIds}
                 onChange={(ids) => setForm({ ...form, outgoingDepartmentIds: ids })}
+                invalid={Boolean(fieldError('outgoingDepartmentIds'))}
+                describedBy={fieldError('outgoingDepartmentIds') ? fieldErrorId('outgoingDepartmentIds') : undefined}
+                dataFieldName="outgoingDepartmentIds"
               />
-              {fieldError('outgoingDepartmentIds') && <span className="field-error">{fieldError('outgoingDepartmentIds')}</span>}
+              {fieldError('outgoingDepartmentIds') && <span id={fieldErrorId('outgoingDepartmentIds')} className="field-error">{fieldError('outgoingDepartmentIds')}</span>}
             </div>
           </div>
         </FormSection>
@@ -347,22 +689,12 @@ export default function TransactionForm({ mode }: Props) {
           </div>
         </FormSection>
 
-        <div className="form-actions mt-4">
-          <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
-            {isSubmitting ? 'جاري الحفظ...' : 'حفظ'}
-          </button>
-          {mode === 'create' && (
-            <button
-              type="button"
-              className="btn btn-secondary"
-              disabled={isSubmitting}
-              onClick={() => submit('saveAndOpenAttachments')}
-            >
-              {isSubmitting ? 'جاري الحفظ...' : 'حفظ وفتح المرفقات'}
-            </button>
-          )}
-          <button type="button" className="btn btn-outline" onClick={() => navigate(-1)}>إلغاء</button>
-        </div>
+        <TransactionFormActions
+          mode={mode}
+          isSubmitting={isSubmitting}
+          onSaveAndOpenAttachments={() => submit('saveAndOpenAttachments')}
+          onCancel={() => navigate(-1)}
+        />
       </form>
     </div>
   );

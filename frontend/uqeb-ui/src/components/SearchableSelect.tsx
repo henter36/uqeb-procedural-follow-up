@@ -19,6 +19,9 @@ type SearchableSelectProps = {
   onSearch?: (term: string) => void;
   loading?: boolean;
   debounceMs?: number;
+  invalid?: boolean;
+  describedBy?: string;
+  dataFieldName?: string;
 };
 
 function getDisplayValue(open: boolean, query: string, selected: SelectOption | null): string {
@@ -46,6 +49,9 @@ export default function SearchableSelect({
   onSearch,
   loading = false,
   debounceMs = 300,
+  invalid = false,
+  describedBy,
+  dataFieldName,
 }: Readonly<SearchableSelectProps>) {
   const inputId = useId();
   const listboxId = useId();
@@ -157,7 +163,7 @@ export default function SearchableSelect({
   };
 
   return (
-    <div className={`searchable-select${disabled ? ' is-disabled' : ''}`} ref={rootRef}>
+    <div className={`searchable-select${disabled ? ' is-disabled' : ''}${invalid ? ' is-invalid' : ''}`} ref={rootRef}>
       <label htmlFor={inputId}>{label}{required ? ' *' : ''}</label>
       <div className="searchable-select-control">
         <input
@@ -168,6 +174,9 @@ export default function SearchableSelect({
           aria-expanded={open}
           aria-controls={open ? listboxId : undefined}
           aria-autocomplete="list"
+          aria-invalid={invalid || undefined}
+          aria-describedby={describedBy}
+          data-field-name={dataFieldName}
           autoComplete="off"
           disabled={disabled}
           placeholder={placeholder}

@@ -8,9 +8,21 @@ interface Props {
   onChange: (ids: number[]) => void;
   label?: string;
   required?: boolean;
+  invalid?: boolean;
+  describedBy?: string;
+  dataFieldName?: string;
 }
 
-export default function MultiSelect({ options, selected, onChange, label, required }: Props) {
+export default function MultiSelect({
+  options,
+  selected,
+  onChange,
+  label,
+  required,
+  invalid,
+  describedBy,
+  dataFieldName,
+}: Props) {
   const [query, setQuery] = useState('');
 
   const showSearch = options.length > 6;
@@ -37,7 +49,13 @@ export default function MultiSelect({ options, selected, onChange, label, requir
           onChange={(e) => setQuery(e.target.value)}
         />
       )}
-      <div className="multi-select">
+      <div
+        className="multi-select"
+        tabIndex={dataFieldName ? -1 : undefined}
+        data-field-name={dataFieldName}
+        aria-invalid={invalid ? true : undefined}
+        aria-describedby={describedBy}
+      >
         {filtered.map((o) => (
           <label key={o.id} className={`multi-select-item${o.isActive === false ? ' is-inactive' : ''}`}>
             <input type="checkbox" checked={selected.includes(o.id)} onChange={() => toggle(o.id)} />
