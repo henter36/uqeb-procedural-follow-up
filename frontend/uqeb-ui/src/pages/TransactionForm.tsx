@@ -46,6 +46,7 @@ type TransactionValidationRule = {
 
 const OUTGOING_HINT = 'بيانات الصادر غير إلزامية، ولكن يجب إكمالها عند البدء بتعبئتها.';
 const OUTGOING_PARTIAL_ERROR = 'عند إدخال أي بيان من بيانات الصادر يجب إكمال رقم الصادر وتاريخ الصادر والإدارة الصادر لها.';
+const OUTGOING_DEPARTMENT_ERROR = 'اختر جهة داخلية واحدة على الأقل.';
 // These mappings keep backend validation keys aligned with TransactionForm field names and error display order.
 // Update them when transaction DTO validation fields or form field names change.
 const FIELD_ORDER = [
@@ -173,14 +174,14 @@ function getTransactionValidationRules(form: TransactionFormState, mode: Props['
     { field: 'incomingDate', isInvalid: !form.incomingDate, message: 'تاريخ الوارد مطلوب.' },
     { field: 'subject', isInvalid: !form.subject.trim(), message: 'الموضوع مطلوب.' },
     { field: 'incomingSourceType', isInvalid: !form.incomingSourceType, message: 'يجب اختيار نوع الجهة الوارد منها.' },
-    { field: 'incomingFromPartyId', isInvalid: isMissingExternalIncomingParty(form), message: 'الجهة الوارد منها مطلوبة.' },
-    { field: 'incomingFromDepartmentId', isInvalid: isMissingInternalIncomingDepartment(form), message: 'الجهة الوارد منها مطلوبة.' },
+    { field: 'incomingFromPartyId', isInvalid: isMissingExternalIncomingParty(form), message: 'الجهة الخارجية مطلوبة.' },
+    { field: 'incomingFromDepartmentId', isInvalid: isMissingInternalIncomingDepartment(form), message: 'الجهة الداخلية مطلوبة.' },
     { field: 'incomingSourceType', isInvalid: hasConflictingIncomingSources(form), message: 'لا يمكن اختيار جهة خارجية وإدارة داخلية في نفس الوقت.' },
     { field: 'categoryId', isInvalid: !form.categoryId, message: 'التصنيف مطلوب.' },
     { field: 'priority', isInvalid: !form.priority, message: 'الأولوية مطلوبة.' },
     { field: 'outgoingNumber', isInvalid: isMissingOutgoingNumber(form, hasPartialOutgoingData), message: OUTGOING_PARTIAL_ERROR },
     { field: 'outgoingDate', isInvalid: isMissingOutgoingDate(form, hasPartialOutgoingData), message: OUTGOING_PARTIAL_ERROR },
-    { field: 'outgoingDepartmentIds', isInvalid: isMissingOutgoingDepartments(form, hasPartialOutgoingData), message: OUTGOING_PARTIAL_ERROR },
+    { field: 'outgoingDepartmentIds', isInvalid: isMissingOutgoingDepartments(form, hasPartialOutgoingData), message: OUTGOING_DEPARTMENT_ERROR },
     { field: 'responseType', isInvalid: isMissingResponseType(form, mode), message: 'نوع الإفادة مطلوب.' },
     { field: 'responseDueDays', isInvalid: isMissingResponseDueDays(form), message: 'عدد أيام الرد مطلوب عند طلب إفادة.' },
   ];
@@ -553,7 +554,7 @@ export default function TransactionForm({ mode }: Props) {
         title={header.title}
         subtitle={header.subtitle}
       />
-      <form onSubmit={handleSubmit} noValidate>
+      <form className="transaction-form" onSubmit={handleSubmit} noValidate>
         <TransactionValidationSummary
           hasFieldErrors={hasFieldErrors}
           validationSummary={validationSummary}
@@ -561,13 +562,13 @@ export default function TransactionForm({ mode }: Props) {
         {error && !hasFieldErrors && <Alert variant="error">{error}</Alert>}
 
         <FormSection title="بيانات الوارد">
-          <div className="form-grid transaction-incoming-grid">
-            <div className={formGroupClass('incomingNumber')}>
+          <div className="transaction-form-grid transaction-form-grid--incoming">
+            <div className={formGroupClass('incomingNumber', 'transaction-form-field transaction-form-field--compact')}>
               <label>رقم الوارد *</label>
               <input {...fieldProps('incomingNumber')} value={form.incomingNumber} onChange={(e) => setForm({ ...form, incomingNumber: e.target.value })} />
               {fieldError('incomingNumber') && <span id={fieldErrorId('incomingNumber')} className="field-error">{fieldError('incomingNumber')}</span>}
             </div>
-            <div className={formGroupClass('incomingDate')}>
+            <div className={formGroupClass('incomingDate', 'transaction-form-field transaction-form-field--compact')}>
               <label>تاريخ الوارد * (ميلادي)</label>
               <input {...fieldProps('incomingDate')} type="date" value={form.incomingDate} onChange={(e) => setForm({ ...form, incomingDate: e.target.value })} />
               {form.incomingDate && (
@@ -580,7 +581,7 @@ export default function TransactionForm({ mode }: Props) {
               onChange={handleSourceTypeChange}
               error={fieldError('incomingSourceType')}
               errorId={fieldErrorId('incomingSourceType')}
-              formGroupClass={formGroupClass('incomingSourceType')}
+              formGroupClass={formGroupClass('incomingSourceType', 'transaction-form-field transaction-form-field--compact')}
             />
             <IncomingSourceSelector
               sourceType={form.incomingSourceType}
@@ -592,11 +593,16 @@ export default function TransactionForm({ mode }: Props) {
               departmentError={fieldError('incomingFromDepartmentId')}
               partyErrorId={fieldErrorId('incomingFromPartyId')}
               departmentErrorId={fieldErrorId('incomingFromDepartmentId')}
-              formGroupClass={formGroupClass(incomingSourceFieldName)}
+              formGroupClass={formGroupClass(incomingSourceFieldName, 'transaction-form-field transaction-form-field--medium')}
               onPartyChange={(id) => setForm({ ...form, incomingFromPartyId: id, incomingFromDepartmentId: '' })}
               onDepartmentChange={(id) => setForm({ ...form, incomingFromDepartmentId: id, incomingFromPartyId: '' })}
             />
-            <div className={formGroupClass('categoryId')}>
+            <div className={formGroupClass('subject', 'transaction-form-field transaction-form-field--wide transaction-subject-field')}>
+              <label>الموضوع *</label>
+              <input {...fieldProps('subject')} value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
+              {fieldError('subject') && <span id={fieldErrorId('subject')} className="field-error">{fieldError('subject')}</span>}
+            </div>
+            <div className={formGroupClass('categoryId', 'transaction-form-field transaction-form-field--medium')}>
               <SearchableSelect
                 label="التصنيف"
                 required
@@ -609,7 +615,7 @@ export default function TransactionForm({ mode }: Props) {
               />
               {fieldError('categoryId') && <span id={fieldErrorId('categoryId')} className="field-error">{fieldError('categoryId')}</span>}
             </div>
-            <div className={formGroupClass('priority')}>
+            <div className={formGroupClass('priority', 'transaction-form-field transaction-form-field--compact')}>
               <label>الأولوية *</label>
               <select {...fieldProps('priority')} value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>
                 <option value="Normal">عادي</option>
@@ -618,16 +624,7 @@ export default function TransactionForm({ mode }: Props) {
               </select>
               {fieldError('priority') && <span id={fieldErrorId('priority')} className="field-error">{fieldError('priority')}</span>}
             </div>
-            <div className={formGroupClass('subject', 'transaction-subject-field')}>
-              <label>الموضوع *</label>
-              <input {...fieldProps('subject')} value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
-              {fieldError('subject') && <span id={fieldErrorId('subject')} className="field-error">{fieldError('subject')}</span>}
-            </div>
-
-            <div className="form-subsection-divider">
-              <h4 className="form-subsection-title">بيانات الإفادة والمهلة</h4>
-            </div>
-            <div className={formGroupClass('responseType')}>
+            <div className={formGroupClass('responseType', 'transaction-form-field transaction-form-field--medium')}>
               <label>نوع الإفادة *</label>
               <select {...fieldProps('responseType')} value={form.responseType} onChange={(e) => setForm({ ...form, responseType: e.target.value })}>
                 {mode === 'edit' && form.responseType === 'None' && (
@@ -639,7 +636,7 @@ export default function TransactionForm({ mode }: Props) {
               </select>
               {fieldError('responseType') && <span id={fieldErrorId('responseType')} className="field-error">{fieldError('responseType')}</span>}
             </div>
-            <div className={formGroupClass('responseDueDays')}>
+            <div className={formGroupClass('responseDueDays', 'transaction-form-field transaction-form-field--compact')}>
               <label>عدد الأيام للرد *</label>
               <input {...fieldProps('responseDueDays')} type="number" min="1" value={form.responseDueDays}
                 onChange={(e) => setForm({ ...form, responseDueDays: e.target.value })} />
@@ -656,22 +653,15 @@ export default function TransactionForm({ mode }: Props) {
           </div>
         </FormSection>
 
-        <FormSection title="بيانات الصادر" description={OUTGOING_HINT}>
-          <div className="form-grid">
-            <div className={formGroupClass('outgoingNumber')}>
-              <label>رقم الصادر</label>
-              <input {...fieldProps('outgoingNumber')} value={form.outgoingNumber} onChange={(e) => setForm({ ...form, outgoingNumber: e.target.value })} />
-              {fieldError('outgoingNumber') && <span id={fieldErrorId('outgoingNumber')} className="field-error">{fieldError('outgoingNumber')}</span>}
-            </div>
-            <div className={formGroupClass('outgoingDate')}>
-              <label>تاريخ الصادر (ميلادي)</label>
-              <input {...fieldProps('outgoingDate')} type="date" value={form.outgoingDate} onChange={(e) => setForm({ ...form, outgoingDate: e.target.value })} />
-              {fieldError('outgoingDate') && <span id={fieldErrorId('outgoingDate')} className="field-error">{fieldError('outgoingDate')}</span>}
-            </div>
-            <div className={formGroupClass('outgoingDepartmentIds', 'full-width')}>
+        <FormSection
+          title="بيانات التوجيه والإرسال الداخلي"
+          description={OUTGOING_HINT}
+        >
+          <div className="transaction-form-grid transaction-form-grid--routing">
+            <div className={formGroupClass('outgoingDepartmentIds', 'transaction-form-field transaction-form-field--wide')}>
               <MultiSelect
-                label="الجهة الصادر لها (إدارات)"
-                options={departments.map((d) => ({ id: d.id, name: d.name }))}
+                label="الإدارات الموجه لها"
+                options={departments.map((d) => ({ id: d.id, name: d.name, isActive: d.isActive }))}
                 selected={form.outgoingDepartmentIds}
                 onChange={(ids) => setForm({ ...form, outgoingDepartmentIds: ids })}
                 invalid={Boolean(fieldError('outgoingDepartmentIds'))}
@@ -680,12 +670,24 @@ export default function TransactionForm({ mode }: Props) {
               />
               {fieldError('outgoingDepartmentIds') && <span id={fieldErrorId('outgoingDepartmentIds')} className="field-error">{fieldError('outgoingDepartmentIds')}</span>}
             </div>
+            <div className={formGroupClass('outgoingNumber', 'transaction-form-field transaction-form-field--compact')}>
+              <label>رقم الصادر</label>
+              <input {...fieldProps('outgoingNumber')} value={form.outgoingNumber} onChange={(e) => setForm({ ...form, outgoingNumber: e.target.value })} />
+              {fieldError('outgoingNumber') && <span id={fieldErrorId('outgoingNumber')} className="field-error">{fieldError('outgoingNumber')}</span>}
+            </div>
+            <div className={formGroupClass('outgoingDate', 'transaction-form-field transaction-form-field--compact')}>
+              <label>تاريخ الصادر (ميلادي)</label>
+              <input {...fieldProps('outgoingDate')} type="date" value={form.outgoingDate} onChange={(e) => setForm({ ...form, outgoingDate: e.target.value })} />
+              {fieldError('outgoingDate') && <span id={fieldErrorId('outgoingDate')} className="field-error">{fieldError('outgoingDate')}</span>}
+            </div>
           </div>
         </FormSection>
 
         <FormSection title="ملاحظات">
-          <div className="form-group">
-            <textarea rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} aria-label="ملاحظات" />
+          <div className="transaction-form-grid">
+            <div className="form-group transaction-form-field transaction-form-field--wide">
+              <textarea rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} aria-label="ملاحظات" />
+            </div>
           </div>
         </FormSection>
 
