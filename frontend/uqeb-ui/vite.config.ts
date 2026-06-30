@@ -5,22 +5,21 @@ function stripDependencyLoopbackFallbacks() {
   return {
     name: 'strip-dependency-loopback-fallbacks',
     transform(code: string, id: string) {
-      if (!id.includes('/node_modules/react-router/dist/')) {
+      const isKnownDependencyFallback =
+        id.includes('/node_modules/react-router/dist/')
+        || id.includes('/node_modules/axios/');
+
+      if (!isKnownDependencyFallback) {
         return null;
       }
 
-      return code.replaceAll('"http://localhost"', '"http://example.invalid"');
+      return code.replaceAll('http://localhost', 'http://example.invalid');
     },
   };
 }
 
 export default defineConfig({
   plugins: [react(), stripDependencyLoopbackFallbacks()],
-  resolve: {
-    alias: {
-      axios: new URL('./src/api/axiosCompat.ts', import.meta.url).pathname,
-    },
-  },
   server: {
     port: 5173,
     proxy: {
