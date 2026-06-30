@@ -2228,6 +2228,19 @@ Describe 'Assert-FrontendDistApiBaseUrl' {
         foreach ($fn in $fns) {
             Set-Item -Path "function:$($fn.Name)" -Value $fn.Body.GetScriptBlock()
         }
+
+        function Assert-FrontendDistRejectsForbiddenUrl {
+            param([string]$ForbiddenUrl)
+
+            $dist = New-TempDirectory
+            Set-Content `
+                -Path (Join-Path $dist 'index.js') `
+                -Value "const a=`"http://10.0.177.17:5000/api`";const b=`"$ForbiddenUrl`"" `
+                -Encoding UTF8
+
+            { Assert-FrontendDistApiBaseUrl -DistPath $dist -ProductionApiBaseUrl 'http://10.0.177.17:5000/api' } |
+                Should -Throw '*عناوين API محلية*'
+        }
     }
 
     It 'passes when production URL is present and no forbidden URLs exist' {
@@ -2246,36 +2259,13 @@ Describe 'Assert-FrontendDistApiBaseUrl' {
             Should -Throw '*عنوان API الإنتاجي المتوقع*'
     }
 
-    It 'fails when http://localhost appears in a JS file' {
-        $dist = New-TempDirectory
-        Set-Content (Join-Path $dist 'index.js') -Value 'const a="http://10.0.177.17:5000/api";const b="http://localhost:5080/api"' -Encoding UTF8
-
-        { Assert-FrontendDistApiBaseUrl -DistPath $dist -ProductionApiBaseUrl 'http://10.0.177.17:5000/api' } |
-            Should -Throw '*عناوين API محلية*'
-    }
-
-    It 'fails when http://127.0.0.1 appears in a JS file' {
-        $dist = New-TempDirectory
-        Set-Content (Join-Path $dist 'ScannerPanel.js') -Value 'const a="http://10.0.177.17:5000/api";const b="http://127.0.0.1:5055"' -Encoding UTF8
-
-        { Assert-FrontendDistApiBaseUrl -DistPath $dist -ProductionApiBaseUrl 'http://10.0.177.17:5000/api' } |
-            Should -Throw '*عناوين API محلية*'
-    }
-
-    It 'fails when https://localhost appears in a JS file' {
-        $dist = New-TempDirectory
-        Set-Content (Join-Path $dist 'index.js') -Value 'const a="http://10.0.177.17:5000/api";const b="https://localhost:5080/api"' -Encoding UTF8
-
-        { Assert-FrontendDistApiBaseUrl -DistPath $dist -ProductionApiBaseUrl 'http://10.0.177.17:5000/api' } |
-            Should -Throw '*عناوين API محلية*'
-    }
-
-    It 'fails when https://127.0.0.1 appears in a JS file' {
-        $dist = New-TempDirectory
-        Set-Content (Join-Path $dist 'ScannerPanel.js') -Value 'const a="http://10.0.177.17:5000/api";const b="https://127.0.0.1:5055"' -Encoding UTF8
-
-        { Assert-FrontendDistApiBaseUrl -DistPath $dist -ProductionApiBaseUrl 'http://10.0.177.17:5000/api' } |
-            Should -Throw '*عناوين API محلية*'
+    It 'fails when <Name> appears in a JS file' -ForEach @(
+        @{ Name = 'http://localhost'; Url = 'http://localhost:5080/api' },
+        @{ Name = 'http://127.0.0.1'; Url = 'http://127.0.0.1:5055' },
+        @{ Name = 'https://localhost'; Url = 'https://localhost:5080/api' },
+        @{ Name = 'https://127.0.0.1'; Url = 'https://127.0.0.1:5055' }
+    ) {
+        Assert-FrontendDistRejectsForbiddenUrl -ForbiddenUrl $Url
     }
 
     It 'fails when dist directory does not exist' {
