@@ -1,4 +1,3 @@
-using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Uqeb.Api.Data;
 
@@ -39,7 +38,7 @@ public sealed class ReportNumberSequenceSchemaProbe : IReportNumberSequenceSchem
 
             return exists;
         }
-        catch (SqlException)
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
             return false;
         }
