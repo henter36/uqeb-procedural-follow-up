@@ -183,14 +183,14 @@ public class TransactionWorkflowAtomicityTests
         await db.SaveChangesAsync();
     }
 
-    private static async Task AddDepartmentResponseAsync(
+    private static async Task<DepartmentResponse> AddDepartmentResponseAsync(
         AppDbContext db,
         int transactionId,
         int departmentId,
         int submittedByUserId,
         DepartmentResponseStatus status)
     {
-        db.DepartmentResponses.Add(new DepartmentResponse
+        var response = new DepartmentResponse
         {
             TransactionId = transactionId,
             DepartmentId = departmentId,
@@ -200,6 +200,27 @@ public class TransactionWorkflowAtomicityTests
             SubmittedAt = status == DepartmentResponseStatus.Draft ? null : DateTime.UtcNow,
             ReviewedByUserId = status == DepartmentResponseStatus.Approved ? 1 : null,
             ReviewedAt = status == DepartmentResponseStatus.Approved ? DateTime.UtcNow : null,
+        };
+        db.DepartmentResponses.Add(response);
+        await db.SaveChangesAsync();
+        return response;
+    }
+
+    private static async Task AddDepartmentResponseAuditAsync(
+        AppDbContext db,
+        int transactionId,
+        int responseId,
+        int userId,
+        AuditAction action)
+    {
+        db.AuditLogs.Add(new AuditLog
+        {
+            TransactionId = transactionId,
+            EntityName = "DepartmentResponse",
+            EntityId = responseId,
+            UserId = userId,
+            Action = action,
+            CreatedAt = DateTime.UtcNow
         });
         await db.SaveChangesAsync();
     }
@@ -470,6 +491,60 @@ public class TransactionWorkflowAtomicityTests
 
         Assert.True(closed);
         Assert.Equal(1, cache.TransactionChangeInvalidations);
+    }
+
+    [Fact]
+    public async Task CloseAsync_Transaction2011RegressionShape_AllowsPrivilegedDepartmentResponseAudit()
+    {
+        var (service, db, _, cache) = await CreateServiceAsync(
+            nameof(CloseAsync_Transaction2011RegressionShape_AllowsPrivilegedDepartmentResponseAudit));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        await PrepareTransactionForCloseAsync(db, created!.Id);
+        var response = await AddDepartmentResponseAsync(
+            db,
+            created.Id,
+            10,
+            submittedByUserId: 2,
+            DepartmentResponseStatus.Draft);
+        await AddDepartmentResponseAuditAsync(
+            db,
+            created.Id,
+            response.Id,
+            userId: 4,
+            AuditAction.DepartmentResponseUpdated);
+        cache.ResetInvalidations();
+
+        var closed = await service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin);
+
+        Assert.True(closed);
+        Assert.Equal(1, cache.TransactionChangeInvalidations);
+    }
+
+    [Fact]
+    public async Task CloseAsync_DepartmentUserAuditWithoutApproval_Blocks()
+    {
+        var (service, db, _, cache) = await CreateServiceAsync(nameof(CloseAsync_DepartmentUserAuditWithoutApproval_Blocks));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        await PrepareTransactionForCloseAsync(db, created!.Id);
+        var response = await AddDepartmentResponseAsync(
+            db,
+            created.Id,
+            10,
+            submittedByUserId: 2,
+            DepartmentResponseStatus.Draft);
+        await AddDepartmentResponseAuditAsync(
+            db,
+            created.Id,
+            response.Id,
+            userId: 2,
+            AuditAction.DepartmentResponseUpdated);
+        cache.ResetInvalidations();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin));
+
+        Assert.Contains("توجد إفادة محفوظة كمسودة ولم تُرسل أو تُعتمد بعد.", ex.Message);
+        Assert.Equal(0, cache.TransactionChangeInvalidations);
     }
 
     [Fact]

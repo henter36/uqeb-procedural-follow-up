@@ -1,17 +1,17 @@
 import { useMemo, useState } from 'react';
 
-interface Option { id: number; name: string; isActive?: boolean }
+type Option = Readonly<{ id: number; name: string; isActive?: boolean }>;
 
-interface Props {
-  options: Option[];
-  selected: number[];
+type Props = Readonly<{
+  options: readonly Option[];
+  selected: readonly number[];
   onChange: (ids: number[]) => void;
   label?: string;
   required?: boolean;
   invalid?: boolean;
   describedBy?: string;
   dataFieldName?: string;
-}
+}>;
 
 export default function MultiSelect({
   options,

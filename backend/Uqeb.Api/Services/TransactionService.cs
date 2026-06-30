@@ -35,9 +35,19 @@ public class TransactionService : ITransactionService
 {
     private const string AssignmentEntityName = "Assignment";
     private const string AssignmentSourceName = "Assignment";
+    private const string DepartmentResponseEntityName = "DepartmentResponse";
     private const string OutgoingDepartmentSourceName = "OutgoingDepartment";
     private const string OutgoingDepartmentsEntityName = "TransactionOutgoingDepartments";
     private const string TransactionEntityName = "Transaction";
+    private static readonly UserRole[] DepartmentResponseReviewRoles =
+        [UserRole.Admin, UserRole.Supervisor, UserRole.DataEntry];
+    private static readonly AuditAction[] DepartmentResponseSufficientAuditActions =
+    [
+        AuditAction.DepartmentResponseCreated,
+        AuditAction.DepartmentResponseUpdated,
+        AuditAction.DepartmentResponseSubmitted,
+        AuditAction.DepartmentResponseApproved,
+    ];
 
     private readonly AppDbContext _db;
     private readonly IAuditService _audit;
@@ -1199,10 +1209,15 @@ public class TransactionService : ITransactionService
             .ToDictionary(
                 group => group.Key,
                 group => group.OrderByDescending(r => r.UpdatedAt ?? r.CreatedAt).First());
+        var privilegedAuditResponseIds = await GetPrivilegedDepartmentResponseAuditIdsAsync(
+            transactionId,
+            responseByDepartment.Values.Select(r => r.Id).ToList());
+
         return requiredDepartments
             .Select(d => GetDepartmentResponseClosureFailure(
                 d.Name,
                 responseByDepartment.GetValueOrDefault(d.DepartmentId),
+                privilegedAuditResponseIds,
                 hasDifferentDepartmentResponse))
             .Where(failure => !string.IsNullOrWhiteSpace(failure))
             .Select(failure => failure!)
@@ -1210,9 +1225,32 @@ public class TransactionService : ITransactionService
             .ToList();
     }
 
+    private async Task<HashSet<int>> GetPrivilegedDepartmentResponseAuditIdsAsync(
+        int transactionId,
+        List<int> responseIds)
+    {
+        if (responseIds.Count == 0)
+            return [];
+
+        var auditResponseIds = await _db.AuditLogs
+            .AsNoTracking()
+            .Where(a => a.TransactionId == transactionId
+                && a.EntityName == DepartmentResponseEntityName
+                && a.EntityId.HasValue
+                && responseIds.Contains(a.EntityId.Value)
+                && DepartmentResponseSufficientAuditActions.Contains(a.Action)
+                && DepartmentResponseReviewRoles.Contains(a.User.Role))
+            .Select(a => a.EntityId!.Value)
+            .Distinct()
+            .ToListAsync();
+
+        return auditResponseIds.ToHashSet();
+    }
+
     private static string? GetDepartmentResponseClosureFailure(
         string departmentName,
         DepartmentResponse? response,
+        HashSet<int> privilegedAuditResponseIds,
         bool hasDifferentDepartmentResponse)
     {
         if (response == null)
@@ -1223,23 +1261,31 @@ public class TransactionService : ITransactionService
             return $"{departmentName}: {reason}";
         }
 
-        if (IsDepartmentResponseSufficientForClosure(response))
+        if (IsDepartmentResponseSufficientForClosure(
+            response,
+            privilegedAuditResponseIds.Contains(response.Id)))
             return null;
 
         return $"{departmentName}: {GetInsufficientDepartmentResponseReason(response.Status)}";
     }
 
-    private static bool IsDepartmentResponseSufficientForClosure(DepartmentResponse response) =>
+    private static bool IsDepartmentResponseSufficientForClosure(
+        DepartmentResponse response,
+        bool hasPrivilegedAuditAction) =>
         response.Status == DepartmentResponseStatus.Approved ||
+        hasPrivilegedAuditAction && IsPrivilegedUnapprovedResponseStatus(response.Status) ||
         IsReviewRole(response.SubmittedBy?.Role) ||
         IsApprovedByReviewRole(response);
+
+    private static bool IsPrivilegedUnapprovedResponseStatus(DepartmentResponseStatus status) =>
+        status is DepartmentResponseStatus.Draft or DepartmentResponseStatus.SubmittedForReview;
 
     private static bool IsApprovedByReviewRole(DepartmentResponse response) =>
         response.Status == DepartmentResponseStatus.Approved &&
         IsReviewRole(response.ReviewedBy?.Role);
 
     private static bool IsReviewRole(UserRole? role) =>
-        role is UserRole.Admin or UserRole.Supervisor or UserRole.DataEntry;
+        role.HasValue && DepartmentResponseReviewRoles.Contains(role.Value);
 
     private static string GetInsufficientDepartmentResponseReason(DepartmentResponseStatus status) =>
         status switch
