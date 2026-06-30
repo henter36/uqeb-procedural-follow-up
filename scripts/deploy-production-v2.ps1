@@ -154,7 +154,7 @@ $runApiPath = Join-Path $InstallRoot "run-api.cmd"
 $effectiveApiBinding = "http://0.0.0.0:$ApiPort"
 $runApi = "@echo off`r`ncd /d `"$apiTarget`"`r`nset ASPNETCORE_ENVIRONMENT=Production`r`nset DOTNET_ENVIRONMENT=Production`r`nset ASPNETCORE_URLS=$effectiveApiBinding`r`n$launchCommand >> `"$apiLog`" 2>&1`r`n"
 Set-Content $runApiPath $runApi -Encoding ASCII
-$action = New-ScheduledTaskAction -Execute $env:ComSpec -Argument ('/c "'+$runApiPath+'"') -WorkingDirectory $apiTarget
+$action = New-ScheduledTaskAction -Execute $runApiPath -WorkingDirectory $InstallRoot
 Set-ScheduledTask -TaskName $ScheduledTaskName -Action $action | Out-Null
 Start-ScheduledTask -TaskName $ScheduledTaskName
 

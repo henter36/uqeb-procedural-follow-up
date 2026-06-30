@@ -2813,6 +2813,331 @@ function Write-ApiRunScript {
     Set-Content -LiteralPath $RunScriptPath -Value $content -Encoding ASCII
 }
 
+function Normalize-ScheduledTaskPath {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ''
+    }
+
+    return $Path.Trim().Trim('"').Replace('/', '\').TrimEnd('\').ToLowerInvariant()
+}
+
+function Join-ScheduledTaskWindowsPath {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$Child
+    )
+
+    if ($Root -match '^[A-Za-z]:\\') {
+        return ($Root.TrimEnd('\') + '\' + $Child.TrimStart('\'))
+    }
+
+    return Join-Path $Root $Child
+}
+
+function Get-UqebScheduledTaskFirstAction {
+    param([object]$Task)
+
+    if (-not $Task) {
+        return $null
+    }
+
+    $actionsProperty = $Task.PSObject.Properties['Actions']
+    if (-not $actionsProperty -or -not $actionsProperty.Value) {
+        return $null
+    }
+
+    return $actionsProperty.Value | Select-Object -First 1
+}
+
+function Get-UqebApiScheduledTaskActionDetails {
+    param([object]$Task)
+
+    $action = Get-UqebScheduledTaskFirstAction -Task $Task
+    if ($null -eq $action) {
+        return [pscustomobject]@{
+            Execute = ''
+            Arguments = ''
+            WorkingDirectory = ''
+        }
+    }
+
+    return [pscustomobject]@{
+        Execute = [string]$action.Execute
+        Arguments = [string]$action.Arguments
+        WorkingDirectory = [string]$action.WorkingDirectory
+    }
+}
+
+function Get-UqebScheduledTaskCmdExePath {
+    if ([string]::IsNullOrWhiteSpace($env:SystemRoot)) {
+        return 'C:\WINDOWS\system32\cmd.exe'
+    }
+
+    return Join-Path $env:SystemRoot 'system32\cmd.exe'
+}
+
+function Test-UqebScheduledTaskExecuteIsCmd {
+    param([string]$ExecuteNorm)
+
+    if ([string]::IsNullOrWhiteSpace($ExecuteNorm)) {
+        return $false
+    }
+
+    $cmdExePath = Get-UqebScheduledTaskCmdExePath
+    $cmdExeNorm = Normalize-ScheduledTaskPath -Path $cmdExePath
+    $comSpecNorm = Normalize-ScheduledTaskPath -Path $env:ComSpec
+
+    return $ExecuteNorm -eq $cmdExeNorm -or
+        $ExecuteNorm -eq $comSpecNorm -or
+        $ExecuteNorm.EndsWith('\cmd.exe')
+}
+
+function Test-UqebScheduledTaskArgumentsContainRunApi {
+    param(
+        [string]$Arguments,
+        [Parameter(Mandatory = $true)][string]$RunApiPath
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Arguments)) {
+        return $false
+    }
+
+    $runApiPathWindows = $RunApiPath.Replace('/', '\')
+    $runApiPathUnix = $RunApiPath.Replace('\', '/')
+
+    return $Arguments.IndexOf($RunApiPath, [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+        $Arguments.IndexOf($runApiPathWindows, [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+        $Arguments.IndexOf($runApiPathUnix, [StringComparison]::OrdinalIgnoreCase) -ge 0
+}
+
+function Get-UqebLegacyApiExecutablePath {
+    param([Parameter(Mandatory = $true)][string]$InstallRoot)
+
+    return Join-ScheduledTaskWindowsPath `
+        -Root (Join-ScheduledTaskWindowsPath -Root $InstallRoot -Child 'current\api') `
+        -Child 'Uqeb.Api.exe'
+}
+
+function Test-UqebScheduledTaskExecuteIsLegacyApiExe {
+    param(
+        [string]$ExecuteNorm,
+        [Parameter(Mandatory = $true)][string]$InstallRoot
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ExecuteNorm)) {
+        return $false
+    }
+
+    $legacyApiExeNorm = Normalize-ScheduledTaskPath -Path (Get-UqebLegacyApiExecutablePath -InstallRoot $InstallRoot)
+    return $ExecuteNorm -eq $legacyApiExeNorm
+}
+
+function Get-UqebScheduledTaskCmdWrapperReason {
+    param(
+        [bool]$WorkingDirectoryValid,
+        [bool]$ArgumentsContainRunScript
+    )
+
+    if (-not $WorkingDirectoryValid) {
+        return 'working_directory_mismatch'
+    }
+
+    if (-not $ArgumentsContainRunScript) {
+        return 'cmd_exe_without_run_api_argument'
+    }
+
+    return 'cmd_exe_wrapper'
+}
+
+function New-UqebScheduledTaskActionValidation {
+    param(
+        [bool]$IsValid,
+        [string]$Reason,
+        [bool]$ShouldReconcile = $false
+    )
+
+    return [pscustomobject]@{
+        IsValid = $IsValid
+        Reason = $Reason
+        ShouldReconcile = $ShouldReconcile
+    }
+}
+
+function Test-UqebScheduledTaskActionMatches {
+    param(
+        [string]$Execute,
+        [string]$Arguments = '',
+        [string]$WorkingDirectory = '',
+        [Parameter(Mandatory = $true)][string]$InstallRoot
+    )
+
+    $runApiPath = Join-ScheduledTaskWindowsPath -Root $InstallRoot -Child 'run-api.cmd'
+    $runApiNorm = Normalize-ScheduledTaskPath -Path $runApiPath
+    $executeNorm = Normalize-ScheduledTaskPath -Path $Execute
+    $workingDirectoryNorm = Normalize-ScheduledTaskPath -Path $WorkingDirectory
+    $installRootNorm = Normalize-ScheduledTaskPath -Path $InstallRoot
+    $workingDirectoryValid = $workingDirectoryNorm -eq $installRootNorm
+
+    if ($executeNorm -eq $runApiNorm) {
+        return New-UqebScheduledTaskActionValidation `
+            -IsValid $workingDirectoryValid `
+            -Reason $(if ($workingDirectoryValid) { 'ok' } else { 'working_directory_mismatch' })
+    }
+
+    if (Test-UqebScheduledTaskExecuteIsCmd -ExecuteNorm $executeNorm) {
+        $argumentsContainRunScript = Test-UqebScheduledTaskArgumentsContainRunApi `
+            -Arguments $Arguments `
+            -RunApiPath $runApiPath
+
+        return New-UqebScheduledTaskActionValidation `
+            -IsValid ($workingDirectoryValid -and $argumentsContainRunScript) `
+            -Reason (Get-UqebScheduledTaskCmdWrapperReason `
+                -WorkingDirectoryValid $workingDirectoryValid `
+                -ArgumentsContainRunScript $argumentsContainRunScript) `
+            -ShouldReconcile ($workingDirectoryValid -and $argumentsContainRunScript)
+    }
+
+    if (Test-UqebScheduledTaskExecuteIsLegacyApiExe -ExecuteNorm $executeNorm -InstallRoot $InstallRoot) {
+        return New-UqebScheduledTaskActionValidation `
+            -IsValid $workingDirectoryValid `
+            -Reason $(if ($workingDirectoryValid) { 'legacy_executable' } else { 'working_directory_mismatch' }) `
+            -ShouldReconcile $workingDirectoryValid
+    }
+
+    return New-UqebScheduledTaskActionValidation -IsValid $false -Reason 'unexpected_executable'
+}
+
+function Test-UqebApiScheduledTaskAction {
+    param(
+        [string]$Execute,
+        [string]$Arguments = '',
+        [string]$WorkingDirectory = '',
+        [Parameter(Mandatory = $true)][string]$InstallRoot
+    )
+
+    return Test-UqebScheduledTaskActionMatches `
+        -Execute $Execute `
+        -Arguments $Arguments `
+        -WorkingDirectory $WorkingDirectory `
+        -InstallRoot $InstallRoot
+}
+
+function New-UqebScheduledTaskRunApiAction {
+    param(
+        [Parameter(Mandatory = $true)][string]$RunApiPath,
+        [Parameter(Mandatory = $true)][string]$InstallRoot,
+        [string]$Arguments = ''
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Arguments)) {
+        return New-ScheduledTaskAction -Execute $RunApiPath -WorkingDirectory $InstallRoot
+    }
+
+    return New-ScheduledTaskAction -Execute $RunApiPath -Argument $Arguments -WorkingDirectory $InstallRoot
+}
+
+function Set-UqebApiScheduledTaskAction {
+    param(
+        [Parameter(Mandatory = $true)][string]$TaskName,
+        [Parameter(Mandatory = $true)]$Action
+    )
+
+    Set-ScheduledTask -TaskName $TaskName -Action $Action | Out-Null
+}
+
+function Register-UqebApiScheduledTask {
+    param(
+        [Parameter(Mandatory = $true)][string]$TaskName,
+        [Parameter(Mandatory = $true)]$Action
+    )
+
+    $trigger = New-ScheduledTaskTrigger -AtStartup
+    $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest
+    Register-ScheduledTask `
+        -TaskName $TaskName `
+        -Action $Action `
+        -Trigger $trigger `
+        -Principal $principal `
+        -Force | Out-Null
+}
+
+function New-UqebScheduledTaskSyncResult {
+    param(
+        [bool]$Created,
+        [bool]$Updated,
+        [object]$Before,
+        [object]$After,
+        [bool]$ActionValid,
+        [string]$Reason
+    )
+
+    return [pscustomobject]@{
+        Created = $Created
+        Updated = $Updated
+        Before = $Before
+        After = $After
+        ActionValid = $ActionValid
+        Reason = $Reason
+    }
+}
+
+function Sync-UqebApiScheduledTask {
+    param(
+        [string]$TaskName = 'UqebApi',
+        [Parameter(Mandatory = $true)][string]$InstallRoot
+    )
+
+    $runApiPath = Join-ScheduledTaskWindowsPath -Root $InstallRoot -Child 'run-api.cmd'
+    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    $before = Get-UqebApiScheduledTaskActionDetails -Task $task
+    $validation = Test-UqebApiScheduledTaskAction `
+        -Execute $before.Execute `
+        -Arguments $before.Arguments `
+        -WorkingDirectory $before.WorkingDirectory `
+        -InstallRoot $InstallRoot
+
+    if ($task -and $validation.IsValid -and -not $validation.ShouldReconcile) {
+        return New-UqebScheduledTaskSyncResult `
+            -Created $false `
+            -Updated $false `
+            -Before $before `
+            -After $before `
+            -ActionValid $true `
+            -Reason ([string]$validation.Reason)
+    }
+
+    $action = New-UqebScheduledTaskRunApiAction -RunApiPath $runApiPath -InstallRoot $InstallRoot
+
+    if ($task) {
+        Set-UqebApiScheduledTaskAction -TaskName $TaskName -Action $action
+        $created = $false
+        $updated = $true
+    }
+    else {
+        Register-UqebApiScheduledTask -TaskName $TaskName -Action $action
+        $created = $true
+        $updated = $false
+    }
+
+    $afterTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    $after = Get-UqebApiScheduledTaskActionDetails -Task $afterTask
+    $afterValidation = Test-UqebApiScheduledTaskAction `
+        -Execute $after.Execute `
+        -Arguments $after.Arguments `
+        -WorkingDirectory $after.WorkingDirectory `
+        -InstallRoot $InstallRoot
+
+    return New-UqebScheduledTaskSyncResult `
+        -Created $created `
+        -Updated $updated `
+        -Before $before `
+        -After $after `
+        -ActionValid ([bool]$afterValidation.IsValid) `
+        -Reason ([string]$afterValidation.Reason)
+}
+
 function Install-PlaywrightBrowserToProduction {
     param(
         [string]$PackageBrowsersSource,

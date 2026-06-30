@@ -62,7 +62,9 @@ $report = [ordered]@{
     "ApiPath"                       = $ApiPath
     "IISPhysicalPath"               = ""
     "ScheduledTaskExecutable"       = ""
+    "ScheduledTaskArguments"        = ""
     "ScheduledTaskWorkingDirectory" = ""
+    "ScheduledTaskActionValid"      = ""
     "ReleaseManifest"               = ""
     "LogoPath"                      = (Join-Path $ApiPath "Assets\Brand\organization-logo.png")
     "LogoExists"                    = ""
@@ -423,36 +425,36 @@ try {
     if ($task) {
         $actions = $task.Actions
         $exe = [string]($actions | Select-Object -First 1 -ExpandProperty Execute)
+        $arguments = [string]($actions | Select-Object -First 1 -ExpandProperty Arguments)
         $wd  = [string]($actions | Select-Object -First 1 -ExpandProperty WorkingDirectory)
         $report["ScheduledTaskExecutable"]       = $exe
+        $report["ScheduledTaskArguments"]        = $arguments
         $report["ScheduledTaskWorkingDirectory"] = $wd
+        $validation = Test-UqebApiScheduledTaskAction `
+            -Execute $exe `
+            -Arguments $arguments `
+            -WorkingDirectory $wd `
+            -InstallRoot $InstallRoot
+        $report["ScheduledTaskActionValid"] = ([bool]$validation.IsValid).ToString().ToLowerInvariant()
 
-        # WorkingDirectory must match $ApiPath (junction) OR its resolved target (current\api)
-        $apiNorm        = $ApiPath.TrimEnd('\').ToLower()
-        $apiCurrentNorm = (Join-Path $InstallRoot "current\api").TrimEnd('\').ToLower()
-        $wdNorm         = $wd.TrimEnd('\').ToLower()
-        if ($wdNorm -ne $apiNorm -and $wdNorm -ne $apiCurrentNorm) {
-            Fail-Deploy ("WorkingDirectory للـ Scheduled Task '$TaskName' = '$wd' لا يطابق '$ApiPath'. الـ API لن يجد Assets\Brand عند هذا المسار.")
-        }
-
-        # Executable must point to run-api.cmd OR Uqeb.Api.exe in the API path
-        $exeNorm        = $exe.TrimEnd('"').TrimStart('"').TrimEnd('\').ToLower()
-        $runApiCmdNorm  = (Join-Path $InstallRoot "run-api.cmd").ToLower()
-        $apiExeNorm     = (Join-Path $ApiPath "Uqeb.Api.exe").ToLower()
-        $currentApiExeNorm = (Join-Path $InstallRoot "current\api\Uqeb.Api.exe").ToLower()
-        if ($exeNorm -ne $runApiCmdNorm -and $exeNorm -ne $apiExeNorm -and $exeNorm -ne $currentApiExeNorm) {
-            Fail-Deploy ("ScheduledTask '$TaskName' يشير إلى executable غير متوقع: '$exe'. المتوقع: '$runApiCmdNorm' أو '$apiExeNorm'.")
+        if (-not $validation.IsValid) {
+            Fail-Deploy ("ScheduledTask '$TaskName' غير مطابق: Execute='$exe', Arguments='$arguments', WorkingDirectory='$wd', Reason='$($validation.Reason)'. المتوقع Execute='$(Join-Path $InstallRoot "run-api.cmd")' و WorkingDirectory='$InstallRoot'.")
         }
     }
     else {
         $report["ScheduledTaskExecutable"]       = "Scheduled Task '$TaskName' غير موجود"
+        $report["ScheduledTaskArguments"]        = "N/A"
         $report["ScheduledTaskWorkingDirectory"] = "N/A"
+        $report["ScheduledTaskActionValid"]      = "false"
         Fail-Deploy "Scheduled Task '$TaskName' غير موجود. يجب إنشاؤه على جهاز الإنتاج قبل أول نشر."
     }
 }
 catch {
     $report["ScheduledTaskExecutable"]       = "error: $($_.Exception.Message)"
+    $report["ScheduledTaskArguments"]        = "N/A"
     $report["ScheduledTaskWorkingDirectory"] = "N/A"
+    $report["ScheduledTaskActionValid"]      = "false"
+    Fail-Deploy "تعذر التحقق من Scheduled Task '$TaskName': $($_.Exception.Message)"
 }
 
 # 7e. Verify DB migration applied
