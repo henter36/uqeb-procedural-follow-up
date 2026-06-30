@@ -2226,7 +2226,7 @@ Describe 'Assert-FrontendDistApiBaseUrl' {
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst]
         }, $false)
         foreach ($fn in $fns) {
-            Invoke-Expression $fn.Extent.Text
+            Set-Item -Path "function:$($fn.Name)" -Value $fn.Body.GetScriptBlock()
         }
     }
 

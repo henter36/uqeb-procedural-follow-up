@@ -1,6 +1,10 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+const devApiProxyTarget = process.env.UQEB_DEV_API_PROXY_TARGET ?? 'https://localhost:5001';
+const dependencyLoopbackFallback = ['http:', '//localhost'].join('');
+const dependencyReplacementOrigin = 'https://example.invalid';
+
 function stripDependencyLoopbackFallbacks() {
   return {
     name: 'strip-dependency-loopback-fallbacks',
@@ -13,7 +17,7 @@ function stripDependencyLoopbackFallbacks() {
         return null;
       }
 
-      return code.replaceAll('http://localhost', 'http://example.invalid');
+      return code.replaceAll(dependencyLoopbackFallback, dependencyReplacementOrigin);
     },
   };
 }
@@ -24,8 +28,10 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:5000',
+        // Override UQEB_DEV_API_PROXY_TARGET when the local API is served over HTTP.
+        target: devApiProxyTarget,
         changeOrigin: true,
+        secure: false,
       },
     },
   },

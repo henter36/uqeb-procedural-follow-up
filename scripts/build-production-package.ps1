@@ -102,13 +102,29 @@ function Assert-FrontendDistApiBaseUrl {
         throw "مجلد بناء Frontend غير موجود: $DistPath"
     }
 
-    $textExtensions = @(".js", ".css", ".html")
-    $distFiles = Get-ChildItem -LiteralPath $DistPath -Recurse -File |
-        Where-Object { $textExtensions -contains $_.Extension.ToLowerInvariant() }
+    $distFiles = Get-FrontendDistTextAssetFiles -DistPath $DistPath
 
     if (-not $distFiles) {
         throw "لا توجد ملفات نصية قابلة للفحص داخل بناء Frontend."
     }
+
+    Assert-FrontendDistContainsProductionApiUrl `
+        -DistFiles $distFiles `
+        -ProductionApiBaseUrl $ProductionApiBaseUrl
+
+    Assert-FrontendDistHasNoForbiddenLocalUrls -DistFiles $distFiles
+}
+
+function Get-FrontendDistTextAssetFiles {
+    param([string]$DistPath)
+
+    $textExtensions = @(".js", ".css", ".html")
+    Get-ChildItem -LiteralPath $DistPath -Recurse -File |
+        Where-Object { $textExtensions -contains $_.Extension.ToLowerInvariant() }
+}
+
+function Get-ExpectedFrontendApiMarkers {
+    param([string]$ProductionApiBaseUrl)
 
     $expectedMarkers = New-Object System.Collections.Generic.List[string]
     $expectedMarkers.Add($ProductionApiBaseUrl.TrimEnd('/'))
@@ -122,6 +138,31 @@ function Assert-FrontendDistApiBaseUrl {
         Write-DeployInfo "تعذر تفسير ProductionApiBaseUrl كعنوان URL كامل؛ سيتم فحص النص كما هو."
     }
 
+    $expectedMarkers
+}
+
+function Assert-FrontendDistContainsProductionApiUrl {
+    param(
+        [object[]]$DistFiles,
+        [string]$ProductionApiBaseUrl
+    )
+
+    $expectedMarkers = Get-ExpectedFrontendApiMarkers -ProductionApiBaseUrl $ProductionApiBaseUrl
+    foreach ($file in $DistFiles) {
+        $content = Get-Content -LiteralPath $file.FullName -Raw
+        foreach ($expected in $expectedMarkers) {
+            if ($content.IndexOf($expected, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                return
+            }
+        }
+    }
+
+    throw "بناء Frontend لا يحتوي عنوان API الإنتاجي المتوقع: $ProductionApiBaseUrl"
+}
+
+function Find-ForbiddenFrontendUrlMatches {
+    param([object[]]$DistFiles)
+
     $forbiddenMarkers = @(
         "localhost:5000",
         "127.0.0.1:5000",
@@ -131,17 +172,10 @@ function Assert-FrontendDistApiBaseUrl {
         "https://127.0.0.1"
     )
 
-    $foundProductionApi = $false
     $forbiddenHits = New-Object System.Collections.Generic.List[string]
 
-    foreach ($file in $distFiles) {
+    foreach ($file in $DistFiles) {
         $content = Get-Content -LiteralPath $file.FullName -Raw
-        foreach ($expected in $expectedMarkers) {
-            if ($content.IndexOf($expected, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
-                $foundProductionApi = $true
-            }
-        }
-
         foreach ($forbidden in $forbiddenMarkers) {
             if ($content.IndexOf($forbidden, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
                 $forbiddenHits.Add("$($file.FullName): $forbidden")
@@ -149,9 +183,13 @@ function Assert-FrontendDistApiBaseUrl {
         }
     }
 
-    if (-not $foundProductionApi) {
-        throw "بناء Frontend لا يحتوي عنوان API الإنتاجي المتوقع: $ProductionApiBaseUrl"
-    }
+    $forbiddenHits
+}
+
+function Assert-FrontendDistHasNoForbiddenLocalUrls {
+    param([object[]]$DistFiles)
+
+    $forbiddenHits = @(Find-ForbiddenFrontendUrlMatches -DistFiles $DistFiles)
 
     if ($forbiddenHits.Count -gt 0) {
         throw "بناء Frontend يحتوي عناوين API محلية غير صالحة للإنتاج: $($forbiddenHits -join '; ')"
