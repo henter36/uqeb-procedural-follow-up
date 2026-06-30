@@ -75,7 +75,7 @@ public class InstitutionalReportDepartmentAggregationTests
             });
 
         // Each row represents one responsible department.
-        Assert.Single(model.DepartmentPerformance.Where(r => r.DepartmentId == 1));
+        Assert.Single(model.DepartmentPerformance, r => r.DepartmentId == 1);
         Assert.True(model.DepartmentTotalsAreAdditive);
     }
 
