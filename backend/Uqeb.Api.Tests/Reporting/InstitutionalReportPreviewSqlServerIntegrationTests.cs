@@ -320,7 +320,7 @@ public class InstitutionalReportPreviewSqlServerIntegrationTests
 
     private static async Task<bool> TableExistsAsync(AppDbContext db) =>
         await db.Database.SqlQueryRaw<int>(
-            "SELECT CASE WHEN OBJECT_ID(N'dbo.ReportNumberSequences', N'U') IS NOT NULL THEN 1 ELSE 0 END")
+            "SELECT CASE WHEN OBJECT_ID(N'dbo.ReportNumberSequences', N'U') IS NOT NULL THEN 1 ELSE 0 END AS [Value]")
             .SingleAsync() == 1;
 
     private static ReportBuildRequestDto BuildRegressionRequest() => new()
