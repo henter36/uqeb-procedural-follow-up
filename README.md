@@ -1,891 +1,667 @@
-# المتابعة الإجرائية (Uqeb) — إدارة الوارد والصادر
+# المتابعة الإجرائية (Uqeb)
 
-نظام ويب داخلي (**المتابعة الإجرائية**) لإدارة المعاملات الواردة والصادرة والتعقيبات والتحويلات على الشبكة المحلية.
+نظام ويب داخلي لإدارة الوارد والصادر والتعقيبات والتحويلات والإفادات داخل بيئة عمل مغلقة أو شبكة محلية. الاسم الظاهر للمستخدم هو **المتابعة الإجرائية**، بينما يبقى الاسم التقني **Uqeb** مستخدمًا في الكود، namespaces، الحزم، وقاعدة البيانات.
 
-> الاسم الظاهر للمستخدم في الواجهة: **المتابعة الإجرائية**. أسماء المشروع التقنية (Uqeb، UqebDb، namespaces) لم تتغير.
+هذا README مرجع عملي للمطور والمراجع ومسؤول النشر. التفاصيل التشغيلية الدقيقة، خصوصًا الإنتاج، تبقى في ملفات `docs/` المتخصصة.
+
+## نظرة عامة
+
+يدعم النظام:
+
+- إدارة المعاملات الواردة والصادرة، التحويلات، التعقيبات، المرفقات، وسجل التدقيق.
+- أدوار وصلاحيات مثل `Admin` و`Supervisor` و`DataEntry` و`DepartmentUser` و`Reader`.
+- إفادات الإدارات مع مسار تقديم ومراجعة ومرفقات.
+- لوحات متابعة وتقارير تشغيلية أساسية.
+- منشئ تقارير مؤسسية خلف feature flags وrollout settings.
+- طباعة/معاينة خطابات التعقيب، قوالب الخطابات، ومهام الطباعة.
+- تصدير تقارير مؤسسية بصيغ HTML وPDF وDOCX وXLSX حسب مسار التقرير.
+- Scanner Bridge محلي اختياري على Windows لمسح المرفقات عبر WIA.
 
 ## التقنيات
 
-| الطبقة | التقنية |
-|--------|---------|
-| Backend | ASP.NET Core 10 Web API |
-| Database | SQL Server |
+| الطبقة | الواقع الحالي في المستودع |
+|---|---|
+| Backend | ASP.NET Core Web API |
+| .NET SDK | `10.0.301` من `global.json` مع `rollForward: latestPatch` |
+| Target Framework | `net10.0` في `backend/Uqeb.Api/Uqeb.Api.csproj` |
+| Database | SQL Server عبر EF Core SQL Server |
 | ORM | Entity Framework Core 10 |
-| Frontend | React 19 + Vite + TypeScript |
-| Auth | JWT Bearer |
-| Reports Export | ClosedXML (Excel) |
+| Auth | JWT Bearer + سياسات Authorization داخل `backend/Uqeb.Api/Authorization` |
+| Frontend | React 19 + Vite 8 + TypeScript 6 |
+| Node | `24.16.0` من `.nvmrc` |
+| npm | `>=11 <12` من `frontend/uqeb-ui/package.json` |
+| XLSX | ClosedXML |
+| DOCX | DocumentFormat.OpenXml + System.IO.Packaging |
+| PDF | Microsoft.Playwright/Chromium لمسار التقارير المؤسسية؛ QuestPDF موجود ضمن dependencies ويستخدم في مسارات PDF أخرى |
+| HTML | rendering داخلي للتقارير وخطابات التعقيب |
+| اختبارات الواجهة | Vitest + Testing Library + jsdom |
+| CI | GitHub Actions في `.github/workflows` |
 
 ## بنية المشروع
 
-```
-uqeb/
-├── backend/
-│   ├── Uqeb.sln
-│   └── Uqeb.Api/
-│       ├── Controllers/       # REST API
-│       ├── Data/              # DbContext, Migrations, Seed
-│       ├── DTOs/              # Data Transfer Objects
-│       ├── Models/Entities/   # نماذج البيانات
-│       ├── Services/          # منطق الأعمال
-│       └── appsettings.example.json
-├── frontend/
-│   └── uqeb-ui/               # React RTL
-└── README.md
-```
+| المسار | الغرض |
+|---|---|
+| `.github/workflows/` | CI، فحوص التقارير، وبوابة حزمة النشر |
+| `backend/` | حل .NET الرئيسي `backend/Uqeb.sln` ومشاريع API والاختبارات وأدوات مساعدة |
+| `backend/Uqeb.Api/` | Web API، Controllers، EF Core، Services، Reporting، Migrations |
+| `backend/Uqeb.Api.Tests/` | اختبارات backend والتقارير وPlaywright/SQL Server عند تفعيلها |
+| `frontend/uqeb-ui/` | تطبيق React/Vite RTL |
+| `docs/` | وثائق النشر، التقارير المؤسسية، التشغيل، والجسور المحلية |
+| `scripts/` | سكربتات البناء، النشر، التحقق، migrations، وPester tests |
+| `performance-tests/` | اختبارات k6 لتدفق API والحمل |
+| `tests/performance/` | اختبارات أداء/قراءة إضافية مبنية على Node |
+| `scanner-bridge/` | خدمة محلية Windows-only للماسح الضوئي عبر WIA أو Mock |
+| `artifacts/` | مخرجات بناء/اختبارات محلية أو عينات أداء؛ ليست مصدر حقيقة للكود |
 
 ## المتطلبات
 
-- .NET 10 SDK
-- SQL Server 2019+ أو SQL Server Express مع LocalDB
-- Node.js 18+
-- IIS (للنشر على الشبكة المحلية)
+### التطوير المحلي
 
-> **مرجع التشغيل المعتمد:** استخدم أوامر نوع الطرفية نفسها من قسم [دليل بيئة التطوير والتشغيل المعتمد](#13-دليل-بيئة-التطوير-والتشغيل-المعتمد). لا تستخدم أوامر CMD داخل PowerShell، ولا أوامر PowerShell داخل CMD.
+- Git.
+- .NET SDK `10.0.301` أو patch أعلى ضمن .NET 10.
+- Node.js `24.16.0` وnpm 11.
+- SQL Server 2019+ أو SQL Server Developer/Express مناسب للتطوير.
+- PowerShell عند تشغيل سكربتات النشر أو فحوص Windows.
 
----
+### تشغيل Frontend
 
-## 1. إعداد قاعدة البيانات
+- Node 24 وnpm 11.
+- `npm ci` من `frontend/uqeb-ui`.
+- `VITE_API_BASE_URL` يحدد عنوان API. إن لم يحدد، يستخدم client القيمة الافتراضية `/api`.
+- في التطوير، `vite.config.ts` يوجه `/api` إلى `http://localhost:5000`.
 
-### إنشاء قاعدة البيانات
+### SQL Server
+
+- connection string يقرأ من `ConnectionStrings:DefaultConnection`.
+- `backend/Uqeb.Api/appsettings.example.json` يحتوي placeholder فقط ولا يحتوي أسرار إنتاج.
+- migrations موجودة في `backend/Uqeb.Api/Migrations`.
+
+### تصدير PDF
+
+- مسارات PDF التي تعتمد Playwright تحتاج Chromium متوافقًا.
+- CI يثبت Chromium عبر `playwright.ps1 install --with-deps chromium` في jobs الخاصة بالتقارير.
+- في الإنتاج، الحزمة الرسمية تتضمن `browsers/` و`api/playwright.ps1`. لا تشغل `playwright install` يدويًا على الإنتاج عند استخدام الحزمة الرسمية.
+
+### الإنتاج Windows/offline
+
+- الإنتاج لا يحتاج Git أو .NET SDK إذا استُخدمت الحزمة الرسمية.
+- المسار المعتمد يبني ZIP وSHA256 على جهاز البناء ثم يرقّي نفس artifact إلى الإنتاج.
+- PowerShell 5.1+ مطلوب على الإنتاج.
+- SQL Server مطلوب.
+- Scheduled Task باسم `UqebApi` موثق في أدلة النشر.
+
+### IIS
+
+IIS مستخدم لمسار الواجهة المنشورة في وثائق الإنتاج الحالية. تفاصيل IIS ليست بديلًا عن أدلة `docs/production*.md`.
+
+## إعداد قاعدة البيانات محليًا
+
+مثال قاعدة تطوير:
 
 ```sql
 CREATE DATABASE UqebDb;
 ```
 
-### تعديل Connection String
-
-انسخ `appsettings.example.json` إلى `appsettings.json` وعدّل:
+انسخ إعدادات المثال أو استخدم user-secrets/ملف تطوير محلي:
 
 ```json
-"ConnectionStrings": {
-  "DefaultConnection": "Server=YOUR_SERVER;Database=UqebDb;User Id=YOUR_USER;Password=YOUR_PASSWORD;TrustServerCertificate=True;MultipleActiveResultSets=true"
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Server=localhost;Database=UqebDb;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
+  },
+  "Jwt": {
+    "Key": "ضع-قيمة-تطوير-بطول-32-حرفا-على-الأقل",
+    "Issuer": "UqebApi",
+    "Audience": "UqebClient",
+    "ExpireMinutes": 480
+  }
 }
 ```
 
-للتطوير المحلي على Windows باستخدام SQL Server المثبت على `localhost`:
+لا تضع أسرار إنتاج في README أو في ملفات committed.
 
-```json
-"ConnectionStrings": {
-  "DefaultConnection": "Server=localhost;Database=UqebDb;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
-}
-```
+## التشغيل المحلي
 
-### تطبيق Migrations
+المسارات المقترحة:
 
-نفّذ الأوامر من مجلد `backend/Uqeb.Api` باستخدام صيغة الطرفية المناسبة كما هو موضح في القسم 13:
-
-```text
-dotnet tool update --global dotnet-ef --version 10.0.9
-dotnet ef migrations list
-dotnet ef database update
-```
-
-> عند تشغيل التطبيق لأول مرة، يتم تنفيذ Seed تلقائياً (مستخدم admin + إدارات + معاملات تجريبية).
-
----
-
-## 2. تشغيل Backend
-
-استخدم قسم التشغيل المطابق للطرفية:
-
-- Windows PowerShell: [تشغيل المشروع على Windows باستخدام PowerShell](#تشغيل-المشروع-على-windows-باستخدام-powershell)
-- Windows CMD: [تشغيل المشروع على Windows باستخدام CMD](#تشغيل-المشروع-على-windows-باستخدام-cmd)
-- macOS Terminal: [تشغيل المشروع على macOS](#تشغيل-المشروع-على-macos)
-
-الـ API يعمل افتراضيًا على:
-
-- Windows: `http://localhost:5000`
-- macOS: `http://localhost:5080`
-
-### مستخدمون افتراضيون (Seed)
-
-| المستخدم | كلمة المرور | الدور |
-|----------|-------------|-------|
-| admin | Admin@123 | Admin |
-| supervisor | Super@123 | Supervisor |
-| dataentry | Data@123 | DataEntry |
-| deptuser | Dept@123 | DepartmentUser |
-| reader | Read@123 | Reader |
-
----
-
-## 3. تشغيل Frontend
-
-استخدم قسم التشغيل المطابق للطرفية في القسم 13. بعد تغيير الفرع أو تحديث `package-lock.json` استخدم دائمًا:
-
-```text
-npm ci
-```
-
-ثم شغّل الواجهة عبر الأمر المناسب للطرفية. الواجهة تعمل على:
-
-```text
-http://localhost:5173
-```
-
-### بناء الإنتاج
-
-```text
-npm run build
-```
-
-الملفات في `frontend/uqeb-ui/dist/`.
-
----
-
-## 4. أوامر التحقق
-
-نفّذ من جذر المشروع أو من المسارات الموضحة في القسم 13:
-
-```text
-Backend:
-  dotnet build backend/Uqeb.Api/Uqeb.Api.csproj
-  dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --no-restore
-  dotnet ef migrations list --project backend/Uqeb.Api/Uqeb.Api.csproj
-
-Frontend:
-  cd frontend/uqeb-ui
-  npm ci
-  npm run build
-  npm test -- --run --maxWorkers=2
-```
-
----
-
-## 5. API Endpoints
-
-| Method | Endpoint | الوصف |
-|--------|----------|-------|
-| POST | `/api/auth/login` | تسجيل الدخول |
-| GET | `/api/transactions` | بحث المعاملات |
-| GET/POST/PUT | `/api/transactions/{id}` | CRUD |
-| POST | `/api/transactions/{id}/followups` | إضافة تعقيب |
-| POST | `/api/transactions/{id}/assignments` | إضافة تحويل |
-| POST | `/api/transactions/{id}/assignments/{aid}/reply` | تسجيل رد |
-| POST | `/api/transactions/{id}/attachments` | رفع مرفق |
-| GET | `/api/transactions/{id}/audit-log` | سجل التدقيق |
-| POST | `/api/transactions/{id}/close` | إغلاق (Admin/Supervisor) |
-| GET | `/api/reports/dashboard` | لوحة المتابعة |
-| GET | `/api/reports/overdue` | المتأخرة |
-| GET | `/api/reports/export/{type}` | تصدير Excel |
-| GET/POST/PUT | `/api/departments` | الإدارات |
-| GET/POST/PUT | `/api/external-parties` | الجهات الخارجية |
-| GET/POST/PUT | `/api/users` | المستخدمون (Admin) |
-
----
-
-## 6. النشر على الإنتاج (Windows — الطريقة المفضلة)
-
-للنشر **دون GitHub** من جهاز التطوير إلى إنتاج offline:
-
-📄 **[docs/simple_offline_deployment.md](docs/simple_offline_deployment.md)**
-
-📘 **[دليل إصدار الحزمة وترقية نفس الـartifact إلى الإنتاج](docs/production_artifact_promotion.md)**
-
-🚀 **[دليل المسار السريع (deploy-production-fast.ps1)](docs/production-fast-path.md)** — النشر بأمر واحد مع تقرير GO/NO-GO شامل
-
-> **المبدأ المعتمد:** ابنِ الحزمة مرة واحدة من `main`، اختبر ملفي ZIP وSHA256 نفسيهما على Windows VM، ثم انقل **نفس الحزمة ونفس SHA256** إلى الإنتاج. لا تُعِد بناء الحزمة بعد نجاح الاختبار.
->
-> جهاز الإنتاج **لا يحتاج**: المستودع، git، ولا dotnet SDK.
-> المسارات الثابتة: `C:\Uqeb\publish\api` و`C:\Uqeb\publish\web` (جانكشن إلى `current\api` و`current\web`).
-
-### المسار السريع (الموصى به)
-
-```powershell
-# ① جهاز البناء — بناء الحزمة وتجهيز مجلد النقل
-.\scripts\build-production-package.ps1
-.\scripts\prepare-production-transfer.ps1
-# → artifacts\transfer\UqebDeploy-<timestamp>\
-
-# ② انقل المجلد الكامل إلى جهاز الإنتاج (USB / شبكة / RDP)
-
-# ③ جهاز الإنتاج (Administrator PowerShell) — نشر كامل بأمر واحد
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1
-# يطبع تقرير GO / NO-GO مع: DB migration، IIS path، Scheduled Task، الشعار، health endpoints
-```
-
-### المسار اليدوي (للاستخدام في حالات خاصة)
-
-```powershell
-# جهاز البناء
-.\scripts\build-production-package.ps1
-
-# جهاز الإنتاج (بعد نقل ZIP + SHA256 إلى C:\Uqeb\incoming)
-$package = Get-ChildItem "C:\Uqeb\incoming\Uqeb-*.zip" |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object -First 1
-
-if (-not $package) { throw "لم يتم العثور على حزمة Uqeb في C:\Uqeb\incoming." }
-
-powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File "C:\UqebTools\install-production-package.ps1" `
-  -PackagePath $package.FullName
-```
-
-الحزمة الرسمية تتضمن `browsers\` (Chromium) و`api\playwright.ps1`. على الإنتاج:
-
-- مسار المتصفح: `C:\Uqeb\tools\ms-playwright`
-- `PLAYWRIGHT_BROWSERS_PATH` يُضبط عبر `C:\Uqeb\run-api.cmd` الذي تستدعيه مهمة `UqebApi`
-- لا تشغّل `playwright install` يدويًا على الإنتاج عند استخدام الحزمة الرسمية
-- PDF يتطلب Chromium؛ HTML وXLSX وDOCX لا تعتمد عليه
-
-إعداد أولي: `.\scripts\setup-production-tools.ps1` على جهاز الإنتاج.
-
-> **لا يمكن تنفيذ نشر إنتاج أو migrations دون نسخة قاعدة بيانات مكتملة ومتحقق منها. لا يوجد خيار تجاوز لهذه الخطوة.** المثبت يفحص `manifest.minimumDatabaseMigration`: يتجاوز التنفيذ إذا كانت مطبقة، ويطبق الحزمة idempotently تلقائيًا إذا كانت مفقودة.
-
-قبل إيقاف API، يُنشأ تلقائيًا نسخ احتياطي كامل في `C:\Uqeb\backup\db\` مع `WITH CHECKSUM` و`RESTORE VERIFYONLY`. إذا كانت migration المطلوبة مفقودة، يوقف المثبت API ثم يطبقها ويتحقق من `__EFMigrationsHistory` قبل promotion.
-
----
-
-## 7. النشر على IIS (بديل)
-
-### Backend (API)
-
-1. انشر المشروع:
-   ```bash
-   dotnet publish -c Release -o ./publish
-   ```
-
-2. في IIS أنشئ **Application Pool** (.NET CLR: No Managed Code)
-
-3. أنشئ **Website** أو **Application** يشير إلى مجلد `publish`
-
-4. ثبّت [ASP.NET Core Hosting Bundle 10.0](https://dotnet.microsoft.com/download/dotnet/10.0)
-
-5. عدّل `appsettings.json` بـ connection string الإنتاج و JWT Key قوي
-
-6. أنشئ مجلد `Attachments` بصلاحيات كتابة لـ IIS App Pool
-
-### Frontend
-
-1. انسخ محتويات `frontend/uqeb-ui/dist/` إلى مجلد IIS (مثلاً `C:\inetpub\uqeb`)
-
-2. أضف `web.config` لـ SPA routing:
-
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<configuration>
-  <system.webServer>
-    <rewrite>
-      <rules>
-        <rule name="SPA" stopProcessing="true">
-          <match url=".*" />
-          <conditions logicalGrouping="MatchAll">
-            <add input="{REQUEST_FILENAME}" matchType="IsFile" negate="true" />
-          </conditions>
-          <action type="Rewrite" url="/index.html" />
-        </rule>
-      </rules>
-    </rewrite>
-  </system.webServer>
-</configuration>
-```
-
-3. عدّل `vite.config.ts` proxy أو استخدم reverse proxy في IIS لتوجيه `/api` إلى Backend
-
----
-
-## 8. قواعد العمل المطبّقة
-
-- رقم الوارد فريد (لا يتكرر)
-- لا حذف نهائي — الإلغاء/الأرشفة فقط
-- لا إغلاق مع تحويلات بانتظار رد
-- ResponseCompleted يتطلب ResponseCompletedDate
-- DepartmentUser يرى معاملات إدارته فقط
-- DataEntry لا يغلق المعاملات
-- كل تعديل يُسجّل في AuditLog
-- التأخير يُحسب تلقائياً عند تجاوز DueDate
-- **بيانات الصادر** غير إلزامية عند الإنشاء، لكن عند البدء بتعبئتها يجب إكمال رقم الصادر وتاريخه والإدارة الصادر لها
-- **نوع الإفادة** يحدد `RequiresResponse` تلقائياً في Backend (الافتراضي: إفادة للجهة)
-- **التعقيبات للتوثيق والمتابعة فقط** — أما إثبات الرد الرسمي للإدارة فيتم من **التحويلات (Assignments)** فقط
-
----
-
-## 9. المرحلة الثانية — سير العمل والتقارير
-
-### Migration
-
-```bash
-cd backend/Uqeb.Api
-dotnet ef migrations add AddWorkflowUiReportingEnhancements
-dotnet ef database update
-```
-
-### ما أُضيف
-
-- **جهات صادر لها متعددة** عبر جدول `TransactionOutgoingParties`
-- **تصنيفات** عبر جدول `Categories` وربط `CategoryId` بالمعاملة
-- **مستلمو التعقيب** عبر جدول `FollowUpRecipients`
-- **مهلة الإفادة** `ResponseDueDays` / `ResponseDueDate` مع حساب تلقائي
-- **مهلة رد التحويل** `ReplyDueDays` مع حساب `DueDate`
-- **منع الإغلاق** في Backend عند وجود إدارات لم ترد أو إفادة غير مكتملة
-- **فلاتر متقدمة** للمعاملات والتقارير
-- **لوحة متابعة** و**تقارير موسّعة**
-
-### التاريخ الهجري
-
-- التخزين في قاعدة البيانات يبقى **ميلادياً** (DateTime) فقط.
-- الواجهة تعرض التاريخ **ميلادي + هجري** (تقويم أم القرى) للعرض.
-- **إدخال التاريخ الهجري** غير مفعّل حالياً — مرحلة لاحقة بعد اعتماد مكوّن إدخال موثوق (مثل `@hijri-date-picker` مع تحويل أم القرى قبل الإرسال للـ API).
-
-### API Endpoints الجديدة
-
-| Method | Endpoint |
-|--------|----------|
-| GET/POST/PUT | `/api/categories` |
-| GET | `/api/dashboard/summary` |
-| GET | `/api/reports/response-required` |
-| GET | `/api/reports/overdue-responses` |
-| GET | `/api/reports/pending-assignments` |
-| GET | `/api/reports/partial-replies` |
-| GET | `/api/reports/by-category` |
-| GET | `/api/reports/by-outgoing-party` |
-
-فلاتر `GET /api/transactions`: `requiresResponse`, `responseCompleted`, `responseOverdue`, `hasPendingAssignments`, `hasPartialReplies`, `categoryId`, `outgoingPartyId`, `departmentId`, `dateFrom`, `dateTo`, `responseDueDateFrom`, `responseDueDateTo`
-
----
-
-## 10. حالة التنفيذ
-
-- [x] المرحلة 1: بنية المشروع + نماذج + DbContext + Migrations
-- [x] المرحلة 2: JWT + Roles + Seed
-- [x] المرحلة 3: CRUD المعاملات + AuditLog
-- [x] المرحلة 4: FollowUps + Assignments + منع الإغلاق
-- [x] المرحلة 5: Attachments + Reports + Excel Export
-- [x] المرحلة 6: واجهة React RTL
-- [x] المرحلة 7: Build + README
-- [x] المرحلة 8: سير العمل + فلاتر + Dashboard + Reports + Migration `AddWorkflowUiReportingEnhancements`
-
-### ملاحظة بخصوص قاعدة البيانات
-
-إذا لم يكن SQL Server/LocalDB مثبتاً على الجهاز، `dotnet ef database update` سيفشل. ثبّت SQL Server Express أو LocalDB ثم نفّذ الأمر أعلاه.
-
-تصدير Excel و PDF متوفر لتقرير الوارد والمغلق لكل إدارة.
-
----
-
-## 11. التقارير المؤسسية (معطّلة افتراضيًا)
-
-ميزة **منشئ التقارير المؤسسية** موجودة خلف Feature Flag ولا تُفعَّل في الإنتاج بعد:
-
-```json
-"FeatureFlags": { "InstitutionalReports": false }
-```
-
-### التشغيل المحلي
-
-Backend (`appsettings.Development.json`):
-
-```json
-"FeatureFlags": { "InstitutionalReports": true },
-"Reporting": {
-  "MaxPreviewDetailRows": 500,
-  "MaxPdfDetailRows": 5000,
-  "MaxPdfDetailRowsPerPart": 5000
-}
-```
-
-Frontend (`.env.local`):
-
-```bash
-VITE_ENABLE_INSTITUTIONAL_REPORTS=true
-```
-
-### الاختبارات والمعاينة البصرية
-
-```bash
-dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --filter "FullyQualifiedName!~InstitutionalReportVisualRegressionTests&FullyQualifiedName!~InstitutionalReportPlaywrightPdfExporterTests"
-
-# Playwright (Ubuntu CI أو بعد تثبيت Chromium محليًا)
-# macOS/Linux:
-REQUIRE_PLAYWRIGHT_TESTS=1 dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --filter "FullyQualifiedName~InstitutionalReportVisualRegressionTests|FullyQualifiedName~InstitutionalReportPlaywrightPdfExporterTests|FullyQualifiedName~InstitutionalReportPreviewPdfParityTests"
-
-# PowerShell (Windows):
-# $env:REQUIRE_PLAYWRIGHT_TESTS = "1"
-# dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --filter "FullyQualifiedName~InstitutionalReportVisualRegressionTests|FullyQualifiedName~InstitutionalReportPlaywrightPdfExporterTests|FullyQualifiedName~InstitutionalReportPreviewPdfParityTests"
-```
-
-تثبيت Chromium (أول مرة، Windows/Linux):
-
-```powershell
-pwsh backend/Uqeb.Api/bin/Debug/net10.0/playwright.ps1 install --with-deps chromium
-```
-
-### KPI مقابل التفاصيل
-
-- **KPI والملخص** يُحسبان دائمًا من كامل النتائج المطابقة للفلاتر.
-- **صفوف التفاصيل** في المعاينة/PDF/DOCX قد تُقتطع بحدود قابلة للإعداد مع إعلان صريح في الـ Manifest.
-- **XLSX** هو الخيار الموصى به للبيانات التفصيلية الكبيرة؛ PDF يمكن تقسيمه إلى أجزاء.
-
-بوابة القبول الكاملة: [`docs/institutional_reporting_visual_and_scale_acceptance_gate.md`](docs/institutional_reporting_visual_and_scale_acceptance_gate.md)
-
-تعريفات المحتوى التحليلي وقواعده: [`docs/institutional_reporting_analytical_content.md`](docs/institutional_reporting_analytical_content.md)
-
----
-
-## 12. اختبارات التحمل (k6)
-
-راجع `performance-tests/README.md` للتفاصيل.
-
-```bash
-# smoke test (ابدأ بهذا)
-k6 run performance-tests/uqeb-load-test.js
-
-# load test
-K6_SCENARIO=load k6 run performance-tests/uqeb-load-test.js
-```
-
----
-
-## 13. دليل بيئة التطوير والتشغيل المعتمد
-
-هذا القسم هو المرجع الأساسي لإعداد المشروع وتشغيله على Windows وmacOS. استخدم الأوامر الخاصة بنوع الطرفية التي تعمل عليها، ولا تخلط بين صيغة PowerShell وصيغة CMD.
-
-### تمييز نوع الطرفية قبل التنفيذ
-
-| الطرفية | شكل المؤشر المعتاد | تغيير المجلد | تعيين متغير البيئة |
-|---|---|---|---|
-| PowerShell | `PS C:\...>` | `Set-Location "C:\path"` | `$env:NAME = "value"` |
-| CMD | `C:\...>` | `cd /d C:\path` | `set NAME=value` |
-| macOS Terminal | `$` أو `%` | `cd /path` | `export NAME=value` |
-
-> عندما يبدأ المؤشر بـ `PS` فأنت داخل PowerShell. لا تستخدم `cd /d` أو `set NAME=value` في هذه الحالة.
-
-### القيم المعتمدة
-
-| العنصر | القيمة |
+| النظام | مسار المستودع |
 |---|---|
-| قاعدة التطوير | `UqebDb` |
-| SQL Server على Windows | `localhost` |
-| Backend على Windows | `http://localhost:5000` |
-| Backend على macOS | `http://localhost:5080` |
-| Frontend | `http://localhost:5173` |
-| مسار مقترح على Windows | `C:\Users\<USER>\uqeb` |
-| مسار مقترح على macOS | `~/workspace/uqeb` |
+| Windows | `C:\Users\<USER>\uqeb` |
+| macOS | `~/workspace/uqeb` |
 
-### التحقق من مسار المستودع
-
-#### Windows PowerShell
-
-```powershell
-Set-Location "C:\Users\<USER>\uqeb"
-
-if (-not (Test-Path ".git")) {
-    throw "المسار الحالي ليس مستودع Git."
-}
-
-git status
-git branch --show-current
-git rev-parse --short HEAD
-```
-
-#### Windows CMD
-
-```cmd
-cd /d C:\Users\<USER>\uqeb
-if not exist .git\NUL (
-  echo المسار الحالي ليس مستودع Git.
-  exit /b 1
-)
-
-git status
-git branch --show-current
-git rev-parse --short HEAD
-```
-
-#### macOS Terminal
-
-```bash
-cd ~/workspace/uqeb
-
-test -d .git || {
-  echo "المسار الحالي ليس مستودع Git."
-  exit 1
-}
-
-git status
-git branch --show-current
-git rev-parse --short HEAD
-```
-
-### تحديث المشروع والانتقال إلى فرع العمل
-
-انتقل إلى الفرع المطلوب أولًا، ثم نفّذ `git pull --ff-only`.
-
-#### Windows PowerShell
-
-```powershell
-Set-Location "C:\Users\<USER>\uqeb"
-$Branch = "اسم-الفرع"
-
-if (git status --porcelain) {
-    git stash push --include-untracked -m "before-switch-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-}
-
-git fetch origin --prune
-git show-ref --verify --quiet "refs/heads/$Branch"
-$BranchExists = $LASTEXITCODE
-
-if ($BranchExists -eq 0) {
-    git switch $Branch
-}
-else {
-    git switch --track -c $Branch "origin/$Branch"
-}
-
-git pull --ff-only origin $Branch
-```
-
-#### Windows CMD
-
-```cmd
-cd /d C:\Users\<USER>\uqeb
-set BRANCH=اسم-الفرع
-
-git status --porcelain > "%TEMP%\uqeb-status.txt"
-for %A in ("%TEMP%\uqeb-status.txt") do if %~zA GTR 0 git stash push --include-untracked -m "before-switch"
-del "%TEMP%\uqeb-status.txt" 2>nul
-
-git fetch origin --prune
-git show-ref --verify --quiet refs/heads/%BRANCH%
-if errorlevel 1 (
-  git switch --track -c %BRANCH% origin/%BRANCH%
-) else (
-  git switch %BRANCH%
-)
-
-git pull --ff-only origin %BRANCH%
-```
-
-> الصيغة `%A` أعلاه مخصصة للنسخ المباشر داخل نافذة CMD. داخل ملف `.bat` استخدم `%%A`.
-
-#### macOS Terminal
-
-```bash
-cd ~/workspace/uqeb
-BRANCH="اسم-الفرع"
-
-if [[ -n "$(git status --porcelain)" ]]; then
-  git stash push --include-untracked -m "before-switch-$(date +%Y%m%d-%H%M%S)"
-fi
-
-git fetch origin --prune
-
-if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
-  git switch "$BRANCH"
-else
-  git switch --track -c "$BRANCH" "origin/$BRANCH"
-fi
-
-git pull --ff-only origin "$BRANCH"
-```
-
-### إعداد قاعدة التطوير على Windows
-
-الإعداد المحلي المعتمد:
-
-```json
-"ConnectionStrings": {
-  "DefaultConnection": "Server=localhost;Database=UqebDb;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
-}
-```
-
-التحقق:
-
-```cmd
-sqlcmd -S localhost -E -C -Q "SELECT name FROM sys.databases ORDER BY name;"
-sqlcmd -S localhost -d UqebDb -E -C -Q "SELECT [MigrationId], [ProductVersion] FROM dbo.__EFMigrationsHistory ORDER BY [MigrationId];"
-```
-
-### تشغيل المشروع على Windows باستخدام CMD
-
-استخدم هذا القسم فقط عندما يكون المؤشر مثل `C:\...>` وليس `PS C:\...>`، وافتح نافذتي CMD منفصلتين.
-
-#### النافذة الأولى: Backend
-
-```cmd
-cd /d C:\Users\<USER>\uqeb\backend\Uqeb.Api
-
-set ASPNETCORE_ENVIRONMENT=Development
-set ASPNETCORE_URLS=http://localhost:5000
-set FeatureFlags__InstitutionalReports=true
-set ReportingRollout__EnforcementMode=ObserveOnly
-set ReportingRollout__EmergencyDisable=false
-
-dotnet restore
-dotnet build
-dotnet ef migrations list
-dotnet ef database update
-dotnet run
-```
-
-#### النافذة الثانية: Frontend
-
-```cmd
-cd /d C:\Users\<USER>\uqeb\frontend\uqeb-ui
-
-set NODE_OPTIONS=--max-old-space-size=4096
-
-npm ci
-npm run build
-npm test -- --run --maxWorkers=2
-npm run dev
-```
-
-#### التشغيل السريع بعد اكتمال الإعداد
+### Windows PowerShell
 
 Backend:
 
-```cmd
-cd /d C:\Users\<USER>\uqeb\backend\Uqeb.Api
-set ASPNETCORE_ENVIRONMENT=Development
-set ASPNETCORE_URLS=http://localhost:5000
-set FeatureFlags__InstitutionalReports=true
-set ReportingRollout__EnforcementMode=ObserveOnly
-set ReportingRollout__EmergencyDisable=false
-dotnet run
-```
-
-Frontend:
-
-```cmd
-cd /d C:\Users\<USER>\uqeb\frontend\uqeb-ui
-set NODE_OPTIONS=--max-old-space-size=4096
-npm run dev
-```
-
-التحقق:
-
-```cmd
-curl -i http://localhost:5000/health/live
-curl -i http://localhost:5000/health/ready
-```
-
-### تشغيل المشروع على Windows باستخدام PowerShell
-
-استخدم هذا القسم عندما يبدأ المؤشر بـ `PS`، وافتح نافذتي PowerShell منفصلتين.
-
-#### النافذة الأولى: Backend
-
 ```powershell
-Set-Location "C:\Users\<USER>\uqeb\backend\Uqeb.Api"
-
+Set-Location "C:\Users\<USER>\uqeb"
 $env:ASPNETCORE_ENVIRONMENT = "Development"
 $env:ASPNETCORE_URLS = "http://localhost:5000"
-$env:FeatureFlags__InstitutionalReports = "true"
-$env:ReportingRollout__EnforcementMode = "ObserveOnly"
-$env:ReportingRollout__EmergencyDisable = "false"
-
-dotnet restore
-dotnet build
-dotnet ef migrations list
-dotnet ef database update
-dotnet run
-```
-
-#### النافذة الثانية: Frontend
-
-```powershell
-Set-Location "C:\Users\<USER>\uqeb\frontend\uqeb-ui"
-
-$env:NODE_OPTIONS = "--max-old-space-size=4096"
-
-npm ci
-npm run build
-npm test -- --run --maxWorkers=2
-npm run dev
-```
-
-#### التشغيل السريع بعد اكتمال الإعداد
-
-Backend:
-
-```powershell
-Set-Location "C:\Users\<USER>\uqeb\backend\Uqeb.Api"
-
-$env:ASPNETCORE_ENVIRONMENT = "Development"
-$env:ASPNETCORE_URLS = "http://localhost:5000"
-$env:FeatureFlags__InstitutionalReports = "true"
-$env:ReportingRollout__EnforcementMode = "ObserveOnly"
-$env:ReportingRollout__EmergencyDisable = "false"
-
-dotnet run
+dotnet run --project backend/Uqeb.Api/Uqeb.Api.csproj
 ```
 
 Frontend:
 
 ```powershell
 Set-Location "C:\Users\<USER>\uqeb\frontend\uqeb-ui"
-$env:NODE_OPTIONS = "--max-old-space-size=4096"
+npm ci
+$env:VITE_API_BASE_URL = "/api"
 npm run dev
 ```
 
-التحقق:
+Health check:
 
 ```powershell
-curl.exe -i http://localhost:5000/health/live
-curl.exe -i http://localhost:5000/health/ready
+Invoke-RestMethod http://localhost:5000/health/live
+Invoke-RestMethod http://localhost:5000/health/ready
+Invoke-RestMethod http://localhost:5000/health
 ```
 
-### تشغيل المشروع على macOS
+### Windows CMD
 
-نافذة Backend:
+Backend:
+
+```cmd
+cd /d C:\Users\<USER>\uqeb
+set ASPNETCORE_ENVIRONMENT=Development
+set ASPNETCORE_URLS=http://localhost:5000
+dotnet run --project backend\Uqeb.Api\Uqeb.Api.csproj
+```
+
+Frontend:
+
+```cmd
+cd /d C:\Users\<USER>\uqeb\frontend\uqeb-ui
+npm ci
+set VITE_API_BASE_URL=/api
+npm run dev
+```
+
+Health check:
+
+```cmd
+curl http://localhost:5000/health/live
+curl http://localhost:5000/health/ready
+curl http://localhost:5000/health
+```
+
+### macOS
+
+Backend:
 
 ```bash
-cd ~/workspace/uqeb/backend/Uqeb.Api
-
+cd ~/workspace/uqeb
 export ASPNETCORE_ENVIRONMENT=Development
 export ASPNETCORE_URLS=http://localhost:5080
-export FeatureFlags__InstitutionalReports=true
-export ReportingRollout__EnforcementMode=ObserveOnly
-export ReportingRollout__EmergencyDisable=false
-
-dotnet restore
-dotnet build
-dotnet ef migrations list
-dotnet ef database update
-dotnet run
+dotnet run --project backend/Uqeb.Api/Uqeb.Api.csproj
 ```
 
-أنشئ `frontend/uqeb-ui/.env.local`:
-
-```env
-VITE_API_BASE_URL=http://localhost:5080/api
-VITE_ENABLE_INSTITUTIONAL_REPORTS=true
-```
-
-نافذة Frontend:
+Frontend:
 
 ```bash
 cd ~/workspace/uqeb/frontend/uqeb-ui
-
-rm -rf node_modules dist
-export NODE_OPTIONS=--max-old-space-size=4096
-
 npm ci
-npm run build
-npm test -- --run --maxWorkers=2
+export VITE_API_BASE_URL=http://localhost:5080/api
 npm run dev
 ```
 
-التحقق:
+Health check:
 
 ```bash
-curl -i http://localhost:5080/health/live
-curl -i http://localhost:5080/health/ready
+curl http://localhost:5080/health/live
+curl http://localhost:5080/health/ready
+curl http://localhost:5080/health
 ```
 
-### قواعد Entity Framework Core migrations
+## بوابة التحقق المحلية
 
-قبل إنشاء migration:
+### Backend
 
 ```bash
-git status --short
-dotnet build
-dotnet ef migrations list
+dotnet restore backend/Uqeb.sln
+dotnet build backend/Uqeb.sln
+dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj
+dotnet ef migrations list --project backend/Uqeb.Api/Uqeb.Api.csproj
 ```
 
-المفاتيح الرقمية ذات المعنى المنطقي، مثل السنة، يجب تعريفها صراحةً دون توليد تلقائي:
-
-```csharp
-modelBuilder.Entity<ReportNumberSequence>(entity =>
-{
-    entity.HasKey(x => x.Year);
-
-    entity.Property(x => x.Year)
-        .ValueGeneratedNever();
-
-    entity.Property(x => x.LastNumber)
-        .IsRequired();
-});
-```
-
-بعد إنشاء migration، راجعها وولّد SQL قبل التطبيق:
+### Frontend
 
 ```bash
-dotnet ef migrations add MigrationName
-dotnet ef migrations script LastAppliedMigration MigrationName --output migration-review.sql
-dotnet ef migrations has-pending-model-changes
-```
-
-لا تطبق migration تحتوي حذفًا أو تغييرًا غير مقصود. لا يتم تعطيل `PendingModelChangesWarning`.
-
-إذا كان schema الفعلي صحيحًا وكان المطلوب مزامنة metadata فقط، يمكن أن تكون migration بلا عمليات schema، ويجب أن ينتج عنها تسجيل فقط في `__EFMigrationsHistory`.
-
-### التحقق من ReportNumberSequences على Windows
-
-```cmd
-sqlcmd -S localhost -d UqebDb -E -C -Q "SELECT c.name AS ColumnName, c.is_identity AS IsIdentity FROM sys.columns c JOIN sys.tables t ON c.object_id = t.object_id WHERE t.name = 'ReportNumberSequences' AND c.name = 'Year';"
-```
-
-النتيجة المطلوبة:
-
-```text
-Year    0
-```
-
-### تثبيت Chromium لتصدير PDF
-
-Windows PowerShell أو CMD بعد بناء Backend:
-
-```cmd
-pwsh backend\Uqeb.Api\bin\Debug\net10.0\playwright.ps1 install chromium
-```
-
-macOS:
-
-```bash
-pwsh ./backend/Uqeb.Api/bin/Debug/net10.0/playwright.ps1 install chromium
-```
-
-### بوابة التحقق قبل commit
-
-من جذر المشروع:
-
-```bash
-dotnet restore backend/Uqeb.Api/Uqeb.Api.csproj
-dotnet build backend/Uqeb.Api/Uqeb.Api.csproj
-dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --no-restore
-
 cd frontend/uqeb-ui
 npm ci
 npm run lint
 npm run lint:css
 npm run build
 npm test -- --run --maxWorkers=2
-cd ../..
-
-git diff --check
-git status --short
-git diff --stat
 ```
 
-### قواعد commit وpush
+### Git
 
 ```bash
-git add <files>
-git diff --cached --check
-git commit -m "type(scope): description"
-git push origin HEAD:<remote-branch>
+git diff --check
+git status --short
 ```
 
-لا يتم رفع `.env.local` أو كلمات المرور أو JWT secrets الحقيقية أو connection strings إنتاجية أو مجلدات `bin`, `obj`, `dist`, `node_modules`.
+### اختبارات خاصة
 
-### ترتيب العمل القياسي
+- اختبارات Playwright/PDF تحتاج Chromium وبيئة مناسبة.
+- `reporting-acceptance-large` في CI يعمل فقط عبر `workflow_dispatch`.
+- اختبارات SQL Server ذات التصنيف `Category=SqlServer` تحتاج SQL Server متاحًا ومتغيرات البيئة المناسبة كما في `.github/workflows/ci.yml`.
 
-1. التأكد من مسار المستودع.
-2. حفظ التغييرات المحلية.
-3. تنفيذ `git fetch`.
-4. الانتقال إلى الفرع المطلوب.
-5. تنفيذ `git pull --ff-only`.
-6. تشغيل `dotnet restore` و`npm ci`.
-7. مراجعة connection string وقاعدة `UqebDb`.
-8. مراجعة migrations وتوليد SQL.
-9. تطبيق migrations.
-10. بناء واختبار Backend.
-11. بناء واختبار Frontend.
-12. اختبار التشغيل المحلي.
-13. تنفيذ `git diff --check`.
-14. إنشاء commit.
-15. رفع التغييرات إلى فرع Pull Request.
-16. مراجعة CI وSonarCloud قبل الدمج.
+## المستخدمون الافتراضيون
+
+المستخدمون التاليون موجودون في `DefaultUsersProvisioner`، ولا تُنشأ إلا عند تفعيل `DatabaseStartup:RunDefaultUsersSeedOnStartup` أو استدعاء provisioning مكافئ:
+
+| المستخدم | كلمة المرور | الدور | ملاحظة |
+|---|---|---|---|
+| `admin` | `Admin@123` | `Admin` | مدير النظام |
+| `supervisor` | `Super@123` | `Supervisor` | مشرف المعاملات |
+| `dataentry` | `Data@123` | `DataEntry` | مدخل بيانات |
+| `deptuser` | `Dept@123` | `DepartmentUser` | يتطلب إدارة بالكود `ADM` |
+| `reader` | `Read@123` | `Reader` | قارئ |
+
+هذه بيانات تطوير/اختبار. لا تستخدم كلمات المرور الافتراضية في الإنتاج، ولا تضع أسرار إنتاج في README.
+
+## واجهات المستخدم الفعلية
+
+| المسار | الشاشة | الدور العام من الواجهة |
+|---|---|---|
+| `/login` | تسجيل الدخول | عام |
+| `/` | لوحة المتابعة | مستخدم مسجل |
+| `/transactions` | قائمة المعاملات | Admin/Supervisor/DataEntry |
+| `/transactions/import` | استيراد Excel | Admin |
+| `/transactions/new` | إنشاء معاملة | Admin/Supervisor/DataEntry |
+| `/transactions/:id` | تفاصيل المعاملة | مستخدم مسجل مع ضوابط backend |
+| `/transactions/:id/edit` | تعديل معاملة | Admin/Supervisor/DataEntry |
+| `/reports` | التقارير التشغيلية | Admin/Supervisor/DataEntry |
+| `/report-builder` | منشئ التقارير | Admin، ويظهر فقط عند تفعيل `VITE_ENABLE_INSTITUTIONAL_REPORTS` |
+| `/letter-template` | قوالب خطاب التعقيب | Admin/Supervisor |
+| `/follow-up-print/eligible` | معاملات مستحقة للتعقيب | Admin/Supervisor/DataEntry |
+| `/follow-up-print/jobs` | مهام طباعة التعقيب | Admin/Supervisor/DataEntry |
+| `/follow-up-print/jobs/:id` | تفاصيل مهمة طباعة | Admin/Supervisor/DataEntry |
+| `/follow-up-print/pending` | بانتظار تسجيل التعقيب | Admin/Supervisor/DataEntry |
+| `/follow-up-print/parts/:jobId/:partNumber/print` | صفحة طباعة جزء | Admin/Supervisor/DataEntry |
+| `/department-responses` | معاملات إدارتي/إفادات الإدارة | Admin/Supervisor/DataEntry/DepartmentUser |
+| `/department-responses/review` | مراجعة الإفادات | Admin/Supervisor/DataEntry |
+| `/users` | المستخدمون | Admin |
+| `/departments` | الإدارات | Admin |
+| `/external-parties` | الجهات الخارجية | Admin |
+| `/categories` | التصنيفات | Admin |
+| `/security` | الأمن والتنبيهات | Admin |
+
+## API Endpoints
+
+هذه قائمة عملية عالية المستوى من Controllers الحالية، وليست توثيق DTO كاملًا.
+
+### Authentication
+
+| Method | Endpoint | الغرض |
+|---|---|---|
+| POST | `/api/auth/login` | تسجيل الدخول وإرجاع JWT |
+
+### Health
+
+| Method | Endpoint | الغرض |
+|---|---|---|
+| GET | `/health/live` | فحص حياة سريع |
+| GET | `/health/ready` | فحص الجاهزية |
+| GET | `/health` | فحص شامل للنشر والتبعيات |
+
+### Transactions
+
+| Method | Endpoint | الغرض |
+|---|---|---|
+| GET | `/api/transactions` | البحث والقائمة مع فلاتر |
+| GET | `/api/transactions/{id}` | تفاصيل معاملة |
+| GET | `/api/transactions/{id}/basic` | بيانات أساسية |
+| GET | `/api/transactions/{id}/workspace` | بيانات مساحة العمل |
+| POST | `/api/transactions` | إنشاء معاملة |
+| PUT | `/api/transactions/{id}` | تعديل معاملة |
+| POST | `/api/transactions/{id}/cancel` | إلغاء |
+| POST | `/api/transactions/{id}/archive` | أرشفة |
+| POST | `/api/transactions/{id}/complete-response` | إكمال الإفادة |
+| POST | `/api/transactions/{id}/close` | إغلاق |
+| GET | `/api/transactions/{id}/audit-log` | سجل التدقيق |
+| POST | `/api/transactions/import/excel/preview` | معاينة استيراد Excel |
+| POST | `/api/transactions/import/excel/commit` | تنفيذ استيراد Excel |
+
+### Follow-ups
+
+| Method | Endpoint | الغرض |
+|---|---|---|
+| GET | `/api/transactions/{id}/followups` | تعقيبات المعاملة |
+| GET | `/api/transactions/{id}/followup-departments` | إدارات التعقيب |
+| POST | `/api/transactions/{id}/followups` | إضافة تعقيب |
+| POST | `/api/transactions/{id}/followups/{followUpId}/reply` | رد على تعقيب |
+
+### Assignments
+
+| Method | Endpoint | الغرض |
+|---|---|---|
+| GET | `/api/transactions/{id}/assignments` | تحويلات المعاملة |
+| POST | `/api/transactions/{id}/assignments` | إضافة تحويل |
+| POST | `/api/transactions/{id}/assignments/{assignmentId}/reply` | رد على تحويل |
+
+### Attachments
+
+| Method | Endpoint | الغرض |
+|---|---|---|
+| GET | `/api/transactions/{id}/attachments` | مرفقات المعاملة |
+| POST | `/api/transactions/{id}/attachments` | رفع مرفق |
+| GET | `/api/transactions/{id}/attachments/{attachmentId}/download` | تنزيل مرفق |
+
+### Department Responses / إفادات الإدارة
+
+| Method | Endpoint | الغرض |
+|---|---|---|
+| GET | `/api/department-responses/department-transactions` | معاملات الإدارة |
+| GET | `/api/department-responses/my` | إفادات المستخدم/الإدارة |
+| GET | `/api/department-responses/my-stats` | إحصاءات الإفادات |
+| GET | `/api/department-responses/pending-review` | إفادات بانتظار المراجعة |
+| GET | `/api/department-responses/{id}` | تفاصيل إفادة |
+| POST | `/api/department-responses` | إنشاء إفادة |
+| PUT | `/api/department-responses/{id}` | تعديل إفادة |
+| POST | `/api/department-responses/{id}/submit` | إرسال للمراجعة |
+| POST | `/api/department-responses/{id}/approve` | اعتماد |
+| POST | `/api/department-responses/{id}/return` | إرجاع للتعديل |
+| POST | `/api/department-responses/{id}/reject` | رفض |
+| POST | `/api/department-responses/{id}/attachments` | رفع مرفق إفادة |
+| DELETE | `/api/department-responses/{id}/attachments/{attachmentId}` | حذف مرفق إفادة |
+| GET | `/api/department-responses/{id}/attachments/{attachmentId}/download` | تنزيل مرفق إفادة |
+
+### Reports
+
+| Method | Endpoint | الغرض |
+|---|---|---|
+| GET | `/api/dashboard/summary` | ملخص لوحة المتابعة |
+| GET | `/api/dashboard/action-required` | عناصر تحتاج إجراء |
+| GET | `/api/dashboard/top-overdue-departments` | أعلى الإدارات تأخرًا |
+| GET | `/api/dashboard/top-incoming-parties` | أعلى الجهات الواردة |
+| GET | `/api/dashboard/category-distribution` | توزيع التصنيفات |
+| GET | `/api/dashboard/status-distribution` | توزيع الحالات |
+| GET | `/api/reports/dashboard` | بيانات لوحة التقارير |
+| GET | `/api/reports/page-summary` | ملخص صفحة التقارير |
+| GET | `/api/reports/overdue` | المعاملات المتأخرة |
+| GET | `/api/reports/open` | المفتوحة |
+| GET | `/api/reports/waiting-replies` | بانتظار الرد |
+| GET | `/api/reports/pending-response` | إفادات معلقة |
+| GET | `/api/reports/response-required` | مطلوب إفادة |
+| GET | `/api/reports/overdue-responses` | إفادات متأخرة |
+| GET | `/api/reports/pending-assignments` | تحويلات معلقة |
+| GET | `/api/reports/partial-replies` | ردود جزئية |
+| GET | `/api/reports/by-department` | تجميع حسب الإدارة |
+| GET | `/api/reports/by-external-party` | تجميع حسب الجهة الخارجية |
+| GET | `/api/reports/by-category` | تجميع حسب التصنيف |
+| GET | `/api/reports/by-incoming-party` | تجميع حسب جهة واردة |
+| GET | `/api/reports/by-outgoing-party` | تجميع حسب جهة صادرة |
+| GET | `/api/reports/by-outgoing-department` | تجميع حسب إدارة صادرة |
+| GET | `/api/reports/department-summary` | ملخص الإدارات |
+| GET | `/api/reports/department-incoming-closed` | وارد/مغلق حسب الإدارة |
+| GET | `/api/reports/department-incoming-closed/export-excel` | تصدير Excel |
+| GET | `/api/reports/department-incoming-closed/export-pdf` | تصدير PDF |
+| GET | `/api/reports/monthly` | تقرير شهري |
+| GET | `/api/reports/export/{reportType}` | تصدير تقرير |
+| GET | `/api/reports/*/details` | تفاصيل لبعض التقارير التشغيلية |
+
+### Institutional Reports
+
+| Method | Endpoint | الغرض |
+|---|---|---|
+| POST | `/api/institutional-reports/preview` | بناء Preview |
+| POST | `/api/institutional-reports/export` | تصدير HTML/PDF/DOCX/XLSX |
+| GET | `/api/institutional-reports/templates` | قوالب محفوظة |
+| POST | `/api/institutional-reports/templates` | حفظ قالب |
+| DELETE | `/api/institutional-reports/templates/{id}` | حذف قالب |
+| GET | `/api/institutional-reports/configuration` | حدود وإعدادات التقارير |
+| GET | `/api/institutional-reports/readiness` | جاهزية التقارير/Chromium |
+| GET | `/api/institutional-reports/rollout-status` | حالة rollout |
+
+هذه endpoints مقيّدة بـ Admin في controllers الحالية، وتخضع أيضًا لـ feature flag/rollout middleware.
+
+### Letter Templates / Print Jobs
+
+| Method | Endpoint | الغرض |
+|---|---|---|
+| GET | `/api/letter-templates` | قائمة القوالب |
+| GET | `/api/letter-templates/{id}` | قالب محدد |
+| POST | `/api/letter-templates` | إنشاء قالب |
+| PUT | `/api/letter-templates/{id}` | تعديل قالب |
+| POST | `/api/letter-templates/{id}/copy` | نسخ قالب |
+| POST | `/api/letter-templates/{id}/set-default` | تعيين افتراضي |
+| PATCH | `/api/letter-templates/{id}/activate` | تفعيل |
+| PATCH | `/api/letter-templates/{id}/deactivate` | تعطيل |
+| PATCH | `/api/letter-templates/reorder` | ترتيب |
+| DELETE | `/api/letter-templates/{id}` | حذف |
+| GET | `/api/letter-templates/follow-up` | قالب التعقيب الحالي |
+| PUT | `/api/letter-templates/follow-up` | تحديث قالب التعقيب |
+| GET | `/api/letter-templates/variables` | متغيرات القوالب |
+| POST | `/api/letter-templates/validate` | التحقق من قالب |
+| POST | `/api/letter-templates/preview` | معاينة قالب |
+| POST | `/api/transactions/{id}/follow-up-letter/preview` | معاينة خطاب معاملة |
+| POST | `/api/transactions/{id}/follow-up-letter/pdf` | PDF خطاب معاملة |
+| GET/POST | `/api/follow-up-print/*` | إدارة المستحقات، مهام الطباعة، أجزاء الطباعة، وسجلات التعقيب |
+
+### Reference/Admin
+
+| Method | Endpoint | الغرض |
+|---|---|---|
+| GET/POST/PUT | `/api/users` و`/api/users/{id}` | إدارة المستخدمين |
+| POST | `/api/users/{id}/reset-password` | إعادة تعيين كلمة المرور |
+| GET/POST/PUT | `/api/departments` و`/api/departments/{id}` | الإدارات |
+| GET | `/api/departments/lookup` | قائمة lookup |
+| GET/POST/PUT | `/api/external-parties` و`/api/external-parties/{id}` | الجهات الخارجية |
+| GET | `/api/external-parties/lookup` | قائمة lookup |
+| GET/POST/PUT | `/api/categories` و`/api/categories/{id}` | التصنيفات |
+| GET | `/api/categories/lookup` | قائمة lookup |
+
+### Security, Notifications, Branding
+
+| Method | Endpoint | الغرض |
+|---|---|---|
+| GET | `/api/security/login-attempts` | محاولات الدخول |
+| GET | `/api/security/alerts` | التنبيهات الأمنية |
+| POST | `/api/security/alerts/{id}/read` | تعليم تنبيه كمقروء |
+| POST | `/api/security/alerts/mark-all-read` | تعليم جميع التنبيهات |
+| GET | `/api/security/audit-integrity-report` | تقرير سلامة التدقيق |
+| GET | `/api/notifications` | إشعارات المستخدم |
+| POST | `/api/notifications/{id}/read` | تعليم إشعار كمقروء |
+| GET | `/api/branding/organization-logo` | شعار الجهة |
+
+### Scanner Bridge
+
+Scanner Bridge خدمة محلية منفصلة، وليست جزءًا من `Uqeb.Api`:
+
+| Method | Endpoint | الغرض |
+|---|---|---|
+| GET | `http://127.0.0.1:5055/status` | حالة الجسر |
+| GET | `http://127.0.0.1:5055/scanners` | الماسحات المتاحة |
+| POST | `http://127.0.0.1:5055/scan` | تنفيذ المسح |
+| GET | `http://127.0.0.1:5055/scan/{scanId}/file` | ملف المسح |
+| DELETE | `http://127.0.0.1:5055/scan/{scanId}` | حذف ملف مؤقت |
+
+راجع `scanner-bridge/Uqeb.ScannerBridge/README.md`.
+
+## التقارير
+
+### التقارير التشغيلية
+
+صفحة `/reports` و`/api/reports/*` تغطي تقارير مثل المفتوحة، المتأخرة، مطلوب إفادة، التحويلات المعلقة، الردود الجزئية، والتجميعات حسب الإدارات والجهات والتصنيفات.
+
+### منشئ التقارير المؤسسية
+
+منشئ التقارير المؤسسية موجود في:
+
+- Backend: `backend/Uqeb.Api/Reporting`
+- Frontend: `/report-builder`
+- Docs: `docs/institutional_reporting_visual_and_scale_acceptance_gate.md` و`docs/institutional_reporting_analytical_content.md`
+
+التفعيل يتطلب توافق backend وfrontend:
+
+```json
+{
+  "FeatureFlags": {
+    "InstitutionalReports": true
+  },
+  "ReportingRollout": {
+    "EnforcementMode": "ObserveOnly",
+    "Percentage": 0
+  }
+}
+```
+
+```bash
+VITE_ENABLE_INSTITUTIONAL_REPORTS=true
+```
+
+حدود التصدير الافتراضية من `ReportingOptions` و`appsettings.example.json`:
+
+| الإعداد | الافتراضي |
+|---|---:|
+| `MaxPreviewDetailRows` | 500 |
+| `MaxPdfDetailRows` | 5,000 |
+| `MaxPdfDetailRowsPerPart` | 5,000 |
+| `MaxDocxDetailRows` | 20,000 |
+| `MaxXlsxDetailRows` | 100,000 |
+| `MaxHtmlDetailRows` | 20,000 |
+| `MaxPdfParts` | 20 |
+| `MaxExportFileSizeMb` | 100 |
+| `MaxExportDurationSeconds` | 120 |
+
+Preview يبني manifest وصفحات HTML للعرض. Export يستخدم نفس نموذج التقرير لصيغ HTML/PDF/DOCX/XLSX. KPI والمؤشرات تُحسب من كامل النتائج المطابقة، بينما صفوف التفاصيل قد تخضع لحدود معلنة في manifest. XLSX هو الخيار الأنسب للتفاصيل الكبيرة وفق الحدود الحالية. PDF يتطلب Chromium.
+
+## الطباعة والخطابات
+
+النظام يدعم:
+
+- إدارة قوالب خطاب التعقيب من `/letter-template`.
+- معاينة قالب الخطاب والتحقق منه عبر `/api/letter-templates/preview` و`/validate`.
+- معاينة/PDF خطاب معاملة عبر endpoints تحت `/api/transactions/{id}/follow-up-letter/*`.
+- مهام طباعة التعقيب تحت `/follow-up-print/*` و`/api/follow-up-print/*`.
+- إعدادات مثل المدة الافتراضية، حجم الدفعة، حدود المحتوى، ومدة صلاحية المهام تحت `FollowUpLetters` في `appsettings.example.json`.
+- قيم رسمية مثل التوقيع/المنصب/الرتبة/الإدارة ضمن نموذج القوالب الحالي، وليست موثقة في README كسياسة إنتاج.
+
+PDF يحتاج Chromium عند استخدام مسارات rendering المعتمدة عليه. HTML print views لا تحتاج تنزيل متصفح على جهاز العميل.
+
+## النشر على الإنتاج
+
+المسار المفضل هو **build once / promote same artifact**:
+
+1. بناء ZIP وSHA256 على جهاز البناء من `main`.
+2. اختبار نفس ZIP وSHA256 على بيئة اختبار Windows.
+3. نقل نفس ZIP وSHA256 إلى الإنتاج.
+4. تثبيت الحزمة دون إعادة البناء على الإنتاج.
+
+الوثائق الأساسية:
+
+- [docs/simple_offline_deployment.md](docs/simple_offline_deployment.md)
+- [docs/production_artifact_promotion.md](docs/production_artifact_promotion.md)
+- [docs/production-fast-path.md](docs/production-fast-path.md)
+- [docs/PRODUCTION_DEPLOYMENT_TROUBLESHOOTING.md](docs/PRODUCTION_DEPLOYMENT_TROUBLESHOOTING.md)
+- [docs/production_runbook.md](docs/production_runbook.md)
+
+الأوامر الأساسية على جهاز البناء:
+
+```powershell
+git fetch origin --prune
+git switch main
+git pull --ff-only origin main
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File ".\scripts\build-production-package.ps1"
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File ".\scripts\prepare-production-transfer.ps1"
+```
+
+المسار السريع على الإنتاج من مجلد النقل:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1
+```
+
+المسار اليدوي على الإنتاج:
+
+```powershell
+$package = Get-ChildItem "C:\Uqeb\incoming\Uqeb-*.zip" |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+
+if (-not $package) {
+    throw "لم يتم العثور على حزمة Uqeb في C:\Uqeb\incoming."
+}
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File "C:\UqebTools\install-production-package.ps1" `
+  -PackagePath $package.FullName
+```
+
+قواعد الإنتاج المختصرة:
+
+- لا تُعد بناء الحزمة على الإنتاج.
+- تحقق من SHA256 قبل التثبيت.
+- نسخة قاعدة البيانات الاحتياطية إلزامية قبل migrations أو استبدال الملفات.
+- يستخدم المثبت `BACKUP DATABASE ... WITH CHECKSUM` ثم `RESTORE VERIFYONLY`.
+- فحوص الصحة الرسمية: `/health/live` ثم `/health/ready` ثم `/health`.
+- يجب أن يخلو بناء الواجهة المنشور من `localhost:5000` و`127.0.0.1:5000`.
+
+## CI
+
+الملف الرئيسي: `.github/workflows/ci.yml`.
+
+Jobs الأساسية الحالية:
+
+- `backend`
+- `backend-release`
+- `frontend`
+- `visual-regression`
+- `pdf-linux`
+- `reporting-acceptance-small`
+- `reporting-acceptance-large` عبر `workflow_dispatch` فقط
+- `transaction-sqlserver-integration`
+- `build-integration`
+- `zizmor`
+
+بوابة حزمة النشر في `.github/workflows/deployment-package.yml` تعمل عند تغييرات scripts أو ملفات نشر/صحة مرتبطة، وتتحقق من Pester tests وبنية الحزمة على Windows.
+
+## اختبارات الأداء
+
+اختبارات k6 موجودة في `performance-tests/`:
+
+```bash
+k6 run performance-tests/uqeb-load-test.js
+K6_SCENARIO=load k6 run performance-tests/uqeb-load-test.js
+```
+
+راجع [performance-tests/README.md](performance-tests/README.md) قبل تشغيل اختبارات 1000 أو 10000 معاملة. لا تشغل اختبارات الحمل على الإنتاج أثناء استخدام النظام.
+
+## حالة معروفة / ملاحظات
+
+- `NU1903` قد يظهر على `SQLitePCLRaw.lib.e_sqlite3 2.1.11` في مشروع الاختبارات. هذا تحذير vulnerability لحزمة ويحتاج PR dependency منفصل إذا تقرر رفعها.
+- `npm run build` قد يعرض تحذير Vite عن chunk أكبر من 500 kB. هذا ليس فشل build، ومعالجته تعني code splitting/تغيير bundling.
+- اختبارات Playwright/PDF تحتاج Chromium وبيئة مناسبة.
+- `reporting-acceptance-large` skipped افتراضيًا في pull requests لأنه مشروط بـ `workflow_dispatch`.
+- `artifacts/` يحتوي مخرجات محلية وقد لا يمثل حالة build الحالية.
+
+## ما لا يغطيه README
+
+- لا يشرح كل DTO أو payload.
+- لا يقرر سياسة كلمات مرور الإنتاج أو أسراره.
+- لا يستبدل أدلة النشر التفصيلية في `docs/production*.md`.
+- لا يثبت جاهزية الإنتاج لميزة خلف feature flag؛ التفعيل الإنتاجي يحتاج قبولًا وتشغيلًا وفق أدلة النشر.
+- لا يوثق كل migration تاريخية أو كل قاعدة عمل تفصيلية داخل services.
+
+## مصادر الحقيقة المستخدمة لهذا README
+
+- `global.json`
+- `.nvmrc`
+- `frontend/uqeb-ui/package.json`
+- `backend/Uqeb.sln`
+- `backend/Uqeb.Api/Uqeb.Api.csproj`
+- `backend/Uqeb.Api/appsettings.example.json`
+- `backend/Uqeb.Api/appsettings.Development.json`
+- Controllers و`Program.cs` وملفات Authorization في backend
+- routes وnavigation في `frontend/uqeb-ui/src`
+- `.github/workflows/*.yml`
+- وثائق `docs/` المذكورة أعلاه
+- `performance-tests/README.md`
+- `scanner-bridge/Uqeb.ScannerBridge/README.md`
