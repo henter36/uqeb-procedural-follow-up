@@ -7,6 +7,13 @@ export interface LoginResponse {
   departmentName?: string;
 }
 
+export interface SystemVersionInfo {
+  backendVersion: string;
+  backendCommitSha: string;
+  backendBuildTimeUtc: string | null;
+  environment: string;
+}
+
 export interface Category {
   id: number;
   name: string;

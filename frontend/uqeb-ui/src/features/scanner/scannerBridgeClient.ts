@@ -7,12 +7,16 @@ import {
   mockScan,
 } from './scannerMock';
 
-const DEFAULT_BRIDGE_URL = 'http://127.0.0.1:5055';
 const REQUEST_TIMEOUT_MS = 4000;
+
+export function isScannerConfigured(): boolean {
+  const configured = import.meta.env.VITE_SCANNER_BRIDGE_URL;
+  return typeof configured === 'string' && configured.trim().length > 0;
+}
 
 export function getScannerBridgeBaseUrl(): string {
   const configured = import.meta.env.VITE_SCANNER_BRIDGE_URL;
-  return typeof configured === 'string' && configured.trim() ? configured.trim() : DEFAULT_BRIDGE_URL;
+  return typeof configured === 'string' ? configured.trim() : '';
 }
 
 export function isScannerMockMode(): boolean {

@@ -280,6 +280,55 @@
   border-top: 1px solid rgb(255 255 255 / 10%);
 }
 
+.app-version-info {
+  margin-bottom: var(--space-2);
+  font-size: var(--font-size-xs);
+}
+
+.app-version-info-button {
+  width: 100%;
+  padding: var(--space-2);
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: rgb(255 255 255 / 82%);
+  cursor: pointer;
+  font: inherit;
+  text-align: center;
+}
+
+.app-version-info-button:hover,
+.app-version-info-button:focus-visible {
+  background: rgb(255 255 255 / 10%);
+  color: var(--color-text-inverse);
+}
+
+.app-version-info-button:focus-visible {
+  outline: 2px solid rgb(255 255 255 / 60%);
+  outline-offset: 2px;
+}
+
+.app-version-info-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: rgb(0 0 0 / 16%);
+  color: rgb(255 255 255 / 82%);
+  line-height: var(--line-height-relaxed);
+}
+
+.app-version-info-panel p,
+.app-version-info-panel output {
+  margin: 0;
+}
+
+.app-sidebar.collapsed .app-version-info {
+  display: none;
+}
+
 .sidebar-toggle {
   display: flex;
   align-items: center;

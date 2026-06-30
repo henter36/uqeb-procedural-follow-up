@@ -2163,6 +2163,31 @@ Describe 'build-production-package.ps1 policy' {
         $content | Should -Not -Match 'npm ci\s+npm test'
     }
 
+    It 'validates frontend dist API URL after production build' {
+        $content = Get-Content (Join-Path $PSScriptRoot 'build-production-package.ps1') -Raw
+        $content | Should -Match 'function Assert-FrontendDistApiBaseUrl'
+        $content | Should -Match 'Assert-FrontendDistApiBaseUrl'
+        $content | Should -Match 'ProductionApiBaseUrl'
+        $content | Should -Match 'Get-ChildItem -LiteralPath \$DistPath -Recurse -File'
+    }
+
+    It 'rejects local API URLs from frontend dist' {
+        $content = Get-Content (Join-Path $PSScriptRoot 'build-production-package.ps1') -Raw
+        $content | Should -Match 'localhost:5000'
+        $content | Should -Match '127\.0\.0\.1:5000'
+        $content | Should -Match 'http://localhost'
+        $content | Should -Match 'https://localhost'
+        $content | Should -Match 'http://127\.0\.0\.1'
+        $content | Should -Match 'https://127\.0\.0\.1'
+    }
+
+    It 'requires build metadata in production package structure checks' {
+        $repoRoot = Split-Path $PSScriptRoot -Parent
+        $workflowPath = Join-Path (Join-Path (Join-Path $repoRoot '.github') 'workflows') 'deployment-package.yml'
+        $workflow = Get-Content -LiteralPath $workflowPath -Raw
+        $workflow | Should -Match 'api\\build-info\.json'
+    }
+
     It 'uses UTC for package version stamp' {
         $content = Get-Content (Join-Path $PSScriptRoot 'build-production-package.ps1') -Raw
         $content | Should -Match '\[DateTime\]::UtcNow\.ToString\("yyyyMMdd-HHmmss"\)'
@@ -2181,5 +2206,77 @@ Describe 'build-production-package.ps1 policy' {
         $installContent | Should -Match 'Install-StagedReleaseToProduction'
         $installContent | Should -Match 'Test-RequiredMigrationPresent'
         $installContent | Should -Match 'deprecated and no longer required'
+    }
+
+    It 'uses helper functions for commit SHA and build-info JSON' {
+        $content = Get-Content (Join-Path $PSScriptRoot 'build-production-package.ps1') -Raw
+        $content | Should -Match 'function Get-RepositoryCommitSha'
+        $content | Should -Match 'function Write-ApiPublishBuildInfo'
+        $content | Should -Match 'Get-RepositoryCommitSha -RepoPath'
+        $content | Should -Match 'Write-ApiPublishBuildInfo'
+    }
+}
+
+Describe 'Assert-FrontendDistApiBaseUrl' {
+    BeforeAll {
+        $buildScriptPath = Join-Path $PSScriptRoot 'build-production-package.ps1'
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($buildScriptPath, [ref]$null, [ref]$null)
+        $fns = $ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst]
+        }, $false)
+        foreach ($fn in $fns) {
+            Set-Item -Path "function:$($fn.Name)" -Value $fn.Body.GetScriptBlock()
+        }
+
+        function Assert-FrontendDistRejectsForbiddenUrl {
+            param([string]$ForbiddenUrl)
+
+            $dist = New-TempDirectory
+            Set-Content `
+                -Path (Join-Path $dist 'index.js') `
+                -Value "const a=`"http://10.0.177.17:5000/api`";const b=`"$ForbiddenUrl`"" `
+                -Encoding UTF8
+
+            { Assert-FrontendDistApiBaseUrl -DistPath $dist -ProductionApiBaseUrl 'http://10.0.177.17:5000/api' } |
+                Should -Throw '*عناوين API محلية*'
+        }
+    }
+
+    It 'passes when production URL is present and no forbidden URLs exist' {
+        $dist = New-TempDirectory
+        Set-Content (Join-Path $dist 'index.js') -Value 'const b="http://10.0.177.17:5000/api"' -Encoding UTF8
+
+        { Assert-FrontendDistApiBaseUrl -DistPath $dist -ProductionApiBaseUrl 'http://10.0.177.17:5000/api' } |
+            Should -Not -Throw
+    }
+
+    It 'fails when production URL is absent from all dist files' {
+        $dist = New-TempDirectory
+        Set-Content (Join-Path $dist 'index.js') -Value 'const b="/api"' -Encoding UTF8
+
+        { Assert-FrontendDistApiBaseUrl -DistPath $dist -ProductionApiBaseUrl 'http://10.0.177.17:5000/api' } |
+            Should -Throw '*عنوان API الإنتاجي المتوقع*'
+    }
+
+    It 'fails when <Name> appears in a JS file' -ForEach @(
+        @{ Name = 'http://localhost'; Url = 'http://localhost:5080/api' },
+        @{ Name = 'http://127.0.0.1'; Url = 'http://127.0.0.1:5055' },
+        @{ Name = 'https://localhost'; Url = 'https://localhost:5080/api' },
+        @{ Name = 'https://127.0.0.1'; Url = 'https://127.0.0.1:5055' }
+    ) {
+        Assert-FrontendDistRejectsForbiddenUrl -ForbiddenUrl $Url
+    }
+
+    It 'fails when dist directory does not exist' {
+        { Assert-FrontendDistApiBaseUrl -DistPath 'C:\DoesNotExist\dist' -ProductionApiBaseUrl 'http://10.0.177.17:5000/api' } |
+            Should -Throw '*غير موجود*'
+    }
+
+    It 'fails when dist contains no scannable text files' {
+        $dist = New-TempDirectory
+
+        { Assert-FrontendDistApiBaseUrl -DistPath $dist -ProductionApiBaseUrl 'http://10.0.177.17:5000/api' } |
+            Should -Throw '*لا توجد ملفات*'
     }
 }

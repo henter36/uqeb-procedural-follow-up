@@ -6,6 +6,7 @@ import { isNavActive, buildNavSections, type NavItem } from './navConfig';
 import { IconChevron } from '../ui/icons';
 import { getStorageItem, setStorageItem } from '../../utils/safeStorage';
 import { usePendingPrintSummary } from '../../hooks/usePendingPrintSummary';
+import AppVersionInfo from './AppVersionInfo';
 
 const SIDEBAR_KEY = 'uqeb-sidebar-collapsed';
 
@@ -104,6 +105,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
       </nav>
 
       <div className="sidebar-footer">
+        <AppVersionInfo />
         <button
           type="button"
           className="sidebar-toggle"

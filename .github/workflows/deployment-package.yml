@@ -109,6 +109,7 @@ jobs:
           Expand-Archive $zip.FullName $inspect
           $required = @(
             'api\Uqeb.Api.dll',
+            'api\build-info.json',
             'api\playwright.ps1',
             'web\index.html',
             'database\migrations-idempotent.sql',

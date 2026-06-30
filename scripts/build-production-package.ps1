@@ -51,6 +51,34 @@ function Invoke-ExternalCommand {
     }
 }
 
+function Get-RepositoryCommitSha {
+    param([string]$RepoPath)
+    try {
+        return (git -C $RepoPath rev-parse HEAD 2>$null).Trim()
+    }
+    catch {
+        return ""
+    }
+}
+
+function Write-ApiPublishBuildInfo {
+    param(
+        [string]$PublishDir,
+        [string]$Version,
+        [string]$CommitSha,
+        [string]$BuildTimeUtc
+    )
+    $info = [ordered]@{
+        BuildInfo = [ordered]@{
+            Version      = $Version
+            CommitSha    = $CommitSha
+            BuildTimeUtc = $BuildTimeUtc
+        }
+    }
+    $path = Join-Path $PublishDir "build-info.json"
+    ($info | ConvertTo-Json -Depth 4) | Set-Content -LiteralPath $path -Encoding UTF8
+}
+
 function Ensure-DotNetEfToolAvailable {
     & dotnet ef --version *> $null
     if ($LASTEXITCODE -eq 0) {
@@ -61,6 +89,110 @@ function Ensure-DotNetEfToolAvailable {
     dotnet tool install --global dotnet-ef
     if ($LASTEXITCODE -ne 0) {
         throw "dotnet-ef غير متوفر ولم ينجح التثبيت."
+    }
+}
+
+function Assert-FrontendDistApiBaseUrl {
+    param(
+        [string]$DistPath,
+        [string]$ProductionApiBaseUrl
+    )
+
+    if (-not (Test-Path -LiteralPath $DistPath)) {
+        throw "مجلد بناء Frontend غير موجود: $DistPath"
+    }
+
+    $distFiles = Get-FrontendDistTextAssetFiles -DistPath $DistPath
+
+    if (-not $distFiles) {
+        throw "لا توجد ملفات نصية قابلة للفحص داخل بناء Frontend."
+    }
+
+    Assert-FrontendDistContainsProductionApiUrl `
+        -DistFiles $distFiles `
+        -ProductionApiBaseUrl $ProductionApiBaseUrl
+
+    Assert-FrontendDistHasNoForbiddenLocalUrls -DistFiles $distFiles
+}
+
+function Get-FrontendDistTextAssetFiles {
+    param([string]$DistPath)
+
+    $textExtensions = @(".js", ".css", ".html")
+    Get-ChildItem -LiteralPath $DistPath -Recurse -File |
+        Where-Object { $textExtensions -contains $_.Extension.ToLowerInvariant() }
+}
+
+function Get-ExpectedFrontendApiMarkers {
+    param([string]$ProductionApiBaseUrl)
+
+    $expectedMarkers = New-Object System.Collections.Generic.List[string]
+    $expectedMarkers.Add($ProductionApiBaseUrl.TrimEnd('/'))
+    try {
+        $productionUri = [Uri]$ProductionApiBaseUrl
+        if (-not [string]::IsNullOrWhiteSpace($productionUri.Authority)) {
+            $expectedMarkers.Add($productionUri.Authority)
+        }
+    }
+    catch {
+        Write-DeployInfo "تعذر تفسير ProductionApiBaseUrl كعنوان URL كامل؛ سيتم فحص النص كما هو."
+    }
+
+    $expectedMarkers
+}
+
+function Assert-FrontendDistContainsProductionApiUrl {
+    param(
+        [object[]]$DistFiles,
+        [string]$ProductionApiBaseUrl
+    )
+
+    $expectedMarkers = Get-ExpectedFrontendApiMarkers -ProductionApiBaseUrl $ProductionApiBaseUrl
+    foreach ($file in $DistFiles) {
+        $content = Get-Content -LiteralPath $file.FullName -Raw
+        foreach ($expected in $expectedMarkers) {
+            if ($content.IndexOf($expected, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                return
+            }
+        }
+    }
+
+    throw "بناء Frontend لا يحتوي عنوان API الإنتاجي المتوقع: $ProductionApiBaseUrl"
+}
+
+function Find-ForbiddenFrontendUrlMatches {
+    param([object[]]$DistFiles)
+
+    $forbiddenMarkers = @(
+        "localhost:5000",
+        "127.0.0.1:5000",
+        "http://localhost",
+        "https://localhost",
+        "http://127.0.0.1",
+        "https://127.0.0.1"
+    )
+
+    $forbiddenHits = New-Object System.Collections.Generic.List[string]
+
+    foreach ($file in $DistFiles) {
+        $content = Get-Content -LiteralPath $file.FullName -Raw
+        foreach ($forbidden in $forbiddenMarkers) {
+            if ($content.IndexOf($forbidden, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                $forbiddenHits.Add("$($file.FullName): $forbidden")
+            }
+        }
+    }
+
+    $forbiddenHits
+}
+
+function Assert-FrontendDistHasNoForbiddenLocalUrls {
+    param([object[]]$DistFiles)
+
+    $forbiddenHits = @(Find-ForbiddenFrontendUrlMatches -DistFiles $DistFiles)
+
+    if ($forbiddenHits.Count -gt 0) {
+        throw "بناء Frontend يحتوي عناوين API محلية غير صالحة للإنتاج: $($forbiddenHits -join '; ')"
     }
 }
 
@@ -103,6 +235,10 @@ $drive = (Get-Item -LiteralPath $repoRoot).PSDrive
 if ($drive.Free -and $drive.Free -lt 2GB) {
     throw "مساحة القرص المتاحة منخفضة لبناء الحزمة (أقل من 2GB)."
 }
+
+$versionStamp = [DateTime]::UtcNow.ToString("yyyyMMdd-HHmmss")
+$buildTimestampUtc = [DateTime]::UtcNow.ToString("o")
+$commitSha = Get-RepositoryCommitSha -RepoPath $repoRoot
 
 if ($SkipPlaywrightBrowserDownload) {
     if ([string]::IsNullOrWhiteSpace($PlaywrightBrowsersSourcePath)) {
@@ -154,8 +290,15 @@ try {
 
     Invoke-ExternalCommand "بناء Frontend للإنتاج" {
         $env:VITE_API_BASE_URL = $ProductionApiBaseUrl
+        $env:VITE_APP_VERSION = $versionStamp
+        $env:VITE_COMMIT_SHA = $commitSha
+        $env:VITE_BUILD_TIME_UTC = $buildTimestampUtc
         npm run build
     }
+
+    Assert-FrontendDistApiBaseUrl `
+        -DistPath (Join-Path $frontendRoot "dist") `
+        -ProductionApiBaseUrl $ProductionApiBaseUrl
 }
 finally {
     Pop-Location
@@ -169,6 +312,12 @@ if (Test-Path -LiteralPath $publishDir) {
 Invoke-ExternalCommand "نشر Backend (Release)" {
     dotnet publish $backendProject -c Release -o $publishDir
 }
+
+Write-ApiPublishBuildInfo `
+    -PublishDir $publishDir `
+    -Version $versionStamp `
+    -CommitSha $commitSha `
+    -BuildTimeUtc $buildTimestampUtc
 
 $playwrightScript = Join-Path $publishDir "playwright.ps1"
 if (-not (Test-Path -LiteralPath $playwrightScript)) {
@@ -270,20 +419,12 @@ try {
     $browserManifestPath = Join-Path $stagingBrowsers "playwright-browser-manifest.json"
     ($browserManifest | ConvertTo-Json -Depth 4) | Set-Content -LiteralPath $browserManifestPath -Encoding UTF8
 
-    $versionStamp = [DateTime]::UtcNow.ToString("yyyyMMdd-HHmmss")
-    $commitSha = ""
-    try {
-        $commitSha = (git -C $repoRoot rev-parse HEAD 2>$null).Trim()
-    }
-    catch {
-        $commitSha = ""
-    }
-
     $minimumMigration = Get-LatestMigrationId -MigrationsDirectory $migrationsDir
     $browserRelativePath = 'browsers\' + ($browserExecutable.RelativePath -replace '/', '\')
     $manifestFiles = [ordered]@{}
     $importantFiles = @(
         "api\Uqeb.Api.dll",
+        "api\build-info.json",
         "api\playwright.ps1",
         "web\index.html",
         "database\migrations-idempotent.sql",
@@ -306,7 +447,7 @@ try {
         packageContractVersion = 2
         promotionModel = "releases-current-v1"
         version = $versionStamp
-        buildTimestampUtc = (Get-Date).ToUniversalTime().ToString("o")
+        buildTimestampUtc = $buildTimestampUtc
         commitSha = $commitSha
         minimumDatabaseMigration = $minimumMigration
         playwright = [ordered]@{
