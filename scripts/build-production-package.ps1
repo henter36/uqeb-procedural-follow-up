@@ -104,6 +104,17 @@ if ($drive.Free -and $drive.Free -lt 2GB) {
     throw "مساحة القرص المتاحة منخفضة لبناء الحزمة (أقل من 2GB)."
 }
 
+$buildTimeUtc = (Get-Date).ToUniversalTime()
+$versionStamp = $buildTimeUtc.ToString("yyyyMMdd-HHmmss")
+$buildTimestampUtc = $buildTimeUtc.ToString("o")
+$commitSha = ""
+try {
+    $commitSha = (git -C $repoRoot rev-parse HEAD 2>$null).Trim()
+}
+catch {
+    $commitSha = ""
+}
+
 if ($SkipPlaywrightBrowserDownload) {
     if ([string]::IsNullOrWhiteSpace($PlaywrightBrowsersSourcePath)) {
         throw "يجب تحديد PlaywrightBrowsersSourcePath عند تخطي تنزيل Chromium."
@@ -154,6 +165,9 @@ try {
 
     Invoke-ExternalCommand "بناء Frontend للإنتاج" {
         $env:VITE_API_BASE_URL = $ProductionApiBaseUrl
+        $env:VITE_APP_VERSION = $versionStamp
+        $env:VITE_COMMIT_SHA = $commitSha
+        $env:VITE_BUILD_TIME_UTC = $buildTimestampUtc
         npm run build
     }
 }
@@ -169,6 +183,16 @@ if (Test-Path -LiteralPath $publishDir) {
 Invoke-ExternalCommand "نشر Backend (Release)" {
     dotnet publish $backendProject -c Release -o $publishDir
 }
+
+$buildInfo = [ordered]@{
+    BuildInfo = [ordered]@{
+        Version = $versionStamp
+        CommitSha = $commitSha
+        BuildTimeUtc = $buildTimestampUtc
+    }
+}
+$buildInfoPath = Join-Path $publishDir "build-info.json"
+($buildInfo | ConvertTo-Json -Depth 4) | Set-Content -LiteralPath $buildInfoPath -Encoding UTF8
 
 $playwrightScript = Join-Path $publishDir "playwright.ps1"
 if (-not (Test-Path -LiteralPath $playwrightScript)) {
@@ -270,20 +294,12 @@ try {
     $browserManifestPath = Join-Path $stagingBrowsers "playwright-browser-manifest.json"
     ($browserManifest | ConvertTo-Json -Depth 4) | Set-Content -LiteralPath $browserManifestPath -Encoding UTF8
 
-    $versionStamp = [DateTime]::UtcNow.ToString("yyyyMMdd-HHmmss")
-    $commitSha = ""
-    try {
-        $commitSha = (git -C $repoRoot rev-parse HEAD 2>$null).Trim()
-    }
-    catch {
-        $commitSha = ""
-    }
-
     $minimumMigration = Get-LatestMigrationId -MigrationsDirectory $migrationsDir
     $browserRelativePath = 'browsers\' + ($browserExecutable.RelativePath -replace '/', '\')
     $manifestFiles = [ordered]@{}
     $importantFiles = @(
         "api\Uqeb.Api.dll",
+        "api\build-info.json",
         "api\playwright.ps1",
         "web\index.html",
         "database\migrations-idempotent.sql",
@@ -306,7 +322,7 @@ try {
         packageContractVersion = 2
         promotionModel = "releases-current-v1"
         version = $versionStamp
-        buildTimestampUtc = (Get-Date).ToUniversalTime().ToString("o")
+        buildTimestampUtc = $buildTimestampUtc
         commitSha = $commitSha
         minimumDatabaseMigration = $minimumMigration
         playwright = [ordered]@{

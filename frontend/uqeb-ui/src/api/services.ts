@@ -11,7 +11,7 @@ import type {
   FollowUpLetterPrintRecord, FollowUpPrintPendingSummary, FollowUpPrintRecordPrintView, UserNotification,
   CreateDirectPrintRequest,
   DepartmentResponseDto, DepartmentResponseSummaryDto, DepartmentResponseAttachmentDto, DepartmentTransactionResponseItemDto,
-  DepartmentResponseStatsDto,
+  DepartmentResponseStatsDto, SystemVersionInfo,
 } from './types';
 import type {
   InstitutionalReportManifest,
@@ -24,6 +24,10 @@ import type {
 export const authApi = {
   login: (username: string, password: string) =>
     api.post<LoginResponse>('/auth/login', { username, password }),
+};
+
+export const systemApi = {
+  getVersion: () => api.get<SystemVersionInfo>('/system/version'),
 };
 
 export const transactionsApi = {

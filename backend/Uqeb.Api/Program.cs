@@ -22,7 +22,10 @@ using Uqeb.Api.Services.Health;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Configuration.AddJsonFile("build-info.json", optional: true, reloadOnChange: false);
+
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));
+builder.Services.Configure<BuildInfoOptions>(builder.Configuration.GetSection(BuildInfoOptions.SectionName));
 builder.Services.Configure<FeatureFlagsSettings>(builder.Configuration.GetSection(FeatureFlagsSettings.SectionName));
 builder.Services.AddOptions<ReportingRolloutOptions>()
     .Bind(builder.Configuration.GetSection(ReportingRolloutOptions.SectionName))
@@ -104,6 +107,7 @@ builder.Services.AddScoped<IAuditIntegrityDiagnosticService, AuditIntegrityDiagn
 builder.Services.AddScoped<IHealthDatabaseProbe, DbContextHealthDatabaseProbe>();
 builder.Services.AddScoped<IDeploymentReportingHealthContributor, DeploymentReportingHealthContributor>();
 builder.Services.AddScoped<IDeploymentFollowUpPrintHealthContributor, DeploymentFollowUpPrintHealthContributor>();
+builder.Services.AddSingleton<IBuildInfoService, BuildInfoService>();
 
 var jwtSettings = builder.Configuration.GetSection("Jwt").Get<JwtSettings>() ?? new JwtSettings();
 if (string.IsNullOrWhiteSpace(jwtSettings.Key))
