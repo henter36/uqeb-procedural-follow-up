@@ -112,6 +112,24 @@ public class TransactionWorkflowAtomicityTests
             DepartmentId = 10,
             IsActive = true
         });
+        db.Users.Add(new User
+        {
+            Id = 3,
+            Username = "supervisor",
+            PasswordHash = "hash",
+            FullName = "Supervisor",
+            Role = UserRole.Supervisor,
+            IsActive = true
+        });
+        db.Users.Add(new User
+        {
+            Id = 4,
+            Username = "data-entry",
+            PasswordHash = "hash",
+            FullName = "Data Entry",
+            Role = UserRole.DataEntry,
+            IsActive = true
+        });
         db.Categories.Add(new Category { Id = 1, Name = "عام", NameNormalized = "عام", IsActive = true });
         db.ExternalParties.Add(new ExternalParty { Id = 1, Name = "جهة", NameNormalized = "جهة", IsActive = true });
         db.Departments.AddRange(
@@ -146,6 +164,66 @@ public class TransactionWorkflowAtomicityTests
             Priority = Priority.Normal.ToString(),
             CategoryId = 1
         };
+
+    private static async Task PrepareTransactionForCloseAsync(AppDbContext db, int transactionId)
+    {
+        var transaction = await db.Transactions
+            .Include(t => t.Assignments)
+            .SingleAsync(t => t.Id == transactionId);
+
+        transaction.ResponseCompleted = true;
+        transaction.ResponseCompletedDate = DateTime.UtcNow.Date;
+
+        foreach (var assignment in transaction.Assignments.Where(a => a.Status == AssignmentStatus.Active))
+        {
+            assignment.RequiresReply = true;
+            assignment.ReplyStatus = ReplyStatus.Replied;
+        }
+
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task<DepartmentResponse> AddDepartmentResponseAsync(
+        AppDbContext db,
+        int transactionId,
+        int departmentId,
+        int submittedByUserId,
+        DepartmentResponseStatus status)
+    {
+        var response = new DepartmentResponse
+        {
+            TransactionId = transactionId,
+            DepartmentId = departmentId,
+            ResponseText = "إفادة مكتملة",
+            Status = status,
+            SubmittedByUserId = submittedByUserId,
+            SubmittedAt = status == DepartmentResponseStatus.Draft ? null : DateTime.UtcNow,
+            ReviewedByUserId = status == DepartmentResponseStatus.Approved ? 1 : null,
+            ReviewedAt = status == DepartmentResponseStatus.Approved ? DateTime.UtcNow : null,
+        };
+        db.DepartmentResponses.Add(response);
+        await db.SaveChangesAsync();
+        return response;
+    }
+
+    private static async Task AddDepartmentResponseAuditAsync(
+        AppDbContext db,
+        int transactionId,
+        int responseId,
+        int userId,
+        AuditAction action)
+    {
+        db.AuditLogs.Add(new AuditLog
+        {
+            TransactionId = transactionId,
+            EntityName = "DepartmentResponse",
+            EntityId = responseId,
+            UserId = userId,
+            Action = action,
+            CreatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+    }
 
     [Fact]
     public async Task CancelAsync_authorization_failure_does_not_invalidate_cache()
@@ -287,51 +365,240 @@ public class TransactionWorkflowAtomicityTests
     }
 
     [Fact]
-    public async Task CloseAsync_blocks_when_required_department_response_is_not_approved()
+    public async Task CloseAsync_DepartmentUserDraftResponse_Blocks()
     {
-        var (service, db, _, cache) = await CreateServiceAsync(nameof(CloseAsync_blocks_when_required_department_response_is_not_approved));
-        var created = await service.CreateAsync(BuildCreateRequest(10, 11), userId: 1);
-        var dept10Response = new DepartmentResponse
-        {
-            TransactionId = created!.Id,
-            DepartmentId = 10,
-            ResponseText = "إفادة معتمدة",
-            Status = DepartmentResponseStatus.Approved,
-            SubmittedByUserId = 1,
-            SubmittedAt = DateTime.UtcNow,
-            ReviewedByUserId = 1,
-            ReviewedAt = DateTime.UtcNow,
-        };
-        db.DepartmentResponses.Add(dept10Response);
-        await db.SaveChangesAsync();
+        var (service, db, _, cache) = await CreateServiceAsync(nameof(CloseAsync_DepartmentUserDraftResponse_Blocks));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        await PrepareTransactionForCloseAsync(db, created!.Id);
+        await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 2, DepartmentResponseStatus.Draft);
         cache.ResetInvalidations();
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin));
 
-        Assert.Contains("إفادات ناقصة", ex.Message);
-        Assert.Contains("الموارد", ex.Message);
+        Assert.Contains("توجد إفادة محفوظة كمسودة ولم تُرسل أو تُعتمد بعد.", ex.Message);
+        Assert.Contains("المالية", ex.Message);
         Assert.Equal(0, cache.TransactionChangeInvalidations);
     }
 
     [Fact]
-    public async Task CloseAsync_blocks_completed_assignment_without_approved_department_response()
+    public async Task CloseAsync_DepartmentUserSubmittedResponse_Blocks()
     {
-        var (service, db, _, cache) = await CreateServiceAsync(nameof(CloseAsync_blocks_completed_assignment_without_approved_department_response));
+        var (service, db, _, cache) = await CreateServiceAsync(nameof(CloseAsync_DepartmentUserSubmittedResponse_Blocks));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        await PrepareTransactionForCloseAsync(db, created!.Id);
+        await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 2, DepartmentResponseStatus.SubmittedForReview);
+        cache.ResetInvalidations();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin));
+
+        Assert.Contains("توجد إفادة مرسلة للمراجعة لكنها لم تُعتمد بعد.", ex.Message);
+        Assert.Contains("المالية", ex.Message);
+        Assert.Equal(0, cache.TransactionChangeInvalidations);
+    }
+
+    [Fact]
+    public async Task CloseAsync_DepartmentUserApprovedResponse_AllowsClose()
+    {
+        var (service, db, _, cache) = await CreateServiceAsync(nameof(CloseAsync_DepartmentUserApprovedResponse_AllowsClose));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        await PrepareTransactionForCloseAsync(db, created!.Id);
+        await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 2, DepartmentResponseStatus.Approved);
+        cache.ResetInvalidations();
+
+        var closed = await service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin);
+
+        Assert.True(closed);
+        Assert.Equal(1, cache.TransactionChangeInvalidations);
+        Assert.Equal(TransactionStatus.Closed, await db.Transactions.Where(t => t.Id == created.Id).Select(t => t.Status).FirstAsync());
+    }
+
+    [Fact]
+    public async Task CloseAsync_AdminCreatedResponseWithoutApproval_AllowsClose()
+    {
+        var (service, db, _, cache) = await CreateServiceAsync(nameof(CloseAsync_AdminCreatedResponseWithoutApproval_AllowsClose));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        await PrepareTransactionForCloseAsync(db, created!.Id);
+        await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 1, DepartmentResponseStatus.Draft);
+        cache.ResetInvalidations();
+
+        var closed = await service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin);
+
+        Assert.True(closed);
+        Assert.Equal(1, cache.TransactionChangeInvalidations);
+    }
+
+    [Fact]
+    public async Task CloseAsync_SupervisorCreatedResponseWithoutApproval_AllowsClose()
+    {
+        var (service, db, _, cache) = await CreateServiceAsync(nameof(CloseAsync_SupervisorCreatedResponseWithoutApproval_AllowsClose));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        await PrepareTransactionForCloseAsync(db, created!.Id);
+        await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 3, DepartmentResponseStatus.Draft);
+        cache.ResetInvalidations();
+
+        var closed = await service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin);
+
+        Assert.True(closed);
+        Assert.Equal(1, cache.TransactionChangeInvalidations);
+    }
+
+    [Fact]
+    public async Task CloseAsync_NormalUserCreatedResponseWithoutApproval_Blocks()
+    {
+        var (service, db, _, cache) = await CreateServiceAsync(nameof(CloseAsync_NormalUserCreatedResponseWithoutApproval_Blocks));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        await PrepareTransactionForCloseAsync(db, created!.Id);
+        await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 2, DepartmentResponseStatus.Draft);
+        cache.ResetInvalidations();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin));
+
+        Assert.Contains("توجد إفادة محفوظة كمسودة ولم تُرسل أو تُعتمد بعد.", ex.Message);
+        Assert.Equal(0, cache.TransactionChangeInvalidations);
+    }
+
+    [Fact]
+    public async Task CloseAsync_ResponseForDifferentDepartment_Blocks()
+    {
+        var (service, db, _, cache) = await CreateServiceAsync(nameof(CloseAsync_ResponseForDifferentDepartment_Blocks));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        await PrepareTransactionForCloseAsync(db, created!.Id);
+        await AddDepartmentResponseAsync(db, created.Id, 11, submittedByUserId: 1, DepartmentResponseStatus.Approved);
+        cache.ResetInvalidations();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin));
+
+        Assert.Contains("الإفادة المسجلة لا تخص الإدارة المطلوبة.", ex.Message);
+        Assert.Contains("المالية", ex.Message);
+        Assert.DoesNotContain("الموارد", ex.Message);
+        Assert.Equal(0, cache.TransactionChangeInvalidations);
+    }
+
+    [Fact]
+    public async Task CloseAsync_DataEntryCreatedResponseWithoutApproval_AllowsClose()
+    {
+        var (service, db, _, cache) = await CreateServiceAsync(nameof(CloseAsync_DataEntryCreatedResponseWithoutApproval_AllowsClose));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        await PrepareTransactionForCloseAsync(db, created!.Id);
+        await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 4, DepartmentResponseStatus.Draft);
+        cache.ResetInvalidations();
+
+        var closed = await service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin);
+
+        Assert.True(closed);
+        Assert.Equal(1, cache.TransactionChangeInvalidations);
+    }
+
+    [Fact]
+    public async Task CloseAsync_Transaction2011RegressionShape_AllowsPrivilegedDepartmentResponseAudit()
+    {
+        var (service, db, _, cache) = await CreateServiceAsync(
+            nameof(CloseAsync_Transaction2011RegressionShape_AllowsPrivilegedDepartmentResponseAudit));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        await PrepareTransactionForCloseAsync(db, created!.Id);
+        var response = await AddDepartmentResponseAsync(
+            db,
+            created.Id,
+            10,
+            submittedByUserId: 2,
+            DepartmentResponseStatus.Draft);
+        await AddDepartmentResponseAuditAsync(
+            db,
+            created.Id,
+            response.Id,
+            userId: 4,
+            AuditAction.DepartmentResponseUpdated);
+        cache.ResetInvalidations();
+
+        var closed = await service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin);
+
+        Assert.True(closed);
+        Assert.Equal(1, cache.TransactionChangeInvalidations);
+    }
+
+    [Fact]
+    public async Task CloseAsync_DepartmentUserAuditWithoutApproval_Blocks()
+    {
+        var (service, db, _, cache) = await CreateServiceAsync(nameof(CloseAsync_DepartmentUserAuditWithoutApproval_Blocks));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        await PrepareTransactionForCloseAsync(db, created!.Id);
+        var response = await AddDepartmentResponseAsync(
+            db,
+            created.Id,
+            10,
+            submittedByUserId: 2,
+            DepartmentResponseStatus.Draft);
+        await AddDepartmentResponseAuditAsync(
+            db,
+            created.Id,
+            response.Id,
+            userId: 2,
+            AuditAction.DepartmentResponseUpdated);
+        cache.ResetInvalidations();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin));
+
+        Assert.Contains("توجد إفادة محفوظة كمسودة ولم تُرسل أو تُعتمد بعد.", ex.Message);
+        Assert.Equal(0, cache.TransactionChangeInvalidations);
+    }
+
+    [Fact]
+    public async Task CloseAsync_IgnoresInactiveAssignments()
+    {
+        var (service, db, _, cache) = await CreateServiceAsync(nameof(CloseAsync_IgnoresInactiveAssignments));
         var created = await service.CreateAsync(BuildCreateRequest(11), userId: 1);
         var assignment = await db.Assignments.SingleAsync(a => a.TransactionId == created!.Id && a.DepartmentId == 11);
         assignment.RequiresReply = true;
         assignment.ReplyStatus = ReplyStatus.Replied;
         assignment.Status = AssignmentStatus.Completed;
-        await db.SaveChangesAsync();
+        var transaction = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        transaction.ResponseCompleted = true;
+        transaction.ResponseCompletedDate = DateTime.UtcNow.Date;
+        await PrepareTransactionForCloseAsync(db, created.Id);
+        cache.ResetInvalidations();
+
+        var closed = await service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin);
+
+        Assert.True(closed);
+        Assert.Equal(1, cache.TransactionChangeInvalidations);
+    }
+
+    [Fact]
+    public async Task CloseAsync_MultipleActiveDepartments_RequiresAllSatisfied()
+    {
+        var (service, db, _, cache) = await CreateServiceAsync(nameof(CloseAsync_MultipleActiveDepartments_RequiresAllSatisfied));
+        var created = await service.CreateAsync(BuildCreateRequest(10, 11), userId: 1);
+        await PrepareTransactionForCloseAsync(db, created!.Id);
+        await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 1, DepartmentResponseStatus.Draft);
         cache.ResetInvalidations();
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.CloseAsync(created!.Id, userId: 1, role: UserRole.Admin));
+            service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin));
 
-        Assert.Contains("إفادات ناقصة", ex.Message);
+        Assert.Contains("لا توجد إفادة مسجلة من الإدارة المطلوبة.", ex.Message);
         Assert.Contains("الموارد", ex.Message);
         Assert.Equal(0, cache.TransactionChangeInvalidations);
+    }
+
+    [Fact]
+    public async Task CloseAsync_MixedResponses_AdminOneDepartmentApprovedOtherDepartment_AllowsOnlyWhenAllSatisfied()
+    {
+        var (service, db, _, cache) = await CreateServiceAsync(nameof(CloseAsync_MixedResponses_AdminOneDepartmentApprovedOtherDepartment_AllowsOnlyWhenAllSatisfied));
+        var created = await service.CreateAsync(BuildCreateRequest(10, 11), userId: 1);
+        await PrepareTransactionForCloseAsync(db, created!.Id);
+        await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 1, DepartmentResponseStatus.Draft);
+        await AddDepartmentResponseAsync(db, created.Id, 11, submittedByUserId: 2, DepartmentResponseStatus.Approved);
+        cache.ResetInvalidations();
+
+        var closed = await service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin);
+
+        Assert.True(closed);
+        Assert.Equal(1, cache.TransactionChangeInvalidations);
     }
 
     [Fact]
@@ -348,7 +615,10 @@ public class TransactionWorkflowAtomicityTests
         var assignment = await db.Assignments.SingleAsync(a => a.TransactionId == created!.Id && a.DepartmentId == 10);
         assignment.RequiresReply = true;
         assignment.ReplyStatus = ReplyStatus.Replied;
-        assignment.Status = AssignmentStatus.Completed;
+        assignment.Status = AssignmentStatus.Active;
+        var transaction = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        transaction.ResponseCompleted = true;
+        transaction.ResponseCompletedDate = DateTime.UtcNow.Date;
 
         // Response exists but was revoked back to Submitted (concurrent write scenario)
         db.DepartmentResponses.Add(new DepartmentResponse
@@ -357,7 +627,7 @@ public class TransactionWorkflowAtomicityTests
             DepartmentId = 10,
             ResponseText = "إفادة",
             Status = DepartmentResponseStatus.SubmittedForReview,
-            SubmittedByUserId = 1,
+            SubmittedByUserId = 2,
             SubmittedAt = DateTime.UtcNow
         });
         await db.SaveChangesAsync();
@@ -366,7 +636,7 @@ public class TransactionWorkflowAtomicityTests
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin));
 
-        Assert.Contains("إفادات ناقصة", ex.Message);
+        Assert.Contains("توجد إفادة مرسلة للمراجعة لكنها لم تُعتمد بعد.", ex.Message);
         Assert.Contains("المالية", ex.Message);
         Assert.Equal(0, cache.TransactionChangeInvalidations);
         var finalStatus = await db.Transactions

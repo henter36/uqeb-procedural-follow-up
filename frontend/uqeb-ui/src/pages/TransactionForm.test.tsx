@@ -57,6 +57,11 @@ function getIncomingSection() {
   return heading.closest('section') as HTMLElement;
 }
 
+function getOutgoingSection() {
+  const heading = screen.getAllByRole('heading', { name: 'بيانات الصادر' })[0];
+  return heading.closest('section') as HTMLElement;
+}
+
 function getFieldInSection(section: HTMLElement, labelText: string) {
   const label = within(section).getByText(labelText, { selector: 'label' });
   const group = label.closest('.form-group');
@@ -64,6 +69,29 @@ function getFieldInSection(section: HTMLElement, labelText: string) {
   const control = group.querySelector('input, select, textarea');
   if (!control) throw new Error(`control not found for ${labelText}`);
   return control as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+}
+
+async function fillValidCreateForm(user: ReturnType<typeof userEvent.setup>) {
+  const incomingSection = getIncomingSection();
+  await user.type(getFieldInSection(incomingSection, 'رقم الوارد *'), 'IN-100');
+  await user.type(getFieldInSection(incomingSection, 'الموضوع *'), 'اختبار');
+  await user.click(screen.getByRole('combobox', { name: /الجهة الوارد منها/ }));
+  await user.click(screen.getByRole('option', { name: /جهة خارجية أ/ }));
+  await user.click(screen.getByRole('combobox', { name: /التصنيف/ }));
+  await user.click(screen.getByRole('option', { name: /تصنيف عام/ }));
+  await user.type(getFieldInSection(incomingSection, 'عدد الأيام للرد *'), '7');
+}
+
+function validationError(errors: Record<string, string | string[]>) {
+  return {
+    isAxiosError: true,
+    message: 'Request failed with status code 400',
+    response: {
+      status: 400,
+      data: { errors },
+      headers: {},
+    },
+  };
 }
 
 afterEach(() => {
@@ -134,7 +162,7 @@ describe('TransactionForm incoming layout', () => {
     renderCreateForm();
     await waitForFormReady();
 
-    const outgoingSection = screen.getAllByRole('heading', { name: 'بيانات الصادر' })[0].closest('section') as HTMLElement;
+    const outgoingSection = getOutgoingSection();
     expect(within(outgoingSection).queryByRole('combobox', { name: /التصنيف/ })).not.toBeInTheDocument();
   });
 
@@ -285,6 +313,69 @@ describe('TransactionForm searchable selects', () => {
     });
   });
 
+  it('EditTransaction_ResponseTypeNone_PreservesStoredValue', async () => {
+    vi.mocked(services.transactionsApi.getById).mockResolvedValue({
+      data: {
+        incomingNumber: 'IN-NONE',
+        incomingDate: '2026-06-01T00:00:00',
+        subject: 'معاملة قديمة',
+        incomingSourceType: 'External',
+        incomingFromPartyId: 10,
+        incomingFromDepartmentId: null,
+        outgoingNumber: '',
+        outgoingDate: null,
+        outgoingDepartments: [],
+        responseType: 'None',
+        responseDueDays: null,
+        priority: 'Normal',
+        categoryId: 30,
+        notes: '',
+      },
+    } as never);
+
+    renderEditForm();
+    await waitForFormReady();
+
+    expect(getFieldInSection(getIncomingSection(), 'نوع الإفادة *')).toHaveValue('None');
+  });
+
+  it('EditTransaction_ResponseTypeNone_DoesNotRequireDueDaysUnlessResponseIsRequired', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.getById).mockResolvedValue({
+      data: {
+        incomingNumber: 'IN-NONE',
+        incomingDate: '2026-06-01T00:00:00',
+        subject: 'معاملة قديمة',
+        incomingSourceType: 'External',
+        incomingFromPartyId: 10,
+        incomingFromDepartmentId: null,
+        outgoingNumber: '',
+        outgoingDate: null,
+        outgoingDepartments: [],
+        responseType: 'None',
+        responseDueDays: null,
+        priority: 'Normal',
+        categoryId: 30,
+        notes: '',
+      },
+    } as never);
+    vi.mocked(services.transactionsApi.update).mockResolvedValue({} as never);
+
+    renderEditForm();
+    await waitForFormReady();
+
+    await user.click(screen.getByRole('button', { name: 'حفظ' }));
+
+    await waitFor(() => {
+      expect(services.transactionsApi.update).toHaveBeenCalled();
+    });
+    const payload = vi.mocked(services.transactionsApi.update).mock.calls[0][1];
+    expect(payload.responseType).toBe('None');
+    expect(payload.responseDueDays).toBeNull();
+    expect(payload.requiresResponse).toBe(false);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('uses responsive single-column grid without horizontal overflow class regressions', async () => {
     renderCreateForm();
     await waitForFormReady();
@@ -340,5 +431,172 @@ describe('TransactionForm searchable selects', () => {
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
 
     expect(screen.getByRole('combobox', { name: /التصنيف/ })).toHaveValue('تصنيف عام');
+  });
+});
+
+describe('TransactionForm validation feedback', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockReferenceData();
+  });
+
+  it('CreateTransaction_MissingRequiredFields_ShowsFieldErrors', async () => {
+    const user = userEvent.setup();
+    renderCreateForm();
+    await waitForFormReady();
+
+    await user.click(screen.getByRole('button', { name: 'حفظ' }));
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('يرجى تصحيح الحقول التالية:');
+    expect(alert).toHaveTextContent('رقم الوارد مطلوب.');
+    expect(alert).toHaveTextContent('الموضوع مطلوب.');
+    expect(alert).toHaveTextContent('الجهة الوارد منها مطلوبة.');
+    expect(alert).toHaveTextContent('التصنيف مطلوب.');
+    expect(alert).toHaveTextContent('عدد أيام الرد مطلوب عند طلب إفادة.');
+    expect(services.transactionsApi.create).not.toHaveBeenCalled();
+  });
+
+  it('CreateTransaction_MissingIncomingNumber_HighlightsIncomingNumber', async () => {
+    const user = userEvent.setup();
+    renderCreateForm();
+    await waitForFormReady();
+
+    await user.click(screen.getByRole('button', { name: 'حفظ' }));
+
+    const incomingNumber = getFieldInSection(getIncomingSection(), 'رقم الوارد *');
+    expect(incomingNumber).toHaveAttribute('aria-invalid', 'true');
+    expect(incomingNumber.closest('.form-group')).toHaveClass('has-error');
+    await waitFor(() => expect(incomingNumber).toHaveFocus());
+  });
+
+  it('CreateTransaction_MissingIncomingDate_HighlightsIncomingDate', async () => {
+    const user = userEvent.setup();
+    renderCreateForm();
+    await waitForFormReady();
+
+    const incomingSection = getIncomingSection();
+    const incomingNumber = getFieldInSection(incomingSection, 'رقم الوارد *');
+    const incomingDate = getFieldInSection(incomingSection, 'تاريخ الوارد * (ميلادي)');
+    await user.type(incomingNumber, 'IN-101');
+    await user.clear(incomingDate);
+    await user.click(screen.getByRole('button', { name: 'حفظ' }));
+
+    expect(incomingDate).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('alert')).toHaveTextContent('تاريخ الوارد مطلوب.');
+  });
+
+  it('CreateTransaction_MissingSubject_HighlightsSubject', async () => {
+    const user = userEvent.setup();
+    renderCreateForm();
+    await waitForFormReady();
+
+    await user.click(screen.getByRole('button', { name: 'حفظ' }));
+
+    const subject = getFieldInSection(getIncomingSection(), 'الموضوع *');
+    expect(subject).toHaveAttribute('aria-invalid', 'true');
+    expect(subject.closest('.form-group')).toHaveClass('has-error');
+  });
+
+  it('CreateTransaction_BackendValidationErrors_AreMappedToFields', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.create).mockRejectedValue(validationError({
+      IncomingNumber: 'رقم الوارد مطلوب.',
+      ResponseDueDays: ['عدد أيام الرد مطلوب عند طلب إفادة.'],
+    }) as never);
+    renderCreateForm();
+    await waitForFormReady();
+    await fillValidCreateForm(user);
+
+    await user.click(screen.getByRole('button', { name: 'حفظ' }));
+
+    const incomingNumber = getFieldInSection(getIncomingSection(), 'رقم الوارد *');
+    const responseDueDays = getFieldInSection(getIncomingSection(), 'عدد الأيام للرد *');
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('رقم الوارد مطلوب.'));
+    expect(incomingNumber).toHaveAttribute('aria-invalid', 'true');
+    expect(responseDueDays).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('CreateTransaction_SaveFailure_DoesNotClearForm', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.create).mockRejectedValue(validationError({
+      Subject: 'الموضوع مطلوب.',
+    }) as never);
+    renderCreateForm();
+    await waitForFormReady();
+    await fillValidCreateForm(user);
+
+    await user.click(screen.getByRole('button', { name: 'حفظ' }));
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('الموضوع مطلوب.'));
+    expect(getFieldInSection(getIncomingSection(), 'رقم الوارد *')).toHaveValue('IN-100');
+    expect(screen.getByRole('combobox', { name: /الجهة الوارد منها/ })).toHaveValue('جهة خارجية أ');
+    expect(screen.getByRole('combobox', { name: /التصنيف/ })).toHaveValue('تصنيف عام');
+  });
+
+  it('CreateTransaction_MissingOutgoingDepartmentIds_FocusesOrMarksMultiSelect', async () => {
+    const user = userEvent.setup();
+    renderCreateForm();
+    await waitForFormReady();
+    await fillValidCreateForm(user);
+
+    const outgoingSection = getOutgoingSection();
+    await user.type(getFieldInSection(outgoingSection, 'رقم الصادر'), 'OUT-100');
+    await user.type(getFieldInSection(outgoingSection, 'تاريخ الصادر (ميلادي)'), '2026-06-05');
+    await user.click(screen.getByRole('button', { name: 'حفظ' }));
+
+    const outgoingDepartments = document.querySelector<HTMLElement>('[data-field-name="outgoingDepartmentIds"]');
+    expect(outgoingDepartments).not.toBeNull();
+    await waitFor(() => expect(outgoingDepartments).toHaveFocus());
+    expect(screen.getByRole('alert')).toHaveTextContent('عند إدخال أي بيان من بيانات الصادر يجب إكمال رقم الصادر وتاريخ الصادر والإدارة الصادر لها.');
+  });
+
+  it('CreateTransaction_MissingOutgoingDepartmentIds_SetsAriaInvalid', async () => {
+    const user = userEvent.setup();
+    renderCreateForm();
+    await waitForFormReady();
+    await fillValidCreateForm(user);
+
+    const outgoingSection = getOutgoingSection();
+    await user.type(getFieldInSection(outgoingSection, 'رقم الصادر'), 'OUT-100');
+    await user.type(getFieldInSection(outgoingSection, 'تاريخ الصادر (ميلادي)'), '2026-06-05');
+    await user.click(screen.getByRole('button', { name: 'حفظ' }));
+
+    const outgoingDepartments = document.querySelector<HTMLElement>('[data-field-name="outgoingDepartmentIds"]');
+    expect(outgoingDepartments).not.toBeNull();
+    await waitFor(() => {
+      expect(outgoingDepartments).toHaveAttribute('aria-invalid', 'true');
+      expect(outgoingDepartments).toHaveAttribute('aria-describedby', 'outgoingDepartmentIds-error');
+    });
+  });
+
+  it('EditTransaction_MissingRequiredFields_ShowsFieldErrors', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.getById).mockResolvedValue({
+      data: {
+        incomingNumber: '',
+        incomingDate: '2026-06-01T00:00:00',
+        subject: '',
+        incomingSourceType: 'External',
+        incomingFromPartyId: null,
+        incomingFromDepartmentId: null,
+        outgoingNumber: '',
+        outgoingDate: null,
+        outgoingDepartments: [],
+        responseType: 'External',
+        responseDueDays: null,
+        priority: 'Normal',
+        categoryId: null,
+        notes: '',
+      },
+    } as never);
+    renderEditForm();
+    await waitForFormReady();
+
+    await user.click(screen.getByRole('button', { name: 'حفظ' }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('رقم الوارد مطلوب.');
+    expect(screen.getByRole('alert')).toHaveTextContent('الموضوع مطلوب.');
+    expect(services.transactionsApi.update).not.toHaveBeenCalled();
   });
 });

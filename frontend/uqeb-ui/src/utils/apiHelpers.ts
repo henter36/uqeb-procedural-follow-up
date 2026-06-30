@@ -129,9 +129,7 @@ export function buildReplyPayload(form: { replyDate: string; replySummary: strin
 }
 
 export function getFieldErrors(err: unknown): Record<string, string> {
-  if (!axios.isAxiosError(err)) return {};
-  const data = err.response?.data as { errors?: Record<string, string> } | undefined;
-  return data?.errors ?? {};
+  return getApiErrorDetails(err).validationErrors;
 }
 
 export type ApiErrorDetails = {
