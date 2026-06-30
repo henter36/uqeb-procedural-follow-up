@@ -11,8 +11,12 @@ public interface IReportNumberSequenceSchemaProbe
 
 public sealed class ReportNumberSequenceSchemaProbe : IReportNumberSequenceSchemaProbe
 {
-    private const string TableExistsSql = """
-        SELECT CASE WHEN OBJECT_ID(N'dbo.ReportNumberSequences', N'U') IS NOT NULL THEN 1 ELSE 0 END
+    internal const string TableExistsSql = """
+        SELECT
+            CASE
+                WHEN OBJECT_ID(N'dbo.ReportNumberSequences', N'U') IS NOT NULL THEN CAST(1 AS bit)
+                ELSE CAST(0 AS bit)
+            END AS [Value]
         """;
 
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
@@ -30,10 +34,10 @@ public sealed class ReportNumberSequenceSchemaProbe : IReportNumberSequenceSchem
         try
         {
             var exists = await db.Database
-                .SqlQueryRaw<int>(TableExistsSql)
+                .SqlQueryRaw<bool>(TableExistsSql)
                 .SingleAsync(cancellationToken);
 
-            return exists == 1;
+            return exists;
         }
         catch (SqlException)
         {
