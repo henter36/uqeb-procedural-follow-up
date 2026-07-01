@@ -41,7 +41,6 @@ export function formatHijri(date: string | Date): string {
   }
 }
 
-
 export function formatDualDate(date: string | Date): string {
   return `${formatGregorian(date)} (${formatHijri(date)})`;
 }
