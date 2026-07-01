@@ -7,7 +7,7 @@ namespace Uqeb.Api.Services;
 
 public class TrackingNumberService : ITrackingNumberService
 {
-    private const string SequenceName = "TransactionTrackingSequence";
+    private const string NextSequenceValueSql = "SELECT NEXT VALUE FOR [TransactionTrackingSequence]";
     private readonly AppDbContext _db;
 
     public TrackingNumberService(AppDbContext db) => _db = db;
@@ -26,7 +26,7 @@ public class TrackingNumberService : ITrackingNumberService
             await _db.Database.OpenConnectionAsync(cancellationToken);
 
         await using var command = connection.CreateCommand();
-        command.CommandText = $"SELECT NEXT VALUE FOR [{SequenceName}]";
+        command.CommandText = NextSequenceValueSql;
 
         var transaction = _db.Database.CurrentTransaction;
         if (transaction != null)

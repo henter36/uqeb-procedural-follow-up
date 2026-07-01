@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace Uqeb.Api.DTOs.Transactions;
 
@@ -79,6 +80,7 @@ public class CreateTransactionRequest
     public string IncomingNumber { get; set; } = string.Empty;
 
     [Required(ErrorMessage = "تاريخ الوارد مطلوب")]
+    [JsonRequired]
     public DateTime IncomingDate { get; set; }
 
     [Required(ErrorMessage = "الموضوع مطلوب")]
@@ -91,7 +93,7 @@ public class CreateTransactionRequest
     public DateTime? OutgoingDate { get; set; }
     public List<int>? OutgoingPartyIds { get; set; }
     public List<int>? OutgoingDepartmentIds { get; set; }
-    public bool RequiresResponse { get; set; }
+    public bool? RequiresResponse { get; set; }
     public string? ResponseType { get; set; }
     public int? ResponseDueDays { get; set; }
     public string Priority { get; set; } = "Normal";
@@ -125,6 +127,7 @@ public class UpdateTransactionRequest
 public class CompleteResponseRequest
 {
     [Required(ErrorMessage = "تاريخ الإفادة مطلوب")]
+    [JsonRequired]
     public DateTime ResponseDate { get; set; }
 
     [Required(ErrorMessage = "ملخص الإفادة مطلوب")]
@@ -242,6 +245,7 @@ public class FollowUpDto
 {
     public int Id { get; set; }
     public string? FollowUpNumber { get; set; }
+    [JsonRequired]
     public DateTime FollowUpDate { get; set; }
     public string? SentTo { get; set; }
     public List<FollowUpRecipientDto> Recipients { get; set; } = new();
@@ -258,6 +262,7 @@ public class FollowUpDto
 public class CreateFollowUpRequest
 {
     public string? FollowUpNumber { get; set; }
+    [JsonRequired]
     public DateTime FollowUpDate { get; set; }
     public List<int>? RecipientPartyIds { get; set; }
     public List<int>? DepartmentIds { get; set; }
@@ -266,6 +271,7 @@ public class CreateFollowUpRequest
 
 public class ReplyFollowUpRequest
 {
+    [JsonRequired]
     public DateTime ReplyDate { get; set; }
     public string ReplySummary { get; set; } = string.Empty;
 }
@@ -291,7 +297,10 @@ public class AssignmentDto
 
 public class CreateAssignmentRequest
 {
+    [JsonRequired]
     public int DepartmentId { get; set; }
+
+    [JsonRequired]
     public DateTime AssignedDate { get; set; }
     public string? RequiredAction { get; set; }
     public int? ReplyDueDays { get; set; }
@@ -300,6 +309,7 @@ public class CreateAssignmentRequest
 
 public class ReplyAssignmentRequest
 {
+    [JsonRequired]
     public DateTime ReplyDate { get; set; }
     public string ReplySummary { get; set; } = string.Empty;
 }
