@@ -60,6 +60,41 @@ function Resolve-ScannerBridgeSource {
     }
 }
 
+function Assert-ScannerBridgeAllowedOriginUri {
+    param(
+        [Parameter(Mandatory = $true)][Uri]$Uri,
+        [Parameter(Mandatory = $true)][string]$Origin
+    )
+
+    if ($Uri.Scheme -ne 'http' -and $Uri.Scheme -ne 'https') {
+        throw "AllowedOrigins يقبل http/https فقط: $Origin"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Uri.UserInfo)) {
+        throw "AllowedOrigins لا يقبل بيانات مستخدم داخل origin: $Origin"
+    }
+    if ($Uri.AbsolutePath -ne '/' -or
+        -not [string]::IsNullOrWhiteSpace($Uri.Query) -or
+        -not [string]::IsNullOrWhiteSpace($Uri.Fragment)) {
+        throw "AllowedOrigins يجب أن يحتوي origin فقط بدون path أو query أو fragment: $Origin"
+    }
+}
+
+function ConvertTo-ScannerBridgeAllowedOrigin {
+    param([Parameter(Mandatory = $true)][string]$Origin)
+
+    if ($Origin -eq '*') {
+        throw "AllowedOrigins لا تقبل wildcard (*)."
+    }
+
+    $uri = $null
+    if (-not [Uri]::TryCreate($Origin, [UriKind]::Absolute, [ref]$uri)) {
+        throw "AllowedOrigins يحتوي origin غير صالح: $Origin"
+    }
+
+    Assert-ScannerBridgeAllowedOriginUri -Uri $uri -Origin $Origin
+    return $uri.GetLeftPart([UriPartial]::Authority)
+}
+
 function ConvertTo-ScannerBridgeAllowedOrigins {
     param([string]$Origins)
 
@@ -69,26 +104,8 @@ function ConvertTo-ScannerBridgeAllowedOrigins {
         if ([string]::IsNullOrWhiteSpace($candidate)) {
             continue
         }
-        if ($candidate -eq '*') {
-            throw "AllowedOrigins لا تقبل wildcard (*)."
-        }
-        $uri = $null
-        if (-not [Uri]::TryCreate($candidate, [UriKind]::Absolute, [ref]$uri)) {
-            throw "AllowedOrigins يحتوي origin غير صالح: $candidate"
-        }
-        if ($uri.Scheme -ne 'http' -and $uri.Scheme -ne 'https') {
-            throw "AllowedOrigins يقبل http/https فقط: $candidate"
-        }
-        if (-not [string]::IsNullOrWhiteSpace($uri.UserInfo)) {
-            throw "AllowedOrigins لا يقبل بيانات مستخدم داخل origin: $candidate"
-        }
-        if ($uri.AbsolutePath -ne '/' -or
-            -not [string]::IsNullOrWhiteSpace($uri.Query) -or
-            -not [string]::IsNullOrWhiteSpace($uri.Fragment)) {
-            throw "AllowedOrigins يجب أن يحتوي origin فقط بدون path أو query أو fragment: $candidate"
-        }
 
-        $normalized = $uri.GetLeftPart([UriPartial]::Authority)
+        $normalized = ConvertTo-ScannerBridgeAllowedOrigin -Origin $candidate
         if (-not $result.Contains($normalized)) {
             $result.Add($normalized)
         }

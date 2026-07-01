@@ -2611,7 +2611,9 @@ Describe 'Scanner Bridge production install script' {
     It 'writes explicit CORS allowed origins and rejects wildcard origins' {
         $installScript | Should -Match '\[string\]\$AllowedOrigins'
         $installScript | Should -Match 'function ConvertTo-ScannerBridgeAllowedOrigins'
-        $installScript | Should -Match '\$candidate -eq ''\*'''
+        $installScript | Should -Match 'function ConvertTo-ScannerBridgeAllowedOrigin'
+        $installScript | Should -Match 'function Assert-ScannerBridgeAllowedOriginUri'
+        $installScript | Should -Match '\$Origin -eq ''\*'''
         $installScript | Should -Match 'Set-ScannerBridgeCorsOrigins'
         $installScript | Should -Match 'Cors'
         $installScript | Should -Match 'AllowedOrigins'
@@ -2635,6 +2637,7 @@ Describe 'Scanner Bridge production install script' {
         @{ Origin = 'http://10.0.177.17:8080?x=1' },
         @{ Origin = 'http://10.0.177.17:8080#x' },
         @{ Origin = 'http://user:pass@host' },
+        @{ Origin = 'ftp://localhost' },
         @{ Origin = '*' }
     ) {
         { ConvertTo-ScannerBridgeAllowedOrigins -Origins $Origin } |
