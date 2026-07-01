@@ -115,7 +115,6 @@ export default function FollowUpPrintJobsPage() {
     <div dir="rtl">
       <PageHeader
         title="مهام طباعة التعقيب"
-        subtitle="متابعة مهام الطباعة الجماعية وحالة الأجزاء"
         actions={(
           <>
             <Link to="/follow-up-print/eligible" className="btn btn-outline">المعاملات المستحقة</Link>

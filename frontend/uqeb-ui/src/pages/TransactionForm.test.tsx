@@ -170,6 +170,14 @@ describe('TransactionForm incoming layout', () => {
     expect(screen.queryByRole('heading', { name: 'بيانات الصادر' })).not.toBeInTheDocument();
   });
 
+  it('TransactionForm_HasSingleMainHeading', async () => {
+    renderCreateForm();
+    await waitForFormReady();
+
+    expect(screen.getAllByRole('heading', { name: 'إضافة معاملة' })).toHaveLength(1);
+    expect(screen.queryByText('إدخال بيانات معاملة جديدة')).not.toBeInTheDocument();
+  });
+
   it('shows category inside classification card', async () => {
     renderCreateForm();
     await waitForFormReady();

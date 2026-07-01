@@ -352,7 +352,6 @@ export default function TransactionsList() {
     <div>
       <PageHeader
         title="المعاملات"
-        subtitle="بحث وفلترة وإدارة جميع المعاملات"
         actions={(
           <>
             {isAdmin && (

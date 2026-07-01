@@ -223,9 +223,7 @@ function readReferenceDataResults(results: ReferenceDataResults) {
 }
 
 function getTransactionFormHeader(mode: Props['mode']) {
-  return mode === 'create'
-    ? { title: 'إضافة معاملة', subtitle: 'إدخال بيانات معاملة جديدة' }
-    : { title: 'تعديل معاملة', subtitle: 'تعديل بيانات المعاملة الحالية' };
+  return mode === 'create' ? 'إضافة معاملة' : 'تعديل معاملة';
 }
 
 function toSelectValue(value: string | number) {
@@ -550,10 +548,7 @@ export default function TransactionForm({ mode }: Props) {
 
   return (
     <div>
-      <PageHeader
-        title={header.title}
-        subtitle={header.subtitle}
-      />
+      <PageHeader title={header} />
       <form className="transaction-form" onSubmit={handleSubmit} noValidate>
         <TransactionValidationSummary
           hasFieldErrors={hasFieldErrors}

@@ -290,7 +290,6 @@ export default function FollowUpPrintJobDetailPage() {
     <div dir="rtl">
       <PageHeader
         title={`مهمة الطباعة #${job.id}`}
-        subtitle="تفاصيل المهمة وأجزاء الطباعة"
         actions={<Link to="/follow-up-print/jobs" className="btn btn-outline">العودة للمهام</Link>}
       />
 

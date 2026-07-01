@@ -691,7 +691,6 @@ export default function ReportBuilderPage() {
       <div className="page-header">
         <div>
           <h2 className="page-title">منشئ التقارير</h2>
-          <p className="page-subtitle">إنشاء وتصدير التقارير المؤسسية متعددة الصيغ</p>
         </div>
         <div className="page-header-actions">
           <button type="button" className="btn btn-secondary" onClick={loadPreview} disabled={loading}>

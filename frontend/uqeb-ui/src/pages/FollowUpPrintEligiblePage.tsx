@@ -234,7 +234,6 @@ export default function FollowUpPrintEligiblePage() {
     <div dir="rtl">
       <PageHeader
         title="المعاملات المستحقة للتعقيب"
-        subtitle="استعراض المعاملات المؤهلة وإنشاء مهام طباعة جماعية"
         actions={<Link to="/follow-up-print/jobs" className="btn btn-outline">مهام الطباعة</Link>}
       />
 

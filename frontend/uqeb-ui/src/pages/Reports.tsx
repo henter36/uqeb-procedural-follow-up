@@ -433,7 +433,6 @@ export default function ReportsPage() {
     <div>
       <PageHeader
         title="التقارير"
-        subtitle="عرض وتصدير تقارير المعاملات"
         actions={(
           <div className="btn-group">
             <button
