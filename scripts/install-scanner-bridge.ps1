@@ -197,6 +197,41 @@ function Wait-ScannerBridgeHealthy {
     throw "Scanner Bridge service started but did not become healthy on $StatusUrl within $TimeoutSeconds seconds."
 }
 
+function Normalize-ServiceBinaryPath {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ""
+    }
+
+    return $Path.Trim().Trim('"')
+}
+
+function Set-ScannerBridgeServiceBinaryPath {
+    param(
+        [Parameter(Mandatory = $true)][string]$ServiceName,
+        [Parameter(Mandatory = $true)][string]$ExePath
+    )
+
+    $expected = "`"$ExePath`""
+    $escapedServiceName = $ServiceName.Replace("'", "''")
+    $service = Get-CimInstance `
+        -ClassName Win32_Service `
+        -Filter "Name='$escapedServiceName'" `
+        -ErrorAction Stop
+    $current = Normalize-ServiceBinaryPath -Path $service.PathName
+    $target = Normalize-ServiceBinaryPath -Path $expected
+
+    if ($current -eq $target) {
+        return
+    }
+
+    $result = & sc.exe config $ServiceName "binPath=" $expected
+    if ($LASTEXITCODE -ne 0) {
+        throw "فشل تحديث مسار خدمة Scanner Bridge إلى $ExePath. sc.exe exit code: $LASTEXITCODE. Output: $result"
+    }
+}
+
 $isWindowsPlatform = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
     [System.Runtime.InteropServices.OSPlatform]::Windows)
 if (-not $isWindowsPlatform) {
@@ -231,7 +266,10 @@ try {
         -SettingsPath (Join-Path $InstallPath "appsettings.json") `
         -Origins $normalizedAllowedOrigins
 
-    if (-not $existing) {
+    if ($existing) {
+        Set-ScannerBridgeServiceBinaryPath -ServiceName $ServiceName -ExePath $exePath
+    }
+    else {
         New-Service `
             -Name $ServiceName `
             -BinaryPathName "`"$exePath`"" `

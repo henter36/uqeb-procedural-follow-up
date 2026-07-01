@@ -2650,4 +2650,16 @@ Describe 'Scanner Bridge production install script' {
         $installScript | Should -Match 'Write-Verbose \("Scanner Bridge health check attempt failed: "'
         $installScript | Should -Match 'Last health check error: '
     }
+
+    It 'normalizes quoted service binary paths before comparing them' {
+        Normalize-ServiceBinaryPath -Path '"C:\Uqeb\scanner-bridge\Uqeb.ScannerBridge.exe"' |
+            Should -Be 'C:\Uqeb\scanner-bridge\Uqeb.ScannerBridge.exe'
+    }
+
+    It 'reconciles an existing service binary path before starting the service' {
+        $installScript | Should -Match 'function Set-ScannerBridgeServiceBinaryPath'
+        $installScript | Should -Match 'Get-CimInstance[\s\S]*Win32_Service'
+        $installScript | Should -Match 'sc\.exe config \$ServiceName "binPath=" \$expected'
+        $installScript | Should -Match 'if \(\$existing\) \{[\s\S]*Set-ScannerBridgeServiceBinaryPath -ServiceName \$ServiceName -ExePath \$exePath[\s\S]*Start-Service -Name \$ServiceName'
+    }
 }
