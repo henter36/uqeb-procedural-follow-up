@@ -66,7 +66,7 @@ export default function AssignmentFormPanel({
     e.preventDefault();
     if (isSubmitting) return;
     if (form.departmentId && existingDepartmentIds.includes(Number(form.departmentId))) {
-      setError('سبق تحويل المعاملة إلى هذه الإدارة.');
+      setError('سبق احالة المعاملة إلى هذه الإدارة.');
       return;
     }
     setError('');
@@ -88,7 +88,7 @@ export default function AssignmentFormPanel({
       {error && <Alert variant="error">{error}</Alert>}
       {existingDepartmentIds.length > 0 && (
         <p className="text-muted workspace-form-hint">
-          إدارات سبق التحويل إليها: {departments.filter((d) => existingDepartmentIds.includes(d.id)).map((d) => d.name).join('، ')}
+          إدارات سبق الاحالة إليها: {departments.filter((d) => existingDepartmentIds.includes(d.id)).map((d) => d.name).join('، ')}
         </p>
       )}
       <div className="form-grid">
@@ -109,7 +109,7 @@ export default function AssignmentFormPanel({
           </select>
         </div>
         <div className="form-group">
-          <label htmlFor="assignment-date">تاريخ التحويل</label>
+          <label htmlFor="assignment-date">تاريخ الاحالة</label>
           <input
             id="assignment-date"
             type="date"
@@ -153,7 +153,7 @@ export default function AssignmentFormPanel({
       </div>
       <div className="form-actions">
         <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
-          {isSubmitting ? 'جاري الحفظ...' : 'حفظ التحويل'}
+          {isSubmitting ? 'جاري الحفظ...' : 'حفظ الاحالة'}
         </button>
         <button type="button" className="btn btn-outline" onClick={onCancel}>إلغاء</button>
       </div>

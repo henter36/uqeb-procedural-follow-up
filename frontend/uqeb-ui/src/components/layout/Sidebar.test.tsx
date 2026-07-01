@@ -86,7 +86,7 @@ describe('Sidebar', () => {
       </MemoryRouter>,
     );
 
-    const waitingLink = screen.getByRole('link', { name: 'التحويلات والردود' });
+    const waitingLink = screen.getByRole('link', { name: 'الاحالات والردود' });
     expect(waitingLink).toHaveAttribute('aria-current', 'page');
 
     const reportsLink = screen.getByRole('link', { name: 'التقارير' });
@@ -132,7 +132,7 @@ describe('Sidebar', () => {
     expect(screen.getByRole('link', { name: 'معاملات إدارتي' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'المعاملات' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'التقارير' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'التحويلات والردود' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'الاحالات والردود' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'طباعة التعقيب — المستحقة' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'بانتظار تسجيل التعقيب' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'مهام طباعة التعقيب' })).not.toBeInTheDocument();

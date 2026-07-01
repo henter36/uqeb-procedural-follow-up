@@ -36,7 +36,7 @@ export const auditActionLabels: Record<string, string> = {
   Update: 'تحديث',
   StatusChange: 'تغيير الحالة',
   AddFollowUp: 'إضافة تعقيب',
-  AddAssignment: 'إضافة تحويل',
+  AddAssignment: 'إضافة احالة',
   RecordReply: 'تسجيل رد',
   RecordResponse: 'تسجيل إفادة',
   CompleteResponse: 'تسجيل الإفادة',

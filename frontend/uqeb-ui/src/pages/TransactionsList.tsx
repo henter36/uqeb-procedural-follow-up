@@ -444,7 +444,7 @@ export default function TransactionsList() {
                 />
               )}
               <SearchableSelect
-                label="الإدارة (تحويل)"
+                label="الإدارة (احالة)"
                 value={filters.departmentId ? +filters.departmentId : ''}
                 onChange={(id) => setFilters({ ...filters, departmentId: id === '' ? '' : String(id) })}
                 options={departmentOptions}
@@ -465,7 +465,7 @@ export default function TransactionsList() {
               </select>
               <label className="checkbox-label"><input type="checkbox" checked={filters.overdueOnly} onChange={(e) => setFilters({ ...filters, overdueOnly: e.target.checked })} /> متأخر</label>
               <label className="checkbox-label"><input type="checkbox" checked={filters.responseOverdue} onChange={(e) => setFilters({ ...filters, responseOverdue: e.target.checked })} /> متأخر في الإفادة</label>
-              <label className="checkbox-label"><input type="checkbox" checked={filters.hasPendingAssignments} onChange={(e) => setFilters({ ...filters, hasPendingAssignments: e.target.checked })} /> تحويلات معلقة</label>
+              <label className="checkbox-label"><input type="checkbox" checked={filters.hasPendingAssignments} onChange={(e) => setFilters({ ...filters, hasPendingAssignments: e.target.checked })} /> احالةات معلقة</label>
               <label className="checkbox-label"><input type="checkbox" checked={filters.hasPartialReplies} onChange={(e) => setFilters({ ...filters, hasPartialReplies: e.target.checked })} /> رد جزئي</label>
             </div>
           )}

@@ -47,7 +47,7 @@ export function buildNavSections(institutionalReportsEnabled = isInstitutionalRe
     {
       label: 'العمليات',
       items: [
-        { path: '/reports?tab=waiting', label: 'التحويلات والردود', icon: IconReports, hideForDepartmentUser: true },
+        { path: '/reports?tab=waiting', label: 'الاحالات والردود', icon: IconReports, hideForDepartmentUser: true },
         { path: '/letter-template', label: 'قوالب خطاب التعقيب', icon: IconLetter, supervisorOnly: true, matchPrefix: true },
         { path: '/follow-up-print/eligible', label: 'طباعة التعقيب — المستحقة', icon: IconPrint, followUpPrintOnly: true, matchPrefix: true },
         { path: '/follow-up-print/jobs', label: 'مهام طباعة التعقيب', icon: IconPrint, followUpPrintOnly: true, matchPrefix: true },

@@ -1089,7 +1089,7 @@ public class TransactionService : ITransactionService
         if (assignment == null) return null;
 
         if (currentUser.Role == UserRole.DepartmentUser)
-            throw new UnauthorizedAccessException("لا تملك صلاحية تسجيل رد على التحويل. استخدم مسار إفادات الإدارة.");
+            throw new UnauthorizedAccessException("لا تملك صلاحية تسجيل رد على الاحالة. استخدم مسار إفادات الإدارة.");
 
         await CommitWorkflowMutationAsync(
             () =>

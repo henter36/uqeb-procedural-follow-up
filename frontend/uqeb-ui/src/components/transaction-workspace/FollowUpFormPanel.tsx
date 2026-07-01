@@ -119,7 +119,7 @@ function FollowUpFormPanelBody({
         منذ آخر تعقيب: {formatDaysSince(daysSinceLastFollowUp)}
       </p>
       {options.length === 0 ? (
-        <Alert variant="error">لا توجد إدارات مرتبطة بهذه المعاملة. أضف تحويلًا قبل إضافة التعقيب.</Alert>
+        <Alert variant="error">لا توجد إدارات مرتبطة بهذه المعاملة. أضف احالةًا قبل إضافة التعقيب.</Alert>
       ) : (
         <div className="form-grid">
           <div className="form-group">

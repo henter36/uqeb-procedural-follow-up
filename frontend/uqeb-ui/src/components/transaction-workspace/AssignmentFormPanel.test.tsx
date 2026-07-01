@@ -42,7 +42,7 @@ describe('AssignmentFormPanel dirty state', () => {
     await waitFor(() => {
       expect(onDirtyChange).toHaveBeenCalledWith(false);
     });
-    expect(screen.getByLabelText('تاريخ التحويل')).toHaveValue(todayLocalIso());
+    expect(screen.getByLabelText('تاريخ الاحالة')).toHaveValue(todayLocalIso());
   });
 
   it('becomes dirty when assignedDate changes', async () => {
@@ -58,7 +58,7 @@ describe('AssignmentFormPanel dirty state', () => {
       />,
     );
 
-    const dateInput = screen.getByLabelText('تاريخ التحويل');
+    const dateInput = screen.getByLabelText('تاريخ الاحالة');
     const originalDate = (dateInput as HTMLInputElement).value;
     onDirtyChange.mockClear();
 

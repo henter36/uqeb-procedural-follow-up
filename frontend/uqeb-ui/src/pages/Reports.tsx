@@ -60,7 +60,7 @@ const tabConfig: {
 }[] = [
   { key: 'response-required', label: 'مطلوب إفادة', countKey: 'responseRequired', loader: reportsApi.responseRequiredDetails },
   { key: 'overdue-responses', label: 'متأخر في الإفادة', countKey: 'overdueResponses', loader: reportsApi.overdueResponsesDetails },
-  { key: 'pending-assignments', label: 'تحويلات مفتوحة', countKey: 'openAssignments', loader: reportsApi.openAssignmentsDetails },
+  { key: 'pending-assignments', label: 'احالةات مفتوحة', countKey: 'openAssignments', loader: reportsApi.openAssignmentsDetails },
   { key: 'partial-replies', label: 'ردود جزئية', countKey: 'partialReplies', loader: reportsApi.partialRepliesDetails },
   { key: 'overdue', label: 'المتأخرة', countKey: 'overdue', loader: reportsApi.overdueDetails },
   { key: 'waiting', label: 'بانتظار رد', countKey: 'waitingReply', loader: reportsApi.waitingReplyDetails },

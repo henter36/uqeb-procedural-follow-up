@@ -77,10 +77,10 @@ function hasDepartmentResponseAssignment(items: Assignment[], departmentId?: num
 }
 
 const ACTION_TITLES: Record<WorkspaceAction, string> = {
-  assignment: 'إضافة تحويل',
+  assignment: 'إضافة احالة',
   followup: 'إضافة تعقيب',
   attachment: 'إضافة مرفق',
-  'reply-assignment': 'تسجيل رد على التحويل',
+  'reply-assignment': 'تسجيل رد على الاحالة',
   'reply-followup': 'تسجيل رد على التعقيب',
   'complete-response': 'تسجيل الإفادة',
   'follow-up-letter': 'خطاب تعقيب PDF',
@@ -187,7 +187,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
       const res = await transactionsApi.getAssignments(+id);
       setAssignments(res.data ?? []);
     } catch {
-      setAssignmentsError('تعذر تحميل التحويلات');
+      setAssignmentsError('تعذر تحميل الاحالةات');
     } finally {
       setAssignmentsLoading(false);
     }
@@ -390,7 +390,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   }, [resetAndCloseAction, refreshAuditIfLoaded]);
 
   const handleAssignmentSuccess = async () => {
-    await handleActionSuccess('تم إضافة التحويل بنجاح.', [() => loadWorkspace({ silent: true })]);
+    await handleActionSuccess('تم إضافة الاحالة بنجاح.', [() => loadWorkspace({ silent: true })]);
   };
 
   const handleFollowUpSuccess = async () => {
@@ -566,7 +566,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
             <span className="transaction-metric-value">{formatDaysSince(tx.daysSinceLastFollowUp)}</span>
           </div>
           <div className="transaction-metric-tile">
-            <span className="transaction-metric-label">تحويلات مفتوحة</span>
+            <span className="transaction-metric-label">احالةات مفتوحة</span>
             <span className="transaction-metric-value">{openAssignmentsCount}</span>
           </div>
           <div className="transaction-metric-tile">
@@ -624,12 +624,12 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
       )}
 
       <div className="transaction-sections-grid">
-        <section className="card transaction-section-card" aria-label="التحويلات والردود">
+        <section className="card transaction-section-card" aria-label="الاحالات والردود">
           <div className="section-card-header">
             <div className="section-card-title">
               <span className="section-card-icon" aria-hidden>↪</span>
-              <h3>التحويلات والردود</h3>
-              <span className="section-card-count">{assignments.length} تحويل</span>
+              <h3>الاحالات والردود</h3>
+              <span className="section-card-count">{assignments.length} احالة</span>
             </div>
             {showMutationActions && (
               <button
@@ -638,7 +638,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                 aria-pressed={activeAction === 'assignment'}
                 onClick={() => toggleAction('assignment')}
               >
-                + إضافة تحويل
+                + إضافة احالة
               </button>
             )}
           </div>
@@ -667,7 +667,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
               testId="reply-assignment-form-panel"
             >
               <ReplyFormPanel
-                title="تسجيل رد على التحويل"
+                title="تسجيل رد على الاحالة"
                 onDirtyChange={setActionDirty}
                 onCancel={closeAction}
                 onSubmit={(payload) => transactionsApi.replyAssignment(+id, replyAssignmentId, payload)}
@@ -676,7 +676,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
             </CardActionPanel>
           )}
 
-          {assignmentsLoading && <LoadingInline label="جاري تحميل التحويلات..." />}
+          {assignmentsLoading && <LoadingInline label="جاري تحميل الاحالةات..." />}
           {assignmentsError && (
             <Alert variant="error">
               {assignmentsError}
@@ -687,10 +687,10 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
           )}
           {!assignmentsLoading && !assignmentsError && assignments.length === 0 && (
             <div className="section-empty-state">
-              <p>لا توجد تحويلات مسجلة لهذه المعاملة.</p>
+              <p>لا توجد احالةات مسجلة لهذه المعاملة.</p>
               {showMutationActions && (
                 <button type="button" className="btn btn-primary btn-sm" onClick={() => toggleAction('assignment')}>
-                  إضافة أول تحويل
+                  إضافة أول احالة
                 </button>
               )}
             </div>

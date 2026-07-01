@@ -166,7 +166,7 @@ function getActionBarButton(name: string) {
 }
 
 function getAssignmentsCard() {
-  return screen.getByRole('region', { name: 'التحويلات والردود' });
+  return screen.getByRole('region', { name: 'الاحالات والردود' });
 }
 
 function getFollowUpsCard() {
@@ -258,7 +258,7 @@ describe('TransactionDetailPage three-tab layout', () => {
     await waitFor(() => expect(screen.getByRole('tab', { name: 'تفاصيل المعاملة' })).toBeInTheDocument());
 
     expect(screen.queryByRole('tab', { name: /نظرة عامة/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('tab', { name: /^التحويلات/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /^الاحالةات/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: /^التعقيبات/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: /^المرفقات/ })).not.toBeInTheDocument();
   });
@@ -346,17 +346,17 @@ describe('TransactionDetailPage three-tab layout', () => {
     renderDetail();
     await waitForDetailsReady();
     const card = getAssignmentsCard();
-    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة تحويل' })).toBeInTheDocument());
+    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة احالة' })).toBeInTheDocument());
 
-    await user.click(within(card).getByRole('button', { name: '+ إضافة تحويل' }));
+    await user.click(within(card).getByRole('button', { name: '+ إضافة احالة' }));
     expect(within(card).getByTestId('assignment-form-panel')).toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText('الإدارة *'), '2');
     await user.type(screen.getByLabelText('الإجراء المطلوب'), 'مراجعة');
-    await user.click(screen.getByRole('button', { name: 'حفظ التحويل' }));
+    await user.click(screen.getByRole('button', { name: 'حفظ الاحالة' }));
 
     await waitFor(() => {
-      expect(screen.getByRole('status')).toHaveTextContent('تم إضافة التحويل بنجاح');
+      expect(screen.getByRole('status')).toHaveTextContent('تم إضافة الاحالة بنجاح');
       expect(screen.getByText('مراجعة')).toBeInTheDocument();
       expect(within(card).queryByTestId('assignment-form-panel')).not.toBeInTheDocument();
     });
@@ -431,14 +431,14 @@ describe('TransactionDetailPage department user permissions', () => {
     await waitForDetailsReady();
 
     const actionBar = getActionBar();
-    expect(within(actionBar).queryByRole('button', { name: 'إضافة تحويل' })).not.toBeInTheDocument();
+    expect(within(actionBar).queryByRole('button', { name: 'إضافة احالة' })).not.toBeInTheDocument();
     expect(within(actionBar).queryByRole('button', { name: 'إضافة تعقيب' })).not.toBeInTheDocument();
     expect(within(actionBar).queryByRole('button', { name: 'إضافة مرفق' })).not.toBeInTheDocument();
     expect(within(actionBar).queryByRole('link', { name: 'تعديل' })).not.toBeInTheDocument();
     expect(within(actionBar).queryByRole('button', { name: 'خطاب تعقيب PDF' })).not.toBeInTheDocument();
     expect(within(actionBar).queryByRole('button', { name: 'إغلاق المعاملة' })).not.toBeInTheDocument();
 
-    expect(within(getAssignmentsCard()).queryByRole('button', { name: '+ إضافة تحويل' })).not.toBeInTheDocument();
+    expect(within(getAssignmentsCard()).queryByRole('button', { name: '+ إضافة احالة' })).not.toBeInTheDocument();
     expect(within(getFollowUpsCard()).queryByRole('button', { name: '+ إضافة تعقيب' })).not.toBeInTheDocument();
     expect(within(getAttachmentsCard()).queryByRole('button', { name: '+ إضافة مرفق' })).not.toBeInTheDocument();
     expect(screen.queryAllByRole('button', { name: 'تسجيل رد' })).toHaveLength(0);
@@ -466,7 +466,7 @@ describe('TransactionDetailPage department user permissions', () => {
     renderDetail();
     await waitForDetailsReady();
 
-    expect(within(getActionBar()).getByRole('button', { name: 'إضافة تحويل' })).toBeInTheDocument();
+    expect(within(getActionBar()).getByRole('button', { name: 'إضافة احالة' })).toBeInTheDocument();
     expect(within(getActionBar()).getByRole('button', { name: 'إضافة تعقيب' })).toBeInTheDocument();
     expect(within(getActionBar()).getByRole('link', { name: 'تعديل' })).toBeInTheDocument();
     expect(within(getActionBar()).getByRole('button', { name: 'خطاب تعقيب PDF' })).toBeInTheDocument();
@@ -501,9 +501,9 @@ describe('TransactionDetailPage card interaction flows', () => {
     renderDetail();
     await waitForDetailsReady();
     const card = getAssignmentsCard();
-    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة تحويل' })).toBeInTheDocument());
+    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة احالة' })).toBeInTheDocument());
 
-    const addButton = within(card).getByRole('button', { name: '+ إضافة تحويل' });
+    const addButton = within(card).getByRole('button', { name: '+ إضافة احالة' });
     expect(addButton).toHaveAttribute('type', 'button');
 
     await user.click(addButton);
@@ -511,7 +511,7 @@ describe('TransactionDetailPage card interaction flows', () => {
     const panel = within(card).getByTestId('assignment-form-panel');
     expect(panel).toBeInTheDocument();
     expect(within(panel).getByLabelText('الإدارة *')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'حفظ التحويل' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'حفظ الاحالة' })).toBeInTheDocument();
     expect(screen.queryByTestId('followup-form-panel')).not.toBeInTheDocument();
     expect(screen.queryByTestId('attachment-form-panel')).not.toBeInTheDocument();
   });
@@ -526,15 +526,15 @@ describe('TransactionDetailPage card interaction flows', () => {
     renderDetail();
     await waitForDetailsReady();
     const card = getAssignmentsCard();
-    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة تحويل' })).toBeInTheDocument());
+    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة احالة' })).toBeInTheDocument());
 
-    await user.click(within(card).getByRole('button', { name: '+ إضافة تحويل' }));
+    await user.click(within(card).getByRole('button', { name: '+ إضافة احالة' }));
     await user.selectOptions(screen.getByLabelText('الإدارة *'), '2');
     await user.type(screen.getByLabelText('الإجراء المطلوب'), 'مراجعة');
-    await user.click(screen.getByRole('button', { name: 'حفظ التحويل' }));
+    await user.click(screen.getByRole('button', { name: 'حفظ الاحالة' }));
 
     await waitFor(() => {
-      expect(screen.getByRole('status')).toHaveTextContent('تم إضافة التحويل بنجاح');
+      expect(screen.getByRole('status')).toHaveTextContent('تم إضافة الاحالة بنجاح');
       expect(within(card).queryByTestId('assignment-form-panel')).not.toBeInTheDocument();
     });
     expect(services.transactionsApi.addAssignment).toHaveBeenCalledTimes(1);
@@ -548,11 +548,11 @@ describe('TransactionDetailPage card interaction flows', () => {
     renderDetail();
     await waitForDetailsReady();
     const card = getAssignmentsCard();
-    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة تحويل' })).toBeInTheDocument());
+    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة احالة' })).toBeInTheDocument());
 
-    await user.click(within(card).getByRole('button', { name: '+ إضافة تحويل' }));
+    await user.click(within(card).getByRole('button', { name: '+ إضافة احالة' }));
     await user.selectOptions(screen.getByLabelText('الإدارة *'), '2');
-    await user.click(screen.getByRole('button', { name: 'حفظ التحويل' }));
+    await user.click(screen.getByRole('button', { name: 'حفظ الاحالة' }));
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
     expect(within(card).getByTestId('assignment-form-panel')).toBeInTheDocument();
@@ -566,9 +566,9 @@ describe('TransactionDetailPage card interaction flows', () => {
     renderDetail();
     await waitForDetailsReady();
     const card = getAssignmentsCard();
-    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة تحويل' })).toBeInTheDocument());
+    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة احالة' })).toBeInTheDocument());
 
-    const toggle = within(card).getByRole('button', { name: '+ إضافة تحويل' });
+    const toggle = within(card).getByRole('button', { name: '+ إضافة احالة' });
     await user.click(toggle);
     expect(within(card).getByTestId('assignment-form-panel')).toBeInTheDocument();
 
@@ -584,11 +584,11 @@ describe('TransactionDetailPage card interaction flows', () => {
     renderDetail();
     await waitForDetailsReady();
     const card = getAssignmentsCard();
-    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة تحويل' })).toBeInTheDocument());
+    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة احالة' })).toBeInTheDocument());
 
-    await user.click(within(card).getByRole('button', { name: '+ إضافة تحويل' }));
+    await user.click(within(card).getByRole('button', { name: '+ إضافة احالة' }));
     await user.type(screen.getByLabelText('الإجراء المطلوب'), 'تعديل');
-    await user.click(within(card).getByRole('button', { name: '+ إضافة تحويل' }));
+    await user.click(within(card).getByRole('button', { name: '+ إضافة احالة' }));
 
     expect(confirmSpy).toHaveBeenCalledTimes(1);
     expect(within(card).queryByTestId('assignment-form-panel')).not.toBeInTheDocument();
@@ -602,11 +602,11 @@ describe('TransactionDetailPage card interaction flows', () => {
     renderDetail();
     await waitForDetailsReady();
     const card = getAssignmentsCard();
-    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة تحويل' })).toBeInTheDocument());
+    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة احالة' })).toBeInTheDocument());
 
-    await user.click(within(card).getByRole('button', { name: '+ إضافة تحويل' }));
+    await user.click(within(card).getByRole('button', { name: '+ إضافة احالة' }));
     await user.selectOptions(screen.getByLabelText('الإدارة *'), '2');
-    await user.click(screen.getByRole('button', { name: 'حفظ التحويل' }));
+    await user.click(screen.getByRole('button', { name: 'حفظ الاحالة' }));
 
     await waitFor(() => expect(within(card).queryByTestId('assignment-form-panel')).not.toBeInTheDocument());
     expect(confirmSpy).not.toHaveBeenCalled();
@@ -619,9 +619,9 @@ describe('TransactionDetailPage card interaction flows', () => {
     renderDetail();
     await waitForDetailsReady();
     const card = getAssignmentsCard();
-    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة تحويل' })).toBeInTheDocument());
+    await waitFor(() => expect(within(card).getByRole('button', { name: '+ إضافة احالة' })).toBeInTheDocument());
 
-    await user.click(within(card).getByRole('button', { name: '+ إضافة تحويل' }));
+    await user.click(within(card).getByRole('button', { name: '+ إضافة احالة' }));
     const panel = within(card).getByTestId('assignment-form-panel');
     await user.type(screen.getByLabelText('الإجراء المطلوب'), 'مسودة');
     await user.click(within(panel).getByRole('button', { name: 'إغلاق النموذج' }));
@@ -694,7 +694,7 @@ describe('TransactionDetailPage card interaction flows', () => {
     renderDetail();
     await waitForDetailsReady();
 
-    await user.click(within(getAssignmentsCard()).getByRole('button', { name: '+ إضافة تحويل' }));
+    await user.click(within(getAssignmentsCard()).getByRole('button', { name: '+ إضافة احالة' }));
     expect(screen.getByTestId('assignment-form-panel')).toBeInTheDocument();
 
     await user.click(within(getFollowUpsCard()).getByRole('button', { name: '+ إضافة تعقيب' }));
@@ -754,7 +754,7 @@ describe('TransactionDetailPage operational workspace', () => {
       expect(screen.getByRole('heading', { level: 2, name: 'IN-1' })).toBeInTheDocument();
     });
     expect(screen.getByRole('navigation', { name: 'إجراءات المعاملة' })).toBeInTheDocument();
-    expect(getActionBarButton('إضافة تحويل')).toBeInTheDocument();
+    expect(getActionBarButton('إضافة احالة')).toBeInTheDocument();
     expect(screen.getByText('منذ ورود المعاملة')).toBeInTheDocument();
   });
 
@@ -763,10 +763,10 @@ describe('TransactionDetailPage operational workspace', () => {
     renderDetail();
 
     await waitFor(() => {
-      expect(getActionBarButton('إضافة تحويل')).toBeInTheDocument();
+      expect(getActionBarButton('إضافة احالة')).toBeInTheDocument();
     });
 
-    await user.click(getActionBarButton('إضافة تحويل'));
+    await user.click(getActionBarButton('إضافة احالة'));
 
     expect(within(getAssignmentsCard()).getByTestId('assignment-form-panel')).toBeInTheDocument();
     expect(screen.getByLabelText('الإدارة *')).toBeInTheDocument();
@@ -778,15 +778,15 @@ describe('TransactionDetailPage operational workspace', () => {
     vi.mocked(services.transactionsApi.addAssignment).mockResolvedValue({ data: { id: 9 } } as never);
 
     renderDetail();
-    await waitFor(() => expect(getActionBarButton('إضافة تحويل')).toBeInTheDocument());
+    await waitFor(() => expect(getActionBarButton('إضافة احالة')).toBeInTheDocument());
 
-    await user.click(getActionBarButton('إضافة تحويل'));
+    await user.click(getActionBarButton('إضافة احالة'));
     await user.selectOptions(screen.getByLabelText('الإدارة *'), '2');
     await user.type(screen.getByLabelText('الإجراء المطلوب'), 'مراجعة');
-    await user.click(screen.getByRole('button', { name: 'حفظ التحويل' }));
+    await user.click(screen.getByRole('button', { name: 'حفظ الاحالة' }));
 
     await waitFor(() => {
-      expect(screen.getByRole('status')).toHaveTextContent('تم إضافة التحويل بنجاح');
+      expect(screen.getByRole('status')).toHaveTextContent('تم إضافة الاحالة بنجاح');
       expect(screen.queryByTestId('assignment-form-panel')).not.toBeInTheDocument();
     });
     expect(confirmSpy).not.toHaveBeenCalled();
@@ -820,11 +820,11 @@ describe('TransactionDetailPage permissions', () => {
     renderDetail();
 
     await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'IN-1' })).toBeInTheDocument());
-    expect(screen.queryByRole('button', { name: 'إضافة تحويل' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '+ إضافة تحويل' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'إضافة احالة' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '+ إضافة احالة' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'إضافة تعقيب' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '+ إضافة مرفق' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'إضافة أول تحويل' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'إضافة أول احالة' })).not.toBeInTheDocument();
   });
 
   it('hides admin mutation and reply actions for department user', async () => {
@@ -841,7 +841,7 @@ describe('TransactionDetailPage permissions', () => {
     renderDetail();
 
     await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'IN-1' })).toBeInTheDocument());
-    expect(screen.queryByRole('button', { name: '+ إضافة تحويل' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '+ إضافة احالة' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '+ إضافة تعقيب' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'تعديل' })).not.toBeInTheDocument();
     expect(within(getAssignmentsCard()).queryByRole('button', { name: 'تسجيل رد' })).not.toBeInTheDocument();
@@ -862,7 +862,7 @@ describe('TransactionDetailPage permissions', () => {
     renderDetail();
 
     await waitFor(() => {
-      expect(within(getAssignmentsCard()).getByRole('button', { name: '+ إضافة تحويل' })).toBeInTheDocument();
+      expect(within(getAssignmentsCard()).getByRole('button', { name: '+ إضافة احالة' })).toBeInTheDocument();
       expect(within(getFollowUpsCard()).getByRole('button', { name: '+ إضافة تعقيب' })).toBeInTheDocument();
       expect(within(getAttachmentsCard()).getByRole('button', { name: '+ إضافة مرفق' })).toBeInTheDocument();
     });

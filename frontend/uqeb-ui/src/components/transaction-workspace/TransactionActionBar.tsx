@@ -37,7 +37,7 @@ export default function TransactionActionBar({
             className={`btn btn-secondary btn-sm${activeAction === 'assignment' ? ' active' : ''}`}
             onClick={() => onAction('assignment')}
           >
-            إضافة تحويل
+            إضافة احالة
           </button>
           <button
             type="button"

@@ -387,7 +387,7 @@ SELECT
 1. إيقاف وتعطيل `UqebApi` مؤقتًا.
 2. التأكد من عدم وجود listener على المنفذ `5000`.
 3. الاتصال بقاعدة `master`.
-4. تحويل `UqebDb` إلى `SINGLE_USER WITH ROLLBACK IMMEDIATE`.
+4. احالة `UqebDb` إلى `SINGLE_USER WITH ROLLBACK IMMEDIATE`.
 5. حذف القاعدة.
 6. إنشاء `UqebDb` جديدة.
 7. تنفيذ جميع migrations من البداية.
@@ -529,7 +529,7 @@ $username = Read-Host "admin"
 VITE_API_BASE_URL=/api
 ```
 
-ويقوم Vite proxy بتحويل `/api` إلى `http://localhost:5000`.
+ويقوم Vite proxy باحالة `/api` إلى `http://localhost:5000`.
 
 في Build الإنتاج يجب ألا تشير ملفات JavaScript إلى `localhost:5000`؛ لأن `localhost` عند المستخدم يعني جهاز المستخدم نفسه.
 
@@ -600,7 +600,7 @@ Get-Content "C:\Uqeb\logs\api-runtime.log" -Tail 300 |
 - [ ] تسجيل الدخول الخاطئ يعيد 401، وليس 500.
 - [ ] فتح الواجهة من جهاز على الشبكة.
 - [ ] إنشاء معاملة وتعديلها.
-- [ ] اختبار التحويل والتعقيب والإفادة والإغلاق.
+- [ ] اختبار الاحالة والتعقيب والإفادة والإغلاق.
 - [ ] اختبار PDF وExcel.
 - [ ] اختبار Scanner Bridge عند توفر الجهاز.
 - [ ] عدم وجود `SqlException` أو `Invalid column` أو `Unhandled exception` جديدة.
