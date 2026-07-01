@@ -4,9 +4,21 @@ export function formatGregorian(date: string | Date): string {
   return d.toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
+function toDisplayDate(date: string | Date): Date {
+  if (date instanceof Date) return date;
+
+  const dateOnlyMatch = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(date);
+  if (dateOnlyMatch) {
+    const [, year, month, day] = dateOnlyMatch;
+    return new Date(Number(year), Number(month) - 1, Number(day), 12, 0, 0);
+  }
+
+  return new Date(date);
+}
+
 export function formatHijri(date: string | Date): string {
-  const d = typeof date === 'string' ? new Date(date) : date;
-  if (!d || Number.isNaN(d.getTime())) return '-';
+  const d = toDisplayDate(date);
+  if (Number.isNaN(d.getTime())) return '-';
 
   const formatWithLocale = (locale: string): string => {
     const parts = Object.fromEntries(
