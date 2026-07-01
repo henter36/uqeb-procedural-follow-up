@@ -7,7 +7,7 @@ export function formatGregorian(date: string | Date): string {
 function toDisplayDate(date: string | Date): Date {
   if (date instanceof Date) return date;
 
-  const dateOnlyMatch = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(date);
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
   if (dateOnlyMatch) {
     const [, year, month, day] = dateOnlyMatch;
     return new Date(Number(year), Number(month) - 1, Number(day), 12, 0, 0);
