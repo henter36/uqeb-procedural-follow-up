@@ -16,30 +16,41 @@ function toDisplayDate(date: string | Date): Date {
   return new Date(date);
 }
 
+function stripHijriEra(value: string): string {
+  return value.replace(/\s*هـ\.?\s*$/u, '').trim();
+}
+
 export function formatHijri(date: string | Date): string {
   const d = toDisplayDate(date);
   if (Number.isNaN(d.getTime())) return '-';
 
   const formatWithLocale = (locale: string): string => {
-    const parts = Object.fromEntries(
-      new Intl.DateTimeFormat(locale, {
-        year: 'numeric',
-        month: 'numeric',
-        day: 'numeric',
-      })
-        .formatToParts(d)
-        .map((p) => [p.type, p.value]),
-    );
+    const formatter = new Intl.DateTimeFormat(locale, {
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+    });
 
-    const day = parts.day;
-    const month = parts.month;
-    const year = parts.year;
+    try {
+      const parts = Object.fromEntries(
+        formatter
+          .formatToParts(d)
+          .map((p) => [p.type, p.value]),
+      );
 
-    if (!day || !month || !year) {
-      throw new Error('Missing Hijri date parts');
+      const day = parts.day;
+      const month = parts.month;
+      const year = parts.year;
+
+      if (day && month && year) {
+        return `${day}/${month}/${year}`;
+      }
+    } catch {
+      // Fall back to format() below for partial Intl implementations.
     }
 
-    return `${day}/${month}/${year}`;
+    const formatted = stripHijriEra(formatter.format(d));
+    return formatted || '-';
   };
 
   try {
