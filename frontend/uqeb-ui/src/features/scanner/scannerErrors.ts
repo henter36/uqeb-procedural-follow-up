@@ -6,11 +6,11 @@ export type ScannerErrorCode =
   | 'BRIDGE_TIMEOUT';
 
 const messages: Record<ScannerErrorCode, string> = {
-  BRIDGE_OFFLINE: 'خدمة الماسح غير متاحة. يمكنك رفع ملف يدويًا.',
-  NO_SCANNER: 'لا يوجد ماسح متصل بهذا الجهاز.',
+  BRIDGE_OFFLINE: 'خدمة الماسح المحلية غير شغالة على هذا الجهاز. شغّل Uqeb Scanner Bridge أو استخدم إرفاق ملف يدويًا.',
+  NO_SCANNER: 'لم يتم العثور على ماسح عبر WIA. تأكد من تعريف الماسح في Windows أو استخدم برنامج الشركة ثم ارفع الملف يدويًا.',
   SCAN_FAILED: 'فشل الاتصال بالماسح. تحقق من تشغيل الجهاز وأعد المحاولة.',
   UPLOAD_FAILED: 'فشل حفظ المرفق. الملف لم يُحفظ في المعاملة.',
-  BRIDGE_TIMEOUT: 'انتهت مهلة الاتصال بخدمة الماسح.',
+  BRIDGE_TIMEOUT: 'انتهت مهلة الاتصال بخدمة الماسح المحلية. شغّل Uqeb Scanner Bridge أو استخدم إرفاق ملف يدويًا.',
 };
 
 export function getScannerErrorMessage(code: ScannerErrorCode): string {

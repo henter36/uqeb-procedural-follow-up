@@ -3,6 +3,7 @@ using Uqeb.ScannerBridge.Endpoints;
 using Uqeb.ScannerBridge.Options;
 using Uqeb.ScannerBridge.Services;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Hosting.WindowsServices;
 
 if (!OperatingSystem.IsWindows())
 {
@@ -11,6 +12,11 @@ if (!OperatingSystem.IsWindows())
 }
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Host.UseWindowsService(options =>
+{
+    options.ServiceName = "Uqeb Scanner Bridge";
+});
 
 builder.Services.Configure<ScannerBridgeOptions>(builder.Configuration.GetSection(ScannerBridgeOptions.SectionName));
 builder.Services.Configure<CorsOptions>(builder.Configuration.GetSection(CorsOptions.SectionName));

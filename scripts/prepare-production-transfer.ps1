@@ -145,6 +145,7 @@ Copy-Item -LiteralPath $shaPath  -Destination (Join-Path $incomingDir ([System.I
 Write-DeployStep "نسخ سكربتات النشر"
 $scriptsToTools = @(
     "install-production-package.ps1",
+    "install-scanner-bridge.ps1",
     "apply-migrations.ps1",
     "verify-deployment-health.ps1",
     "deploy-production-fast.ps1"
@@ -217,10 +218,20 @@ Set-Content -LiteralPath $readmePath -Encoding UTF8 -Value @"
   incoming\$zipName.sha256.txt  <- SHA256 للتحقق
   tools\deploy-production-fast.ps1   <- سكربت النشر
   tools\install-production-package.ps1
+  tools\install-scanner-bridge.ps1
   tools\apply-migrations.ps1
   tools\verify-deployment-health.ps1
   tools\deployment\Common.ps1
   deploy.ps1  <- مشغّل سريع
+
+لتثبيت Scanner Bridge على جهاز Windows الذي يحتوي الماسح والمتصفح:
+
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\install-scanner-bridge.ps1 -PackagePath .\incoming\$zipName
+
+ثم تحقق:
+
+  Invoke-RestMethod http://127.0.0.1:5055/status
+  Invoke-RestMethod http://127.0.0.1:5055/scanners
 "@
 
 Write-DeployStep "مجلد النقل جاهز"

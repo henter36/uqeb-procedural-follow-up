@@ -589,6 +589,40 @@ Get-Content "C:\Uqeb\logs\api-runtime.log" -Tail 300 |
 
 ---
 
+## Scanner Bridge المحلي
+
+ميزة المسح الضوئي في الواجهة لا تتصل بالماسح مباشرة من المتصفح. يجب تثبيت
+`Uqeb Scanner Bridge` على جهاز Windows الذي يحتوي الماسح والمتصفح المستخدم
+للمسح، وليس بالضرورة على خادم UQEB إذا كان المسح يتم من محطة عمل مختلفة.
+
+الخدمة تستمع على loopback فقط:
+
+```text
+http://127.0.0.1:5055
+```
+
+بعد نقل حزمة الإنتاج، ثبّت الخدمة على جهاز الماسح كمسؤول:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\tools\install-scanner-bridge.ps1 `
+  -PackagePath .\incoming\Uqeb-<version>.zip
+```
+
+تحقق من الخدمة:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5055/status
+Invoke-RestMethod http://127.0.0.1:5055/scanners
+Get-NetTCPConnection -LocalPort 5055 -State Listen
+```
+
+إذا كان ماسح PFU / PaperStream لا يظهر في `/scanners`، فهذا يعني أنه غير
+مرئي عبر WIA على Windows. ثبّت تعريف WIA المناسب أو استخدم برنامج الشركة
+ثم ارفع الملف يدويًا من شاشة المرفقات.
+
+---
+
 ## 13. قائمة قبول ما بعد النشر
 
 - [ ] `UqebApi` تعمل.

@@ -4,11 +4,10 @@ import {
   getBridgeStatus,
   getScanFile,
   getScanners,
-  isScannerConfigured,
   isScannerMockMode,
   scanDocument,
 } from './scannerBridgeClient';
-import { ScannerBridgeError } from './scannerErrors';
+import { getScannerErrorMessage, ScannerBridgeError } from './scannerErrors';
 
 interface UseScannerBridgeState {
   phase: ScannerPanelPhase;
@@ -67,24 +66,18 @@ export function useScannerBridge(): UseScannerBridgeState {
     setPreviewUrl(null);
     setIsRotated(false);
 
-    if (!isScannerMockMode() && !isScannerConfigured()) {
-      setPhase('offline');
-      setErrorMessage('خدمة الماسح غير مهيأة.');
-      return;
-    }
-
     try {
       const status = await getBridgeStatus();
       if (!status.ok) {
         setPhase('offline');
-        setErrorMessage('خدمة الماسح غير متاحة.');
+        setErrorMessage(getScannerErrorMessage('BRIDGE_OFFLINE'));
         return;
       }
 
       const devices = await getScanners();
       if (devices.length === 0) {
         setPhase('no-scanner');
-        setErrorMessage('لا يوجد ماسح متصل بهذا الجهاز.');
+        setErrorMessage(getScannerErrorMessage('NO_SCANNER'));
         return;
       }
 
@@ -95,7 +88,7 @@ export function useScannerBridge(): UseScannerBridgeState {
     } catch (err) {
       const message = err instanceof ScannerBridgeError
         ? err.message
-        : 'خدمة الماسح غير متاحة.';
+        : getScannerErrorMessage('BRIDGE_OFFLINE');
       setErrorMessage(message);
       setPhase('offline');
     }

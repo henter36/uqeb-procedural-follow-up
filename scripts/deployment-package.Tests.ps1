@@ -2527,12 +2527,23 @@ Describe 'Assert-FrontendDistApiBaseUrl' {
     }
 
     It 'fails when <Name> appears in a JS file' -ForEach @(
-        @{ Name = 'http://localhost'; Url = 'http://localhost:5080/api' },
-        @{ Name = 'http://127.0.0.1'; Url = 'http://127.0.0.1:5055' },
-        @{ Name = 'https://localhost'; Url = 'https://localhost:5080/api' },
-        @{ Name = 'https://127.0.0.1'; Url = 'https://127.0.0.1:5055' }
+        @{ Name = 'http://localhost:5000'; Url = 'http://localhost:5000/api' },
+        @{ Name = 'http://127.0.0.1:5000'; Url = 'http://127.0.0.1:5000/api' },
+        @{ Name = 'https://localhost:5000'; Url = 'https://localhost:5000/api' },
+        @{ Name = 'https://127.0.0.1:5000'; Url = 'https://127.0.0.1:5000/api' }
     ) {
         Assert-FrontendDistRejectsForbiddenUrl -ForbiddenUrl $Url
+    }
+
+    It 'allows the local scanner bridge loopback URL on port 5055' {
+        $dist = New-TempDirectory
+        Set-Content `
+            -Path (Join-Path $dist 'scanner.js') `
+            -Value 'const api="http://10.0.177.17:5000/api";const scanner="http://127.0.0.1:5055";' `
+            -Encoding UTF8
+
+        { Assert-FrontendDistApiBaseUrl -DistPath $dist -ProductionApiBaseUrl 'http://10.0.177.17:5000/api' } |
+            Should -Not -Throw
     }
 
     It 'fails when dist directory does not exist' {

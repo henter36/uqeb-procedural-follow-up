@@ -29,7 +29,8 @@ internal static class ScannerEndpoints
                 Ok = true,
                 Version = options.Value.Version,
                 ScannerApi = provider.ApiName,
-                ScannerCount = scanners.Count
+                ScannerCount = scanners.Count,
+                TempFolder = ScanTempStore.TempRoot
             });
         }
         catch (InvalidOperationException)
@@ -39,7 +40,8 @@ internal static class ScannerEndpoints
                 Ok = true,
                 Version = options.Value.Version,
                 ScannerApi = "Unavailable",
-                ScannerCount = 0
+                ScannerCount = 0,
+                TempFolder = ScanTempStore.TempRoot
             });
         }
     }

@@ -8,15 +8,34 @@ import {
 } from './scannerMock';
 
 const REQUEST_TIMEOUT_MS = 4000;
+const DEFAULT_SCANNER_BRIDGE_URL = 'http://127.0.0.1:5055';
+
+type UqebRuntimeConfig = Readonly<{
+  scannerBridgeUrl?: string;
+}>;
+
+declare global {
+  interface Window {
+    __UQEB_CONFIG__?: UqebRuntimeConfig;
+  }
+}
 
 export function isScannerConfigured(): boolean {
-  const configured = import.meta.env.VITE_SCANNER_BRIDGE_URL;
-  return typeof configured === 'string' && configured.trim().length > 0;
+  return getScannerBridgeBaseUrl().length > 0;
 }
 
 export function getScannerBridgeBaseUrl(): string {
-  const configured = import.meta.env.VITE_SCANNER_BRIDGE_URL;
-  return typeof configured === 'string' ? configured.trim() : '';
+  const runtimeConfigured = window.__UQEB_CONFIG__?.scannerBridgeUrl;
+  if (typeof runtimeConfigured === 'string' && runtimeConfigured.trim().length > 0) {
+    return runtimeConfigured.trim().replace(/\/+$/, '');
+  }
+
+  const buildConfigured = import.meta.env.VITE_SCANNER_BRIDGE_URL;
+  if (typeof buildConfigured === 'string' && buildConfigured.trim().length > 0) {
+    return buildConfigured.trim().replace(/\/+$/, '');
+  }
+
+  return DEFAULT_SCANNER_BRIDGE_URL;
 }
 
 export function isScannerMockMode(): boolean {
