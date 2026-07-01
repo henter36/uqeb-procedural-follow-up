@@ -48,6 +48,7 @@ type TransactionValidationRule = {
 const OUTGOING_HINT = 'بيانات الصادر غير إلزامية، ولكن يجب إكمالها عند البدء بتعبئتها.';
 const OUTGOING_PARTIAL_ERROR = 'عند إدخال أي بيان من بيانات الصادر يجب إكمال رقم الصادر وتاريخ الصادر والإدارة الصادر لها.';
 const OUTGOING_DEPARTMENT_ERROR = 'اختر جهة داخلية واحدة على الأقل.';
+const OUTGOING_DATE_REQUIRED_WITH_NUMBER_ERROR = 'تاريخ الصادر مطلوب عند إدخال رقم الصادر.';
 // These mappings keep backend validation keys aligned with TransactionForm field names and error display order.
 // Update them when transaction DTO validation fields or form field names change.
 const FIELD_ORDER = [
@@ -160,19 +161,32 @@ function isMissingOutgoingNumber(form: TransactionFormState, hasPartialOutgoingD
 }
 
 function isMissingOutgoingDate(form: TransactionFormState, hasPartialOutgoingData: boolean): boolean {
-  return hasPartialOutgoingData && !form.outgoingDate;
+  return hasPartialOutgoingData && !form.outgoingDate && !form.outgoingNumber.trim();
+}
+
+function isMissingOutgoingDateForNumber(form: TransactionFormState): boolean {
+  return Boolean(form.outgoingNumber.trim() && !form.outgoingDate);
 }
 
 function isMissingOutgoingDepartments(form: TransactionFormState, hasPartialOutgoingData: boolean): boolean {
   return hasPartialOutgoingData && form.outgoingDepartmentIds.length === 0;
 }
 
+function isFutureDate(value: string): boolean {
+  return Boolean(value && value > todayLocalIso());
+}
+
+function isOutgoingBeforeIncoming(form: TransactionFormState): boolean {
+  return Boolean(form.incomingDate && form.outgoingDate && form.outgoingDate < form.incomingDate);
+}
+
 function getTransactionValidationRules(form: TransactionFormState, mode: Props['mode']): TransactionValidationRule[] {
   const hasPartialOutgoingData = hasOutgoingData(form);
 
   return [
-    { field: 'incomingNumber', isInvalid: !form.incomingNumber.trim(), message: 'رقم الوارد مطلوب.' },
-    { field: 'incomingDate', isInvalid: !form.incomingDate, message: 'تاريخ الوارد مطلوب.' },
+    { field: 'incomingNumber', isInvalid: !form.incomingNumber.trim(), message: 'رقم المعاملة مطلوب.' },
+    { field: 'incomingDate', isInvalid: !form.incomingDate, message: 'تاريخ المعاملة مطلوب.' },
+    { field: 'incomingDate', isInvalid: isFutureDate(form.incomingDate), message: 'تاريخ المعاملة لا يمكن أن يكون بعد تاريخ اليوم.' },
     { field: 'subject', isInvalid: !form.subject.trim(), message: 'الموضوع مطلوب.' },
     { field: 'incomingSourceType', isInvalid: !form.incomingSourceType, message: 'يجب اختيار نوع الجهة الوارد منها.' },
     { field: 'incomingFromPartyId', isInvalid: isMissingExternalIncomingParty(form), message: 'الجهة الخارجية مطلوبة.' },
@@ -182,6 +196,9 @@ function getTransactionValidationRules(form: TransactionFormState, mode: Props['
     { field: 'priority', isInvalid: !form.priority, message: 'الأولوية مطلوبة.' },
     { field: 'outgoingNumber', isInvalid: isMissingOutgoingNumber(form, hasPartialOutgoingData), message: OUTGOING_PARTIAL_ERROR },
     { field: 'outgoingDate', isInvalid: isMissingOutgoingDate(form, hasPartialOutgoingData), message: OUTGOING_PARTIAL_ERROR },
+    { field: 'outgoingDate', isInvalid: isMissingOutgoingDateForNumber(form), message: OUTGOING_DATE_REQUIRED_WITH_NUMBER_ERROR },
+    { field: 'outgoingDate', isInvalid: isFutureDate(form.outgoingDate), message: 'تاريخ الصادر لا يمكن أن يكون بعد تاريخ اليوم.' },
+    { field: 'outgoingDate', isInvalid: isOutgoingBeforeIncoming(form), message: 'تاريخ الصادر لا يمكن أن يكون قبل تاريخ المعاملة.' },
     { field: 'outgoingDepartmentIds', isInvalid: isMissingOutgoingDepartments(form, hasPartialOutgoingData), message: OUTGOING_DEPARTMENT_ERROR },
     { field: 'responseType', isInvalid: isMissingResponseType(form, mode), message: 'نوع الإفادة مطلوب.' },
     { field: 'responseDueDays', isInvalid: isMissingResponseDueDays(form), message: 'عدد أيام الرد مطلوب عند طلب إفادة.' },
@@ -560,14 +577,14 @@ export default function TransactionForm({ mode }: Props) {
         <FormSection title="بيانات الوارد">
           <div className="transaction-form-grid transaction-form-grid--incoming">
             <div className={formGroupClass('incomingNumber', 'transaction-form-field transaction-form-field--compact')}>
-              <label>رقم الوارد *</label>
+              <label>رقم المعاملة *</label>
               <input {...fieldProps('incomingNumber')} value={form.incomingNumber} onChange={(e) => setForm({ ...form, incomingNumber: e.target.value })} />
               {fieldError('incomingNumber') && <span id={fieldErrorId('incomingNumber')} className="field-error">{fieldError('incomingNumber')}</span>}
             </div>
             <div className={formGroupClass('incomingDate', 'transaction-form-field transaction-form-field--compact')}>
               <HijriDateInput
                 id="incoming-date"
-                label="تاريخ الوارد"
+                label="تاريخ المعاملة"
                 required
                 value={form.incomingDate}
                 onChange={(incomingDate) => setForm({ ...form, incomingDate })}

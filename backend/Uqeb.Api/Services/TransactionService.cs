@@ -656,6 +656,14 @@ public class TransactionService : ITransactionService
         var t = await _db.Transactions.Include(x => x.OutgoingDepartments).FirstOrDefaultAsync(x => x.Id == id);
         if (t == null) return null;
 
+        var validationErrors = TransactionRequestValidator.ValidateUpdate(
+            request,
+            t.IncomingDate,
+            t.OutgoingDate,
+            t.OutgoingNumber);
+        if (validationErrors.Count > 0)
+            throw new FieldValidationException(validationErrors);
+
         var oldValues = JsonSerializer.Serialize(new
         {
             t.IncomingNumber,
@@ -671,7 +679,7 @@ public class TransactionService : ITransactionService
         if (!string.IsNullOrEmpty(request.IncomingNumber) && request.IncomingNumber != t.IncomingNumber)
         {
             if (await _db.Transactions.AnyAsync(x => x.IncomingNumber == request.IncomingNumber && x.Id != id))
-                throw new InvalidOperationException("رقم الوارد موجود مسبقاً");
+                throw new InvalidOperationException("رقم المعاملة موجود مسبقاً");
             t.IncomingNumber = request.IncomingNumber;
         }
 

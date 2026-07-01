@@ -194,6 +194,71 @@ public class TransactionPersistenceAtomicityTests
     }
 
     [Fact]
+    public async Task CreateAsync_future_incoming_date_returns_field_validation()
+    {
+        var (service, _, _, _) = await CreateServiceAsync(nameof(CreateAsync_future_incoming_date_returns_field_validation));
+        var request = BuildCreateRequest(10);
+        request.IncomingDate = DateTime.Today.AddDays(1);
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.CreateAsync(request, userId: 1));
+
+        Assert.Equal("تاريخ المعاملة لا يمكن أن يكون بعد تاريخ اليوم.", ex.FieldErrors[nameof(CreateTransactionRequest.IncomingDate)]);
+    }
+
+    [Fact]
+    public async Task CreateAsync_future_outgoing_date_returns_field_validation()
+    {
+        var (service, _, _, _) = await CreateServiceAsync(nameof(CreateAsync_future_outgoing_date_returns_field_validation));
+        var request = BuildCreateRequest(10);
+        request.OutgoingDate = DateTime.Today.AddDays(1);
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.CreateAsync(request, userId: 1));
+
+        Assert.Equal("تاريخ الصادر لا يمكن أن يكون بعد تاريخ اليوم.", ex.FieldErrors[nameof(CreateTransactionRequest.OutgoingDate)]);
+    }
+
+    [Fact]
+    public async Task CreateAsync_outgoing_date_before_incoming_date_returns_field_validation()
+    {
+        var (service, _, _, _) = await CreateServiceAsync(nameof(CreateAsync_outgoing_date_before_incoming_date_returns_field_validation));
+        var request = BuildCreateRequest(10);
+        request.IncomingDate = DateTime.Today;
+        request.OutgoingDate = DateTime.Today.AddDays(-1);
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.CreateAsync(request, userId: 1));
+
+        Assert.Equal("تاريخ الصادر لا يمكن أن يكون قبل تاريخ المعاملة.", ex.FieldErrors[nameof(CreateTransactionRequest.OutgoingDate)]);
+    }
+
+    [Fact]
+    public async Task CreateAsync_outgoing_number_without_outgoing_date_returns_specific_field_validation()
+    {
+        var (service, _, _, _) = await CreateServiceAsync(nameof(CreateAsync_outgoing_number_without_outgoing_date_returns_specific_field_validation));
+        var request = BuildCreateRequest(10);
+        request.OutgoingDate = null;
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.CreateAsync(request, userId: 1));
+
+        Assert.Equal("تاريخ الصادر مطلوب عند إدخال رقم الصادر.", ex.FieldErrors[nameof(CreateTransactionRequest.OutgoingDate)]);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_outgoing_date_before_incoming_date_returns_field_validation()
+    {
+        var (service, _, _, _) = await CreateServiceAsync(nameof(UpdateAsync_outgoing_date_before_incoming_date_returns_field_validation));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() =>
+            service.UpdateAsync(
+                created.Id,
+                new UpdateTransactionRequest { OutgoingDate = DateTime.Today.AddDays(-1) },
+                userId: 1,
+                role: UserRole.Admin));
+
+        Assert.Equal("تاريخ الصادر لا يمكن أن يكون قبل تاريخ المعاملة.", ex.FieldErrors[nameof(CreateTransactionRequest.OutgoingDate)]);
+    }
+
+    [Fact]
     public async Task CreateAsync_with_outgoing_departments_links_all_audits_to_transaction_and_entities()
     {
         var (service, db, _, _) = await CreateServiceAsync(nameof(CreateAsync_with_outgoing_departments_links_all_audits_to_transaction_and_entities));

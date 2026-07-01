@@ -132,6 +132,10 @@ public class TransactionsController : ControllerBase
             var result = await _transactions.UpdateAsync(id, request, _currentUser.UserId, _currentUser.Role);
             return result == null ? NotFound() : Ok(result);
         }
+        catch (FieldValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message, errors = ex.FieldErrors });
+        }
         catch (InvalidOperationException ex)
         {
             return BadRequest(new { message = ex.Message });

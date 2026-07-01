@@ -78,10 +78,10 @@ public class TransactionDetailDto : TransactionListDto
 
 public class CreateTransactionRequest
 {
-    [Required(ErrorMessage = "رقم الوارد مطلوب")]
+    [Required(ErrorMessage = "رقم المعاملة مطلوب")]
     public string IncomingNumber { get; set; } = string.Empty;
 
-    [Required(ErrorMessage = "تاريخ الوارد مطلوب")]
+    [Required(ErrorMessage = "تاريخ المعاملة مطلوب")]
     [JsonRequired]
     public DateTime IncomingDate { get; set; }
 
