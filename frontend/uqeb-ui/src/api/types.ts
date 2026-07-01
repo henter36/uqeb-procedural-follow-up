@@ -92,6 +92,8 @@ export interface TransactionListItem {
   responseCompleted: boolean;
   responseDays?: number;
   responseDueDate?: string;
+  completionDate?: string | null;
+  completionDays?: number | null;
   daysRemainingForResponse?: number;
   daysSinceIncoming?: number;
   daysSinceLastFollowUp?: number | null;

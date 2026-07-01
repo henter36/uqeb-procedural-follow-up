@@ -37,6 +37,8 @@ public class TransactionListDto
     public bool ResponseCompleted { get; set; }
     public int? ResponseDays { get; set; }
     public DateTime? ResponseDueDate { get; set; }
+    public DateTime? CompletionDate { get; set; }
+    public int? CompletionDays { get; set; }
     public int? DaysRemainingForResponse { get; set; }
     public int DaysSinceIncoming { get; set; }
     public int? DaysSinceLastFollowUp { get; set; }

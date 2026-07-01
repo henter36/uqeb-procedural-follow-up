@@ -1,5 +1,6 @@
 using Uqeb.Api.DTOs.Transactions;
 using Uqeb.Api.Models.Entities;
+using Uqeb.Api.Models.Enums;
 
 namespace Uqeb.Api.Helpers;
 
@@ -15,6 +16,8 @@ public static class TransactionTimelineHelper
     {
         public int? ResponseDays { get; init; }
         public DateTime? ResponseDueDate { get; init; }
+        public DateTime? CompletionDate { get; init; }
+        public int? CompletionDays { get; init; }
         public int DaysSinceIncoming { get; init; }
         public DateTime? LastFollowUpDate { get; init; }
         public int? DaysSinceLastFollowUp { get; init; }
@@ -41,12 +44,16 @@ public static class TransactionTimelineHelper
         int? responseDueDays,
         bool requiresResponse,
         bool responseCompleted,
+        DateTime? responseCompletedDate,
+        TransactionStatus status,
+        DateTime? closedAt,
         DateTime? lastFollowUpDate,
         DateTime? today = null)
     {
         today ??= DateTime.UtcNow.Date;
         var incoming = incomingDate.Date;
         var daysSinceIncoming = Math.Max(0, (today.Value - incoming).Days);
+        var (completionDate, completionDays) = ComputeCompletion(incoming, responseCompleted, responseCompletedDate, status, closedAt);
 
         int? daysSinceLastFollowUp = null;
         if (lastFollowUpDate.HasValue)
@@ -58,6 +65,8 @@ public static class TransactionTimelineHelper
             {
                 ResponseDays = responseDueDays,
                 ResponseDueDate = responseDueDate,
+                CompletionDate = completionDate,
+                CompletionDays = completionDays,
                 DaysSinceIncoming = daysSinceIncoming,
                 LastFollowUpDate = lastFollowUpDate?.Date,
                 DaysSinceLastFollowUp = daysSinceLastFollowUp,
@@ -73,6 +82,8 @@ public static class TransactionTimelineHelper
             {
                 ResponseDays = responseDueDays,
                 ResponseDueDate = responseDueDate,
+                CompletionDate = completionDate,
+                CompletionDays = completionDays,
                 DaysSinceIncoming = daysSinceIncoming,
                 LastFollowUpDate = lastFollowUpDate?.Date,
                 DaysSinceLastFollowUp = daysSinceLastFollowUp,
@@ -91,6 +102,8 @@ public static class TransactionTimelineHelper
             {
                 ResponseDays = responseDueDays,
                 ResponseDueDate = responseDueDate,
+                CompletionDate = completionDate,
+                CompletionDays = completionDays,
                 DaysSinceIncoming = daysSinceIncoming,
                 LastFollowUpDate = lastFollowUpDate?.Date,
                 DaysSinceLastFollowUp = daysSinceLastFollowUp,
@@ -106,6 +119,8 @@ public static class TransactionTimelineHelper
             {
                 ResponseDays = responseDueDays,
                 ResponseDueDate = responseDueDate,
+                CompletionDate = completionDate,
+                CompletionDays = completionDays,
                 DaysSinceIncoming = daysSinceIncoming,
                 LastFollowUpDate = lastFollowUpDate?.Date,
                 DaysSinceLastFollowUp = daysSinceLastFollowUp,
@@ -119,6 +134,8 @@ public static class TransactionTimelineHelper
         {
             ResponseDays = responseDueDays,
             ResponseDueDate = responseDueDate,
+            CompletionDate = completionDate,
+            CompletionDays = completionDays,
             DaysSinceIncoming = daysSinceIncoming,
             LastFollowUpDate = lastFollowUpDate?.Date,
             DaysSinceLastFollowUp = daysSinceLastFollowUp,
@@ -128,9 +145,55 @@ public static class TransactionTimelineHelper
         };
     }
 
+    public static TimelineMetrics Compute(
+        DateTime incomingDate,
+        DateTime? responseDueDate,
+        int? responseDueDays,
+        bool requiresResponse,
+        bool responseCompleted,
+        DateTime? lastFollowUpDate,
+        DateTime? today = null) =>
+        Compute(
+            incomingDate,
+            responseDueDate,
+            responseDueDays,
+            requiresResponse,
+            responseCompleted,
+            responseCompletedDate: null,
+            status: TransactionStatus.New,
+            closedAt: null,
+            lastFollowUpDate,
+            today);
+
+    private static (DateTime? CompletionDate, int? CompletionDays) ComputeCompletion(
+        DateTime incomingDate,
+        bool responseCompleted,
+        DateTime? responseCompletedDate,
+        TransactionStatus status,
+        DateTime? closedAt)
+    {
+        DateTime? completionDate = null;
+        if (status == TransactionStatus.Closed && closedAt.HasValue)
+        {
+            completionDate = closedAt.Value.Date;
+        }
+        else if (responseCompleted && responseCompletedDate.HasValue)
+        {
+            completionDate = responseCompletedDate.Value.Date;
+        }
+
+        var completionDays = completionDate.HasValue
+            ? Math.Max(0, (completionDate.Value - incomingDate.Date).Days)
+            : (int?)null;
+
+        return (completionDate, completionDays);
+    }
+
     public static void ApplyTo(TransactionListDto dto, TimelineMetrics metrics)
     {
         dto.ResponseDays = metrics.ResponseDays;
+        dto.CompletionDate = metrics.CompletionDate;
+        dto.CompletionDays = metrics.CompletionDays;
         dto.DaysSinceIncoming = metrics.DaysSinceIncoming;
         dto.DaysSinceLastFollowUp = metrics.DaysSinceLastFollowUp;
         dto.LastFollowUpDate = metrics.LastFollowUpDate;
@@ -148,6 +211,9 @@ public static class TransactionTimelineHelper
             t.ResponseDueDays,
             t.RequiresResponse,
             t.ResponseCompleted,
+            t.ResponseCompletedDate,
+            t.Status,
+            t.ClosedAt,
             lastFollowUpDate,
             now.Date);
     }
