@@ -11,6 +11,7 @@ import {
 } from '../utils/apiHelpers';
 import { formatHijri } from '../utils/dateUtils';
 import MultiSelect from '../components/MultiSelect';
+import HijriDateInput from '../components/HijriDateInput';
 import SearchableSelect, { type SelectOption } from '../components/SearchableSelect';
 import { PageHeader, FormSection, Alert, LoadingInline } from '../components/ui';
 import { todayLocalIso } from '../utils/localDate';
@@ -564,11 +565,16 @@ export default function TransactionForm({ mode }: Props) {
               {fieldError('incomingNumber') && <span id={fieldErrorId('incomingNumber')} className="field-error">{fieldError('incomingNumber')}</span>}
             </div>
             <div className={formGroupClass('incomingDate', 'transaction-form-field transaction-form-field--compact')}>
-              <label>تاريخ الوارد * (ميلادي)</label>
-              <input {...fieldProps('incomingDate')} type="date" value={form.incomingDate} onChange={(e) => setForm({ ...form, incomingDate: e.target.value })} />
-              {form.incomingDate && (
-                <small className="text-muted">التاريخ الهجري: {formatHijri(form.incomingDate)}</small>
-              )}
+              <HijriDateInput
+                id="incoming-date"
+                label="تاريخ الوارد"
+                required
+                value={form.incomingDate}
+                onChange={(incomingDate) => setForm({ ...form, incomingDate })}
+                invalid={Boolean(fieldError('incomingDate'))}
+                describedBy={fieldError('incomingDate') ? fieldErrorId('incomingDate') : undefined}
+                dataFieldName="incomingDate"
+              />
               {fieldError('incomingDate') && <span id={fieldErrorId('incomingDate')} className="field-error">{fieldError('incomingDate')}</span>}
             </div>
             <IncomingSourceTypeField
@@ -671,8 +677,15 @@ export default function TransactionForm({ mode }: Props) {
               {fieldError('outgoingNumber') && <span id={fieldErrorId('outgoingNumber')} className="field-error">{fieldError('outgoingNumber')}</span>}
             </div>
             <div className={formGroupClass('outgoingDate', 'transaction-form-field transaction-form-field--compact')}>
-              <label>تاريخ الصادر (ميلادي)</label>
-              <input {...fieldProps('outgoingDate')} type="date" value={form.outgoingDate} onChange={(e) => setForm({ ...form, outgoingDate: e.target.value })} />
+              <HijriDateInput
+                id="outgoing-date"
+                label="تاريخ الصادر"
+                value={form.outgoingDate}
+                onChange={(outgoingDate) => setForm({ ...form, outgoingDate })}
+                invalid={Boolean(fieldError('outgoingDate'))}
+                describedBy={fieldError('outgoingDate') ? fieldErrorId('outgoingDate') : undefined}
+                dataFieldName="outgoingDate"
+              />
               {fieldError('outgoingDate') && <span id={fieldErrorId('outgoingDate')} className="field-error">{fieldError('outgoingDate')}</span>}
             </div>
           </div>

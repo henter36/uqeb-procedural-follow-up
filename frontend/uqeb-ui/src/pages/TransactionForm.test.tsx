@@ -524,7 +524,7 @@ describe('TransactionForm searchable selects', () => {
 
     const outgoingSection = getOutgoingSection();
     await user.type(getFieldInSection(outgoingSection, 'رقم الصادر'), 'OUT-100');
-    await user.type(getFieldInSection(outgoingSection, 'تاريخ الصادر (ميلادي)'), '2026-06-05');
+    await user.type(getFieldInSection(outgoingSection, 'تاريخ الصادر'), '1447/12/19');
     const routingSection = await openOutgoingDepartmentsDropdown(user);
     await user.click(within(routingSection).getByLabelText('إدارة داخلية'));
     await user.click(within(routingSection).getByLabelText('إدارة المتابعة'));
@@ -533,6 +533,24 @@ describe('TransactionForm searchable selects', () => {
     await waitFor(() => expect(services.transactionsApi.create).toHaveBeenCalled());
     const payload = vi.mocked(services.transactionsApi.create).mock.calls[0][0];
     expect(payload.outgoingDepartmentIds).toEqual([20, 21]);
+  });
+
+  it('converts Hijri incoming date to Gregorian ISO in create payload', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.create).mockResolvedValue({ data: { id: 99 } } as never);
+
+    renderCreateForm();
+    await waitForFormReady();
+    await fillValidCreateForm(user);
+
+    const incomingDate = getFieldInSection(getIncomingSection(), 'تاريخ الوارد *');
+    await user.clear(incomingDate);
+    await user.type(incomingDate, '1448/01/16');
+    await user.click(screen.getByRole('button', { name: 'حفظ' }));
+
+    await waitFor(() => expect(services.transactionsApi.create).toHaveBeenCalled());
+    const payload = vi.mocked(services.transactionsApi.create).mock.calls[0][0];
+    expect(payload.incomingDate).toBe('2026-07-01T00:00:00');
   });
 });
 
@@ -591,7 +609,7 @@ describe('TransactionForm validation feedback', () => {
 
     const incomingSection = getIncomingSection();
     const incomingNumber = getFieldInSection(incomingSection, 'رقم الوارد *');
-    const incomingDate = getFieldInSection(incomingSection, 'تاريخ الوارد * (ميلادي)');
+    const incomingDate = getFieldInSection(incomingSection, 'تاريخ الوارد *');
     await user.type(incomingNumber, 'IN-101');
     await user.clear(incomingDate);
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
@@ -656,7 +674,7 @@ describe('TransactionForm validation feedback', () => {
 
     const outgoingSection = getOutgoingSection();
     await user.type(getFieldInSection(outgoingSection, 'رقم الصادر'), 'OUT-100');
-    await user.type(getFieldInSection(outgoingSection, 'تاريخ الصادر (ميلادي)'), '2026-06-05');
+    await user.type(getFieldInSection(outgoingSection, 'تاريخ الصادر'), '1447/12/19');
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
 
     const outgoingDepartments = document.querySelector<HTMLElement>('[data-field-name="outgoingDepartmentIds"]');
@@ -673,7 +691,7 @@ describe('TransactionForm validation feedback', () => {
 
     const outgoingSection = getOutgoingSection();
     await user.type(getFieldInSection(outgoingSection, 'رقم الصادر'), 'OUT-100');
-    await user.type(getFieldInSection(outgoingSection, 'تاريخ الصادر (ميلادي)'), '2026-06-05');
+    await user.type(getFieldInSection(outgoingSection, 'تاريخ الصادر'), '1447/12/19');
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
 
     const outgoingDepartments = document.querySelector<HTMLElement>('[data-field-name="outgoingDepartmentIds"]');

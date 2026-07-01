@@ -167,7 +167,7 @@ body{font-family:Tahoma,'Segoe UI',Arial,sans-serif;color:var(--uqeb-ink);backgr
   max-width:39mm;
   height:auto;
   max-height:26mm;
-  object-fit:contain;
+  object-fit: contain;
   display:block;
   print-color-adjust:exact;
   -webkit-print-color-adjust:exact;

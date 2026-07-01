@@ -3,6 +3,7 @@ import { transactionsApi } from '../../api/services';
 import { buildCompleteResponsePayload, getApiErrorMessage } from '../../utils/apiHelpers';
 import { todayLocalIso } from '../../utils/localDate';
 import { Alert } from '../ui';
+import HijriDateInput from '../HijriDateInput';
 
 export type CompleteResponseSuccessResult = Readonly<{
   attachmentWarning?: string;
@@ -99,14 +100,13 @@ export default function CompleteResponseFormPanel({
       {error && <Alert variant="error">{error}</Alert>}
       <div className="form-grid">
         <div className="form-group">
-          <label htmlFor="response-date">تاريخ الإفادة *</label>
-          <input
+          <HijriDateInput
             id="response-date"
-            type="date"
+            label="تاريخ الإفادة"
             required
             value={form.responseDate}
             disabled={responseSaved}
-            onChange={(e) => setForm({ ...form, responseDate: e.target.value })}
+            onChange={(responseDate) => setForm({ ...form, responseDate })}
           />
         </div>
         <div className="form-group full-width">
@@ -133,14 +133,13 @@ export default function CompleteResponseFormPanel({
               />
             </div>
             <div className="form-group">
-              <label htmlFor="outgoing-date">تاريخ الصادر *</label>
-              <input
+              <HijriDateInput
                 id="outgoing-date"
-                type="date"
+                label="تاريخ الصادر"
                 required
                 value={form.outgoingDate}
                 disabled={responseSaved}
-                onChange={(e) => setForm({ ...form, outgoingDate: e.target.value })}
+                onChange={(outgoingDate) => setForm({ ...form, outgoingDate })}
               />
             </div>
           </>

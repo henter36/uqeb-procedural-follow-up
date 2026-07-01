@@ -4,6 +4,7 @@ import { transactionsApi } from '../../api/services';
 import { buildCreateAssignmentPayload, getApiErrorMessage } from '../../utils/apiHelpers';
 import { addDaysIso, todayLocalIso } from '../../utils/localDate';
 import { Alert } from '../ui';
+import HijriDateInput from '../HijriDateInput';
 
 type AssignmentFormState = {
   departmentId: string;
@@ -109,13 +110,12 @@ export default function AssignmentFormPanel({
           </select>
         </div>
         <div className="form-group">
-          <label htmlFor="assignment-date">تاريخ الاحالة</label>
-          <input
+          <HijriDateInput
             id="assignment-date"
-            type="date"
+            label="تاريخ الاحالة"
             required
             value={form.assignedDate}
-            onChange={(e) => update({ assignedDate: e.target.value })}
+            onChange={(assignedDate) => update({ assignedDate })}
           />
         </div>
         <div className="form-group full-width">
@@ -137,12 +137,11 @@ export default function AssignmentFormPanel({
           />
         </div>
         <div className="form-group">
-          <label htmlFor="assignment-due">أو تاريخ استحقاق محدد</label>
-          <input
+          <HijriDateInput
             id="assignment-due"
-            type="date"
+            label="أو تاريخ استحقاق محدد"
             value={form.dueDate}
-            onChange={(e) => update({ dueDate: e.target.value, replyDueDays: '' })}
+            onChange={(dueDate) => update({ dueDate, replyDueDays: '' })}
           />
         </div>
         {expectedDueDate && (

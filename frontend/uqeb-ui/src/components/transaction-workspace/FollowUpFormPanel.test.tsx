@@ -187,13 +187,13 @@ describe('FollowUpFormPanel', () => {
       />,
     );
 
-    await waitFor(() => expect(screen.getByLabelText('تاريخ التعقيب')).toBeInTheDocument());
-    const dateInput = screen.getByLabelText('تاريخ التعقيب');
+    await waitFor(() => expect(screen.getByLabelText(/تاريخ التعقيب/)).toBeInTheDocument());
+    const dateInput = screen.getByLabelText(/تاريخ التعقيب/);
     const originalDate = (dateInput as HTMLInputElement).value;
     onDirtyChange.mockClear();
 
     await user.clear(dateInput);
-    await user.type(dateInput, '2025-11-15');
+    await user.type(dateInput, '1447/05/24');
 
     await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(true));
 
@@ -202,6 +202,39 @@ describe('FollowUpFormPanel', () => {
     await user.type(dateInput, originalDate);
 
     await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(false));
+  });
+
+  it('converts Hijri follow-up date to Gregorian ISO before submit', async () => {
+    vi.mocked(services.transactionsApi.addFollowUp).mockResolvedValue({
+      data: {
+        id: 44,
+        followUpDate: '2026-07-01T00:00:00Z',
+        recipients: [],
+        departments: [],
+      },
+    } as never);
+
+    const user = userEvent.setup();
+    render(
+      <FollowUpFormPanel
+        transactionId={1}
+        onDirtyChange={onDirtyChange}
+        onSuccess={onSuccess}
+        onCancel={onCancel}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByLabelText(/تاريخ التعقيب/)).toBeInTheDocument());
+    const dateInput = screen.getByLabelText(/تاريخ التعقيب/);
+    await user.clear(dateInput);
+    await user.type(dateInput, '1448/01/16');
+    await user.click(screen.getByRole('button', { name: 'حفظ التعقيب' }));
+
+    await waitFor(() => {
+      expect(services.transactionsApi.addFollowUp).toHaveBeenCalledWith(1, expect.objectContaining({
+        followUpDate: '2026-07-01T00:00:00',
+      }));
+    });
   });
 
   it('becomes dirty when departments change only', async () => {

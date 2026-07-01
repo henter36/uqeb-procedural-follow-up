@@ -246,8 +246,10 @@ public class TransactionService : ITransactionService
             t.CategoryEntity != null ? t.CategoryEntity.Name : t.Category,
             t.RequiresResponse,
             t.ResponseCompleted,
+            t.ResponseCompletedDate,
             t.ResponseDueDays,
             t.ResponseDueDate,
+            t.ClosedAt,
             t.IsArchived,
             t.CreatedBy != null ? t.CreatedBy.FullName : "",
             t.CreatedAt,
@@ -324,14 +326,19 @@ public class TransactionService : ITransactionService
                 CreatedAt = r.CreatedAt
             };
             var lastFollowUp = lastFollowUpLookup.GetValueOrDefault(r.Id);
-            TransactionTimelineHelper.ApplyTo(dto, TransactionTimelineHelper.Compute(
-                r.IncomingDate,
-                r.ResponseDueDate,
-                r.ResponseDueDays,
-                r.RequiresResponse,
-                r.ResponseCompleted,
-                lastFollowUp?.Date,
-                now.Date));
+            TransactionTimelineHelper.ApplyTo(dto, TransactionTimelineHelper.Compute(new TransactionTimelineHelper.TimelineComputationInput
+            {
+                IncomingDate = r.IncomingDate,
+                ResponseDueDate = r.ResponseDueDate,
+                ResponseDueDays = r.ResponseDueDays,
+                RequiresResponse = r.RequiresResponse,
+                ResponseCompleted = r.ResponseCompleted,
+                ResponseCompletedDate = r.ResponseCompletedDate,
+                Status = r.Status,
+                ClosedAt = r.ClosedAt,
+                LastFollowUpDate = lastFollowUp?.Date,
+                Today = now.Date
+            }));
             return dto;
         }).ToList();
     }
