@@ -6,18 +6,41 @@ export function formatGregorian(date: string | Date): string {
 
 export function formatHijri(date: string | Date): string {
   const d = typeof date === 'string' ? new Date(date) : date;
+  if (!d || Number.isNaN(d.getTime())) return '-';
+
+  const formatWithLocale = (locale: string): string => {
+    const parts = Object.fromEntries(
+      new Intl.DateTimeFormat(locale, {
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+      })
+        .formatToParts(d)
+        .map((p) => [p.type, p.value]),
+    );
+
+    const day = parts.day;
+    const month = parts.month;
+    const year = parts.year;
+
+    if (!day || !month || !year) {
+      throw new Error('Missing Hijri date parts');
+    }
+
+    return `${day}/${month}/${year}`;
+  };
+
   try {
-    const parts = Object.fromEntries(new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura', {
-      year: 'numeric', month: 'numeric', day: 'numeric',
-    }).formatToParts(d).map((p) => [p.type, p.value]));
-    return `${parts.day}/${parts.month}/${parts.year}`;
+    return formatWithLocale('ar-SA-u-ca-islamic-umalqura');
   } catch {
-    const parts = Object.fromEntries(new Intl.DateTimeFormat('ar-SA-u-ca-islamic', {
-      year: 'numeric', month: 'numeric', day: 'numeric',
-    }).formatToParts(d).map((p) => [p.type, p.value]));
-    return `${parts.day}/${parts.month}/${parts.year}`;
+    try {
+      return formatWithLocale('ar-SA-u-ca-islamic');
+    } catch {
+      return '-';
+    }
   }
 }
+
 
 export function formatDualDate(date: string | Date): string {
   return `${formatGregorian(date)} (${formatHijri(date)})`;
