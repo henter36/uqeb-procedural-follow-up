@@ -6,6 +6,7 @@ public sealed class StatusResponse
     public required string Version { get; init; }
     public required string ScannerApi { get; init; }
     public int ScannerCount { get; init; }
+    public required string TempFolder { get; init; }
 }
 
 public sealed class ScannersResponse

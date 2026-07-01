@@ -3,6 +3,7 @@ export interface ScannerBridgeStatus {
   version: string;
   scannerApi: string;
   scannerCount: number;
+  tempFolder?: string;
 }
 
 export interface ScannerDevice {

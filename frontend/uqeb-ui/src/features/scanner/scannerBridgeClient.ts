@@ -8,15 +8,41 @@ import {
 } from './scannerMock';
 
 const REQUEST_TIMEOUT_MS = 4000;
+const DEFAULT_SCANNER_BRIDGE_URL = 'http://127.0.0.1:5055';
+
+type UqebRuntimeConfig = Readonly<{
+  scannerBridgeUrl?: string;
+}>;
+
+type UqebGlobalThis = typeof globalThis & {
+  __UQEB_CONFIG__?: UqebRuntimeConfig;
+};
+
+function normalizeBridgeUrl(value: string): string {
+  let normalized = value.trim();
+  while (normalized.endsWith('/')) {
+    normalized = normalized.slice(0, -1);
+  }
+
+  return normalized;
+}
 
 export function isScannerConfigured(): boolean {
-  const configured = import.meta.env.VITE_SCANNER_BRIDGE_URL;
-  return typeof configured === 'string' && configured.trim().length > 0;
+  return getScannerBridgeBaseUrl().length > 0;
 }
 
 export function getScannerBridgeBaseUrl(): string {
-  const configured = import.meta.env.VITE_SCANNER_BRIDGE_URL;
-  return typeof configured === 'string' ? configured.trim() : '';
+  const runtimeConfigured = (globalThis as UqebGlobalThis).__UQEB_CONFIG__?.scannerBridgeUrl;
+  if (typeof runtimeConfigured === 'string' && runtimeConfigured.trim().length > 0) {
+    return normalizeBridgeUrl(runtimeConfigured);
+  }
+
+  const buildConfigured = import.meta.env.VITE_SCANNER_BRIDGE_URL;
+  if (typeof buildConfigured === 'string' && buildConfigured.trim().length > 0) {
+    return normalizeBridgeUrl(buildConfigured);
+  }
+
+  return DEFAULT_SCANNER_BRIDGE_URL;
 }
 
 export function isScannerMockMode(): boolean {
@@ -25,7 +51,7 @@ export function isScannerMockMode(): boolean {
 
 async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   try {
     return await fetch(url, { ...init, signal: controller.signal });
@@ -35,7 +61,7 @@ async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Respon
     }
     throw new ScannerBridgeError('BRIDGE_OFFLINE');
   } finally {
-    window.clearTimeout(timeoutId);
+    globalThis.clearTimeout(timeoutId);
   }
 }
 

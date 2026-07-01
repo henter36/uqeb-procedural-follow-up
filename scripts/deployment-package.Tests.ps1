@@ -2527,12 +2527,23 @@ Describe 'Assert-FrontendDistApiBaseUrl' {
     }
 
     It 'fails when <Name> appears in a JS file' -ForEach @(
-        @{ Name = 'http://localhost'; Url = 'http://localhost:5080/api' },
-        @{ Name = 'http://127.0.0.1'; Url = 'http://127.0.0.1:5055' },
-        @{ Name = 'https://localhost'; Url = 'https://localhost:5080/api' },
-        @{ Name = 'https://127.0.0.1'; Url = 'https://127.0.0.1:5055' }
+        @{ Name = 'http://localhost:5000'; Url = 'http://localhost:5000/api' },
+        @{ Name = 'http://127.0.0.1:5000'; Url = 'http://127.0.0.1:5000/api' },
+        @{ Name = 'https://localhost:5000'; Url = 'https://localhost:5000/api' },
+        @{ Name = 'https://127.0.0.1:5000'; Url = 'https://127.0.0.1:5000/api' }
     ) {
         Assert-FrontendDistRejectsForbiddenUrl -ForbiddenUrl $Url
+    }
+
+    It 'allows the local scanner bridge loopback URL on port 5055' {
+        $dist = New-TempDirectory
+        Set-Content `
+            -Path (Join-Path $dist 'scanner.js') `
+            -Value 'const api="http://10.0.177.17:5000/api";const scanner="http://127.0.0.1:5055";' `
+            -Encoding UTF8
+
+        { Assert-FrontendDistApiBaseUrl -DistPath $dist -ProductionApiBaseUrl 'http://10.0.177.17:5000/api' } |
+            Should -Not -Throw
     }
 
     It 'fails when dist directory does not exist' {
@@ -2545,5 +2556,110 @@ Describe 'Assert-FrontendDistApiBaseUrl' {
 
         { Assert-FrontendDistApiBaseUrl -DistPath $dist -ProductionApiBaseUrl 'http://10.0.177.17:5000/api' } |
             Should -Throw '*لا توجد ملفات*'
+    }
+}
+
+Describe 'Scanner Bridge production install script' {
+    BeforeAll {
+        $installScriptPath = Join-Path $PSScriptRoot 'install-scanner-bridge.ps1'
+        $programPath = Join-Path $PSScriptRoot '..\scanner-bridge\Uqeb.ScannerBridge\Program.cs'
+        $transferScriptPath = Join-Path $PSScriptRoot 'prepare-production-transfer.ps1'
+
+        $installScript = Get-Content -LiteralPath $installScriptPath -Raw
+        $program = Get-Content -LiteralPath $programPath -Raw
+        $transferScript = Get-Content -LiteralPath $transferScriptPath -Raw
+
+        $tokens = $null
+        $errors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($installScriptPath, [ref]$tokens, [ref]$errors)
+        if ($errors) {
+            throw ($errors | Out-String)
+        }
+        $functionAsts = $ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst]
+        }, $true)
+        foreach ($functionAst in $functionAsts) {
+            Set-Item -Path "function:$($functionAst.Name)" -Value $functionAst.Body.GetScriptBlock()
+        }
+    }
+
+    It 'uses the same Windows service identifier in Program.cs and install script' {
+        $program | Should -Match 'options\.ServiceName\s*=\s*"UqebScannerBridge"'
+        $installScript | Should -Match '\$ServiceName\s*=\s*"UqebScannerBridge"'
+        $installScript | Should -Match '\$DisplayName\s*=\s*"Uqeb Scanner Bridge"'
+    }
+
+    It 'copies install-scanner-bridge.ps1 into the production transfer tools' {
+        $transferScript | Should -Match '"install-scanner-bridge\.ps1"'
+        $transferScript | Should -Match 'tools\\install-scanner-bridge\.ps1'
+    }
+
+    It 'cleans temporary package extraction when scanner bridge source resolution fails' {
+        $installScript | Should -Match 'function Resolve-ScannerBridgeSource'
+        $installScript | Should -Match 'catch\s*\{[\s\S]*Remove-Item -LiteralPath \$tempRoot -Recurse -Force -ErrorAction SilentlyContinue[\s\S]*throw'
+    }
+
+    It 'waits for Scanner Bridge health with polling instead of relying on a fixed post-start sleep' {
+        $installScript | Should -Match 'function Wait-ScannerBridgeHealthy'
+        $installScript | Should -Match '\$TimeoutSeconds = 45'
+        $installScript | Should -Match 'Invoke-RestMethod -Uri \$StatusUrl'
+        $installScript | Should -Match 'Start-Sleep -Seconds \$RetryDelaySeconds'
+        $installScript | Should -Not -Match 'Start-Sleep -Seconds 2'
+    }
+
+    It 'writes explicit CORS allowed origins and rejects wildcard origins' {
+        $installScript | Should -Match '\[string\]\$AllowedOrigins'
+        $installScript | Should -Match 'function ConvertTo-ScannerBridgeAllowedOrigins'
+        $installScript | Should -Match 'function ConvertTo-ScannerBridgeAllowedOrigin'
+        $installScript | Should -Match 'function Assert-ScannerBridgeAllowedOriginUri'
+        $installScript | Should -Match '\$Origin -eq ''\*'''
+        $installScript | Should -Match 'Set-ScannerBridgeCorsOrigins'
+        $installScript | Should -Match 'Cors'
+        $installScript | Should -Match 'AllowedOrigins'
+    }
+
+    It 'accepts clean HTTP origins for Scanner Bridge CORS' {
+        $origins = ConvertTo-ScannerBridgeAllowedOrigins `
+            -Origins 'http://10.0.177.17:8080,http://localhost,http://127.0.0.1,http://[::1]'
+
+        $origins | Should -Be @(
+            'http://10.0.177.17:8080',
+            'http://localhost',
+            'http://127.0.0.1',
+            'http://[::1]'
+        )
+    }
+
+    It 'rejects non-origin Scanner Bridge CORS values' -ForEach @(
+        @{ Origin = 'http://10.0.177.17/app' },
+        @{ Origin = 'http://10.0.177.17:8080/app' },
+        @{ Origin = 'http://10.0.177.17:8080?x=1' },
+        @{ Origin = 'http://10.0.177.17:8080#x' },
+        @{ Origin = 'http://user:pass@host' },
+        @{ Origin = 'ftp://localhost' },
+        @{ Origin = '*' }
+    ) {
+        { ConvertTo-ScannerBridgeAllowedOrigins -Origins $Origin } |
+            Should -Throw
+    }
+
+    It 'keeps Scanner Bridge health polling catch observable for diagnostics' {
+        $installScript | Should -Match '\$lastHealthError = \$null'
+        $installScript | Should -Match '\$lastHealthError = \$_'
+        $installScript | Should -Match 'Write-Verbose \("Scanner Bridge health check attempt failed: "'
+        $installScript | Should -Match 'Last health check error: '
+    }
+
+    It 'normalizes quoted service binary paths before comparing them' {
+        Normalize-ServiceBinaryPath -Path '"C:\Uqeb\scanner-bridge\Uqeb.ScannerBridge.exe"' |
+            Should -Be 'C:\Uqeb\scanner-bridge\Uqeb.ScannerBridge.exe'
+    }
+
+    It 'reconciles an existing service binary path before starting the service' {
+        $installScript | Should -Match 'function Set-ScannerBridgeServiceBinaryPath'
+        $installScript | Should -Match 'Get-CimInstance[\s\S]*Win32_Service'
+        $installScript | Should -Match 'sc\.exe config \$ServiceName "binPath=" \$expected'
+        $installScript | Should -Match 'if \(\$existing\) \{[\s\S]*Set-ScannerBridgeServiceBinaryPath -ServiceName \$ServiceName -ExePath \$exePath[\s\S]*Start-Service -Name \$ServiceName'
     }
 }

@@ -28,6 +28,7 @@ Set-Location $repoRoot
 
 $backendProject = Join-Path $repoRoot "backend\Uqeb.Api\Uqeb.Api.csproj"
 $backendTests = Join-Path $repoRoot "backend\Uqeb.Api.Tests\Uqeb.Api.Tests.csproj"
+$scannerBridgeProject = Join-Path $repoRoot "scanner-bridge\Uqeb.ScannerBridge\Uqeb.ScannerBridge.csproj"
 $frontendRoot = Join-Path $repoRoot "frontend\uqeb-ui"
 $migrationsDir = Join-Path $repoRoot "backend\Uqeb.Api\Migrations"
 $artifactsRoot = Join-Path $repoRoot $OutputRoot
@@ -166,10 +167,10 @@ function Find-ForbiddenFrontendUrlMatches {
     $forbiddenMarkers = @(
         "localhost:5000",
         "127.0.0.1:5000",
-        "http://localhost",
-        "https://localhost",
-        "http://127.0.0.1",
-        "https://127.0.0.1"
+        "http://localhost:5000",
+        "https://localhost:5000",
+        "http://127.0.0.1:5000",
+        "https://127.0.0.1:5000"
     )
 
     $forbiddenHits = New-Object System.Collections.Generic.List[string]
@@ -305,12 +306,20 @@ finally {
 }
 
 $publishDir = Join-Path $repoRoot "artifacts\publish-api"
+$scannerBridgePublishDir = Join-Path $repoRoot "artifacts\publish-scanner-bridge"
 if (Test-Path -LiteralPath $publishDir) {
     Remove-Item -LiteralPath $publishDir -Recurse -Force
+}
+if (Test-Path -LiteralPath $scannerBridgePublishDir) {
+    Remove-Item -LiteralPath $scannerBridgePublishDir -Recurse -Force
 }
 
 Invoke-ExternalCommand "نشر Backend (Release)" {
     dotnet publish $backendProject -c Release -o $publishDir
+}
+
+Invoke-ExternalCommand "نشر Scanner Bridge (Release)" {
+    dotnet publish $scannerBridgeProject -c Release -o $scannerBridgePublishDir
 }
 
 Write-ApiPublishBuildInfo `
@@ -355,12 +364,14 @@ $stagingWeb = Join-Path $tempStagingRoot "web"
 $stagingDatabase = Join-Path $tempStagingRoot "database"
 $stagingScripts = Join-Path $tempStagingRoot "scripts"
 $stagingBrowsers = Join-Path $tempStagingRoot "browsers"
+$stagingScannerBridge = Join-Path $tempStagingRoot "scanner-bridge"
 
 Ensure-Directory $stagingApi
 Ensure-Directory $stagingWeb
 Ensure-Directory $stagingDatabase
 Ensure-Directory $stagingScripts
 Ensure-Directory $stagingBrowsers
+Ensure-Directory $stagingScannerBridge
 
 $browserPayloadIncluded = $false
 
@@ -368,6 +379,10 @@ try {
     Write-DeployStep "تجهيز محتوى الحزمة"
     Invoke-RobocopySafe -Source $publishDir -Destination $stagingApi -TargetType Api -ExtraArguments @(
         "/XF", "appsettings.json", "appsettings.Development.json", "appsettings.Production.json"
+    )
+
+    Invoke-RobocopySafe -Source $scannerBridgePublishDir -Destination $stagingScannerBridge -TargetType Generic -ExtraArguments @(
+        "/XF", "appsettings.Development.json"
     )
 
     $distPath = Join-Path $frontendRoot "dist"
@@ -381,6 +396,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "apply-migrations.ps1") -Destination (Join-Path $stagingScripts "apply-migrations.ps1") -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "verify-deployment-health.ps1") -Destination (Join-Path $stagingScripts "verify-deployment-health.ps1") -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "verify-playwright-readiness.ps1") -Destination (Join-Path $stagingScripts "verify-playwright-readiness.ps1") -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "install-scanner-bridge.ps1") -Destination (Join-Path $stagingScripts "install-scanner-bridge.ps1") -Force
     Copy-Item -LiteralPath $commonPath -Destination (Join-Path $stagingScripts "deployment\Common.ps1") -Force
 
     $browserExecutable = $null
@@ -430,7 +446,11 @@ try {
         "database\migrations-idempotent.sql",
         "scripts\apply-migrations.ps1",
         "scripts\verify-deployment-health.ps1",
+        "scripts\install-scanner-bridge.ps1",
         "browsers\playwright-browser-manifest.json",
+        "scanner-bridge\Uqeb.ScannerBridge.dll",
+        "scanner-bridge\Uqeb.ScannerBridge.exe",
+        "scanner-bridge\appsettings.json",
         $browserRelativePath
     )
 
@@ -459,6 +479,12 @@ try {
             browserExecutableRelativePath = $browserExecutable.RelativePath
             browserExecutableSha256 = [string]$browserManifest.browserExecutableSha256
             playwrightScriptSha256 = [string]$browserManifest.playwrightScriptSha256
+        }
+        scannerBridge = [ordered]@{
+            included = $true
+            installPath = "C:\Uqeb\scanner-bridge"
+            serviceName = "UqebScannerBridge"
+            url = "http://127.0.0.1:5055"
         }
         files = $manifestFiles
     }
