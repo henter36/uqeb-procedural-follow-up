@@ -65,20 +65,30 @@ function ConvertTo-ScannerBridgeAllowedOrigins {
 
     $result = New-Object System.Collections.Generic.List[string]
     foreach ($origin in ($Origins -split ',')) {
-        $normalized = $origin.Trim().TrimEnd('/')
-        if ([string]::IsNullOrWhiteSpace($normalized)) {
+        $candidate = $origin.Trim().TrimEnd('/')
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
             continue
         }
-        if ($normalized -eq '*') {
+        if ($candidate -eq '*') {
             throw "AllowedOrigins لا تقبل wildcard (*)."
         }
         $uri = $null
-        if (-not [Uri]::TryCreate($normalized, [UriKind]::Absolute, [ref]$uri)) {
-            throw "AllowedOrigins يحتوي origin غير صالح: $normalized"
+        if (-not [Uri]::TryCreate($candidate, [UriKind]::Absolute, [ref]$uri)) {
+            throw "AllowedOrigins يحتوي origin غير صالح: $candidate"
         }
         if ($uri.Scheme -ne 'http' -and $uri.Scheme -ne 'https') {
-            throw "AllowedOrigins يقبل http/https فقط: $normalized"
+            throw "AllowedOrigins يقبل http/https فقط: $candidate"
         }
+        if (-not [string]::IsNullOrWhiteSpace($uri.UserInfo)) {
+            throw "AllowedOrigins لا يقبل بيانات مستخدم داخل origin: $candidate"
+        }
+        if ($uri.AbsolutePath -ne '/' -or
+            -not [string]::IsNullOrWhiteSpace($uri.Query) -or
+            -not [string]::IsNullOrWhiteSpace($uri.Fragment)) {
+            throw "AllowedOrigins يجب أن يحتوي origin فقط بدون path أو query أو fragment: $candidate"
+        }
+
+        $normalized = $uri.GetLeftPart([UriPartial]::Authority)
         if (-not $result.Contains($normalized)) {
             $result.Add($normalized)
         }
@@ -137,6 +147,7 @@ function Wait-ScannerBridgeHealthy {
     )
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $lastHealthError = $null
     while ((Get-Date) -lt $deadline) {
         try {
             $status = Invoke-RestMethod -Uri $StatusUrl -TimeoutSec 5
@@ -145,7 +156,8 @@ function Wait-ScannerBridgeHealthy {
             }
         }
         catch {
-            # Retry until the service is fully ready.
+            $lastHealthError = $_
+            Write-Verbose ("Scanner Bridge health check attempt failed: " + $_.Exception.Message)
         }
 
         Start-Sleep -Seconds $RetryDelaySeconds
@@ -154,6 +166,9 @@ function Wait-ScannerBridgeHealthy {
     $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
     if ($service) {
         Write-Warning ("Scanner Bridge service state: " + $service.Status)
+    }
+    if ($null -ne $lastHealthError) {
+        Write-Warning ("Last health check error: " + $lastHealthError.Exception.Message)
     }
 
     $logTail = Get-ScannerBridgeLogTail -LogPath (Join-Path $InstallPath "logs\scanner-bridge.log")

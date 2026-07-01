@@ -2568,6 +2568,20 @@ Describe 'Scanner Bridge production install script' {
         $installScript = Get-Content -LiteralPath $installScriptPath -Raw
         $program = Get-Content -LiteralPath $programPath -Raw
         $transferScript = Get-Content -LiteralPath $transferScriptPath -Raw
+
+        $tokens = $null
+        $errors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($installScriptPath, [ref]$tokens, [ref]$errors)
+        if ($errors) {
+            throw ($errors | Out-String)
+        }
+        $functionAsts = $ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst]
+        }, $true)
+        foreach ($functionAst in $functionAsts) {
+            Set-Item -Path "function:$($functionAst.Name)" -Value $functionAst.Body.GetScriptBlock()
+        }
     }
 
     It 'uses the same Windows service identifier in Program.cs and install script' {
@@ -2597,9 +2611,40 @@ Describe 'Scanner Bridge production install script' {
     It 'writes explicit CORS allowed origins and rejects wildcard origins' {
         $installScript | Should -Match '\[string\]\$AllowedOrigins'
         $installScript | Should -Match 'function ConvertTo-ScannerBridgeAllowedOrigins'
-        $installScript | Should -Match '\$normalized -eq ''\*'''
+        $installScript | Should -Match '\$candidate -eq ''\*'''
         $installScript | Should -Match 'Set-ScannerBridgeCorsOrigins'
         $installScript | Should -Match 'Cors'
         $installScript | Should -Match 'AllowedOrigins'
+    }
+
+    It 'accepts clean HTTP origins for Scanner Bridge CORS' {
+        $origins = ConvertTo-ScannerBridgeAllowedOrigins `
+            -Origins 'http://10.0.177.17:8080,http://localhost,http://127.0.0.1,http://[::1]'
+
+        $origins | Should -Be @(
+            'http://10.0.177.17:8080',
+            'http://localhost',
+            'http://127.0.0.1',
+            'http://[::1]'
+        )
+    }
+
+    It 'rejects non-origin Scanner Bridge CORS values' -ForEach @(
+        @{ Origin = 'http://10.0.177.17/app' },
+        @{ Origin = 'http://10.0.177.17:8080/app' },
+        @{ Origin = 'http://10.0.177.17:8080?x=1' },
+        @{ Origin = 'http://10.0.177.17:8080#x' },
+        @{ Origin = 'http://user:pass@host' },
+        @{ Origin = '*' }
+    ) {
+        { ConvertTo-ScannerBridgeAllowedOrigins -Origins $Origin } |
+            Should -Throw
+    }
+
+    It 'keeps Scanner Bridge health polling catch observable for diagnostics' {
+        $installScript | Should -Match '\$lastHealthError = \$null'
+        $installScript | Should -Match '\$lastHealthError = \$_'
+        $installScript | Should -Match 'Write-Verbose \("Scanner Bridge health check attempt failed: "'
+        $installScript | Should -Match 'Last health check error: '
     }
 }

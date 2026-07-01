@@ -1,8 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const runtimeGlobal = globalThis as typeof globalThis & {
+  __UQEB_CONFIG__?: { scannerBridgeUrl?: string };
+};
+
 describe('scannerBridgeClient', () => {
   afterEach(() => {
     vi.resetModules();
+    delete runtimeGlobal.__UQEB_CONFIG__;
+    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
 
@@ -15,9 +21,9 @@ describe('scannerBridgeClient', () => {
 
   it('uses runtime scannerBridgeUrl before build-time configuration', async () => {
     vi.stubEnv('VITE_SCANNER_BRIDGE_URL', 'http://127.0.0.1:5057/');
-    vi.stubGlobal('__UQEB_CONFIG__', {
+    runtimeGlobal.__UQEB_CONFIG__ = {
       scannerBridgeUrl: 'http://127.0.0.1:5056/',
-    });
+    };
 
     const { getScannerBridgeBaseUrl } = await import('./scannerBridgeClient');
 
@@ -33,9 +39,9 @@ describe('scannerBridgeClient', () => {
   });
 
   it('trims trailing slashes from runtime scannerBridgeUrl', async () => {
-    vi.stubGlobal('__UQEB_CONFIG__', {
+    runtimeGlobal.__UQEB_CONFIG__ = {
       scannerBridgeUrl: ' http://127.0.0.1:5058/// ',
-    });
+    };
 
     const { getScannerBridgeBaseUrl } = await import('./scannerBridgeClient');
 
