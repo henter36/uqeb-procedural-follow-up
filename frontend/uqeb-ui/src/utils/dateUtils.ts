@@ -4,16 +4,73 @@ export function formatGregorian(date: string | Date): string {
   return d.toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
+function toDisplayDate(date: string | Date): Date {
+  if (date instanceof Date) return date;
+
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (dateOnlyMatch) {
+    const [, year, month, day] = dateOnlyMatch;
+    return new Date(Number(year), Number(month) - 1, Number(day), 12, 0, 0);
+  }
+
+  return new Date(date);
+}
+
+function stripHijriEra(value: string): string {
+  const hijriEra = 'هـ';
+  const hijriEraWithDot = 'هـ.';
+  let trimmed = value.trimEnd();
+
+  if (trimmed.endsWith(hijriEraWithDot)) {
+    trimmed = trimmed.slice(0, -hijriEraWithDot.length);
+  } else if (trimmed.endsWith(hijriEra)) {
+    trimmed = trimmed.slice(0, -hijriEra.length);
+  }
+
+  return trimmed.trimEnd();
+}
+
 export function formatHijri(date: string | Date): string {
-  const d = typeof date === 'string' ? new Date(date) : date;
+  const d = toDisplayDate(date);
+  if (Number.isNaN(d.getTime())) return '-';
+
+  const formatWithLocale = (locale: string): string => {
+    const formatter = new Intl.DateTimeFormat(locale, {
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+    });
+
+    try {
+      const parts = Object.fromEntries(
+        formatter
+          .formatToParts(d)
+          .map((p) => [p.type, p.value]),
+      );
+
+      const day = parts.day;
+      const month = parts.month;
+      const year = parts.year;
+
+      if (day && month && year) {
+        return `${day}/${month}/${year}`;
+      }
+    } catch {
+      // Fall back to format() below for partial Intl implementations.
+    }
+
+    const formatted = stripHijriEra(formatter.format(d));
+    return formatted || '-';
+  };
+
   try {
-    return new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura', {
-      year: 'numeric', month: 'long', day: 'numeric',
-    }).format(d);
+    return formatWithLocale('ar-SA-u-ca-islamic-umalqura');
   } catch {
-    return new Intl.DateTimeFormat('ar-SA-u-ca-islamic', {
-      year: 'numeric', month: 'long', day: 'numeric',
-    }).format(d);
+    try {
+      return formatWithLocale('ar-SA-u-ca-islamic');
+    } catch {
+      return '-';
+    }
   }
 }
 

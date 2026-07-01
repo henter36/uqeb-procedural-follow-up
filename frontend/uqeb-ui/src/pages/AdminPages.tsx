@@ -11,6 +11,7 @@ import { ReferenceDataPage } from '../components/ReferenceDataPage';
 import { FormModal } from '../components/ReferenceDataFormModal';
 import { FieldError } from '../components/ReferenceDataFieldError';
 import { StatusBadge } from '../components/ReferenceDataStatusBadge';
+import { formatHijri } from '../utils/dateUtils';
 import { isEmptyTrimmedName, normalizeTrimmedName } from './adminPageHelpers';
 
 function apiError(err: unknown, fallback: string) {
@@ -96,7 +97,7 @@ export function DepartmentsPage() {
         { key: 'name', label: 'الاسم', sortable: true, render: (d) => d.name },
         { key: 'code', label: 'الرمز', sortable: true, render: (d) => d.code || '-' },
         { key: 'isActive', label: 'الحالة', sortable: true, render: (d) => <StatusBadge active={d.isActive} /> },
-        { key: 'createdAt', label: 'تاريخ الإضافة', sortable: true, render: (d) => d.createdAt ? new Date(d.createdAt).toLocaleDateString('ar-SA') : '-' },
+        { key: 'createdAt', label: 'تاريخ الإضافة', sortable: true, render: (d) => d.createdAt ? formatHijri(d.createdAt) : '-' },
       ]}
       onDeactivate={(d) => departmentsApi.update(d.id, { isActive: false }).then(() => undefined)}
       canDeactivate={(d) => d.isActive}
