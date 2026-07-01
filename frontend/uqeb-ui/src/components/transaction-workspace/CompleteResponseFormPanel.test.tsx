@@ -56,6 +56,20 @@ describe('CompleteResponseFormPanel', () => {
     });
   });
 
+  it('converts Hijri response date to Gregorian ISO before submit', async () => {
+    const user = await fillRequiredFields();
+    const responseDate = screen.getByLabelText('تاريخ الإفادة *');
+    await user.clear(responseDate);
+    await user.type(responseDate, '1448/01/16');
+    await user.click(screen.getByRole('button', { name: 'تسجيل الإفادة' }));
+
+    await waitFor(() => {
+      expect(services.transactionsApi.completeResponse).toHaveBeenCalledWith(1, expect.objectContaining({
+        responseDate: '2026-07-01T00:00:00',
+      }));
+    });
+  });
+
   it('succeeds with attachment', async () => {
     const user = await fillRequiredFields();
     const file = new File(['pdf'], 'response.pdf', { type: 'application/pdf' });

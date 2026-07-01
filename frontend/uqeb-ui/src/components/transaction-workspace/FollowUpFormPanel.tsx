@@ -4,6 +4,7 @@ import { transactionsApi } from '../../api/services';
 import { buildCreateFollowUpPayload, getApiErrorMessage } from '../../utils/apiHelpers';
 import { areSortedIdsEqual } from '../../utils/formDirty';
 import MultiSelect from '../MultiSelect';
+import HijriDateInput from '../HijriDateInput';
 import { Alert, LoadingInline } from '../ui';
 import { formatDaysSince } from '../../utils/responseTiming';
 import { createInitialFollowUpForm, getDefaultDepartmentIds } from './followUpDepartments';
@@ -127,8 +128,13 @@ function FollowUpFormPanelBody({
             <input id="followup-number" value={form.followUpNumber} onChange={(e) => setForm({ ...form, followUpNumber: e.target.value })} />
           </div>
           <div className="form-group">
-            <label htmlFor="followup-date">تاريخ التعقيب</label>
-            <input id="followup-date" type="date" required value={form.followUpDate} onChange={(e) => setForm({ ...form, followUpDate: e.target.value })} />
+            <HijriDateInput
+              id="followup-date"
+              label="تاريخ التعقيب"
+              required
+              value={form.followUpDate}
+              onChange={(followUpDate) => setForm({ ...form, followUpDate })}
+            />
           </div>
           <div className="form-group full-width">
             <MultiSelect

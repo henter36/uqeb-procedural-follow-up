@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { buildReplyPayload, getApiErrorMessage } from '../../utils/apiHelpers';
 import { todayLocalIso } from '../../utils/localDate';
 import { Alert } from '../ui';
+import HijriDateInput from '../HijriDateInput';
 
 type ReplyFormPanelProps = Readonly<{
   title: string;
@@ -46,8 +47,13 @@ export default function ReplyFormPanel({
       {error && <Alert variant="error">{error}</Alert>}
       <div className="form-grid">
         <div className="form-group">
-          <label htmlFor="reply-date">تاريخ الرد</label>
-          <input id="reply-date" type="date" required value={form.replyDate} onChange={(e) => setForm({ ...form, replyDate: e.target.value })} />
+          <HijriDateInput
+            id="reply-date"
+            label="تاريخ الرد"
+            required
+            value={form.replyDate}
+            onChange={(replyDate) => setForm({ ...form, replyDate })}
+          />
         </div>
         <div className="form-group full-width">
           <label htmlFor="reply-summary">ملخص الرد *</label>

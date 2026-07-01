@@ -16,7 +16,7 @@ import {
 import { getApiErrorMessage } from '../utils/apiHelpers';
 import DateDisplay from '../components/DateDisplay';
 import DepartmentBadges from '../components/DepartmentBadges';
-import { responseTimingBadgeClass, formatDaysSince } from '../utils/responseTiming';
+import { responseTimingBadgeClass, formatCompletionDays, formatDaysSince } from '../utils/responseTiming';
 import {
   PageHeader, Alert, StatusBadge, PriorityBadge, ActivityTimeline, LoadingInline, ErrorState,
 } from '../components/ui';
@@ -548,6 +548,13 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
           <div className="transaction-metric-tile">
             <span className="transaction-metric-label">منذ ورود المعاملة</span>
             <span className="transaction-metric-value">{formatDaysSince(tx.daysSinceIncoming, '0')}</span>
+          </div>
+          <div className="transaction-metric-tile">
+            <span className="transaction-metric-label">أيام إنجاز المعاملة</span>
+            <span className="transaction-metric-value">{formatCompletionDays(tx.completionDays)}</span>
+            {tx.completionDate && (
+              <small className="text-muted">تاريخ الإنجاز: <DateDisplay date={tx.completionDate} /></small>
+            )}
           </div>
           <div className="transaction-metric-tile">
             <span className="transaction-metric-label">الأيام المتبقية</span>

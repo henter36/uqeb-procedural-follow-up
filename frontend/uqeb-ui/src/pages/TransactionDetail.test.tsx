@@ -73,6 +73,8 @@ const baseTx = {
   hasPendingAssignments: false,
   daysSinceIncoming: 1,
   daysSinceLastFollowUp: null,
+  completionDate: null,
+  completionDays: null,
 };
 
 const sampleAssignment = {
@@ -756,6 +758,37 @@ describe('TransactionDetailPage operational workspace', () => {
     expect(screen.getByRole('navigation', { name: 'إجراءات المعاملة' })).toBeInTheDocument();
     expect(getActionBarButton('إضافة احالة')).toBeInTheDocument();
     expect(screen.getByText('منذ ورود المعاملة')).toBeInTheDocument();
+    const completionMetric = screen.getByText('أيام إنجاز المعاملة').closest('.transaction-metric-tile');
+    expect(completionMetric).not.toBeNull();
+    expect(within(completionMetric as HTMLElement).getByText('—')).toBeInTheDocument();
+  });
+
+  it('shows transaction completion days when available', async () => {
+    const completedTransaction = {
+      ...baseTx,
+      completionDate: '2026-01-04',
+      completionDays: 3,
+    };
+    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: {
+        ...defaultWorkspace,
+        transaction: completedTransaction,
+        temporalFacts: {
+          ...defaultTemporalFacts,
+          completionDays: 3,
+        },
+      },
+    } as never);
+    vi.mocked(services.transactionsApi.getBasic).mockResolvedValue({ data: completedTransaction } as never);
+    renderDetail();
+
+    await waitFor(() => {
+      expect(screen.getByText('أيام إنجاز المعاملة')).toBeInTheDocument();
+    });
+    const completionMetric = screen.getByText('أيام إنجاز المعاملة').closest('.transaction-metric-tile');
+    expect(completionMetric).not.toBeNull();
+    expect(within(completionMetric as HTMLElement).getByText('3 أيام')).toBeInTheDocument();
+    expect(within(completionMetric as HTMLElement).getByText(/تاريخ الإنجاز:/)).toBeInTheDocument();
   });
 
   it('opens inline assignment form from action bar in hero area', async () => {

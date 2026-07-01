@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AssignmentFormPanel from './AssignmentFormPanel';
 import * as services from '../../api/services';
+import { formatHijriInputParts, gregorianToHijriParts } from '../../utils/hijriDateInput';
 import { todayLocalIso } from '../../utils/localDate';
 
 vi.mock('../../api/services', () => ({
@@ -42,7 +43,9 @@ describe('AssignmentFormPanel dirty state', () => {
     await waitFor(() => {
       expect(onDirtyChange).toHaveBeenCalledWith(false);
     });
-    expect(screen.getByLabelText('تاريخ الاحالة')).toHaveValue(todayLocalIso());
+    const todayHijri = gregorianToHijriParts(todayLocalIso());
+    expect(todayHijri).not.toBeNull();
+    expect(screen.getByLabelText(/تاريخ الاحالة/)).toHaveValue(formatHijriInputParts(todayHijri!));
   });
 
   it('becomes dirty when assignedDate changes', async () => {
@@ -58,12 +61,12 @@ describe('AssignmentFormPanel dirty state', () => {
       />,
     );
 
-    const dateInput = screen.getByLabelText('تاريخ الاحالة');
+    const dateInput = screen.getByLabelText(/تاريخ الاحالة/);
     const originalDate = (dateInput as HTMLInputElement).value;
     onDirtyChange.mockClear();
 
     await user.clear(dateInput);
-    await user.type(dateInput, '2025-12-01');
+    await user.type(dateInput, '1447/06/10');
 
     await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(true));
 
