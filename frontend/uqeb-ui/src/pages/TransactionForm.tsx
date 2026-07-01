@@ -9,7 +9,7 @@ import {
   getApiErrorMessage,
   getFieldErrors,
 } from '../utils/apiHelpers';
-import { formatDualDate, formatHijri } from '../utils/dateUtils';
+import { formatHijri } from '../utils/dateUtils';
 import MultiSelect from '../components/MultiSelect';
 import SearchableSelect, { type SelectOption } from '../components/SearchableSelect';
 import { PageHeader, FormSection, Alert, LoadingInline } from '../components/ui';
@@ -638,7 +638,7 @@ export default function TransactionForm({ mode }: Props) {
               {fieldError('responseDueDays') && <span id={fieldErrorId('responseDueDays')} className="field-error">{fieldError('responseDueDays')}</span>}
               {computedResponseDueDate && (
                 <small className="text-muted">
-                  تاريخ الرد المطلوب: {formatDualDate(computedResponseDueDate)}
+                  تاريخ الرد المطلوب: {formatHijri(computedResponseDueDate)}
                 </small>
               )}
             </div>

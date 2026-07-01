@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { departmentResponsesApi } from '../api/services';
 import type { DepartmentResponseDto, DepartmentTransactionResponseItemDto, DepartmentResponseStatsDto } from '../api/types';
 import { EmptyState, ErrorState, PageHeader } from '../components/ui';
+import { formatHijri } from '../utils/dateUtils';
 
 const STATUS_LABELS: Record<string, string> = {
   Draft: 'مسودة',
@@ -200,7 +201,7 @@ function TransactionsListView({ transactions, statsState, onOpenCreate, onOpenDe
                       ? statusBadge(tx.departmentResponseStatus)
                       : <span className="text-gray-400 text-xs">لم تُنشأ بعد</span>}
                   </td>
-                  <td>{tx.assignedDate ? new Date(tx.assignedDate).toLocaleDateString('ar-SA') : '—'}</td>
+                  <td>{tx.assignedDate ? formatHijri(tx.assignedDate) : '—'}</td>
                   <td>
                     <TransactionActionCell
                       tx={tx}

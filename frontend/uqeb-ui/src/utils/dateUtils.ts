@@ -7,13 +7,15 @@ export function formatGregorian(date: string | Date): string {
 export function formatHijri(date: string | Date): string {
   const d = typeof date === 'string' ? new Date(date) : date;
   try {
-    return new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura', {
-      year: 'numeric', month: 'long', day: 'numeric',
-    }).format(d);
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura', {
+      year: 'numeric', month: 'numeric', day: 'numeric',
+    }).formatToParts(d).map((p) => [p.type, p.value]));
+    return `${parts.day}/${parts.month}/${parts.year}`;
   } catch {
-    return new Intl.DateTimeFormat('ar-SA-u-ca-islamic', {
-      year: 'numeric', month: 'long', day: 'numeric',
-    }).format(d);
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('ar-SA-u-ca-islamic', {
+      year: 'numeric', month: 'numeric', day: 'numeric',
+    }).formatToParts(d).map((p) => [p.type, p.value]));
+    return `${parts.day}/${parts.month}/${parts.year}`;
   }
 }
 
