@@ -245,7 +245,6 @@ public class FollowUpDto
 {
     public int Id { get; set; }
     public string? FollowUpNumber { get; set; }
-    [JsonRequired]
     public DateTime FollowUpDate { get; set; }
     public string? SentTo { get; set; }
     public List<FollowUpRecipientDto> Recipients { get; set; } = new();
