@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
 type Option = Readonly<{ id: number; name: string; isActive?: boolean }>;
 
@@ -11,6 +11,10 @@ type Props = Readonly<{
   invalid?: boolean;
   describedBy?: string;
   dataFieldName?: string;
+  formatSelected?: (count: number) => string;
+  searchPlaceholder?: string;
+  searchAriaLabel?: string;
+  chipsAriaLabel?: string;
 }>;
 
 function formatSelectedCount(count: number) {
@@ -19,6 +23,10 @@ function formatSelectedCount(count: number) {
   if (count === 2) return 'إدارتان مختارتان';
   if (count >= 3 && count <= 10) return `${count} إدارات مختارة`;
   return `${count} إدارة مختارة`;
+}
+
+function normalizeAccessibleLabel(label?: string) {
+  return label?.replaceAll('*', '').replace(/\s+/g, ' ').trim();
 }
 
 export default function MultiSelect({
@@ -30,13 +38,25 @@ export default function MultiSelect({
   invalid,
   describedBy,
   dataFieldName,
+  formatSelected = formatSelectedCount,
+  searchPlaceholder = 'بحث...',
+  searchAriaLabel,
+  chipsAriaLabel,
 }: Props) {
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const generatedPanelId = useId();
+  const generatedLabelId = useId();
 
   const showSearch = options.length > 6;
+  const accessibleLabel = normalizeAccessibleLabel(label);
+  const resolvedSearchAriaLabel = searchAriaLabel ?? (accessibleLabel ? `بحث في ${accessibleLabel}` : 'بحث');
+  const resolvedChipsAriaLabel = chipsAriaLabel ?? (
+    accessibleLabel ? `${accessibleLabel} المختارة` : 'العناصر المختارة'
+  );
+  const labelId = label ? `${generatedLabelId}-label` : undefined;
+  const selectedCountId = `${generatedLabelId}-selected-count`;
   const selectedOptions = useMemo(
     () => options.filter((option) => selected.includes(option.id)),
     [options, selected],
@@ -53,21 +73,25 @@ export default function MultiSelect({
     onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
   };
   const remove = (id: number) => onChange(selected.filter((x) => x !== id));
-  const selectedCountLabel = formatSelectedCount(selected.length);
+  const selectedCountLabel = formatSelected(selected.length);
   const panelId = dataFieldName ? `${dataFieldName}-options` : generatedPanelId;
+  const closeDropdown = useCallback(() => {
+    setIsOpen(false);
+    setQuery('');
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return undefined;
 
     const handleClickOutside = (event: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
+        closeDropdown();
       }
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setIsOpen(false);
+        closeDropdown();
       }
     };
 
@@ -78,25 +102,33 @@ export default function MultiSelect({
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen]);
+  }, [closeDropdown, isOpen]);
 
   return (
     <div className="form-group multi-select-container" ref={containerRef}>
-      {label && <label>{label}{required ? ' *' : ''}</label>}
+      {label && <label id={labelId}>{label}{required ? ' *' : ''}</label>}
       <button
         type="button"
         className={`multi-select-trigger${invalid ? ' is-invalid' : ''}`}
-        onClick={() => setIsOpen((open) => !open)}
+        onClick={() => {
+          if (isOpen) {
+            closeDropdown();
+            return;
+          }
+
+          setIsOpen(true);
+        }}
         aria-expanded={isOpen}
         aria-controls={isOpen ? panelId : undefined}
         data-field-name={dataFieldName}
         aria-describedby={describedBy}
+        aria-labelledby={labelId ? `${labelId} ${selectedCountId}` : selectedCountId}
       >
-        <span>{selectedCountLabel}</span>
+        <span id={selectedCountId}>{selectedCountLabel}</span>
         <span aria-hidden="true">▾</span>
       </button>
       {selectedOptions.length > 0 && (
-        <div className="multi-select-chips" aria-label="الإدارات المختارة">
+        <div className="multi-select-chips" aria-label={resolvedChipsAriaLabel}>
           {selectedOptions.map((option) => (
             <button
               key={option.id}
@@ -116,10 +148,16 @@ export default function MultiSelect({
           {showSearch && (
             <input
               className="multi-select-search"
-              placeholder="بحث..."
-              aria-label="بحث في الإدارات"
+              placeholder={searchPlaceholder}
+              aria-label={resolvedSearchAriaLabel}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                }
+              }}
             />
           )}
           <div className="multi-select">

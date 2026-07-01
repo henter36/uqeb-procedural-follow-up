@@ -675,6 +675,7 @@ describe('TransactionForm validation feedback', () => {
       expect(outgoingDepartments).not.toHaveAttribute('aria-invalid');
       expect(outgoingDepartments).toHaveAttribute('aria-describedby', 'outgoingDepartmentIds-error');
     });
+    expect(document.querySelectorAll('#outgoingDepartmentIds-error')).toHaveLength(1);
   });
 
   it('EditTransaction_MissingRequiredFields_ShowsFieldErrors', async () => {
