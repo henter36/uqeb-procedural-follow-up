@@ -230,6 +230,7 @@ describe('FollowUpFormPanel', () => {
   });
 
   it('clears stale departments when transactionId changes before the next load completes', async () => {
+    const user = userEvent.setup();
     const departmentsTx2 = [
       { departmentId: 9, departmentName: 'إدارة معاملة 2', isDefaultSelected: true },
     ];
@@ -260,7 +261,7 @@ describe('FollowUpFormPanel', () => {
 
     resolveTx2!({ data: departmentsTx2 } as never);
     await waitFor(() => expect(screen.getByRole('button', { name: /إدارة واحدة مختارة/ })).toBeInTheDocument());
-    await openDepartmentsDropdown(userEvent.setup());
+    await openDepartmentsDropdown(user);
     expect(screen.getByLabelText('إدارة معاملة 2')).toBeInTheDocument();
     expect(services.transactionsApi.getFollowUpDepartments).toHaveBeenLastCalledWith(2);
   });

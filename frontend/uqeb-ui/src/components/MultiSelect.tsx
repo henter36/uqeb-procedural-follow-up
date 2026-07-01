@@ -117,6 +117,7 @@ export default function MultiSelect({
             <input
               className="multi-select-search"
               placeholder="بحث..."
+              aria-label="بحث في الإدارات"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
