@@ -372,7 +372,6 @@ export default function FollowUpPrintPendingPage() {
     <div dir="rtl">
       <PageHeader
         title="بانتظار تسجيل التعقيب"
-        subtitle="سجلات طُلبت طباعتها ولم تُربط بعد بتعقيب مسجل"
         actions={canClose ? (
           <>
             <Link to="/follow-up-print/jobs" className="btn btn-outline">مهام الطباعة</Link>

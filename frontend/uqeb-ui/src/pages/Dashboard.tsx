@@ -166,7 +166,7 @@ export default function DashboardPage() {
   if (loading) {
     return (
       <div>
-        <PageHeader title="لوحة المتابعة" subtitle="نظرة تنفيذية على المعاملات والتعقيبات" />
+        <PageHeader title="لوحة المتابعة" />
         <StatsSkeleton count={8} />
       </div>
     );
@@ -175,7 +175,7 @@ export default function DashboardPage() {
   if (error || !data) {
     return (
       <div>
-        <PageHeader title="لوحة المتابعة" subtitle="نظرة تنفيذية على المعاملات والتعقيبات" />
+        <PageHeader title="لوحة المتابعة" />
         <ErrorState
           title="تعذر تحميل اللوحة"
           description={error ?? 'تعذر تحميل بيانات اللوحة'}
@@ -237,10 +237,7 @@ export default function DashboardPage() {
 
   return (
     <div className="dashboard-page">
-      <PageHeader
-        title="لوحة المتابعة"
-        subtitle="نظرة تنفيذية على المعاملات والتعقيبات"
-      />
+      <PageHeader title="لوحة المتابعة" />
 
       {/* صف 1 — KPI */}
       <section className="dashboard-kpi-grid" aria-label="مؤشرات لوحة المتابعة">

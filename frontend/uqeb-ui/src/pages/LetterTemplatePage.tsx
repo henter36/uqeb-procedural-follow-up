@@ -355,7 +355,7 @@ export default function LetterTemplatePage() {
   if (loading) {
     return (
       <div dir="rtl">
-        <PageHeader title="قوالب خطاب التعقيب" subtitle="إدارة قوالب خطابات التعقيب والمتغيرات" />
+        <PageHeader title="قوالب خطاب التعقيب" />
         <LoadingInline label="جاري تحميل القوالب..." />
       </div>
     );
@@ -364,7 +364,7 @@ export default function LetterTemplatePage() {
   if (error && templates.length === 0) {
     return (
       <div dir="rtl">
-        <PageHeader title="قوالب خطاب التعقيب" subtitle="إدارة قوالب خطابات التعقيب والمتغيرات" />
+        <PageHeader title="قوالب خطاب التعقيب" />
         <ErrorState title="تعذر التحميل" description={error} />
       </div>
     );
@@ -374,7 +374,6 @@ export default function LetterTemplatePage() {
     <div dir="rtl" className="letter-template-page">
       <PageHeader
         title="قوالب خطاب التعقيب"
-        subtitle="إدارة قوالب خطابات التعقيب والمتغيرات"
         actions={(
           <button type="button" className="btn btn-outline" onClick={startNewTemplate}>
             قالب جديد

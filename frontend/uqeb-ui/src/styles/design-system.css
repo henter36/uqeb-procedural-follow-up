@@ -506,7 +506,7 @@
   justify-content: space-between;
   align-items: flex-start;
   gap: var(--space-4);
-  margin-bottom: var(--space-5);
+  margin-bottom: var(--space-3);
   flex-wrap: wrap;
 }
 
@@ -516,12 +516,6 @@
   color: var(--color-text);
   margin: 0;
   line-height: var(--line-height-tight);
-}
-
-.page-subtitle {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-  margin-top: var(--space-1);
 }
 
 .page-header-actions {

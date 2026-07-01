@@ -43,6 +43,23 @@ describe('TransactionsList', () => {
     cleanup();
   });
 
+  it('TransactionsPage_HasSingleMainHeading', async () => {
+    vi.mocked(services.transactionsApi.search).mockResolvedValue({ data: { items: [], totalCount: 0 } } as never);
+
+    render(
+      <MemoryRouter>
+        <TransactionsList />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('لا توجد معاملات')).toBeInTheDocument();
+    });
+
+    expect(screen.getAllByRole('heading', { name: 'المعاملات' })).toHaveLength(1);
+    expect(screen.queryByText('بحث وفلترة وإدارة جميع المعاملات')).not.toBeInTheDocument();
+  });
+
   it('shows ErrorState when search fails', async () => {
     vi.mocked(services.transactionsApi.search).mockRejectedValue(new Error('network'));
 

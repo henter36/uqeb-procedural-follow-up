@@ -67,6 +67,21 @@ describe('DashboardPage', () => {
     expect(services.dashboardApi.actionRequired).not.toHaveBeenCalled();
   });
 
+  it('Dashboard_HasSingleMainHeading', async () => {
+    render(
+      <MemoryRouter>
+        <DashboardPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('لا توجد معاملات تحتاج إجراء')).toBeInTheDocument();
+    });
+
+    expect(screen.getAllByRole('heading', { name: 'لوحة المتابعة' })).toHaveLength(1);
+    expect(screen.queryByText('نظرة تنفيذية على المعاملات والتعقيبات')).not.toBeInTheDocument();
+  });
+
   it('shows a single empty state for action required section', async () => {
     render(
       <MemoryRouter>

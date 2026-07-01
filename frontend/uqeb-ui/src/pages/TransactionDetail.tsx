@@ -920,7 +920,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
 
   return (
     <div className="transaction-workspace">
-      <PageHeader title="مساحة عمل المعاملة" subtitle={`${tx.incomingNumber} — ${tx.subject}`} />
+      <PageHeader title="مساحة عمل المعاملة" />
 
       {message && <Alert variant="success">{message}</Alert>}
       {error && <Alert variant="error">{error}</Alert>}
