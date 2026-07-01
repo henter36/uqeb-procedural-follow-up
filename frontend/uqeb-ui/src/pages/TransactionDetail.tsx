@@ -920,9 +920,9 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
 
   return (
     <div className="transaction-workspace">
-      <PageHeader title="مساحة عمل المعاملة" />
+      <PageHeader title="مساحة عمل المعاملة" titleDescribedBy="transaction-context" />
 
-      <div className="transaction-context-bar" aria-label="سياق المعاملة">
+      <div id="transaction-context" className="transaction-context-bar">
         <span className="transaction-context-number">{tx.incomingNumber}</span>
         <span aria-hidden="true">—</span>
         <span className="transaction-context-subject">{tx.subject}</span>
