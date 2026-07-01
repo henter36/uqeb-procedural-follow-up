@@ -922,6 +922,12 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     <div className="transaction-workspace">
       <PageHeader title="مساحة عمل المعاملة" />
 
+      <div className="transaction-context-bar" aria-label="سياق المعاملة">
+        <span className="transaction-context-number">{tx.incomingNumber}</span>
+        <span aria-hidden="true">—</span>
+        <span className="transaction-context-subject">{tx.subject}</span>
+      </div>
+
       {message && <Alert variant="success">{message}</Alert>}
       {error && <Alert variant="error">{error}</Alert>}
 
