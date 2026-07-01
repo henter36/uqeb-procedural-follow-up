@@ -16,6 +16,12 @@ const departments = [
   { departmentId: 2, departmentName: 'إدارة ب', isDefaultSelected: false },
 ];
 
+async function openDepartmentsDropdown(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', {
+    name: /لم يتم اختيار أي إدارة|إدارة واحدة مختارة|إدارتان مختارتان/,
+  }));
+}
+
 describe('FollowUpFormPanel', () => {
   const onDirtyChange = vi.fn();
   const onSuccess = vi.fn();
@@ -209,7 +215,8 @@ describe('FollowUpFormPanel', () => {
       />,
     );
 
-    await waitFor(() => expect(screen.getByLabelText('إدارة ب')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: /إدارة واحدة مختارة/ })).toBeInTheDocument());
+    await openDepartmentsDropdown(user);
     onDirtyChange.mockClear();
 
     await user.click(screen.getByLabelText('إدارة ب'));
@@ -242,7 +249,8 @@ describe('FollowUpFormPanel', () => {
 
     const { rerender } = render(<FollowUpFormPanel transactionId={1} {...props} />);
 
-    await waitFor(() => expect(screen.getByLabelText('إدارة أ')).toBeInTheDocument());
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByRole('button', { name: /إدارة واحدة مختارة/ })).toBeInTheDocument());
 
     rerender(<FollowUpFormPanel transactionId={2} {...props} />);
 
@@ -252,7 +260,9 @@ describe('FollowUpFormPanel', () => {
     expect(onDirtyChange).toHaveBeenCalledWith(false);
 
     resolveTx2!({ data: departmentsTx2 } as never);
-    await waitFor(() => expect(screen.getByLabelText('إدارة معاملة 2')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: /إدارة واحدة مختارة/ })).toBeInTheDocument());
+    await openDepartmentsDropdown(user);
+    expect(screen.getByLabelText('إدارة معاملة 2')).toBeInTheDocument();
     expect(services.transactionsApi.getFollowUpDepartments).toHaveBeenLastCalledWith(2);
   });
 });

@@ -551,7 +551,7 @@ describe('TransactionForm validation feedback', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('عند إدخال أي بيان من بيانات الصادر يجب إكمال رقم الصادر وتاريخ الصادر والإدارة الصادر لها.');
   });
 
-  it('CreateTransaction_MissingOutgoingDepartmentIds_SetsAriaInvalid', async () => {
+  it('CreateTransaction_MissingOutgoingDepartmentIds_SetsInvalidClassAndDescribedBy', async () => {
     const user = userEvent.setup();
     renderCreateForm();
     await waitForFormReady();
@@ -565,9 +565,11 @@ describe('TransactionForm validation feedback', () => {
     const outgoingDepartments = document.querySelector<HTMLElement>('[data-field-name="outgoingDepartmentIds"]');
     expect(outgoingDepartments).not.toBeNull();
     await waitFor(() => {
-      expect(outgoingDepartments).toHaveAttribute('aria-invalid', 'true');
+      expect(outgoingDepartments).toHaveClass('is-invalid');
+      expect(outgoingDepartments).not.toHaveAttribute('aria-invalid');
       expect(outgoingDepartments).toHaveAttribute('aria-describedby', 'outgoingDepartmentIds-error');
     });
+    expect(document.querySelectorAll('#outgoingDepartmentIds-error')).toHaveLength(1);
   });
 
   it('EditTransaction_MissingRequiredFields_ShowsFieldErrors', async () => {
