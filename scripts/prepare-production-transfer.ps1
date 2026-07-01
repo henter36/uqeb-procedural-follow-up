@@ -226,12 +226,13 @@ Set-Content -LiteralPath $readmePath -Encoding UTF8 -Value @"
 
 لتثبيت Scanner Bridge على جهاز Windows الذي يحتوي الماسح والمتصفح:
 
-  powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\install-scanner-bridge.ps1 -PackagePath .\incoming\$zipName
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\install-scanner-bridge.ps1 -PackagePath .\incoming\$zipName -AllowedOrigins "http://10.0.177.17:8080,http://localhost,http://127.0.0.1,http://[::1]"
 
 ثم تحقق:
 
   Invoke-RestMethod http://127.0.0.1:5055/status
   Invoke-RestMethod http://127.0.0.1:5055/scanners
+  Get-NetTCPConnection -LocalPort 5055 -State Listen
 "@
 
 Write-DeployStep "مجلد النقل جاهز"

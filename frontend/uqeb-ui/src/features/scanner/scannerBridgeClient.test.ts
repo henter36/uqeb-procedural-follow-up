@@ -14,6 +14,7 @@ describe('scannerBridgeClient', () => {
   });
 
   it('uses runtime scannerBridgeUrl before build-time configuration', async () => {
+    vi.stubEnv('VITE_SCANNER_BRIDGE_URL', 'http://127.0.0.1:5057/');
     vi.stubGlobal('__UQEB_CONFIG__', {
       scannerBridgeUrl: 'http://127.0.0.1:5056/',
     });
@@ -21,5 +22,23 @@ describe('scannerBridgeClient', () => {
     const { getScannerBridgeBaseUrl } = await import('./scannerBridgeClient');
 
     expect(getScannerBridgeBaseUrl()).toBe('http://127.0.0.1:5056');
+  });
+
+  it('uses build-time scannerBridgeUrl when runtime configuration is absent', async () => {
+    vi.stubEnv('VITE_SCANNER_BRIDGE_URL', 'http://127.0.0.1:5057/');
+
+    const { getScannerBridgeBaseUrl } = await import('./scannerBridgeClient');
+
+    expect(getScannerBridgeBaseUrl()).toBe('http://127.0.0.1:5057');
+  });
+
+  it('trims trailing slashes from runtime scannerBridgeUrl', async () => {
+    vi.stubGlobal('__UQEB_CONFIG__', {
+      scannerBridgeUrl: ' http://127.0.0.1:5058/// ',
+    });
+
+    const { getScannerBridgeBaseUrl } = await import('./scannerBridgeClient');
+
+    expect(getScannerBridgeBaseUrl()).toBe('http://127.0.0.1:5058');
   });
 });

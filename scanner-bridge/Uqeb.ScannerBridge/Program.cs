@@ -15,7 +15,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Host.UseWindowsService(options =>
 {
-    options.ServiceName = "Uqeb Scanner Bridge";
+    options.ServiceName = "UqebScannerBridge";
 });
 
 builder.Services.Configure<ScannerBridgeOptions>(builder.Configuration.GetSection(ScannerBridgeOptions.SectionName));

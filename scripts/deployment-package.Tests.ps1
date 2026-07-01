@@ -2558,3 +2558,48 @@ Describe 'Assert-FrontendDistApiBaseUrl' {
             Should -Throw '*لا توجد ملفات*'
     }
 }
+
+Describe 'Scanner Bridge production install script' {
+    BeforeAll {
+        $installScriptPath = Join-Path $PSScriptRoot 'install-scanner-bridge.ps1'
+        $programPath = Join-Path $PSScriptRoot '..\scanner-bridge\Uqeb.ScannerBridge\Program.cs'
+        $transferScriptPath = Join-Path $PSScriptRoot 'prepare-production-transfer.ps1'
+
+        $installScript = Get-Content -LiteralPath $installScriptPath -Raw
+        $program = Get-Content -LiteralPath $programPath -Raw
+        $transferScript = Get-Content -LiteralPath $transferScriptPath -Raw
+    }
+
+    It 'uses the same Windows service identifier in Program.cs and install script' {
+        $program | Should -Match 'options\.ServiceName\s*=\s*"UqebScannerBridge"'
+        $installScript | Should -Match '\$ServiceName\s*=\s*"UqebScannerBridge"'
+        $installScript | Should -Match '\$DisplayName\s*=\s*"Uqeb Scanner Bridge"'
+    }
+
+    It 'copies install-scanner-bridge.ps1 into the production transfer tools' {
+        $transferScript | Should -Match '"install-scanner-bridge\.ps1"'
+        $transferScript | Should -Match 'tools\\install-scanner-bridge\.ps1'
+    }
+
+    It 'cleans temporary package extraction when scanner bridge source resolution fails' {
+        $installScript | Should -Match 'function Resolve-ScannerBridgeSource'
+        $installScript | Should -Match 'catch\s*\{[\s\S]*Remove-Item -LiteralPath \$tempRoot -Recurse -Force -ErrorAction SilentlyContinue[\s\S]*throw'
+    }
+
+    It 'waits for Scanner Bridge health with polling instead of relying on a fixed post-start sleep' {
+        $installScript | Should -Match 'function Wait-ScannerBridgeHealthy'
+        $installScript | Should -Match '\$TimeoutSeconds = 45'
+        $installScript | Should -Match 'Invoke-RestMethod -Uri \$StatusUrl'
+        $installScript | Should -Match 'Start-Sleep -Seconds \$RetryDelaySeconds'
+        $installScript | Should -Not -Match 'Start-Sleep -Seconds 2'
+    }
+
+    It 'writes explicit CORS allowed origins and rejects wildcard origins' {
+        $installScript | Should -Match '\[string\]\$AllowedOrigins'
+        $installScript | Should -Match 'function ConvertTo-ScannerBridgeAllowedOrigins'
+        $installScript | Should -Match '\$normalized -eq ''\*'''
+        $installScript | Should -Match 'Set-ScannerBridgeCorsOrigins'
+        $installScript | Should -Match 'Cors'
+        $installScript | Should -Match 'AllowedOrigins'
+    }
+}
