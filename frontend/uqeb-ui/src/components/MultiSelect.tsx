@@ -162,7 +162,10 @@ export default function MultiSelect({
           )}
           <div className="multi-select">
             {filtered.map((o) => (
-              <label key={o.id} className={`multi-select-item${o.isActive === false ? ' is-inactive' : ''}`}>
+              <label
+                key={o.id}
+                className={`multi-select-item${o.isActive === false ? ' is-inactive' : ''}`}
+              >
                 <input
                   className="multi-select-checkbox"
                   type="checkbox"

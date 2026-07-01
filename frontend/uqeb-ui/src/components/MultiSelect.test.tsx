@@ -43,7 +43,7 @@ describe('MultiSelect', () => {
     expect(screen.getByRole('button', { name: new RegExp(label) })).toBeInTheDocument();
   });
 
-  it('closes on Escape', async () => {
+  it('MultiSelect_ClosesOnEscape', async () => {
     const user = userEvent.setup();
     renderMultiSelect();
 
@@ -55,7 +55,7 @@ describe('MultiSelect', () => {
     expect(screen.queryByLabelText('إدارة 1')).not.toBeInTheDocument();
   });
 
-  it('closes on outside click', async () => {
+  it('MultiSelect_ClosesOnOutsideClick', async () => {
     const user = userEvent.setup();
     renderMultiSelect();
 
@@ -67,7 +67,7 @@ describe('MultiSelect', () => {
     expect(screen.queryByLabelText('إدارة 1')).not.toBeInTheDocument();
   });
 
-  it('uses invalid class and describedBy without unsupported ARIA', () => {
+  it('MultiSelect_UsesInvalidClassAndDescribedByWithoutUnsupportedAriaInvalid', () => {
     renderMultiSelect([], {
       invalid: true,
       describedBy: 'departments-error',

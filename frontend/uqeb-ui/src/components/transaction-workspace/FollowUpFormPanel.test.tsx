@@ -230,6 +230,7 @@ describe('FollowUpFormPanel', () => {
   });
 
   it('clears stale departments when transactionId changes before the next load completes', async () => {
+    const user = userEvent.setup();
     const departmentsTx2 = [
       { departmentId: 9, departmentName: 'إدارة معاملة 2', isDefaultSelected: true },
     ];
@@ -249,7 +250,6 @@ describe('FollowUpFormPanel', () => {
 
     const { rerender } = render(<FollowUpFormPanel transactionId={1} {...props} />);
 
-    const user = userEvent.setup();
     await waitFor(() => expect(screen.getByRole('button', { name: /إدارة واحدة مختارة/ })).toBeInTheDocument());
 
     rerender(<FollowUpFormPanel transactionId={2} {...props} />);
