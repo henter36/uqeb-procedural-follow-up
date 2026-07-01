@@ -221,9 +221,9 @@ public class InstitutionalReportVisualRegressionTests
         var baselineDimensions = ReadPngDimensions(baseline);
         var actualDimensions = ReadPngDimensions(actual);
 
-        Assert.Equal(
-            baselineDimensions,
-            actualDimensions);
+        Assert.True(
+            baselineDimensions == actualDimensions,
+            $"Screenshot dimensions drifted for {snapshotName}. Expected: {baselineDimensions.Width}x{baselineDimensions.Height}, Actual: {actualDimensions.Width}x{actualDimensions.Height}.");
     }
 
     private static (int Width, int Height) ReadPngDimensions(byte[] png)
@@ -232,16 +232,21 @@ public class InstitutionalReportVisualRegressionTests
         if (png.Length < pngHeaderLength)
             throw new InvalidOperationException("PNG payload is too small to contain dimensions.");
 
-        var width = ReadBigEndianInt32(png, 16);
-        var height = ReadBigEndianInt32(png, 20);
+        if (png[0] != 0x89 || png[1] != 0x50 || png[2] != 0x4E || png[3] != 0x47
+            || png[4] != 0x0D || png[5] != 0x0A || png[6] != 0x1A || png[7] != 0x0A)
+        {
+            throw new InvalidOperationException("Invalid PNG signature.");
+        }
+
+        if (png[12] != 0x49 || png[13] != 0x48 || png[14] != 0x44 || png[15] != 0x52)
+        {
+            throw new InvalidOperationException("IHDR chunk not found at expected offset.");
+        }
+
+        var width = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(png.AsSpan(16, 4));
+        var height = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(png.AsSpan(20, 4));
         return (width, height);
     }
-
-    private static int ReadBigEndianInt32(byte[] bytes, int offset) =>
-        (bytes[offset] << 24)
-        | (bytes[offset + 1] << 16)
-        | (bytes[offset + 2] << 8)
-        | bytes[offset + 3];
 
 
     private static string ResolveBaselineDirectory()
