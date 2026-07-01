@@ -17,7 +17,17 @@ function toDisplayDate(date: string | Date): Date {
 }
 
 function stripHijriEra(value: string): string {
-  return value.replace(/\s*هـ\.?\s*$/u, '').trim();
+  const hijriEra = 'هـ';
+  const hijriEraWithDot = 'هـ.';
+  let trimmed = value.trimEnd();
+
+  if (trimmed.endsWith(hijriEraWithDot)) {
+    trimmed = trimmed.slice(0, -hijriEraWithDot.length);
+  } else if (trimmed.endsWith(hijriEra)) {
+    trimmed = trimmed.slice(0, -hijriEra.length);
+  }
+
+  return trimmed.trimEnd();
 }
 
 export function formatHijri(date: string | Date): string {
