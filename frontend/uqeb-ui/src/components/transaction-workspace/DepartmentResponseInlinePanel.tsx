@@ -175,9 +175,9 @@ export default function DepartmentResponseInlinePanel({
 
   if (loading) {
     return (
-      <div className="workspace-form department-response-inline-panel" role="status">
+      <output className="workspace-form department-response-inline-panel" aria-live="polite">
         جارٍ تحميل إفادة الإدارة...
-      </div>
+      </output>
     );
   }
 
