@@ -39,6 +39,9 @@ public class TransactionService : ITransactionService
     private const string OutgoingDepartmentSourceName = "OutgoingDepartment";
     private const string OutgoingDepartmentsEntityName = "TransactionOutgoingDepartments";
     private const string TransactionEntityName = "Transaction";
+    private const string ActiveStatusScope = "active";
+    private const string ClosedStatusScope = "closed";
+    private const string AllStatusScope = "all";
     private static readonly UserRole[] DepartmentResponseReviewRoles =
         [UserRole.Admin, UserRole.Supervisor, UserRole.DataEntry];
     private static readonly AuditAction[] DepartmentResponseSufficientAuditActions =
@@ -143,10 +146,29 @@ public class TransactionService : ITransactionService
         DateTime now)
     {
         query = ApplyDepartmentUserScope(query, currentUser);
+        query = ApplyStatusScopeFilter(query, request.StatusScope);
         query = ApplyTextAndReferenceFilters(query, request);
         query = ApplyDateRangeFilters(query, request);
         query = ApplyStatusAndAssignmentFilters(query, request, now);
         return query;
+    }
+
+    private static IQueryable<Transaction> ApplyStatusScopeFilter(
+        IQueryable<Transaction> query, string? statusScope)
+    {
+        var normalized = string.IsNullOrWhiteSpace(statusScope)
+            ? ActiveStatusScope
+            : statusScope.Trim().ToLowerInvariant();
+
+        return normalized switch
+        {
+            ActiveStatusScope => query.Where(t =>
+                t.Status != TransactionStatus.Closed &&
+                t.Status != TransactionStatus.Cancelled),
+            ClosedStatusScope => query.Where(t => t.Status == TransactionStatus.Closed),
+            AllStatusScope => query,
+            _ => throw new InvalidOperationException("نطاق حالة المعاملات غير صالح.")
+        };
     }
 
     private IQueryable<Transaction> ApplyDepartmentUserScope(

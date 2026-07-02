@@ -26,8 +26,10 @@ type SortKey =
   | 'createdAt';
 
 const DATE_SORT_KEYS = new Set<SortKey>(['incomingDate', 'responseDueDate', 'createdAt']);
+type StatusScope = 'active' | 'closed' | 'all';
 
 type FiltersState = {
+  statusScope: StatusScope;
   incomingNumber: string;
   outgoingNumber: string;
   subject: string;
@@ -54,6 +56,7 @@ type FiltersState = {
 };
 
 const DEFAULT_FILTERS: FiltersState = {
+  statusScope: 'active',
   incomingNumber: '', outgoingNumber: '', subject: '', status: '',
   incomingSourceType: '', incomingFromPartyId: '', incomingFromDepartmentId: '',
   departmentId: '', categoryId: '', dateFrom: '', dateTo: '',
@@ -68,8 +71,15 @@ const DEFAULT_FILTERS: FiltersState = {
 
 const FILTERS_STORAGE_KEY = 'uqeb-transaction-filters';
 
+const STATUS_SCOPE_TABS: ReadonlyArray<{ value: StatusScope; label: string }> = [
+  { value: 'active', label: 'النشطة' },
+  { value: 'closed', label: 'المغلقة' },
+  { value: 'all', label: 'الكل' },
+];
+
 function buildSearchParams(f: FiltersState): Record<string, unknown> {
   const params: Record<string, unknown> = {
+    statusScope: f.statusScope,
     pageSize: f.pageSize,
     page: f.page,
     sortBy: f.sortBy,
@@ -96,6 +106,16 @@ function buildSearchParams(f: FiltersState): Record<string, unknown> {
   if (f.hasPendingAssignments) params.hasPendingAssignments = true;
   if (f.hasPartialReplies) params.hasPartialReplies = true;
   return params;
+}
+
+function getEmptyStateTitle(statusScope: StatusScope): string {
+  if (statusScope === 'active') return 'لا توجد معاملات نشطة.';
+  if (statusScope === 'closed') return 'لا توجد معاملات مغلقة.';
+  return 'لا توجد معاملات مطابقة.';
+}
+
+function normalizeStatusScope(value: unknown): StatusScope {
+  return value === 'closed' || value === 'all' ? value : 'active';
 }
 
 function clampPage(page: number, totalCount: number, pageSize: number): number {
@@ -139,7 +159,13 @@ function loadSavedFilters(statusFromUrl: string): FiltersState {
   if (saved) {
     try {
       const parsed = JSON.parse(saved) as Partial<FiltersState>;
-      return { ...DEFAULT_FILTERS, ...parsed, status: statusFromUrl || parsed.status || '', page: 1 };
+      return {
+        ...DEFAULT_FILTERS,
+        ...parsed,
+        statusScope: normalizeStatusScope(parsed.statusScope),
+        status: statusFromUrl || parsed.status || '',
+        page: 1,
+      };
     } catch {
       return { ...DEFAULT_FILTERS, status: statusFromUrl };
     }
@@ -251,6 +277,12 @@ export default function TransactionsList() {
     applyQuery({ ...filters, pageSize, page: 1 });
   };
 
+  const handleStatusScopeChange = (statusScope: StatusScope) => {
+    const next = { ...filters, statusScope, page: 1 };
+    setStorageItem(FILTERS_STORAGE_KEY, JSON.stringify(next));
+    applyQuery(next);
+  };
+
   const handleRetry = () => {
     setLoading(true);
     setLoadError(null);
@@ -281,7 +313,7 @@ export default function TransactionsList() {
     if (items.length === 0) {
       return (
         <EmptyState
-          title="لا توجد معاملات"
+          title={getEmptyStateTitle(searchQuery.statusScope)}
           description="جرّب تعديل معايير البحث أو إضافة معاملة جديدة"
           action={canEdit ? <Link to="/transactions/new" className="btn btn-primary">إضافة معاملة</Link> : undefined}
         />
@@ -365,6 +397,20 @@ export default function TransactionsList() {
       />
 
       <div className="card filter-card">
+        <div className="tabs" role="tablist" aria-label="نطاق عرض المعاملات">
+          {STATUS_SCOPE_TABS.map((tab) => (
+            <button
+              key={tab.value}
+              type="button"
+              role="tab"
+              className={filters.statusScope === tab.value ? 'active' : undefined}
+              aria-selected={filters.statusScope === tab.value}
+              onClick={() => handleStatusScopeChange(tab.value)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
         <div className="card-header">
           <h3 className="card-title">البحث والفلاتر</h3>
           <div className="btn-group">
