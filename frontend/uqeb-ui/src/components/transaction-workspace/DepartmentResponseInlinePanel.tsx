@@ -30,6 +30,7 @@ export default function DepartmentResponseInlinePanel({
   const responseTextRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const detailRef = useRef<DepartmentResponseDto | null>(null);
+  const responseTextVersionRef = useRef(0);
   const [item, setItem] = useState<DepartmentTransactionResponseItemDto | null | undefined>(initialItem);
   const [detail, setDetail] = useState<DepartmentResponseDto | null>(null);
   const [responseText, setResponseText] = useState('');
@@ -40,6 +41,7 @@ export default function DepartmentResponseInlinePanel({
 
   const status = detail?.status ?? item?.departmentResponseStatus;
   const editable = isEditableStatus(status) && (item?.canCreateResponse || item?.canEditResponse || !item?.departmentResponseId);
+  const canSubmit = editable && (!item?.departmentResponseId || Boolean(item?.canSubmitResponse));
 
   function updateDetail(next: DepartmentResponseDto | null) {
     detailRef.current = next;
@@ -51,11 +53,14 @@ export default function DepartmentResponseInlinePanel({
     if (!responseId) return;
 
     let active = true;
+    const versionAtStart = responseTextVersionRef.current;
     departmentResponsesApi.getById(responseId)
       .then((res) => {
         if (!active) return;
         updateDetail(res.data);
-        setResponseText(res.data.responseText);
+        if (responseTextVersionRef.current === versionAtStart) {
+          setResponseText(res.data.responseText);
+        }
       })
       .catch((err: unknown) => {
         if (active) setError(getApiErrorMessage(err));
@@ -143,6 +148,7 @@ export default function DepartmentResponseInlinePanel({
     setError('');
     try {
       const saved = await saveDraft();
+      applyDraft(saved);
       const submitted = await departmentResponsesApi.submit(saved.id);
       updateDetail(submitted.data);
       setResponseText(submitted.data.responseText);
@@ -261,7 +267,10 @@ export default function DepartmentResponseInlinePanel({
               required
               rows={4}
               value={responseText}
-              onChange={(e) => setResponseText(e.target.value)}
+              onChange={(e) => {
+                responseTextVersionRef.current += 1;
+                setResponseText(e.target.value);
+              }}
               placeholder="اكتب إفادة الإدارة هنا..."
             />
           </div>
@@ -305,7 +314,7 @@ export default function DepartmentResponseInlinePanel({
             <button type="button" className="btn btn-secondary btn-sm" disabled={saving} onClick={handleSaveDraft}>
               {saving ? 'جارٍ الحفظ...' : 'حفظ كمسودة'}
             </button>
-            <button type="button" className="btn btn-primary btn-sm" disabled={saving} onClick={handleSubmit}>
+            <button type="button" className="btn btn-primary btn-sm" disabled={saving || !canSubmit} onClick={handleSubmit}>
               {saving ? 'جارٍ الإرسال...' : 'إرسال الإفادة'}
             </button>
             <button type="button" className="btn btn-outline btn-sm" onClick={onCancel}>إلغاء</button>

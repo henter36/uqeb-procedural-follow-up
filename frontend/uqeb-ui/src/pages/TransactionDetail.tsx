@@ -84,7 +84,7 @@ const ACTION_TITLES: Record<WorkspaceAction, string> = {
   attachment: 'إضافة مرفق',
   'reply-assignment': 'تسجيل رد على الاحالة',
   'reply-followup': 'تسجيل رد على التعقيب',
-  'complete-response': 'تسجيل إفادة الإدارة',
+  'complete-response': 'تسجيل إفادة',
   'follow-up-letter': 'خطاب تعقيب PDF',
 };
 
@@ -137,6 +137,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const [error, setError] = useState('');
   const [workspaceLoading, setWorkspaceLoading] = useState(true);
   const [departmentResponseItem, setDepartmentResponseItem] = useState<DepartmentTransactionResponseItemDto | null>(null);
+  const [departmentResponseItemError, setDepartmentResponseItemError] = useState('');
   const responsePanelRef = useRef<HTMLElement | null>(null);
   const departmentResponseRequestRef = useRef(0);
 
@@ -190,9 +191,11 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
 
     if (!isDepartmentUser) {
       setDepartmentResponseItem(null);
+      setDepartmentResponseItemError('');
       return;
     }
 
+    setDepartmentResponseItemError('');
     try {
       const res = await departmentResponsesApi.getDepartmentTransactions();
       if (departmentResponseRequestRef.current !== requestId) return;
@@ -200,6 +203,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     } catch {
       if (departmentResponseRequestRef.current !== requestId) return;
       setDepartmentResponseItem(null);
+      setDepartmentResponseItemError('تعذر تحميل حالة إفادة الإدارة. أعد المحاولة.');
     }
   }, [id, isDepartmentUser]);
 
@@ -620,6 +624,18 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
               onAction={toggleAction}
               onCloseTransaction={handleCloseTransaction}
             />
+            {isDepartmentUser && departmentResponseItemError && (
+              <div className="dept-response-item-error">
+                <span className="text-danger">{departmentResponseItemError}</span>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline"
+                  onClick={() => loadDepartmentResponseItem().catch(() => {})}
+                >
+                  إعادة المحاولة
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

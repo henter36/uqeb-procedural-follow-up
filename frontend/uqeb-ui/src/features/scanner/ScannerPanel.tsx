@@ -68,9 +68,14 @@ export default function ScannerPanel({
       onClose();
     } catch (err) {
       setIsSaving(false);
-      const message = err instanceof ScannerBridgeError
-        ? err.message
-        : getScannerErrorMessage('UPLOAD_FAILED');
+      let message: string;
+      if (err instanceof ScannerBridgeError) {
+        message = err.message;
+      } else if (err instanceof Error && err.message) {
+        message = err.message;
+      } else {
+        message = getScannerErrorMessage('UPLOAD_FAILED');
+      }
       setSaveError(message);
     }
   };

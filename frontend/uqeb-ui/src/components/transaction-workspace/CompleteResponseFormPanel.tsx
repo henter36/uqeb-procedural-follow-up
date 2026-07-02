@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
 import { transactionsApi } from '../../api/services';
 import { buildCompleteResponsePayload, getApiErrorMessage } from '../../utils/apiHelpers';
 import { todayLocalIso } from '../../utils/localDate';
 import { Alert } from '../ui';
 import HijriDateInput from '../HijriDateInput';
+
+const ScannerPanel = lazy(() => import('../../features/scanner/ScannerPanel'));
 
 export type CompleteResponseSuccessResult = Readonly<{
   attachmentWarning?: string;
@@ -34,10 +36,12 @@ export default function CompleteResponseFormPanel({
     outgoingDate: todayLocalIso(),
   });
   const [attachment, setAttachment] = useState<File | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [responseSaved, setResponseSaved] = useState(false);
   const responseSavedRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const dirty = Boolean(
@@ -95,10 +99,13 @@ export default function CompleteResponseFormPanel({
     }
   };
 
+  const attachmentLabel = attachment ? attachment.name : 'لا يوجد';
+
   return (
-    <form onSubmit={submit} className="workspace-form">
+    <form onSubmit={submit} className="workspace-form complete-response-compact">
       {error && <Alert variant="error">{error}</Alert>}
-      <div className="form-grid">
+
+      <div className="complete-response-compact-body">
         <div className="form-group">
           <HijriDateInput
             id="response-date"
@@ -109,17 +116,19 @@ export default function CompleteResponseFormPanel({
             onChange={(responseDate) => setForm({ ...form, responseDate })}
           />
         </div>
+
         <div className="form-group full-width">
           <label htmlFor="response-summary">ملخص الإفادة *</label>
           <textarea
             id="response-summary"
             required
-            rows={7}
+            rows={4}
             value={form.responseSummary}
             disabled={responseSaved}
             onChange={(e) => setForm({ ...form, responseSummary: e.target.value })}
           />
         </div>
+
         {requiresOutgoing && (
           <>
             <div className="form-group">
@@ -144,17 +153,57 @@ export default function CompleteResponseFormPanel({
             </div>
           </>
         )}
-        <div className="form-group full-width">
-          <label htmlFor="response-attachment">مرفق (اختياري)</label>
-          <input id="response-attachment" type="file" onChange={(e) => setAttachment(e.target.files?.[0] ?? null)} />
-        </div>
+
+        <fieldset className="complete-response-attachment-toolbar">
+          <legend className="visually-hidden">مرفق الإفادة</legend>
+          <span className="complete-response-attachment-label">مرفق: {attachmentLabel}</span>
+          <div className="complete-response-attachment-actions">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={isSubmitting}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              رفع ملف
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={isSubmitting}
+              onClick={() => setScannerOpen(true)}
+            >
+              مسح ضوئي
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="visually-hidden"
+              aria-label="مرفق (اختياري)"
+              onChange={(e) => setAttachment(e.target.files?.[0] ?? null)}
+            />
+          </div>
+        </fieldset>
       </div>
-      <div className="form-actions">
-        <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+
+      <div className="complete-response-compact-footer">
+        <button type="button" className="btn btn-outline btn-sm" onClick={onCancel}>إلغاء</button>
+        <button type="submit" className="btn btn-primary btn-sm" disabled={isSubmitting}>
           {isSubmitting ? 'جاري الحفظ...' : 'إرسال الإفادة'}
         </button>
-        <button type="button" className="btn btn-outline" onClick={onCancel}>إلغاء</button>
       </div>
+
+      {scannerOpen && (
+        <Suspense>
+          <ScannerPanel
+            transactionId={transactionId}
+            onClose={() => setScannerOpen(false)}
+            onSaved={() => setScannerOpen(false)}
+            onSaveScannedFile={async (file) => {
+              setAttachment(file);
+            }}
+          />
+        </Suspense>
+      )}
     </form>
   );
 }
