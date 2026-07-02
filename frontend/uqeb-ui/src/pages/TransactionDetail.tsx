@@ -31,6 +31,7 @@ import ReplyFormPanel from '../components/transaction-workspace/ReplyFormPanel';
 import CompleteResponseFormPanel from '../components/transaction-workspace/CompleteResponseFormPanel';
 import DepartmentResponseInlinePanel from '../components/transaction-workspace/DepartmentResponseInlinePanel';
 import FollowUpLetterFormPanel from '../components/transaction-workspace/FollowUpLetterFormPanel';
+import { departmentResponseStatusLabels } from '../components/transaction-workspace/departmentResponseStatusLabels';
 import type { WorkspaceAction, WorkspaceActionContext } from '../components/transaction-workspace/types';
 import { parseDetailTab, type DetailTab } from './transactionDetailTabs';
 
@@ -85,14 +86,6 @@ const ACTION_TITLES: Record<WorkspaceAction, string> = {
   'reply-followup': 'تسجيل رد على التعقيب',
   'complete-response': 'تسجيل إفادة الإدارة',
   'follow-up-letter': 'خطاب تعقيب PDF',
-};
-
-const DEPARTMENT_RESPONSE_STATUS_LABELS: Record<string, string> = {
-  Draft: 'مسودة',
-  SubmittedForReview: 'بانتظار المراجعة',
-  ReturnedForCorrection: 'معادة للتصحيح',
-  Approved: 'معتمدة',
-  Rejected: 'مرفوضة',
 };
 
 export default function TransactionDetailPage() {
@@ -344,13 +337,13 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
 
     const panel = responsePanelRef.current;
     panel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    const focusTimeout = window.setTimeout(() => {
+    const focusTimeout = globalThis.setTimeout(() => {
       const field = panel?.querySelector<HTMLElement>(
         '#department-response-text, #response-summary, textarea, input',
       );
       field?.focus();
     }, 0);
-    return () => window.clearTimeout(focusTimeout);
+    return () => globalThis.clearTimeout(focusTimeout);
   }, [activeAction]);
 
   useEffect(() => {
@@ -539,11 +532,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const departmentResponseStatus = departmentResponseItem?.departmentResponseStatus;
   const canDepartmentUserRegisterResponse = isDepartmentUser
     && hasDepartmentResponseAssignment(assignments, user?.departmentId)
-    && (
-      !departmentResponseStatus
-      || departmentResponseStatus === 'Draft'
-      || departmentResponseStatus === 'ReturnedForCorrection'
-    );
+    && Boolean(departmentResponseItem?.canCreateResponse || departmentResponseItem?.canEditResponse);
   const canRegisterResponse = (
     canClose || canDepartmentUserRegisterResponse
   ) && needsResponse && !tx.responseCompleted && !isTerminal;
@@ -551,7 +540,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     ? 'استكمال إفادة'
     : 'تسجيل إفادة';
   const departmentResponseActionStatusLabel = isDepartmentUser && departmentResponseStatus && !canDepartmentUserRegisterResponse
-    ? DEPARTMENT_RESPONSE_STATUS_LABELS[departmentResponseStatus] ?? departmentResponseStatus
+    ? departmentResponseStatusLabels[departmentResponseStatus] ?? departmentResponseStatus
     : undefined;
   const canShowClose = canClose && !isTerminal && (!needsResponse || tx.responseCompleted);
   const showMutationActions = canEdit && !isDepartmentUser;
@@ -686,7 +675,6 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
         >
           {activeAction === 'complete-response' && isDepartmentUser && (
             <DepartmentResponseInlinePanel
-              key={departmentResponseItem?.departmentResponseId ?? 'new'}
               transactionId={+id}
               initialItem={departmentResponseItem}
               onDirtyChange={setActionDirty}

@@ -4,14 +4,7 @@ import type { DepartmentResponseDto, DepartmentTransactionResponseItemDto } from
 import { getApiErrorMessage } from '../../utils/apiHelpers';
 import ScanAttachmentButton from '../../features/scanner/ScanAttachmentButton';
 import { Alert } from '../ui';
-
-const STATUS_LABELS: Record<string, string> = {
-  Draft: 'مسودة',
-  SubmittedForReview: 'بانتظار المراجعة',
-  ReturnedForCorrection: 'معادة للتصحيح',
-  Approved: 'معتمدة',
-  Rejected: 'مرفوضة',
-};
+import { departmentResponseStatusLabels } from './departmentResponseStatusLabels';
 
 type DepartmentResponseInlinePanelProps = Readonly<{
   transactionId: number;
@@ -47,6 +40,7 @@ export default function DepartmentResponseInlinePanel({
   const [responseText, setResponseText] = useState('');
   const [loading, setLoading] = useState(Boolean(initialItem?.departmentResponseId));
   const [saving, setSaving] = useState(false);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [error, setError] = useState('');
 
   const status = detail?.status ?? item?.departmentResponseStatus;
@@ -151,15 +145,21 @@ export default function DepartmentResponseInlinePanel({
   }
 
   async function handleUpload(file: File) {
-    if (!detail) return;
+    if (!detail || uploadingAttachment) return;
     setError('');
+    setUploadingAttachment(true);
     try {
       const res = await departmentResponsesApi.uploadAttachment(detail.id, file);
-      setDetail({ ...detail, attachments: [...detail.attachments, res.data] });
+      setDetail((current) => (current ? {
+        ...current,
+        attachments: [...current.attachments, res.data],
+      } : current));
       onMessage('تم رفع مرفق الإفادة.');
-      if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
+    } finally {
+      setUploadingAttachment(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   }
 
@@ -185,7 +185,7 @@ export default function DepartmentResponseInlinePanel({
     <div className="workspace-form department-response-inline-panel">
       <div className="department-response-inline-header">
         <h4>{getTitle(status)}</h4>
-        {status && <span className="badge badge-blue">{STATUS_LABELS[status] ?? status}</span>}
+        {status && <span className="badge badge-blue">{departmentResponseStatusLabels[status] ?? status}</span>}
       </div>
 
       {status === 'ReturnedForCorrection' && (
@@ -223,10 +223,10 @@ export default function DepartmentResponseInlinePanel({
                   <button
                     type="button"
                     className="btn btn-secondary btn-sm"
-                    disabled={!detail}
+                    disabled={!detail || uploadingAttachment}
                     onClick={() => fileInputRef.current?.click()}
                   >
-                    رفع ملف
+                    {uploadingAttachment ? 'جارٍ الرفع...' : 'رفع ملف'}
                   </button>
                   {detail ? (
                     <ScanAttachmentButton
@@ -272,7 +272,7 @@ export default function DepartmentResponseInlinePanel({
         </>
       ) : (
         <div className="department-response-inline-readonly">
-          <p className="text-muted">حالة الإفادة: {STATUS_LABELS[status ?? ''] ?? status}</p>
+          <p className="text-muted">حالة الإفادة: {departmentResponseStatusLabels[status ?? ''] ?? status}</p>
           {detail?.responseText && <p>{detail.responseText}</p>}
         </div>
       )}
