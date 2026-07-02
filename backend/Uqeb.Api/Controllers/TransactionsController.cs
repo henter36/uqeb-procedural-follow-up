@@ -319,8 +319,17 @@ public class TransactionsController : ControllerBase
     [Authorize(Policy = Policies.AdminOnly)]
     public async Task<IActionResult> AdminEditAssignment(int id, int assignmentId, [FromBody] AdminEditAssignmentRequest request)
     {
-        var result = await _transactions.AdminEditAssignmentAsync(id, assignmentId, request, _currentUser.UserId);
-        return result == null ? NotFound() : Ok(result);
+        if (!ModelState.IsValid) return BadRequest(ModelState);
+
+        try
+        {
+            var result = await _transactions.AdminEditAssignmentAsync(id, assignmentId, request, _currentUser.UserId);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPatch("{id}/dates")]

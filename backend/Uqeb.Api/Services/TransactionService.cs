@@ -1123,22 +1123,32 @@ public class TransactionService : ITransactionService
 
     public async Task<AssignmentDto> AddAssignmentAsync(int transactionId, CreateAssignmentRequest request, int userId)
     {
+        if (request is null)
+            throw new InvalidOperationException("بيانات طلب الإحالة مطلوبة.");
+
         var t = await _db.Transactions.Include(x => x.Assignments).FirstOrDefaultAsync(x => x.Id == transactionId)
             ?? throw new InvalidOperationException("المعاملة غير موجودة");
 
         var dept = await _db.Departments.FindAsync(request.DepartmentId)
             ?? throw new InvalidOperationException("الإدارة غير موجودة");
 
-        var dueDate = WorkflowHelper.CalculateAssignmentDueDate(request.AssignedDate, request.ReplyDueDays, request.DueDate);
+        var assignedDate = NormalizeDateOnlyUtc(request.AssignedDate);
+        var requestedDueDate = request.DueDate.HasValue
+            ? NormalizeDateOnlyUtc(request.DueDate.Value)
+            : (DateTime?)null;
+        var dueDate = WorkflowHelper.CalculateAssignmentDueDate(assignedDate, request.ReplyDueDays, requestedDueDate);
 
-        if (dueDate.HasValue && dueDate.Value.Date < request.AssignedDate.Date)
+        if (assignedDate.Date < t.IncomingDate.Date)
+            throw new InvalidOperationException("تاريخ الإحالة لا يمكن أن يسبق تاريخ الوارد.");
+
+        if (dueDate.HasValue && dueDate.Value.Date < assignedDate.Date)
             throw new InvalidOperationException("تاريخ استحقاق الإدارة لا يمكن أن يسبق تاريخ الإحالة.");
 
         var assignment = new Assignment
         {
             TransactionId = transactionId,
             DepartmentId = request.DepartmentId,
-            AssignedDate = request.AssignedDate,
+            AssignedDate = assignedDate,
             LetterNumber = string.IsNullOrWhiteSpace(request.LetterNumber) ? null : request.LetterNumber.Trim(),
             RequiredAction = request.RequiredAction,
             RequiresReply = true,
@@ -1203,6 +1213,9 @@ public class TransactionService : ITransactionService
     public async Task<AssignmentDto?> AdminEditAssignmentAsync(
         int transactionId, int assignmentId, AdminEditAssignmentRequest request, int userId)
     {
+        if (request is null)
+            throw new InvalidOperationException("بيانات طلب التعديل مطلوبة.");
+
         var assignment = await _db.Assignments
             .Include(a => a.Department)
             .Include(a => a.CreatedBy)
@@ -1219,19 +1232,24 @@ public class TransactionService : ITransactionService
             assignment.DueDate
         });
 
-        var newAssignedDate = request.AssignedDate ?? assignment.AssignedDate;
-        var newDueDate = request.DueDate ?? assignment.DueDate;
+        var newAssignedDate = request.AssignedDate.HasValue
+            ? NormalizeDateOnlyUtc(request.AssignedDate.Value)
+            : assignment.AssignedDate;
+        var newDueDate = request.DueDate.HasValue
+            ? NormalizeDateOnlyUtc(request.DueDate.Value)
+            : assignment.DueDate;
 
-        if (newAssignedDate < assignment.Transaction.IncomingDate)
+        if (newAssignedDate.Date < assignment.Transaction.IncomingDate.Date)
             throw new InvalidOperationException("تاريخ الإحالة لا يمكن أن يسبق تاريخ الوارد.");
-        if (newDueDate.HasValue && newDueDate.Value < newAssignedDate)
+        if (newDueDate.HasValue && newDueDate.Value.Date < newAssignedDate.Date)
             throw new InvalidOperationException("تاريخ استحقاق الإدارة لا يمكن أن يسبق تاريخ الإحالة.");
 
         if (request.AssignedDate.HasValue)
             assignment.AssignedDate = newAssignedDate;
         if (request.DueDate.HasValue)
             assignment.DueDate = newDueDate;
-        assignment.LetterNumber = string.IsNullOrWhiteSpace(request.LetterNumber) ? null : request.LetterNumber.Trim();
+        if (request.IsLetterNumberSpecified)
+            assignment.LetterNumber = string.IsNullOrWhiteSpace(request.LetterNumber) ? null : request.LetterNumber.Trim();
         if (request.RequiredAction != null)
             assignment.RequiredAction = string.IsNullOrWhiteSpace(request.RequiredAction) ? null : request.RequiredAction.Trim();
         if (request.ReplyDueDays.HasValue)
@@ -1254,12 +1272,15 @@ public class TransactionService : ITransactionService
                 return Task.CompletedTask;
             });
 
-        return MapAssignment(assignment, assignment.Department.Name, assignment.CreatedBy?.FullName ?? "");
+        return MapAssignment(assignment, assignment.Department.Name, assignment.CreatedBy?.FullName ?? "", canAdminEdit: true);
     }
 
     public async Task<TransactionDetailDto?> AdminEditTransactionDatesAsync(
         int transactionId, AdminEditTransactionDatesRequest request, int userId)
     {
+        if (request is null)
+            throw new InvalidOperationException("بيانات طلب التعديل مطلوبة.");
+
         var t = await _db.Transactions
             .Include(x => x.CreatedBy)
             .Include(x => x.CategoryEntity)
@@ -1277,20 +1298,36 @@ public class TransactionService : ITransactionService
             Reason = request.Reason
         });
 
-        var newIncomingDate = request.IncomingDate ?? t.IncomingDate;
-        var newResponseDueDate = request.ResponseDueDate ?? t.ResponseDueDate;
-        var newClosedAt = request.ClosedAt ?? t.ClosedAt;
+        var newIncomingDate = request.IncomingDate.HasValue
+            ? NormalizeDateOnlyUtc(request.IncomingDate.Value)
+            : t.IncomingDate;
+        var newResponseDueDate = request.ResponseDueDate.HasValue
+            ? NormalizeDateOnlyUtc(request.ResponseDueDate.Value)
+            : t.ResponseDueDate;
+        var newClosedAt = request.ClosedAt.HasValue
+            ? NormalizeDateOnlyUtc(request.ClosedAt.Value)
+            : t.ClosedAt;
 
-        if (newResponseDueDate.HasValue && newResponseDueDate.Value < newIncomingDate)
+        if (newResponseDueDate.HasValue && newResponseDueDate.Value.Date < newIncomingDate.Date)
             throw new InvalidOperationException("تاريخ استحقاق المعاملة لا يمكن أن يسبق تاريخ الوارد.");
-        if (newClosedAt.HasValue && newClosedAt.Value < newIncomingDate)
+        if (newClosedAt.HasValue && newClosedAt.Value.Date < newIncomingDate.Date)
             throw new InvalidOperationException("تاريخ إغلاق المعاملة لا يمكن أن يسبق تاريخ الوارد.");
 
-        if (request.IncomingDate.HasValue)
+        if (request.IsIncomingDateSpecified && request.IncomingDate.HasValue)
+        {
+            var hasEarlierAssignment = await _db.Assignments
+                .AsNoTracking()
+                .AnyAsync(a => a.TransactionId == transactionId && a.AssignedDate.Date < newIncomingDate.Date);
+
+            if (hasEarlierAssignment)
+                throw new InvalidOperationException("تاريخ الوارد لا يمكن أن يكون بعد تاريخ أي إحالة قائمة.");
+        }
+
+        if (request.IsIncomingDateSpecified && request.IncomingDate.HasValue)
             t.IncomingDate = newIncomingDate;
-        if (request.ResponseDueDate.HasValue)
+        if (request.IsResponseDueDateSpecified)
             t.ResponseDueDate = newResponseDueDate;
-        if (request.ClosedAt.HasValue)
+        if (request.IsClosedAtSpecified)
             t.ClosedAt = newClosedAt;
 
         var newSnapshot = JsonSerializer.Serialize(new
@@ -2057,7 +2094,17 @@ public class TransactionService : ITransactionService
         return MapFollowUp(f);
     }
 
-    private static AssignmentDto MapAssignment(Assignment a, string deptName, string createdByName)
+    private static DateTime NormalizeDateOnlyUtc(DateTime value) =>
+        DateTime.SpecifyKind(value.Date, DateTimeKind.Utc);
+
+    private static AssignmentDto MapAssignment(
+        Assignment a,
+        string deptName,
+        string createdByName,
+        int? departmentResponseId = null,
+        DateTime? responseDate = null,
+        int? departmentCompletionDays = null,
+        bool canAdminEdit = false)
     {
         var now = DateTime.UtcNow;
         return new AssignmentDto
@@ -2076,6 +2123,10 @@ public class TransactionService : ITransactionService
             ReplySummary = a.ReplySummary,
             Status = a.Status.ToString(),
             IsOverdue = TransactionTemporalCalculator.IsAssignmentOverdue(a, now),
+            DepartmentResponseId = departmentResponseId,
+            ResponseDate = responseDate,
+            DepartmentCompletionDays = departmentCompletionDays,
+            CanAdminEdit = canAdminEdit,
             CreatedByName = createdByName,
             CreatedAt = a.CreatedAt
         };

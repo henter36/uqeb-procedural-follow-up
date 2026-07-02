@@ -894,6 +894,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
               testId="admin-edit-assignment-form-panel"
             >
               <AdminEditAssignmentFormPanel
+                key={adminEditAssignmentId}
                 transactionId={+id}
                 assignmentId={adminEditAssignmentId}
                 initialAssignment={assignments.find((a) => a.id === adminEditAssignmentId)}

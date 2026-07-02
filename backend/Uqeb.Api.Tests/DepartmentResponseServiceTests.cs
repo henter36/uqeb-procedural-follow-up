@@ -927,7 +927,7 @@ public class DepartmentResponseServiceTests
     {
         var (db, txId, deptId, userId) = await SeedAsync(nameof(AdminEditResponse_Rejects_EmptyReason));
         var service = BuildService(db);
-        var user = new FakeUser { UserId = userId, DepartmentId = deptId };
+        var user = new FakeUser { UserId = userId, DepartmentId = deptId, Role = UserRole.Admin };
         var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الرد"), user);
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -941,7 +941,7 @@ public class DepartmentResponseServiceTests
     {
         var (db, txId, deptId, userId) = await SeedAsync(nameof(AdminEditResponse_Trims_Reason_InAuditLog));
         var service = BuildService(db);
-        var user = new FakeUser { UserId = userId, DepartmentId = deptId };
+        var user = new FakeUser { UserId = userId, DepartmentId = deptId, Role = UserRole.Admin };
         var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الرد"), user);
 
         await service.AdminEditAsync(created.Id,

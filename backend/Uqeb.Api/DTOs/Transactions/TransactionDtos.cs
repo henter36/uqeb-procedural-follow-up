@@ -317,7 +317,21 @@ public class CreateAssignmentRequest
 
 public class AdminEditAssignmentRequest
 {
-    public string? LetterNumber { get; set; }
+    private string? _letterNumber;
+
+    public string? LetterNumber
+    {
+        get => _letterNumber;
+        set
+        {
+            _letterNumber = value;
+            IsLetterNumberSpecified = true;
+        }
+    }
+
+    [JsonIgnore]
+    public bool IsLetterNumberSpecified { get; private set; }
+
     public DateTime? AssignedDate { get; set; }
     public string? RequiredAction { get; set; }
     public int? ReplyDueDays { get; set; }
@@ -333,9 +347,48 @@ public class ReplyAssignmentRequest
 
 public class AdminEditTransactionDatesRequest
 {
-    public DateTime? IncomingDate { get; set; }
-    public DateTime? ResponseDueDate { get; set; }
-    public DateTime? ClosedAt { get; set; }
+    private DateTime? _incomingDate;
+    private DateTime? _responseDueDate;
+    private DateTime? _closedAt;
+
+    public DateTime? IncomingDate
+    {
+        get => _incomingDate;
+        set
+        {
+            _incomingDate = value;
+            IsIncomingDateSpecified = true;
+        }
+    }
+
+    [JsonIgnore]
+    public bool IsIncomingDateSpecified { get; private set; }
+
+    public DateTime? ResponseDueDate
+    {
+        get => _responseDueDate;
+        set
+        {
+            _responseDueDate = value;
+            IsResponseDueDateSpecified = true;
+        }
+    }
+
+    [JsonIgnore]
+    public bool IsResponseDueDateSpecified { get; private set; }
+
+    public DateTime? ClosedAt
+    {
+        get => _closedAt;
+        set
+        {
+            _closedAt = value;
+            IsClosedAtSpecified = true;
+        }
+    }
+
+    [JsonIgnore]
+    public bool IsClosedAtSpecified { get; private set; }
 
     [Required(ErrorMessage = "سبب التعديل مطلوب")]
     public string Reason { get; set; } = string.Empty;

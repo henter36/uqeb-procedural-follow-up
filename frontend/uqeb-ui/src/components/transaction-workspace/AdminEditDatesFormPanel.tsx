@@ -46,8 +46,8 @@ export default function AdminEditDatesFormPanel({
     || form.completionDate !== initialForm.completionDate;
 
   useEffect(() => {
-    onDirtyChange(dirty && form.reason.trim().length > 0);
-  }, [dirty, form.reason, onDirtyChange]);
+    onDirtyChange(dirty);
+  }, [dirty, onDirtyChange]);
 
   const update = (patch: Partial<FormState>) => setForm((prev) => ({ ...prev, ...patch }));
 
@@ -61,10 +61,12 @@ export default function AdminEditDatesFormPanel({
     setSaving(true);
     setError('');
     try {
-      const payload: Record<string, unknown> = { reason: form.reason.trim() };
-      if (form.incomingDate) payload.incomingDate = form.incomingDate;
-      if (form.responseDueDate) payload.responseDueDate = form.responseDueDate;
-      if (form.completionDate) payload.closedAt = form.completionDate;
+      const payload: Record<string, unknown> = {
+        reason: form.reason.trim(),
+        incomingDate: form.incomingDate || null,
+        responseDueDate: form.responseDueDate || null,
+        closedAt: form.completionDate || null,
+      };
       const res = await transactionsApi.adminEditTransactionDates(transactionId, payload);
       onSuccess(res.data);
     } catch (err: unknown) {
@@ -120,7 +122,7 @@ export default function AdminEditDatesFormPanel({
         </div>
       </div>
       <div className="form-actions">
-        <button type="submit" className="btn btn-primary" disabled={saving}>
+        <button type="submit" className="btn btn-primary" disabled={saving || !dirty || !form.reason.trim()}>
           {saving ? 'جارٍ الحفظ...' : 'حفظ التصحيح'}
         </button>
         <button type="button" className="btn btn-outline" onClick={onCancel}>إلغاء</button>

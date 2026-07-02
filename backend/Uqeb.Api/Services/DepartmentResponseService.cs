@@ -446,7 +446,14 @@ public class DepartmentResponseService : IDepartmentResponseService
 
     public async Task<DepartmentResponseDto?> AdminEditAsync(int id, AdminEditDepartmentResponseRequest request, ICurrentUserService currentUser)
     {
-        var response = await _db.DepartmentResponses.FindAsync(id);
+        if (request is null)
+            throw new InvalidOperationException("بيانات طلب التعديل مطلوبة.");
+
+        RequireReviewer(currentUser);
+
+        var response = await _db.DepartmentResponses
+            .Include(r => r.Transaction)
+            .FirstOrDefaultAsync(r => r.Id == id);
         if (response == null) return null;
 
         var reason = request.Reason?.Trim();
@@ -455,10 +462,17 @@ public class DepartmentResponseService : IDepartmentResponseService
 
         var oldSnapshot = new { response.ResponseText, response.SubmittedAt };
 
-        if (!string.IsNullOrWhiteSpace(request.ResponseText))
+        if (request.ResponseText is not null)
             response.ResponseText = request.ResponseText.Trim();
         if (request.SubmittedAt.HasValue)
-            response.SubmittedAt = request.SubmittedAt.Value.ToUniversalTime();
+        {
+            var submittedAt = DateTime.SpecifyKind(request.SubmittedAt.Value.Date, DateTimeKind.Utc);
+            if (submittedAt.Date > DateTime.UtcNow.Date)
+                throw new InvalidOperationException("تاريخ إنجاز الإدارة لا يمكن أن يكون في المستقبل.");
+            if (submittedAt.Date < response.Transaction.IncomingDate.Date)
+                throw new InvalidOperationException("تاريخ إنجاز الإدارة لا يمكن أن يسبق تاريخ الوارد.");
+            response.SubmittedAt = submittedAt;
+        }
         response.UpdatedAt = DateTime.UtcNow;
 
         var oldValue = System.Text.Json.JsonSerializer.Serialize(new { oldSnapshot.ResponseText, oldSnapshot.SubmittedAt, Reason = reason });

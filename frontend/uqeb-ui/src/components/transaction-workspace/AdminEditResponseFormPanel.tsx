@@ -46,8 +46,8 @@ export default function AdminEditResponseFormPanel({
     || form.submittedAt !== initialForm.submittedAt;
 
   useEffect(() => {
-    onDirtyChange(dirty && form.reason.trim().length > 0);
-  }, [dirty, form.reason, onDirtyChange]);
+    onDirtyChange(dirty);
+  }, [dirty, onDirtyChange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,9 +87,11 @@ export default function AdminEditResponseFormPanel({
     setSaving(true);
     setError('');
     try {
-      const payload: Record<string, unknown> = { reason: form.reason.trim() };
-      if (form.responseText.trim()) payload.responseText = form.responseText.trim();
-      if (form.submittedAt) payload.submittedAt = form.submittedAt;
+      const payload: Record<string, unknown> = {
+        reason: form.reason.trim(),
+        responseText: form.responseText.trim() || null,
+        submittedAt: form.submittedAt || null,
+      };
       const res = await departmentResponsesApi.adminEdit(responseId, payload);
       onSuccess(res.data);
     } catch (err: unknown) {
@@ -149,7 +151,7 @@ export default function AdminEditResponseFormPanel({
         </div>
       </div>
       <div className="form-actions">
-        <button type="submit" className="btn btn-primary" disabled={saving}>
+        <button type="submit" className="btn btn-primary" disabled={saving || !dirty || !form.reason.trim()}>
           {saving ? 'جارٍ الحفظ...' : 'حفظ التصحيح'}
         </button>
         <button type="button" className="btn btn-outline" onClick={onCancel}>إلغاء</button>
