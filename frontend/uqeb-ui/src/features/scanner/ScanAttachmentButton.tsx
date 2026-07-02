@@ -5,9 +5,14 @@ const ScannerPanel = lazy(() => import('./ScannerPanel'));
 interface ScanAttachmentButtonProps {
   transactionId: number;
   onSaved: () => void;
+  onSaveScannedFile?: (file: File) => Promise<void>;
 }
 
-export default function ScanAttachmentButton({ transactionId, onSaved }: ScanAttachmentButtonProps) {
+export default function ScanAttachmentButton({
+  transactionId,
+  onSaved,
+  onSaveScannedFile,
+}: ScanAttachmentButtonProps) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -26,6 +31,7 @@ export default function ScanAttachmentButton({ transactionId, onSaved }: ScanAtt
             transactionId={transactionId}
             onClose={() => setOpen(false)}
             onSaved={onSaved}
+            onSaveScannedFile={onSaveScannedFile}
           />
         </Suspense>
       )}

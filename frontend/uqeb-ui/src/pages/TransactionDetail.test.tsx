@@ -48,7 +48,25 @@ vi.mock('../hooks/useReferenceData', () => ({
 }));
 
 vi.mock('../features/scanner/ScanAttachmentButton', () => ({
-  default: () => null,
+  default: ({
+    onSaveScannedFile,
+    onSaved,
+  }: {
+    onSaveScannedFile?: (file: File) => Promise<void>;
+    onSaved: () => void;
+  }) => (
+    <button
+      type="button"
+      onClick={async () => {
+        if (onSaveScannedFile) {
+          await onSaveScannedFile(new File(['scan'], 'scan.jpg', { type: 'image/jpeg' }));
+        }
+        onSaved();
+      }}
+    >
+      مسح ضوئي
+    </button>
+  ),
 }));
 
 const baseTx = {
@@ -230,6 +248,30 @@ function setupDefaultMocks() {
       submittedByName: 'موظف إدارة',
       createdAt: '2026-01-01',
       attachments: [],
+    },
+  } as never);
+  vi.mocked(services.departmentResponsesApi.create).mockResolvedValue({
+    data: {
+      id: 100,
+      transactionId: 1,
+      transactionSubject: 'موضوع',
+      internalTrackingNumber: 'TRK-1',
+      departmentId: 1,
+      departmentName: 'إدارة اختبار',
+      responseText: 'نص الإفادة',
+      status: 'Draft',
+      submittedByName: 'موظف إدارة',
+      createdAt: '2026-01-01',
+      attachments: [],
+    },
+  } as never);
+  vi.mocked(services.departmentResponsesApi.uploadAttachment).mockResolvedValue({
+    data: {
+      id: 101,
+      originalFileName: 'scan.jpg',
+      fileSizeBytes: 4,
+      uploadedByName: 'موظف إدارة',
+      uploadedAt: '2026-01-01',
     },
   } as never);
 }
@@ -499,9 +541,38 @@ describe('TransactionDetailPage department user permissions', () => {
 
     const panel = screen.getByRole('region', { name: 'تسجيل إفادة' });
     expect(panel).toHaveClass('workspace-action-panel--prominent');
+    expect(within(panel).getByText('احفظ المسودة أولًا لإضافة المرفقات.')).toBeInTheDocument();
     expect(within(panel).getByRole('heading', { name: 'تسجيل إفادة الإدارة' })).toBeInTheDocument();
+    expect(within(panel).getByLabelText('نص الإفادة *')).toHaveAttribute('rows', '5');
     expect(within(panel).getByLabelText('نص الإفادة *')).toHaveFocus();
+    expect(within(panel).getByRole('button', { name: 'رفع ملف' })).toBeDisabled();
+    expect(within(panel).getByRole('button', { name: 'مسح ضوئي' })).toBeDisabled();
     expect(scrollIntoView).toHaveBeenCalled();
+  });
+
+  it('enables scanner after saving a draft and uploads scanned files as department response attachments', async () => {
+    const user = userEvent.setup();
+    renderDetail();
+    await waitForDetailsReady();
+
+    await waitFor(() => expect(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' })).toBeInTheDocument());
+    await user.click(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' }));
+    await user.type(screen.getByLabelText('نص الإفادة *'), 'نص إفادة الإدارة');
+    await user.click(screen.getByRole('button', { name: 'حفظ كمسودة' }));
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('تم حفظ مسودة الإفادة'));
+
+    const panel = screen.getByRole('region', { name: 'تسجيل إفادة' });
+    await user.click(within(panel).getByRole('button', { name: 'مسح ضوئي' }));
+
+    await waitFor(() => {
+      expect(services.departmentResponsesApi.uploadAttachment).toHaveBeenCalledWith(
+        100,
+        expect.any(File),
+      );
+    });
+    expect(services.transactionsApi.uploadAttachment).not.toHaveBeenCalledWith(1, expect.any(File), 'Scan');
+    expect(screen.getByRole('status')).toHaveTextContent('تم رفع مرفق الإفادة من الماسح الضوئي');
   });
 
   it('shows continue action and correction note for returned department responses', async () => {
@@ -621,6 +692,8 @@ describe('TransactionDetailPage department user permissions', () => {
     await user.click(within(getActionBar()).getByRole('button', { name: 'استكمال إفادة' }));
 
     const attachmentsRegion = await screen.findByRole('region', { name: 'مرفقات الإفادة' });
+    expect(within(attachmentsRegion).getByRole('button', { name: 'رفع ملف' })).toBeEnabled();
+    expect(within(attachmentsRegion).getByRole('button', { name: 'مسح ضوئي' })).toBeEnabled();
     expect(within(attachmentsRegion).getByText('response.pdf')).toBeInTheDocument();
   });
 

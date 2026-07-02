@@ -1928,6 +1928,11 @@
   padding: var(--space-4);
 }
 
+.workspace-action-panel--prominent .workspace-action-panel-header,
+.workspace-action-panel--prominent .workspace-action-panel-body {
+  padding: var(--space-3);
+}
+
 .workspace-form .form-grid {
   margin-bottom: var(--space-4);
 }
@@ -1941,43 +1946,59 @@
   align-self: center;
 }
 
-.department-response-form {
+.department-response-inline-panel {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-}
-
-.department-response-form-heading,
-.department-response-attachments-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   gap: var(--space-3);
 }
 
-.department-response-form-heading h4,
-.department-response-attachments-header h5 {
+.department-response-inline-header,
+.department-response-inline-attachments-header,
+.department-response-inline-footer,
+.department-response-inline-attachment-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.department-response-inline-header,
+.department-response-inline-attachments-header {
+  justify-content: space-between;
+}
+
+.department-response-inline-footer {
+  justify-content: flex-end;
+}
+
+.department-response-inline-header h4,
+.department-response-inline-attachments-header h5 {
   margin: 0;
 }
 
-.department-response-form textarea {
-  min-height: 12rem;
+.department-response-inline-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.department-response-inline-textarea {
+  min-height: 7.5rem;
   line-height: 1.7;
 }
 
-.department-response-attachments {
+.department-response-inline-attachments {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  padding: var(--space-3);
+  padding: var(--space-2) var(--space-3);
   background: var(--color-surface);
 }
 
-.department-response-attachment-list {
-  margin: var(--space-3) 0 0;
+.department-response-inline-attachment-list {
+  margin: var(--space-2) 0 0;
   padding-inline-start: var(--space-5);
 }
 
-.department-response-readonly {
+.department-response-inline-readonly {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   padding: var(--space-3);

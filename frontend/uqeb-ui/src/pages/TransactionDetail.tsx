@@ -145,6 +145,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const [workspaceLoading, setWorkspaceLoading] = useState(true);
   const [departmentResponseItem, setDepartmentResponseItem] = useState<DepartmentTransactionResponseItemDto | null>(null);
   const responsePanelRef = useRef<HTMLElement | null>(null);
+  const departmentResponseRequestRef = useRef(0);
 
   const applyWorkspaceData = useCallback((data: import('../api/types').TransactionWorkspace) => {
     setTx(data.transaction);
@@ -191,6 +192,9 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   }, [id, applyWorkspaceData, handleWorkspaceFailure]);
 
   const loadDepartmentResponseItem = useCallback(async () => {
+    const requestId = departmentResponseRequestRef.current + 1;
+    departmentResponseRequestRef.current = requestId;
+
     if (!isDepartmentUser) {
       setDepartmentResponseItem(null);
       return;
@@ -198,8 +202,10 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
 
     try {
       const res = await departmentResponsesApi.getDepartmentTransactions();
+      if (departmentResponseRequestRef.current !== requestId) return;
       setDepartmentResponseItem(res.data.find((item) => item.transactionId === +id) ?? null);
     } catch {
+      if (departmentResponseRequestRef.current !== requestId) return;
       setDepartmentResponseItem(null);
     }
   }, [id, isDepartmentUser]);
@@ -338,12 +344,13 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
 
     const panel = responsePanelRef.current;
     panel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    window.setTimeout(() => {
+    const focusTimeout = window.setTimeout(() => {
       const field = panel?.querySelector<HTMLElement>(
         '#department-response-text, #response-summary, textarea, input',
       );
       field?.focus();
     }, 0);
+    return () => window.clearTimeout(focusTimeout);
   }, [activeAction]);
 
   useEffect(() => {

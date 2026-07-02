@@ -8,6 +8,7 @@ interface ScannerPanelProps {
   transactionId: number;
   onClose: () => void;
   onSaved: () => void;
+  onSaveScannedFile?: (file: File) => Promise<void>;
 }
 
 function cleanupScan(scanId: string): void {
@@ -15,7 +16,12 @@ function cleanupScan(scanId: string): void {
   deleteScan(scanId).catch(() => {});
 }
 
-export default function ScannerPanel({ transactionId, onClose, onSaved }: ScannerPanelProps) {
+export default function ScannerPanel({
+  transactionId,
+  onClose,
+  onSaved,
+  onSaveScannedFile,
+}: ScannerPanelProps) {
   const {
     phase,
     scanners,
@@ -54,7 +60,11 @@ export default function ScannerPanel({ transactionId, onClose, onSaved }: Scanne
 
     try {
       const file = await getFileForUpload();
-      await transactionsApi.uploadAttachment(transactionId, file, 'Scan');
+      if (onSaveScannedFile) {
+        await onSaveScannedFile(file);
+      } else {
+        await transactionsApi.uploadAttachment(transactionId, file, 'Scan');
+      }
       if (scanResult) {
         cleanupScan(scanResult.scanId);
       }

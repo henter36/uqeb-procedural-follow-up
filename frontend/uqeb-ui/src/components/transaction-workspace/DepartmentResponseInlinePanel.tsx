@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { departmentResponsesApi } from '../../api/services';
 import type { DepartmentResponseDto, DepartmentTransactionResponseItemDto } from '../../api/types';
 import { getApiErrorMessage } from '../../utils/apiHelpers';
+import ScanAttachmentButton from '../../features/scanner/ScanAttachmentButton';
 import { Alert } from '../ui';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -73,11 +74,11 @@ export default function DepartmentResponseInlinePanel({
   }, [initialItem?.departmentResponseId]);
 
   useEffect(() => {
-    responseTextRef.current?.focus();
+    if (!loading) responseTextRef.current?.focus();
   }, [loading]);
 
   useEffect(() => {
-    onDirtyChange(editable && responseText.trim() !== (detail?.responseText ?? ''));
+    onDirtyChange(editable && responseText.trim() !== (detail?.responseText ?? '').trim());
   }, [detail?.responseText, editable, onDirtyChange, responseText]);
 
   async function saveDraft(): Promise<DepartmentResponseDto> {
@@ -156,16 +157,33 @@ export default function DepartmentResponseInlinePanel({
       const res = await departmentResponsesApi.uploadAttachment(detail.id, file);
       setDetail({ ...detail, attachments: [...detail.attachments, res.data] });
       onMessage('تم رفع مرفق الإفادة.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
     }
   }
 
-  if (loading) return <div className="workspace-form" role="status">جارٍ تحميل إفادة الإدارة...</div>;
+  async function handleScannedFile(file: File) {
+    if (!detail) return;
+    const res = await departmentResponsesApi.uploadAttachment(detail.id, file);
+    setDetail((current) => (current ? {
+      ...current,
+      attachments: [...current.attachments, res.data],
+    } : current));
+    onMessage('تم رفع مرفق الإفادة من الماسح الضوئي.');
+  }
+
+  if (loading) {
+    return (
+      <div className="workspace-form department-response-inline-panel" role="status">
+        جارٍ تحميل إفادة الإدارة...
+      </div>
+    );
+  }
 
   return (
-    <div className="workspace-form department-response-form">
-      <div className="department-response-form-heading">
+    <div className="workspace-form department-response-inline-panel">
+      <div className="department-response-inline-header">
         <h4>{getTitle(status)}</h4>
         {status && <span className="badge badge-blue">{STATUS_LABELS[status] ?? status}</span>}
       </div>
@@ -183,50 +201,66 @@ export default function DepartmentResponseInlinePanel({
 
       {editable ? (
         <>
-          <div className="form-group full-width">
-            <label htmlFor="department-response-text">نص الإفادة *</label>
-            <textarea
-              id="department-response-text"
-              ref={responseTextRef}
-              required
-              rows={8}
-              value={responseText}
-              onChange={(e) => setResponseText(e.target.value)}
-              placeholder="اكتب إفادة الإدارة هنا..."
-            />
-          </div>
-
-          <section className="department-response-attachments" aria-label="مرفقات الإفادة">
-            <div className="department-response-attachments-header">
-              <h5>المرفقات</h5>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                disabled={!detail}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                رفع مرفق
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                className="visually-hidden"
-                aria-label="رفع مرفق إفادة"
-                onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0])}
+          <div className="department-response-inline-body">
+            <div className="form-group full-width">
+              <label htmlFor="department-response-text">نص الإفادة *</label>
+              <textarea
+                id="department-response-text"
+                ref={responseTextRef}
+                className="department-response-inline-textarea"
+                required
+                rows={5}
+                value={responseText}
+                onChange={(e) => setResponseText(e.target.value)}
+                placeholder="اكتب إفادة الإدارة هنا..."
               />
             </div>
-            {!detail && <p className="text-muted">احفظ المسودة أولًا قبل رفع المرفقات.</p>}
-            {detail && detail.attachments.length === 0 && <p className="text-muted">لا توجد مرفقات.</p>}
-            {detail && detail.attachments.length > 0 && (
-              <ul className="department-response-attachment-list">
-                {detail.attachments.map((attachment) => (
-                  <li key={attachment.id}>{attachment.originalFileName}</li>
-                ))}
-              </ul>
-            )}
-          </section>
 
-          <div className="form-actions">
+            <section className="department-response-inline-attachments" aria-label="مرفقات الإفادة">
+              <div className="department-response-inline-attachments-header">
+                <h5>مرفقات الإفادة</h5>
+                <div className="department-response-inline-attachment-actions">
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={!detail}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    رفع ملف
+                  </button>
+                  {detail ? (
+                    <ScanAttachmentButton
+                      transactionId={transactionId}
+                      onSaved={() => undefined}
+                      onSaveScannedFile={handleScannedFile}
+                    />
+                  ) : (
+                    <button type="button" className="btn btn-secondary btn-sm" disabled>
+                      مسح ضوئي
+                    </button>
+                  )}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="visually-hidden"
+                    aria-label="رفع مرفق إفادة"
+                    onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0])}
+                  />
+                </div>
+              </div>
+              {!detail && <p className="text-muted">احفظ المسودة أولًا لإضافة المرفقات.</p>}
+              {detail && detail.attachments.length === 0 && <p className="text-muted">لا توجد مرفقات.</p>}
+              {detail && detail.attachments.length > 0 && (
+                <ul className="department-response-inline-attachment-list">
+                  {detail.attachments.map((attachment) => (
+                    <li key={attachment.id}>{attachment.originalFileName}</li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </div>
+
+          <div className="department-response-inline-footer">
             <button type="button" className="btn btn-secondary" disabled={saving} onClick={handleSaveDraft}>
               {saving ? 'جارٍ الحفظ...' : 'حفظ كمسودة'}
             </button>
@@ -237,7 +271,7 @@ export default function DepartmentResponseInlinePanel({
           </div>
         </>
       ) : (
-        <div className="department-response-readonly">
+        <div className="department-response-inline-readonly">
           <p className="text-muted">حالة الإفادة: {STATUS_LABELS[status ?? ''] ?? status}</p>
           {detail?.responseText && <p>{detail.responseText}</p>}
         </div>
