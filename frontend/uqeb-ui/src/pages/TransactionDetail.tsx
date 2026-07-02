@@ -3,9 +3,9 @@ import {
 } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { isAxiosError } from 'axios';
-import { transactionsApi } from '../api/services';
+import { departmentResponsesApi, transactionsApi } from '../api/services';
 import type {
-  TransactionDetail, Assignment, FollowUp, Attachment, AuditLog,
+  TransactionDetail, Assignment, FollowUp, Attachment, AuditLog, DepartmentTransactionResponseItemDto,
 } from '../api/types';
 import { useAuth } from '../context/useAuth';
 import { useReferenceData } from '../hooks/useReferenceData';
@@ -29,6 +29,7 @@ import FollowUpFormPanel from '../components/transaction-workspace/FollowUpFormP
 import AttachmentFormPanel from '../components/transaction-workspace/AttachmentFormPanel';
 import ReplyFormPanel from '../components/transaction-workspace/ReplyFormPanel';
 import CompleteResponseFormPanel from '../components/transaction-workspace/CompleteResponseFormPanel';
+import DepartmentResponseInlinePanel from '../components/transaction-workspace/DepartmentResponseInlinePanel';
 import FollowUpLetterFormPanel from '../components/transaction-workspace/FollowUpLetterFormPanel';
 import type { WorkspaceAction, WorkspaceActionContext } from '../components/transaction-workspace/types';
 import { parseDetailTab, type DetailTab } from './transactionDetailTabs';
@@ -82,8 +83,16 @@ const ACTION_TITLES: Record<WorkspaceAction, string> = {
   attachment: 'إضافة مرفق',
   'reply-assignment': 'تسجيل رد على الاحالة',
   'reply-followup': 'تسجيل رد على التعقيب',
-  'complete-response': 'تسجيل الإفادة',
+  'complete-response': 'تسجيل إفادة الإدارة',
   'follow-up-letter': 'خطاب تعقيب PDF',
+};
+
+const DEPARTMENT_RESPONSE_STATUS_LABELS: Record<string, string> = {
+  Draft: 'مسودة',
+  SubmittedForReview: 'بانتظار المراجعة',
+  ReturnedForCorrection: 'معادة للتصحيح',
+  Approved: 'معتمدة',
+  Rejected: 'مرفوضة',
 };
 
 export default function TransactionDetailPage() {
@@ -134,6 +143,8 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [workspaceLoading, setWorkspaceLoading] = useState(true);
+  const [departmentResponseItem, setDepartmentResponseItem] = useState<DepartmentTransactionResponseItemDto | null>(null);
+  const responsePanelRef = useRef<HTMLElement | null>(null);
 
   const applyWorkspaceData = useCallback((data: import('../api/types').TransactionWorkspace) => {
     setTx(data.transaction);
@@ -178,6 +189,20 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
       }
     }
   }, [id, applyWorkspaceData, handleWorkspaceFailure]);
+
+  const loadDepartmentResponseItem = useCallback(async () => {
+    if (!isDepartmentUser) {
+      setDepartmentResponseItem(null);
+      return;
+    }
+
+    try {
+      const res = await departmentResponsesApi.getDepartmentTransactions();
+      setDepartmentResponseItem(res.data.find((item) => item.transactionId === +id) ?? null);
+    } catch {
+      setDepartmentResponseItem(null);
+    }
+  }, [id, isDepartmentUser]);
 
   const loadAssignments = useCallback(async () => {
     if (!id) return;
@@ -304,6 +329,24 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   }, [id, applyWorkspaceData, handleWorkspaceFailure]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadDepartmentResponseItem().catch(() => undefined);
+  }, [loadDepartmentResponseItem]);
+
+  useEffect(() => {
+    if (activeAction !== 'complete-response') return;
+
+    const panel = responsePanelRef.current;
+    panel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    window.setTimeout(() => {
+      const field = panel?.querySelector<HTMLElement>(
+        '#department-response-text, #response-summary, textarea, input',
+      );
+      field?.focus();
+    }, 0);
+  }, [activeAction]);
+
+  useEffect(() => {
     const tab = parseDetailTab(tabFromUrl);
     if (tab !== 'timeline' && tab !== 'audit') return;
 
@@ -414,6 +457,14 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     await handleActionSuccess(successMessage, [() => loadWorkspace({ silent: true })]);
   };
 
+  const handleDepartmentResponseChanged = async () => {
+    await Promise.all([
+      loadDepartmentResponseItem(),
+      loadWorkspace({ silent: true }),
+      refreshAuditIfLoaded(),
+    ]);
+  };
+
   const handleCloseTransaction = async () => {
     if (!tx) return;
     const needsResponse = tx.requiresResponse || tx.responseType !== 'None';
@@ -478,9 +529,23 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const needsResponse = tx.requiresResponse || tx.responseType !== 'None';
   const isTerminal = tx.status === 'Closed' || tx.status === 'Cancelled' || tx.status === 'Archived';
   const hasPendingDepts = tx.pendingDepartmentNames.length > 0;
+  const departmentResponseStatus = departmentResponseItem?.departmentResponseStatus;
+  const canDepartmentUserRegisterResponse = isDepartmentUser
+    && hasDepartmentResponseAssignment(assignments, user?.departmentId)
+    && (
+      !departmentResponseStatus
+      || departmentResponseStatus === 'Draft'
+      || departmentResponseStatus === 'ReturnedForCorrection'
+    );
   const canRegisterResponse = (
-    canClose || (isDepartmentUser && hasDepartmentResponseAssignment(assignments, user?.departmentId))
+    canClose || canDepartmentUserRegisterResponse
   ) && needsResponse && !tx.responseCompleted && !isTerminal;
+  const responseActionLabel = isDepartmentUser && departmentResponseStatus
+    ? 'استكمال إفادة'
+    : 'تسجيل إفادة';
+  const departmentResponseActionStatusLabel = isDepartmentUser && departmentResponseStatus && !canDepartmentUserRegisterResponse
+    ? DEPARTMENT_RESPONSE_STATUS_LABELS[departmentResponseStatus] ?? departmentResponseStatus
+    : undefined;
   const canShowClose = canClose && !isTerminal && (!needsResponse || tx.responseCompleted);
   const showMutationActions = canEdit && !isDepartmentUser;
   const canReply = canEdit && !isDepartmentUser;
@@ -535,6 +600,8 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
               canClose={canClose}
               isDepartmentUser={isDepartmentUser}
               canRegisterResponse={canRegisterResponse}
+              responseActionLabel={responseActionLabel}
+              responseStatusLabel={departmentResponseActionStatusLabel}
               canShowClose={canShowClose}
               hasPendingDepts={hasPendingDepts}
               activeAction={activeAction}
@@ -604,11 +671,27 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
 
       {isGlobalActionOpen && activeAction && (
         <TransactionActionPanel
-          title={ACTION_TITLES[activeAction]}
+          title={activeAction === 'complete-response' ? responseActionLabel : ACTION_TITLES[activeAction]}
           open
           onClose={closeAction}
+          panelRef={activeAction === 'complete-response' ? responsePanelRef : undefined}
+          prominent={activeAction === 'complete-response'}
         >
-          {activeAction === 'complete-response' && (
+          {activeAction === 'complete-response' && isDepartmentUser && (
+            <DepartmentResponseInlinePanel
+              key={departmentResponseItem?.departmentResponseId ?? 'new'}
+              transactionId={+id}
+              initialItem={departmentResponseItem}
+              onDirtyChange={setActionDirty}
+              onCancel={closeAction}
+              onMessage={(nextMessage) => {
+                setMessage(nextMessage);
+                setError('');
+              }}
+              onChanged={handleDepartmentResponseChanged}
+            />
+          )}
+          {activeAction === 'complete-response' && !isDepartmentUser && (
             <CompleteResponseFormPanel
               transactionId={+id}
               responseType={tx.responseType}

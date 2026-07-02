@@ -47,7 +47,7 @@ describe('CompleteResponseFormPanel', () => {
 
   it('succeeds without attachment', async () => {
     const user = await fillRequiredFields();
-    await user.click(screen.getByRole('button', { name: 'تسجيل الإفادة' }));
+    await user.click(screen.getByRole('button', { name: 'إرسال الإفادة' }));
 
     await waitFor(() => {
       expect(services.transactionsApi.completeResponse).toHaveBeenCalledTimes(1);
@@ -61,7 +61,7 @@ describe('CompleteResponseFormPanel', () => {
     const responseDate = screen.getByLabelText('تاريخ الإفادة *');
     await user.clear(responseDate);
     await user.type(responseDate, '1448/01/16');
-    await user.click(screen.getByRole('button', { name: 'تسجيل الإفادة' }));
+    await user.click(screen.getByRole('button', { name: 'إرسال الإفادة' }));
 
     await waitFor(() => {
       expect(services.transactionsApi.completeResponse).toHaveBeenCalledWith(1, expect.objectContaining({
@@ -74,7 +74,7 @@ describe('CompleteResponseFormPanel', () => {
     const user = await fillRequiredFields();
     const file = new File(['pdf'], 'response.pdf', { type: 'application/pdf' });
     fireEvent.change(screen.getByLabelText('مرفق (اختياري)'), { target: { files: [file] } });
-    await user.click(screen.getByRole('button', { name: 'تسجيل الإفادة' }));
+    await user.click(screen.getByRole('button', { name: 'إرسال الإفادة' }));
 
     await waitFor(() => {
       expect(services.transactionsApi.completeResponse).toHaveBeenCalledTimes(1);
@@ -88,7 +88,7 @@ describe('CompleteResponseFormPanel', () => {
     const user = await fillRequiredFields();
     const file = new File(['pdf'], 'response.pdf', { type: 'application/pdf' });
     fireEvent.change(screen.getByLabelText('مرفق (اختياري)'), { target: { files: [file] } });
-    await user.click(screen.getByRole('button', { name: 'تسجيل الإفادة' }));
+    await user.click(screen.getByRole('button', { name: 'إرسال الإفادة' }));
 
     await waitFor(() => {
       expect(services.transactionsApi.completeResponse).toHaveBeenCalledTimes(1);
@@ -103,14 +103,14 @@ describe('CompleteResponseFormPanel', () => {
     const user = await fillRequiredFields();
     const file = new File(['pdf'], 'response.pdf', { type: 'application/pdf' });
     fireEvent.change(screen.getByLabelText('مرفق (اختياري)'), { target: { files: [file] } });
-    await user.click(screen.getByRole('button', { name: 'تسجيل الإفادة' }));
+    await user.click(screen.getByRole('button', { name: 'إرسال الإفادة' }));
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
     expect(services.transactionsApi.completeResponse).toHaveBeenCalledTimes(1);
 
     const retryFile = new File(['pdf2'], 'retry.pdf', { type: 'application/pdf' });
     fireEvent.change(screen.getByLabelText('مرفق (اختياري)'), { target: { files: [retryFile] } });
-    await user.click(screen.getByRole('button', { name: 'تسجيل الإفادة' }));
+    await user.click(screen.getByRole('button', { name: 'إرسال الإفادة' }));
 
     await waitFor(() => expect(services.transactionsApi.uploadAttachment).toHaveBeenCalledTimes(2));
     expect(services.transactionsApi.completeResponse).toHaveBeenCalledTimes(1);
@@ -119,7 +119,7 @@ describe('CompleteResponseFormPanel', () => {
   it('clears dirty state after response is saved', async () => {
     const user = await fillRequiredFields();
     onDirtyChange.mockClear();
-    await user.click(screen.getByRole('button', { name: 'تسجيل الإفادة' }));
+    await user.click(screen.getByRole('button', { name: 'إرسال الإفادة' }));
 
     await waitFor(() => {
       expect(onDirtyChange).toHaveBeenCalledWith(false);

@@ -114,7 +114,7 @@ export default function CompleteResponseFormPanel({
           <textarea
             id="response-summary"
             required
-            rows={4}
+            rows={7}
             value={form.responseSummary}
             disabled={responseSaved}
             onChange={(e) => setForm({ ...form, responseSummary: e.target.value })}
@@ -151,7 +151,7 @@ export default function CompleteResponseFormPanel({
       </div>
       <div className="form-actions">
         <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
-          {isSubmitting ? 'جاري الحفظ...' : 'تسجيل الإفادة'}
+          {isSubmitting ? 'جاري الحفظ...' : 'إرسال الإفادة'}
         </button>
         <button type="button" className="btn btn-outline" onClick={onCancel}>إلغاء</button>
       </div>

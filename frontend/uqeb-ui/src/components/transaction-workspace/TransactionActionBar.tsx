@@ -7,6 +7,8 @@ type TransactionActionBarProps = Readonly<{
   canClose: boolean;
   isDepartmentUser: boolean;
   canRegisterResponse: boolean;
+  responseActionLabel?: string;
+  responseStatusLabel?: string;
   canShowClose: boolean;
   hasPendingDepts: boolean;
   activeAction: WorkspaceAction | null;
@@ -20,6 +22,8 @@ export default function TransactionActionBar({
   canClose,
   isDepartmentUser,
   canRegisterResponse,
+  responseActionLabel = 'تسجيل الإفادة',
+  responseStatusLabel,
   canShowClose,
   hasPendingDepts,
   activeAction,
@@ -66,21 +70,18 @@ export default function TransactionActionBar({
         </>
       )}
       {canRegisterResponse && (
-        isDepartmentUser ? (
-          <Link to={`/department-responses?transactionId=${transactionId}`} className="btn btn-primary btn-sm">
-            تسجيل إفادة
-          </Link>
-        ) : (
-          <button
-            type="button"
-            className={`btn btn-primary btn-sm${activeAction === 'complete-response' ? ' active' : ''}`}
-            disabled={hasPendingDepts}
-            title={hasPendingDepts ? 'لا يمكن تسجيل الإفادة قبل اكتمال رد جميع الإدارات.' : undefined}
-            onClick={() => onAction('complete-response')}
-          >
-            تسجيل الإفادة
-          </button>
-        )
+        <button
+          type="button"
+          className={`btn btn-primary btn-sm${activeAction === 'complete-response' ? ' active' : ''}`}
+          disabled={!isDepartmentUser && hasPendingDepts}
+          title={!isDepartmentUser && hasPendingDepts ? 'لا يمكن تسجيل الإفادة قبل اكتمال رد جميع الإدارات.' : undefined}
+          onClick={() => onAction('complete-response')}
+        >
+          {responseActionLabel}
+        </button>
+      )}
+      {!canRegisterResponse && responseStatusLabel && (
+        <span className="badge badge-blue workspace-response-status">{responseStatusLabel}</span>
       )}
       {canShowClose && (
         <button type="button" className="btn btn-danger btn-sm" onClick={onCloseTransaction}>
