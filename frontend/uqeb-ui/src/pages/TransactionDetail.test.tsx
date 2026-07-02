@@ -51,13 +51,19 @@ vi.mock('../features/scanner/ScanAttachmentButton', () => ({
   default: ({
     onSaveScannedFile,
     onSaved,
+    beforeOpen,
+    disabled,
   }: {
     onSaveScannedFile?: (file: File) => Promise<void>;
     onSaved: () => void;
+    beforeOpen?: () => Promise<boolean>;
+    disabled?: boolean;
   }) => (
     <button
       type="button"
+      disabled={disabled}
       onClick={async () => {
+        if (beforeOpen && !await beforeOpen()) return;
         await onSaveScannedFile?.(new File(['scan'], 'scan.jpg', { type: 'image/jpeg' }));
         onSaved();
       }}
@@ -531,7 +537,7 @@ describe('TransactionDetailPage department user permissions', () => {
       value: scrollIntoView,
     });
 
-    renderDetail();
+    const view = renderDetail();
     await waitForDetailsReady();
 
     await waitFor(() => expect(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' })).toBeInTheDocument());
@@ -539,16 +545,16 @@ describe('TransactionDetailPage department user permissions', () => {
 
     const panel = screen.getByRole('region', { name: 'تسجيل إفادة' });
     expect(panel).toHaveClass('workspace-action-panel--prominent');
-    expect(within(panel).getByText('احفظ المسودة أولًا لإضافة المرفقات.')).toBeInTheDocument();
     expect(within(panel).getByRole('heading', { name: 'إفادة الإدارة' })).toBeInTheDocument();
     expect(within(panel).getByLabelText('نص الإفادة *')).toHaveAttribute('rows', '4');
     expect(within(panel).getByLabelText('نص الإفادة *')).toHaveFocus();
-    expect(within(panel).getByRole('button', { name: 'رفع ملف' })).toBeDisabled();
-    expect(within(panel).getByRole('button', { name: 'مسح ضوئي' })).toBeDisabled();
+    expect(within(panel).getByRole('button', { name: 'رفع ملف' })).toBeEnabled();
+    expect(within(panel).getByRole('button', { name: 'مسح ضوئي' })).toBeEnabled();
+    expect(view.container.querySelector('[role="group"]')).not.toBeInTheDocument();
     expect(scrollIntoView).toHaveBeenCalled();
   });
 
-  it('enables scanner after saving a draft and uploads scanned files as department response attachments', async () => {
+  it('auto-saves a draft before scanning and uploads scanned files as department response attachments', async () => {
     const user = userEvent.setup();
     renderDetail();
     await waitForDetailsReady();
@@ -556,14 +562,15 @@ describe('TransactionDetailPage department user permissions', () => {
     await waitFor(() => expect(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' })).toBeInTheDocument());
     await user.click(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' }));
     await user.type(screen.getByLabelText('نص الإفادة *'), 'نص إفادة الإدارة');
-    await user.click(screen.getByRole('button', { name: 'حفظ كمسودة' }));
 
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('تم حفظ مسودة الإفادة'));
-
-    const panel = screen.getByRole('region', { name: 'استكمال إفادة' });
+    const panel = screen.getByRole('region', { name: 'تسجيل إفادة' });
     await user.click(within(panel).getByRole('button', { name: 'مسح ضوئي' }));
 
     await waitFor(() => {
+      expect(services.departmentResponsesApi.create).toHaveBeenCalledWith({
+        transactionId: 1,
+        responseText: 'نص إفادة الإدارة',
+      });
       expect(services.departmentResponsesApi.uploadAttachment).toHaveBeenCalledWith(
         100,
         expect.any(File),
@@ -571,6 +578,27 @@ describe('TransactionDetailPage department user permissions', () => {
     });
     expect(services.transactionsApi.uploadAttachment).not.toHaveBeenCalledWith(1, expect.any(File), 'Scan');
     expect(screen.getByRole('status')).toHaveTextContent('تم رفع مرفق الإفادة من الماسح الضوئي');
+  });
+
+  it('auto-saves a draft before uploading a department response attachment', async () => {
+    const user = userEvent.setup();
+    renderDetail();
+    await waitForDetailsReady();
+
+    await waitFor(() => expect(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' })).toBeInTheDocument());
+    await user.click(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' }));
+    await user.type(screen.getByLabelText('نص الإفادة *'), 'نص إفادة الإدارة');
+    await user.upload(screen.getByLabelText('رفع مرفق إفادة'), new File(['pdf'], 'response.pdf', { type: 'application/pdf' }));
+
+    await waitFor(() => {
+      expect(services.departmentResponsesApi.create).toHaveBeenCalledWith({
+        transactionId: 1,
+        responseText: 'نص إفادة الإدارة',
+      });
+      expect(services.departmentResponsesApi.uploadAttachment).toHaveBeenCalledWith(100, expect.any(File));
+    });
+    expect(services.transactionsApi.uploadAttachment).not.toHaveBeenCalledWith(1, expect.any(File), 'Scan');
+    expect(screen.getByRole('status')).toHaveTextContent('تم رفع مرفق الإفادة');
   });
 
   it('shows continue action and correction note for returned department responses', async () => {
@@ -689,8 +717,9 @@ describe('TransactionDetailPage department user permissions', () => {
     await waitFor(() => expect(within(getActionBar()).getByRole('button', { name: 'استكمال إفادة' })).toBeInTheDocument());
     await user.click(within(getActionBar()).getByRole('button', { name: 'استكمال إفادة' }));
 
-    const attachmentsToolbar = await screen.findByRole('group', { name: 'مرفقات الإفادة' });
-    expect(within(attachmentsToolbar).getByText('مرفقات الإفادة: 1')).toBeInTheDocument();
+    const attachmentsToolbar = screen.getByText('مرفقات: 1').closest('fieldset');
+    if (!attachmentsToolbar) throw new Error('Expected attachment toolbar fieldset');
+    expect(within(attachmentsToolbar).getByText('مرفقات: 1')).toBeInTheDocument();
     expect(within(attachmentsToolbar).getByRole('button', { name: 'رفع ملف' })).toBeEnabled();
     expect(within(attachmentsToolbar).getByRole('button', { name: 'مسح ضوئي' })).toBeEnabled();
     expect(within(attachmentsToolbar).getByText('response.pdf')).toBeInTheDocument();

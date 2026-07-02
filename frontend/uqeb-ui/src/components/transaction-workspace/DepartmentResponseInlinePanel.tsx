@@ -19,13 +19,6 @@ function isEditableStatus(status?: string): boolean {
   return !status || status === 'Draft' || status === 'ReturnedForCorrection';
 }
 
-function getHelperText(status?: string): string {
-  if (status === 'ReturnedForCorrection') return 'عدّل الإفادة ثم أرسلها للمراجعة.';
-  if (status === 'Draft') return 'يمكن حفظ المسودة أو إرسالها للمراجعة.';
-  if (!status) return 'سجل إفادة الإدارة ثم احفظها كمسودة لإضافة المرفقات.';
-  return 'عرض حالة الإفادة الحالية.';
-}
-
 export default function DepartmentResponseInlinePanel({
   transactionId,
   initialItem,
@@ -36,6 +29,7 @@ export default function DepartmentResponseInlinePanel({
 }: DepartmentResponseInlinePanelProps) {
   const responseTextRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const detailRef = useRef<DepartmentResponseDto | null>(null);
   const [item, setItem] = useState<DepartmentTransactionResponseItemDto | null | undefined>(initialItem);
   const [detail, setDetail] = useState<DepartmentResponseDto | null>(null);
   const [responseText, setResponseText] = useState('');
@@ -47,6 +41,11 @@ export default function DepartmentResponseInlinePanel({
   const status = detail?.status ?? item?.departmentResponseStatus;
   const editable = isEditableStatus(status) && (item?.canCreateResponse || item?.canEditResponse || !item?.departmentResponseId);
 
+  function updateDetail(next: DepartmentResponseDto | null) {
+    detailRef.current = next;
+    setDetail(next);
+  }
+
   useEffect(() => {
     const responseId = initialItem?.departmentResponseId;
     if (!responseId) return;
@@ -55,7 +54,7 @@ export default function DepartmentResponseInlinePanel({
     departmentResponsesApi.getById(responseId)
       .then((res) => {
         if (!active) return;
-        setDetail(res.data);
+        updateDetail(res.data);
         setResponseText(res.data.responseText);
       })
       .catch((err: unknown) => {
@@ -90,26 +89,46 @@ export default function DepartmentResponseInlinePanel({
     return res.data;
   }
 
+  function applyDraft(saved: DepartmentResponseDto) {
+    updateDetail(saved);
+    setItem((current) => ({
+      transactionId,
+      internalTrackingNumber: saved.internalTrackingNumber,
+      subject: saved.transactionSubject,
+      priority: current?.priority ?? 'Normal',
+      departmentId: saved.departmentId,
+      departmentName: saved.departmentName,
+      departmentResponseId: saved.id,
+      departmentResponseStatus: saved.status,
+      canCreateResponse: false,
+      canEditResponse: true,
+      canSubmitResponse: true,
+    }));
+    onDirtyChange(false);
+  }
+
+  async function ensureDraft(): Promise<DepartmentResponseDto> {
+    if (detailRef.current) return detailRef.current;
+
+    setSaving(true);
+    setError('');
+    try {
+      const saved = await saveDraft();
+      applyDraft(saved);
+      await onChanged(saved);
+      onMessage('تم حفظ مسودة الإفادة تلقائيًا.');
+      return saved;
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleSaveDraft() {
     setSaving(true);
     setError('');
     try {
       const saved = await saveDraft();
-      setDetail(saved);
-      setItem((current) => ({
-        transactionId,
-        internalTrackingNumber: saved.internalTrackingNumber,
-        subject: saved.transactionSubject,
-        priority: current?.priority ?? 'Normal',
-        departmentId: saved.departmentId,
-        departmentName: saved.departmentName,
-        departmentResponseId: saved.id,
-        departmentResponseStatus: saved.status,
-        canCreateResponse: false,
-        canEditResponse: true,
-        canSubmitResponse: true,
-      }));
-      onDirtyChange(false);
+      applyDraft(saved);
       onMessage('تم حفظ مسودة الإفادة.');
       await onChanged(saved);
     } catch (err: unknown) {
@@ -125,7 +144,7 @@ export default function DepartmentResponseInlinePanel({
     try {
       const saved = await saveDraft();
       const submitted = await departmentResponsesApi.submit(saved.id);
-      setDetail(submitted.data);
+      updateDetail(submitted.data);
       setResponseText(submitted.data.responseText);
       setItem((current) => current ? {
         ...current,
@@ -146,31 +165,50 @@ export default function DepartmentResponseInlinePanel({
   }
 
   async function handleUpload(file: File) {
-    if (!detail || uploadingAttachment) return;
+    if (uploadingAttachment) return;
     setError('');
     setUploadingAttachment(true);
     try {
-      const res = await departmentResponsesApi.uploadAttachment(detail.id, file);
+      const draft = await ensureDraft();
+      const res = await departmentResponsesApi.uploadAttachment(draft.id, file);
       setDetail((current) => (current ? {
         ...current,
         attachments: [...current.attachments, res.data],
       } : current));
+      detailRef.current = detailRef.current ? {
+        ...detailRef.current,
+        attachments: [...detailRef.current.attachments, res.data],
+      } : detailRef.current;
       onMessage('تم رفع مرفق الإفادة.');
     } catch (err: unknown) {
-      setError(getApiErrorMessage(err));
+      setError(err instanceof Error ? err.message : getApiErrorMessage(err));
     } finally {
       setUploadingAttachment(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   }
 
+  async function beforeOpenScanner(): Promise<boolean> {
+    try {
+      await ensureDraft();
+      return true;
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : getApiErrorMessage(err));
+      return false;
+    }
+  }
+
   async function handleScannedFile(file: File) {
-    if (!detail) return;
-    const res = await departmentResponsesApi.uploadAttachment(detail.id, file);
+    const draft = await ensureDraft();
+    const res = await departmentResponsesApi.uploadAttachment(draft.id, file);
     setDetail((current) => (current ? {
       ...current,
       attachments: [...current.attachments, res.data],
     } : current));
+    detailRef.current = detailRef.current ? {
+      ...detailRef.current,
+      attachments: [...detailRef.current.attachments, res.data],
+    } : detailRef.current;
     onMessage('تم رفع مرفق الإفادة من الماسح الضوئي.');
   }
 
@@ -189,10 +227,7 @@ export default function DepartmentResponseInlinePanel({
   return (
     <div className="workspace-form department-response-inline-panel">
       <div className="department-response-inline-header">
-        <div>
-          <h4>إفادة الإدارة</h4>
-          <p>{getHelperText(status)}</p>
-        </div>
+        <h4>إفادة الإدارة</h4>
         <span className="badge badge-blue">{status ? departmentResponseStatusLabels[status] ?? status : 'جديدة'}</span>
       </div>
 
@@ -231,28 +266,25 @@ export default function DepartmentResponseInlinePanel({
             />
           </div>
 
-          <div className="department-response-attachment-toolbar" role="group" aria-label="مرفقات الإفادة">
-            <span className="department-response-attachment-count">مرفقات الإفادة: {attachments.length}</span>
+          <fieldset className="department-response-attachment-toolbar">
+            <legend className="visually-hidden">مرفقات الإفادة</legend>
+            <span className="department-response-attachment-count">مرفقات: {attachments.length}</span>
             <div className="department-response-attachment-actions">
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
-                disabled={!detail || uploadingAttachment}
+                disabled={saving || uploadingAttachment}
                 onClick={() => fileInputRef.current?.click()}
               >
                 {uploadingAttachment ? 'جارٍ الرفع...' : 'رفع ملف'}
               </button>
-              {detail ? (
-                <ScanAttachmentButton
-                  transactionId={transactionId}
-                  onSaved={() => undefined}
-                  onSaveScannedFile={handleScannedFile}
-                />
-              ) : (
-                <button type="button" className="btn btn-secondary btn-sm" disabled>
-                  مسح ضوئي
-                </button>
-              )}
+              <ScanAttachmentButton
+                transactionId={transactionId}
+                onSaved={() => undefined}
+                onSaveScannedFile={handleScannedFile}
+                beforeOpen={beforeOpenScanner}
+                disabled={saving || uploadingAttachment}
+              />
               <input
                 ref={fileInputRef}
                 type="file"
@@ -261,14 +293,13 @@ export default function DepartmentResponseInlinePanel({
                 onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0])}
               />
             </div>
-            {!detail && <span className="department-response-attachment-hint">احفظ المسودة أولًا لإضافة المرفقات.</span>}
             {visibleAttachments.length > 0 && (
               <span className="department-response-attachment-files">
                 {visibleAttachments.map((attachment) => attachment.originalFileName).join('، ')}
                 {hiddenAttachmentCount > 0 && ` و ${hiddenAttachmentCount} مرفقات أخرى`}
               </span>
             )}
-          </div>
+          </fieldset>
 
           <div className="department-response-inline-footer">
             <button type="button" className="btn btn-secondary btn-sm" disabled={saving} onClick={handleSaveDraft}>
