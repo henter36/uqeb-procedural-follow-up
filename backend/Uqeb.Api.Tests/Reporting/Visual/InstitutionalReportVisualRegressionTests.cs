@@ -164,9 +164,21 @@ public class InstitutionalReportVisualRegressionTests
         });
         Assert.True(screenshot.Length > 4_000, "Full report screenshot is unexpectedly small.");
 
-        var artifactDir = Path.Combine(Path.GetTempPath(), "uqeb-reporting-pdf-layout");
+        var artifactDir = ResolveVisualArtifactDirectory();
         Directory.CreateDirectory(artifactDir);
         await File.WriteAllBytesAsync(Path.Combine(artifactDir, "full-report.actual.png"), screenshot);
+    }
+
+    [Fact]
+    public void ActualArtifactDirectory_IsNotInsideBaselinesDirectory()
+    {
+        var baselineDir = Path.GetFullPath(ResolveBaselineDirectory());
+        var artifactDir = Path.GetFullPath(ResolveVisualArtifactDirectory());
+
+        Assert.NotEqual(baselineDir, artifactDir, StringComparer.OrdinalIgnoreCase);
+        Assert.False(
+            artifactDir.StartsWith(baselineDir, StringComparison.OrdinalIgnoreCase),
+            $"Artifact directory '{artifactDir}' must not be inside the baselines directory '{baselineDir}'.");
     }
 
     private static async Task AssertRenderedSectionAsync(
@@ -194,36 +206,53 @@ public class InstitutionalReportVisualRegressionTests
         var screenshot = await locator.ScreenshotAsync(new LocatorScreenshotOptions { Animations = ScreenshotAnimations.Disabled });
         Assert.True(screenshot.Length > 2_000, $"Screenshot too small for {snapshotName}.");
 
-        var baselineDir = ResolveBaselineDirectory();
-        Directory.CreateDirectory(baselineDir);
-        var actualPath = Path.Combine(baselineDir, $"{snapshotName}.actual.png");
+        var artifactDir = ResolveVisualArtifactDirectory();
+        Directory.CreateDirectory(artifactDir);
+        var actualPath = Path.Combine(artifactDir, $"{snapshotName}.actual.png");
         await File.WriteAllBytesAsync(actualPath, screenshot);
 
+        var baselineDir = ResolveBaselineDirectory();
         var baselinePath = Path.Combine(baselineDir, $"{snapshotName}.png");
-        if (File.Exists(baselinePath))
-        {
-            var baseline = await File.ReadAllBytesAsync(baselinePath);
-            Assert.True(baseline.Length > 2_000, $"Baseline screenshot too small for {snapshotName}.");
 
-            // PNG byte length is not stable across Chromium/Playwright/font rendering environments.
-            // Keep this test focused on renderability and stable screenshot dimensions; update
-            // baselines intentionally only when visual dimensions or expected section content change.
-            AssertEqualPngDimensions(baseline, screenshot, snapshotName);
-        }
-        else
+        var updateBaselines = string.Equals(
+            Environment.GetEnvironmentVariable("UPDATE_REPORT_VISUAL_BASELINES"), "1",
+            StringComparison.Ordinal);
+
+        if (!File.Exists(baselinePath))
         {
-            await File.WriteAllBytesAsync(baselinePath, screenshot);
+            if (updateBaselines)
+            {
+                Directory.CreateDirectory(baselineDir);
+                await File.WriteAllBytesAsync(baselinePath, screenshot);
+                return;
+            }
+
+            Assert.Fail(
+                $"No baseline found for '{snapshotName}' at '{baselinePath}'. " +
+                $"Actual artifact saved to: {actualPath}. " +
+                $"Run with UPDATE_REPORT_VISUAL_BASELINES=1 to create the baseline.");
         }
+
+        var baseline = await File.ReadAllBytesAsync(baselinePath);
+        Assert.True(baseline.Length > 2_000, $"Baseline screenshot too small for {snapshotName}.");
+
+        // PNG byte length is not stable across Chromium/Playwright/font rendering environments.
+        // Keep this test focused on renderability and stable screenshot dimensions; update
+        // baselines intentionally only when visual dimensions or expected section content change.
+        AssertEqualPngDimensions(baseline, screenshot, snapshotName, actualPath);
     }
 
-    private static void AssertEqualPngDimensions(byte[] baseline, byte[] actual, string snapshotName)
+    private static void AssertEqualPngDimensions(byte[] baseline, byte[] actual, string snapshotName, string actualPath)
     {
         var baselineDimensions = ReadPngDimensions(baseline);
         var actualDimensions = ReadPngDimensions(actual);
 
         Assert.True(
             baselineDimensions == actualDimensions,
-            $"Screenshot dimensions drifted for {snapshotName}. Expected: {baselineDimensions.Width}x{baselineDimensions.Height}, Actual: {actualDimensions.Width}x{actualDimensions.Height}.");
+            $"Screenshot dimensions drifted for '{snapshotName}'. " +
+            $"Expected: {baselineDimensions.Width}x{baselineDimensions.Height}, " +
+            $"Actual: {actualDimensions.Width}x{actualDimensions.Height}. " +
+            $"Actual artifact saved to: {actualPath}.");
     }
 
     private static (int Width, int Height) ReadPngDimensions(byte[] png)
@@ -248,6 +277,27 @@ public class InstitutionalReportVisualRegressionTests
         return (width, height);
     }
 
+    // Resolves the directory where *.actual.png artifacts are written during test runs.
+    // Never points inside the Baselines directory so test runs cannot dirty tracked PNG files.
+    internal static string ResolveVisualArtifactDirectory()
+    {
+        var envDir = Environment.GetEnvironmentVariable("UQEB_VISUAL_ARTIFACT_DIR");
+        if (!string.IsNullOrWhiteSpace(envDir))
+            return envDir;
+
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null)
+        {
+            if (Directory.Exists(Path.Combine(dir.FullName, ".git")) ||
+                File.Exists(Path.Combine(dir.FullName, ".gitignore")))
+            {
+                return Path.Combine(dir.FullName, "artifacts", "test-results", "reporting-visual");
+            }
+            dir = dir.Parent;
+        }
+
+        return Path.Combine(Path.GetTempPath(), "uqeb-reporting-visual");
+    }
 
     private static string ResolveBaselineDirectory()
     {
