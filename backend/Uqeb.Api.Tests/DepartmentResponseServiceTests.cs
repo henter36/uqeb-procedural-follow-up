@@ -953,7 +953,9 @@ public class DepartmentResponseServiceTests
             .OrderByDescending(a => a.Id)
             .FirstAsync();
 
-        Assert.Contains("\"Reason\":\"تصحيح تاريخ الإنجاز\"", log.NewValue);
+        Assert.NotNull(log.NewValue);
+        using var auditJson = System.Text.Json.JsonDocument.Parse(log.NewValue);
+        Assert.Equal("تصحيح تاريخ الإنجاز", auditJson.RootElement.GetProperty("Reason").GetString());
         Assert.DoesNotContain("  تصحيح تاريخ الإنجاز  ", log.NewValue);
     }
 }
