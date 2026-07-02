@@ -19,10 +19,11 @@ function isEditableStatus(status?: string): boolean {
   return !status || status === 'Draft' || status === 'ReturnedForCorrection';
 }
 
-function getTitle(status?: string): string {
-  return status === 'Draft' || status === 'ReturnedForCorrection'
-    ? 'استكمال إفادة الإدارة'
-    : 'تسجيل إفادة الإدارة';
+function getHelperText(status?: string): string {
+  if (status === 'ReturnedForCorrection') return 'عدّل الإفادة ثم أرسلها للمراجعة.';
+  if (status === 'Draft') return 'يمكن حفظ المسودة أو إرسالها للمراجعة.';
+  if (!status) return 'سجل إفادة الإدارة ثم احفظها كمسودة لإضافة المرفقات.';
+  return 'عرض حالة الإفادة الحالية.';
 }
 
 export default function DepartmentResponseInlinePanel({
@@ -173,6 +174,10 @@ export default function DepartmentResponseInlinePanel({
     onMessage('تم رفع مرفق الإفادة من الماسح الضوئي.');
   }
 
+  const attachments = detail?.attachments ?? [];
+  const visibleAttachments = attachments.slice(0, 3);
+  const hiddenAttachmentCount = Math.max(attachments.length - visibleAttachments.length, 0);
+
   if (loading) {
     return (
       <output className="workspace-form department-response-inline-panel" aria-live="polite">
@@ -184,90 +189,95 @@ export default function DepartmentResponseInlinePanel({
   return (
     <div className="workspace-form department-response-inline-panel">
       <div className="department-response-inline-header">
-        <h4>{getTitle(status)}</h4>
-        {status && <span className="badge badge-blue">{departmentResponseStatusLabels[status] ?? status}</span>}
+        <div>
+          <h4>إفادة الإدارة</h4>
+          <p>{getHelperText(status)}</p>
+        </div>
+        <span className="badge badge-blue">{status ? departmentResponseStatusLabels[status] ?? status : 'جديدة'}</span>
       </div>
 
       {status === 'ReturnedForCorrection' && (
-        <Alert variant="warning">
-          أُعيدت الإفادة للتصحيح.
-          {detail?.reviewNote && <> ملاحظة المراجع: {detail.reviewNote}</>}
-        </Alert>
+        <div className="department-response-inline-alert">
+          <Alert variant="warning">
+            أُعيدت الإفادة للتصحيح.
+            {detail?.reviewNote && <> ملاحظة المراجع: {detail.reviewNote}</>}
+          </Alert>
+        </div>
       )}
       {status === 'Rejected' && detail?.reviewNote && (
-        <Alert variant="error">سبب الرفض: {detail.reviewNote}</Alert>
+        <div className="department-response-inline-alert">
+          <Alert variant="error">سبب الرفض: {detail.reviewNote}</Alert>
+        </div>
       )}
-      {error && <Alert variant="error">{error}</Alert>}
+      {error && (
+        <div className="department-response-inline-alert">
+          <Alert variant="error">{error}</Alert>
+        </div>
+      )}
 
       {editable ? (
         <>
-          <div className="department-response-inline-body">
-            <div className="form-group full-width">
-              <label htmlFor="department-response-text">نص الإفادة *</label>
-              <textarea
-                id="department-response-text"
-                ref={responseTextRef}
-                className="department-response-inline-textarea"
-                required
-                rows={5}
-                value={responseText}
-                onChange={(e) => setResponseText(e.target.value)}
-                placeholder="اكتب إفادة الإدارة هنا..."
+          <div className="form-group full-width department-response-inline-editor">
+            <label htmlFor="department-response-text">نص الإفادة *</label>
+            <textarea
+              id="department-response-text"
+              ref={responseTextRef}
+              className="department-response-inline-textarea"
+              required
+              rows={4}
+              value={responseText}
+              onChange={(e) => setResponseText(e.target.value)}
+              placeholder="اكتب إفادة الإدارة هنا..."
+            />
+          </div>
+
+          <div className="department-response-attachment-toolbar" role="group" aria-label="مرفقات الإفادة">
+            <span className="department-response-attachment-count">مرفقات الإفادة: {attachments.length}</span>
+            <div className="department-response-attachment-actions">
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={!detail || uploadingAttachment}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {uploadingAttachment ? 'جارٍ الرفع...' : 'رفع ملف'}
+              </button>
+              {detail ? (
+                <ScanAttachmentButton
+                  transactionId={transactionId}
+                  onSaved={() => undefined}
+                  onSaveScannedFile={handleScannedFile}
+                />
+              ) : (
+                <button type="button" className="btn btn-secondary btn-sm" disabled>
+                  مسح ضوئي
+                </button>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="visually-hidden"
+                aria-label="رفع مرفق إفادة"
+                onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0])}
               />
             </div>
-
-            <section className="department-response-inline-attachments" aria-label="مرفقات الإفادة">
-              <div className="department-response-inline-attachments-header">
-                <h5>مرفقات الإفادة</h5>
-                <div className="department-response-inline-attachment-actions">
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    disabled={!detail || uploadingAttachment}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    {uploadingAttachment ? 'جارٍ الرفع...' : 'رفع ملف'}
-                  </button>
-                  {detail ? (
-                    <ScanAttachmentButton
-                      transactionId={transactionId}
-                      onSaved={() => undefined}
-                      onSaveScannedFile={handleScannedFile}
-                    />
-                  ) : (
-                    <button type="button" className="btn btn-secondary btn-sm" disabled>
-                      مسح ضوئي
-                    </button>
-                  )}
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    className="visually-hidden"
-                    aria-label="رفع مرفق إفادة"
-                    onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0])}
-                  />
-                </div>
-              </div>
-              {!detail && <p className="text-muted">احفظ المسودة أولًا لإضافة المرفقات.</p>}
-              {detail && detail.attachments.length === 0 && <p className="text-muted">لا توجد مرفقات.</p>}
-              {detail && detail.attachments.length > 0 && (
-                <ul className="department-response-inline-attachment-list">
-                  {detail.attachments.map((attachment) => (
-                    <li key={attachment.id}>{attachment.originalFileName}</li>
-                  ))}
-                </ul>
-              )}
-            </section>
+            {!detail && <span className="department-response-attachment-hint">احفظ المسودة أولًا لإضافة المرفقات.</span>}
+            {visibleAttachments.length > 0 && (
+              <span className="department-response-attachment-files">
+                {visibleAttachments.map((attachment) => attachment.originalFileName).join('، ')}
+                {hiddenAttachmentCount > 0 && ` و ${hiddenAttachmentCount} مرفقات أخرى`}
+              </span>
+            )}
           </div>
 
           <div className="department-response-inline-footer">
-            <button type="button" className="btn btn-secondary" disabled={saving} onClick={handleSaveDraft}>
+            <button type="button" className="btn btn-secondary btn-sm" disabled={saving} onClick={handleSaveDraft}>
               {saving ? 'جارٍ الحفظ...' : 'حفظ كمسودة'}
             </button>
-            <button type="button" className="btn btn-primary" disabled={saving} onClick={handleSubmit}>
+            <button type="button" className="btn btn-primary btn-sm" disabled={saving} onClick={handleSubmit}>
               {saving ? 'جارٍ الإرسال...' : 'إرسال الإفادة'}
             </button>
-            <button type="button" className="btn btn-outline" onClick={onCancel}>إلغاء</button>
+            <button type="button" className="btn btn-outline btn-sm" onClick={onCancel}>إلغاء</button>
           </div>
         </>
       ) : (

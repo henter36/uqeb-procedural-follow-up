@@ -4,12 +4,12 @@ import { getScannerErrorMessage, ScannerBridgeError } from './scannerErrors';
 import { deleteScan, isScannerMockMode } from './scannerBridgeClient';
 import { useScannerBridge } from './useScannerBridge';
 
-interface ScannerPanelProps {
+type ScannerPanelProps = Readonly<{
   transactionId: number;
   onClose: () => void;
   onSaved: () => void;
   onSaveScannedFile?: (file: File) => Promise<void>;
-}
+}>;
 
 function cleanupScan(scanId: string): void {
   if (isScannerMockMode()) return;
@@ -60,11 +60,7 @@ export default function ScannerPanel({
 
     try {
       const file = await getFileForUpload();
-      if (onSaveScannedFile) {
-        await onSaveScannedFile(file);
-      } else {
-        await transactionsApi.uploadAttachment(transactionId, file, 'Scan');
-      }
+      await (onSaveScannedFile?.(file) ?? transactionsApi.uploadAttachment(transactionId, file, 'Scan'));
       if (scanResult) {
         cleanupScan(scanResult.scanId);
       }

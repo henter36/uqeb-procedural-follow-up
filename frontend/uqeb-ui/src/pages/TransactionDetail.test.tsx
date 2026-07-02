@@ -58,9 +58,7 @@ vi.mock('../features/scanner/ScanAttachmentButton', () => ({
     <button
       type="button"
       onClick={async () => {
-        if (onSaveScannedFile) {
-          await onSaveScannedFile(new File(['scan'], 'scan.jpg', { type: 'image/jpeg' }));
-        }
+        await onSaveScannedFile?.(new File(['scan'], 'scan.jpg', { type: 'image/jpeg' }));
         onSaved();
       }}
     >
@@ -542,8 +540,8 @@ describe('TransactionDetailPage department user permissions', () => {
     const panel = screen.getByRole('region', { name: 'تسجيل إفادة' });
     expect(panel).toHaveClass('workspace-action-panel--prominent');
     expect(within(panel).getByText('احفظ المسودة أولًا لإضافة المرفقات.')).toBeInTheDocument();
-    expect(within(panel).getByRole('heading', { name: 'تسجيل إفادة الإدارة' })).toBeInTheDocument();
-    expect(within(panel).getByLabelText('نص الإفادة *')).toHaveAttribute('rows', '5');
+    expect(within(panel).getByRole('heading', { name: 'إفادة الإدارة' })).toBeInTheDocument();
+    expect(within(panel).getByLabelText('نص الإفادة *')).toHaveAttribute('rows', '4');
     expect(within(panel).getByLabelText('نص الإفادة *')).toHaveFocus();
     expect(within(panel).getByRole('button', { name: 'رفع ملف' })).toBeDisabled();
     expect(within(panel).getByRole('button', { name: 'مسح ضوئي' })).toBeDisabled();
@@ -615,7 +613,7 @@ describe('TransactionDetailPage department user permissions', () => {
     await waitFor(() => expect(within(getActionBar()).getByRole('button', { name: 'استكمال إفادة' })).toBeInTheDocument());
     await user.click(within(getActionBar()).getByRole('button', { name: 'استكمال إفادة' }));
 
-    expect(await screen.findByRole('heading', { name: 'استكمال إفادة الإدارة' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'إفادة الإدارة' })).toBeInTheDocument();
     expect(screen.getByText(/أُعيدت الإفادة للتصحيح/)).toBeInTheDocument();
     expect(screen.getByText(/أضف التفاصيل/)).toBeInTheDocument();
   });
@@ -691,10 +689,11 @@ describe('TransactionDetailPage department user permissions', () => {
     await waitFor(() => expect(within(getActionBar()).getByRole('button', { name: 'استكمال إفادة' })).toBeInTheDocument());
     await user.click(within(getActionBar()).getByRole('button', { name: 'استكمال إفادة' }));
 
-    const attachmentsRegion = await screen.findByRole('region', { name: 'مرفقات الإفادة' });
-    expect(within(attachmentsRegion).getByRole('button', { name: 'رفع ملف' })).toBeEnabled();
-    expect(within(attachmentsRegion).getByRole('button', { name: 'مسح ضوئي' })).toBeEnabled();
-    expect(within(attachmentsRegion).getByText('response.pdf')).toBeInTheDocument();
+    const attachmentsToolbar = await screen.findByRole('group', { name: 'مرفقات الإفادة' });
+    expect(within(attachmentsToolbar).getByText('مرفقات الإفادة: 1')).toBeInTheDocument();
+    expect(within(attachmentsToolbar).getByRole('button', { name: 'رفع ملف' })).toBeEnabled();
+    expect(within(attachmentsToolbar).getByRole('button', { name: 'مسح ضوئي' })).toBeEnabled();
+    expect(within(attachmentsToolbar).getByText('response.pdf')).toBeInTheDocument();
   });
 
   it('keeps mutation actions available for data entry users', async () => {

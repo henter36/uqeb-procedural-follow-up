@@ -2,11 +2,11 @@ import { lazy, Suspense, useState } from 'react';
 
 const ScannerPanel = lazy(() => import('./ScannerPanel'));
 
-interface ScanAttachmentButtonProps {
+type ScanAttachmentButtonProps = Readonly<{
   transactionId: number;
   onSaved: () => void;
   onSaveScannedFile?: (file: File) => Promise<void>;
-}
+}>;
 
 export default function ScanAttachmentButton({
   transactionId,
