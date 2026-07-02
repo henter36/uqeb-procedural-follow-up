@@ -164,7 +164,8 @@ public class TransactionService : ITransactionService
         {
             ActiveStatusScope => query.Where(t =>
                 t.Status != TransactionStatus.Closed &&
-                t.Status != TransactionStatus.Cancelled),
+                t.Status != TransactionStatus.Cancelled &&
+                t.Status != TransactionStatus.Archived),
             ClosedStatusScope => query.Where(t => t.Status == TransactionStatus.Closed),
             AllStatusScope => query,
             _ => throw new InvalidOperationException("نطاق حالة المعاملات غير صالح.")

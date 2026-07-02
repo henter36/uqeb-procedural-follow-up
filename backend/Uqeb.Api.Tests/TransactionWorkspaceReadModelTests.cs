@@ -188,8 +188,10 @@ public class TransactionWorkspaceReadModelTests
         var active = await SeedTransactionAsync(db, 110);
         var closed = await SeedTransactionAsync(db, 111);
         var cancelled = await SeedTransactionAsync(db, 112);
+        var archived = await SeedTransactionAsync(db, 113);
         closed.Status = TransactionStatus.Closed;
         cancelled.Status = TransactionStatus.Cancelled;
+        archived.Status = TransactionStatus.Archived;
         await db.SaveChangesAsync();
 
         var result = await service.SearchAsync(
@@ -199,17 +201,20 @@ public class TransactionWorkspaceReadModelTests
         Assert.Contains(result.Items, tx => tx.Id == active.Id);
         Assert.DoesNotContain(result.Items, tx => tx.Id == closed.Id);
         Assert.DoesNotContain(result.Items, tx => tx.Id == cancelled.Id);
+        Assert.DoesNotContain(result.Items, tx => tx.Id == archived.Id);
     }
 
     [Fact]
-    public async Task SearchAsync_ActiveStatusScope_ExcludesClosedAndCancelled()
+    public async Task SearchAsync_ActiveStatusScope_ExcludesClosedCancelledAndArchived()
     {
-        var (service, db) = await CreateServiceAsync(nameof(SearchAsync_ActiveStatusScope_ExcludesClosedAndCancelled));
-        var active = await SeedTransactionAsync(db, 113);
-        var closed = await SeedTransactionAsync(db, 114);
-        var cancelled = await SeedTransactionAsync(db, 115);
+        var (service, db) = await CreateServiceAsync(nameof(SearchAsync_ActiveStatusScope_ExcludesClosedCancelledAndArchived));
+        var active = await SeedTransactionAsync(db, 114);
+        var closed = await SeedTransactionAsync(db, 115);
+        var cancelled = await SeedTransactionAsync(db, 116);
+        var archived = await SeedTransactionAsync(db, 117);
         closed.Status = TransactionStatus.Closed;
         cancelled.Status = TransactionStatus.Cancelled;
+        archived.Status = TransactionStatus.Archived;
         await db.SaveChangesAsync();
 
         var result = await service.SearchAsync(
@@ -219,6 +224,7 @@ public class TransactionWorkspaceReadModelTests
         Assert.Contains(result.Items, tx => tx.Id == active.Id);
         Assert.DoesNotContain(result.Items, tx => tx.Id == closed.Id);
         Assert.DoesNotContain(result.Items, tx => tx.Id == cancelled.Id);
+        Assert.DoesNotContain(result.Items, tx => tx.Id == archived.Id);
     }
 
     [Fact]

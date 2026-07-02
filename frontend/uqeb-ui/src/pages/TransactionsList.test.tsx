@@ -79,7 +79,7 @@ describe('TransactionsList', () => {
     expect(screen.getByText('لا توجد معاملات نشطة.')).toBeInTheDocument();
   });
 
-  it('sends closed statusScope when the closed tab is selected', async () => {
+  it('sends closed statusScope and clears status filter when the closed tab is selected', async () => {
     const user = userEvent.setup();
     vi.mocked(services.transactionsApi.search).mockResolvedValue({ data: { items: [], totalCount: 0 } } as never);
 
@@ -93,6 +93,10 @@ describe('TransactionsList', () => {
       expect(screen.getByText('لا توجد معاملات نشطة.')).toBeInTheDocument();
     });
 
+    const statusSelect = screen.getByLabelText('الحالة') as HTMLSelectElement;
+    await user.selectOptions(statusSelect, 'New');
+    expect(statusSelect.value).toBe('New');
+
     await user.click(screen.getByRole('tab', { name: 'المغلقة' }));
 
     await waitFor(() => {
@@ -100,6 +104,11 @@ describe('TransactionsList', () => {
         statusScope: 'closed',
       }));
     });
+    expect(statusSelect.value).toBe('');
+    expect(safeStorage.setStorageItem).toHaveBeenLastCalledWith(
+      'uqeb-transaction-filters',
+      expect.stringContaining('"status":""'),
+    );
     expect(screen.getByText('لا توجد معاملات مغلقة.')).toBeInTheDocument();
   });
 

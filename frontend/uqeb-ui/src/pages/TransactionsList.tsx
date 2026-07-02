@@ -278,7 +278,7 @@ export default function TransactionsList() {
   };
 
   const handleStatusScopeChange = (statusScope: StatusScope) => {
-    const next = { ...filters, statusScope, page: 1 };
+    const next = { ...filters, statusScope, status: '', page: 1 };
     setStorageItem(FILTERS_STORAGE_KEY, JSON.stringify(next));
     applyQuery(next);
   };
