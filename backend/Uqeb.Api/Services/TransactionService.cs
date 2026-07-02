@@ -29,6 +29,7 @@ public interface ITransactionService
     Task<AssignmentDto> AddAssignmentAsync(int transactionId, CreateAssignmentRequest request, int userId);
     Task<AssignmentDto?> ReplyAssignmentAsync(int transactionId, int assignmentId, ReplyAssignmentRequest request, ICurrentUserService currentUser);
     Task<AssignmentDto?> AdminEditAssignmentAsync(int transactionId, int assignmentId, AdminEditAssignmentRequest request, int userId);
+    Task<TransactionDetailDto?> AdminEditTransactionDatesAsync(int transactionId, AdminEditTransactionDatesRequest request, int userId);
     Task<PagedResult<AuditLogDto>> GetAuditLogAsync(int transactionId, int page, int pageSize, ICurrentUserService currentUser);
 }
 
@@ -1128,6 +1129,9 @@ public class TransactionService : ITransactionService
 
         var dueDate = WorkflowHelper.CalculateAssignmentDueDate(request.AssignedDate, request.ReplyDueDays, request.DueDate);
 
+        if (dueDate.HasValue && dueDate.Value.Date < request.AssignedDate.Date)
+            throw new InvalidOperationException("تاريخ استحقاق الإدارة لا يمكن أن يسبق تاريخ الإحالة.");
+
         var assignment = new Assignment
         {
             TransactionId = transactionId,
@@ -1240,6 +1244,71 @@ public class TransactionService : ITransactionService
             });
 
         return MapAssignment(assignment, assignment.Department.Name, assignment.CreatedBy?.FullName ?? "");
+    }
+
+    public async Task<TransactionDetailDto?> AdminEditTransactionDatesAsync(
+        int transactionId, AdminEditTransactionDatesRequest request, int userId)
+    {
+        var t = await _db.Transactions
+            .Include(x => x.CreatedBy)
+            .Include(x => x.CategoryEntity)
+            .Include(x => x.IncomingFromParty)
+            .Include(x => x.IncomingFromDepartment)
+            .Include(x => x.OutgoingDepartments).ThenInclude(o => o.Department)
+            .FirstOrDefaultAsync(x => x.Id == transactionId);
+        if (t == null) return null;
+
+        var oldSnapshot = JsonSerializer.Serialize(new
+        {
+            t.IncomingDate,
+            t.ResponseDueDate,
+            ClosedAt = t.ClosedAt,
+            Reason = request.Reason
+        });
+
+        if (request.IncomingDate.HasValue)
+        {
+            if (t.ResponseDueDate.HasValue && request.IncomingDate.Value > t.ResponseDueDate.Value)
+                throw new InvalidOperationException("تاريخ الوارد لا يمكن أن يكون بعد تاريخ استحقاق المعاملة.");
+            if (t.ClosedAt.HasValue && request.IncomingDate.Value > t.ClosedAt.Value)
+                throw new InvalidOperationException("تاريخ الوارد لا يمكن أن يكون بعد تاريخ إغلاق المعاملة.");
+            t.IncomingDate = request.IncomingDate.Value;
+        }
+        if (request.ResponseDueDate.HasValue)
+        {
+            if (request.ResponseDueDate.Value < t.IncomingDate)
+                throw new InvalidOperationException("تاريخ استحقاق المعاملة لا يمكن أن يسبق تاريخ الوارد.");
+            t.ResponseDueDate = request.ResponseDueDate;
+        }
+        if (request.ClosedAt.HasValue)
+        {
+            if (request.ClosedAt.Value < t.IncomingDate)
+                throw new InvalidOperationException("تاريخ إغلاق المعاملة لا يمكن أن يسبق تاريخ الوارد.");
+            t.ClosedAt = request.ClosedAt;
+        }
+
+        var newSnapshot = JsonSerializer.Serialize(new
+        {
+            t.IncomingDate,
+            t.ResponseDueDate,
+            ClosedAt = t.ClosedAt,
+            Reason = request.Reason
+        });
+
+        await CommitWorkflowMutationAsync(
+            () => Task.CompletedTask,
+            () =>
+            {
+                _audit.TrackLog(userId, AuditAction.AdminEditTransactionDates, TransactionEntityName, transactionId, transactionId, oldSnapshot, newSnapshot);
+                return Task.CompletedTask;
+            });
+
+        var assignmentRows = await _db.Assignments.AsNoTracking()
+            .Where(a => a.TransactionId == transactionId)
+            .Select(a => new AssignmentSummaryRow(a.Department.Name, a.ReplyStatus, a.RequiresReply, a.Status, a.DueDate))
+            .ToListAsync();
+
+        return MapToBasicDetailDto(t, assignmentRows, DateTime.UtcNow);
     }
 
     public async Task<PagedResult<AuditLogDto>> GetAuditLogAsync(

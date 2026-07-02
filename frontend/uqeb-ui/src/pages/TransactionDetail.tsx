@@ -32,6 +32,7 @@ import CompleteResponseFormPanel from '../components/transaction-workspace/Compl
 import DepartmentResponseInlinePanel from '../components/transaction-workspace/DepartmentResponseInlinePanel';
 import FollowUpLetterFormPanel from '../components/transaction-workspace/FollowUpLetterFormPanel';
 import AdminEditAssignmentFormPanel from '../components/transaction-workspace/AdminEditAssignmentFormPanel';
+import AdminEditDatesFormPanel from '../components/transaction-workspace/AdminEditDatesFormPanel';
 import { departmentResponseStatusLabels } from '../components/transaction-workspace/departmentResponseStatusLabels';
 import type { WorkspaceAction, WorkspaceActionContext } from '../components/transaction-workspace/types';
 import { parseDetailTab, type DetailTab } from './transactionDetailTabs';
@@ -88,6 +89,7 @@ const ACTION_TITLES: Record<WorkspaceAction, string> = {
   'complete-response': 'تسجيل إفادة',
   'follow-up-letter': 'خطاب تعقيب PDF',
   'admin-edit-assignment': 'تعديل بيانات الاحالة',
+  'admin-edit-dates': 'تصحيح التواريخ الحساسة (إداري)',
 };
 
 export default function TransactionDetailPage() {
@@ -459,6 +461,11 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     closeAction();
   };
 
+  const handleAdminEditDatesSuccess = (updated: import('../api/types').TransactionDetail) => {
+    setTx(updated);
+    closeAction();
+  };
+
   const handleReplyFollowUpSuccess = async () => {
     await handleActionSuccess('تم تسجيل الرد بنجاح.', [() => loadWorkspace({ silent: true })]);
   };
@@ -649,27 +656,41 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
 
         <div className="transaction-metric-grid">
           <div className="transaction-metric-tile">
-            <span className="transaction-metric-label">منذ ورود المعاملة</span>
-            <span className="transaction-metric-value">{formatDaysSince(tx.daysSinceIncoming, '0')}</span>
+            <span className="transaction-metric-label">تاريخ الوارد</span>
+            <span className="transaction-metric-value"><DateDisplay date={tx.incomingDate} /></span>
+            <small className="text-muted metric-hint">بداية احتساب عمر المعاملة</small>
           </div>
           <div className="transaction-metric-tile">
-            <span className="transaction-metric-label">أيام إنجاز المعاملة</span>
-            <span className="transaction-metric-value">{formatCompletionDays(tx.completionDays)}</span>
+            <span className="transaction-metric-label">
+              {tx.completionDays != null ? 'أيام إنجاز المعاملة' : 'الأيام المفتوحة'}
+            </span>
+            <span className="transaction-metric-value">
+              {tx.completionDays != null
+                ? formatCompletionDays(tx.completionDays)
+                : formatDaysSince(tx.daysSinceIncoming, '0')}
+            </span>
+            <small className="text-muted metric-hint">
+              {tx.completionDays != null
+                ? 'محسوب تلقائيًا من تاريخ الوارد إلى تاريخ الإغلاق'
+                : 'محسوب تلقائيًا من تاريخ الوارد إلى اليوم'}
+            </small>
             {tx.completionDate && (
-              <small className="text-muted">تاريخ الإنجاز: <DateDisplay date={tx.completionDate} /></small>
+              <small className="text-muted">تاريخ الإغلاق: <DateDisplay date={tx.completionDate} /></small>
             )}
+          </div>
+          <div className="transaction-metric-tile">
+            <span className="transaction-metric-label">تاريخ استحقاق المعاملة</span>
+            <span className="transaction-metric-value">
+              {tx.responseDueDate ? <DateDisplay date={tx.responseDueDate} /> : '—'}
+            </span>
+            <small className="text-muted metric-hint">آخر تاريخ متوقع لإنجاز الإفادة</small>
           </div>
           <div className="transaction-metric-tile">
             <span className="transaction-metric-label">الأيام المتبقية</span>
             <span className={`transaction-metric-value${tx.isResponseOverdue ? ' text-danger' : ''}`}>
               {formatDaysRemaining(tx.daysRemainingForResponse)}
             </span>
-          </div>
-          <div className="transaction-metric-tile">
-            <span className="transaction-metric-label">تاريخ الرد المطلوب</span>
-            <span className="transaction-metric-value">
-              {tx.responseDueDate ? <DateDisplay date={tx.responseDueDate} /> : '—'}
-            </span>
+            <small className="text-muted metric-hint">محسوب تلقائيًا</small>
           </div>
           <div className="transaction-metric-tile">
             <span className="transaction-metric-label">منذ آخر تعقيب</span>
@@ -684,6 +705,35 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
             <span className="transaction-metric-value">{attachments.length}</span>
           </div>
         </div>
+
+        {isAdmin && (
+          <div className="admin-dates-edit-bar">
+            <button
+              type="button"
+              className={`btn btn-sm btn-outline${activeAction === 'admin-edit-dates' ? ' active' : ''}`}
+              aria-pressed={activeAction === 'admin-edit-dates'}
+              onClick={() => toggleAction('admin-edit-dates')}
+            >
+              تصحيح التواريخ (إداري)
+            </button>
+          </div>
+        )}
+
+        {activeAction === 'admin-edit-dates' && (
+          <CardActionPanel
+            title={ACTION_TITLES['admin-edit-dates']}
+            onClose={closeAction}
+            testId="admin-edit-dates-form-panel"
+          >
+            <AdminEditDatesFormPanel
+              transactionId={+id}
+              transaction={tx}
+              onDirtyChange={setActionDirty}
+              onCancel={closeAction}
+              onSuccess={handleAdminEditDatesSuccess}
+            />
+          </CardActionPanel>
+        )}
 
         <details className="transaction-hero-details">
           <summary>تفاصيل إضافية</summary>
@@ -845,9 +895,10 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                     <th>الإدارة</th>
                     <th>رقم الخطاب</th>
                     <th>تاريخ الإحالة</th>
+                    <th>تاريخ استحقاق الإدارة</th>
                     <th>تاريخ الإفادة</th>
-                    <th>أيام الإنجاز</th>
-                    <th>الرد</th>
+                    <th>أيام إنجاز الإدارة</th>
+                    <th>الحالة</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -860,12 +911,20 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                       </td>
                       <td>{a.letterNumber || '—'}</td>
                       <td><DateDisplay date={a.assignedDate} /></td>
+                      <td>{a.dueDate ? <DateDisplay date={a.dueDate} /> : '—'}</td>
                       <td>{a.responseDate ? <DateDisplay date={a.responseDate} /> : '—'}</td>
-                      <td>{a.departmentCompletionDays != null ? a.departmentCompletionDays : '—'}</td>
+                      <td>
+                        {a.departmentCompletionDays != null
+                          ? <>{a.departmentCompletionDays} <small className="text-muted">يوم</small></>
+                          : <span className="text-muted">لم تسجل إفادة</span>}
+                      </td>
                       <td>
                         <span className={`badge ${assignmentReplyBadgeClass(a.replyStatus, a.isOverdue)}`}>
                           {replyStatusLabels[a.replyStatus] || a.replyStatus}
                         </span>
+                        {a.isOverdue && a.replyStatus !== 'Replied' && (
+                          <span className="badge badge-red ms-1">متأخرة</span>
+                        )}
                       </td>
                       <td className="assignment-actions-cell">
                         {a.requiresReply && a.replyStatus !== 'Replied' && a.status !== 'Cancelled' && canReply && (

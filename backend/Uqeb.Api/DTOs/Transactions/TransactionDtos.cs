@@ -330,6 +330,16 @@ public class ReplyAssignmentRequest
     public string ReplySummary { get; set; } = string.Empty;
 }
 
+public class AdminEditTransactionDatesRequest
+{
+    public DateTime? IncomingDate { get; set; }
+    public DateTime? ResponseDueDate { get; set; }
+    public DateTime? ClosedAt { get; set; }
+
+    [Required(ErrorMessage = "سبب التعديل مطلوب")]
+    public string Reason { get; set; } = string.Empty;
+}
+
 public class AttachmentDto
 {
     public int Id { get; set; }

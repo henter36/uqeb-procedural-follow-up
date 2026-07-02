@@ -61,6 +61,8 @@ export const transactionsApi = {
     api.post(`/transactions/${id}/assignments/${assignmentId}/reply`, data),
   adminEditAssignment: (id: number, assignmentId: number, data: Record<string, unknown>) =>
     api.patch<Assignment>(`/transactions/${id}/assignments/${assignmentId}`, data),
+  adminEditTransactionDates: (id: number, data: Record<string, unknown>) =>
+    api.patch<TransactionDetail>(`/transactions/${id}/dates`, data),
   uploadAttachment: (id: number, file: File, attachmentType?: string) => {
     const form = new FormData();
     form.append('file', file);

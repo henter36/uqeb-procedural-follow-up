@@ -1139,10 +1139,10 @@ describe('TransactionDetailPage operational workspace', () => {
     });
     expect(screen.getByRole('navigation', { name: 'إجراءات المعاملة' })).toBeInTheDocument();
     expect(getActionBarButton('إضافة احالة')).toBeInTheDocument();
-    expect(screen.getByText('منذ ورود المعاملة')).toBeInTheDocument();
-    const completionMetric = screen.getByText('أيام إنجاز المعاملة').closest('.transaction-metric-tile');
-    expect(completionMetric).not.toBeNull();
-    expect(within(completionMetric as HTMLElement).getByText('—')).toBeInTheDocument();
+    expect(screen.getByText('محسوب تلقائيًا من تاريخ الوارد إلى اليوم')).toBeInTheDocument();
+    const openDaysMetric = screen.getByText('الأيام المفتوحة').closest('.transaction-metric-tile');
+    expect(openDaysMetric).not.toBeNull();
+    expect(within(openDaysMetric as HTMLElement).getByText('1 يوم')).toBeInTheDocument();
   });
 
   it('shows transaction completion days when available', async () => {
@@ -1170,7 +1170,7 @@ describe('TransactionDetailPage operational workspace', () => {
     const completionMetric = screen.getByText('أيام إنجاز المعاملة').closest('.transaction-metric-tile');
     expect(completionMetric).not.toBeNull();
     expect(within(completionMetric as HTMLElement).getByText('3 أيام')).toBeInTheDocument();
-    expect(within(completionMetric as HTMLElement).getByText(/تاريخ الإنجاز:/)).toBeInTheDocument();
+    expect(within(completionMetric as HTMLElement).getByText(/تاريخ الإغلاق:/)).toBeInTheDocument();
   });
 
   it('opens inline assignment form from action bar in hero area', async () => {
