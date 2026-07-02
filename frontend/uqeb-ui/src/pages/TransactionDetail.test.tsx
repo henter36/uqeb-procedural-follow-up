@@ -48,7 +48,29 @@ vi.mock('../hooks/useReferenceData', () => ({
 }));
 
 vi.mock('../features/scanner/ScanAttachmentButton', () => ({
-  default: () => null,
+  default: ({
+    onSaveScannedFile,
+    onSaved,
+    beforeOpen,
+    disabled,
+  }: {
+    onSaveScannedFile?: (file: File) => Promise<void>;
+    onSaved: () => void;
+    beforeOpen?: () => Promise<boolean>;
+    disabled?: boolean;
+  }) => (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={async () => {
+        if (beforeOpen && !await beforeOpen()) return;
+        await onSaveScannedFile?.(new File(['scan'], 'scan.jpg', { type: 'image/jpeg' }));
+        onSaved();
+      }}
+    >
+      مسح ضوئي
+    </button>
+  ),
 }));
 
 const baseTx = {
@@ -154,6 +176,14 @@ vi.mock('../api/services', () => ({
     getFollowUpDepartments: vi.fn(),
     downloadAttachment: vi.fn(),
   },
+  departmentResponsesApi: {
+    getDepartmentTransactions: vi.fn(),
+    getById: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    submit: vi.fn(),
+    uploadAttachment: vi.fn(),
+  },
   departmentsApi: { getAll: vi.fn() },
   categoriesApi: { getAll: vi.fn() },
   externalPartiesApi: { getAll: vi.fn() },
@@ -207,6 +237,61 @@ function setupDefaultMocks() {
   } as never);
   vi.mocked(services.transactionsApi.getFollowUpDepartments).mockResolvedValue({
     data: [{ departmentId: 2, departmentName: 'إدارة ثانية', isDefaultSelected: true }],
+  } as never);
+  vi.mocked(services.departmentResponsesApi.getDepartmentTransactions).mockResolvedValue({ data: [] } as never);
+  vi.mocked(services.departmentResponsesApi.getById).mockResolvedValue({
+    data: {
+      id: 100,
+      transactionId: 1,
+      transactionSubject: 'موضوع',
+      internalTrackingNumber: 'TRK-1',
+      departmentId: 1,
+      departmentName: 'إدارة اختبار',
+      responseText: 'نص الإفادة',
+      status: 'Draft',
+      submittedByName: 'موظف إدارة',
+      createdAt: '2026-01-01',
+      attachments: [],
+    },
+  } as never);
+  vi.mocked(services.departmentResponsesApi.create).mockResolvedValue({
+    data: {
+      id: 100,
+      transactionId: 1,
+      transactionSubject: 'موضوع',
+      internalTrackingNumber: 'TRK-1',
+      departmentId: 1,
+      departmentName: 'إدارة اختبار',
+      responseText: 'نص الإفادة',
+      status: 'Draft',
+      submittedByName: 'موظف إدارة',
+      createdAt: '2026-01-01',
+      attachments: [],
+    },
+  } as never);
+  vi.mocked(services.departmentResponsesApi.update).mockResolvedValue({
+    data: {
+      id: 100,
+      transactionId: 1,
+      transactionSubject: 'موضوع',
+      internalTrackingNumber: 'TRK-1',
+      departmentId: 1,
+      departmentName: 'إدارة اختبار',
+      responseText: 'نص الإفادة',
+      status: 'Draft',
+      submittedByName: 'موظف إدارة',
+      createdAt: '2026-01-01',
+      attachments: [],
+    },
+  } as never);
+  vi.mocked(services.departmentResponsesApi.uploadAttachment).mockResolvedValue({
+    data: {
+      id: 101,
+      originalFileName: 'scan.jpg',
+      fileSizeBytes: 4,
+      uploadedByName: 'موظف إدارة',
+      uploadedAt: '2026-01-01',
+    },
   } as never);
 }
 
@@ -410,6 +495,19 @@ describe('TransactionDetailPage department user permissions', () => {
       isAdmin: false,
     });
     setupDefaultMocks();
+    vi.mocked(services.departmentResponsesApi.getDepartmentTransactions).mockResolvedValue({
+      data: [{
+        transactionId: 1,
+        internalTrackingNumber: 'TRK-1',
+        subject: 'موضوع',
+        priority: 'Normal',
+        departmentId: 1,
+        departmentName: 'إدارة اختبار',
+        canCreateResponse: true,
+        canEditResponse: false,
+        canSubmitResponse: false,
+      }],
+    } as never);
     vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
       data: {
         ...defaultWorkspace,
@@ -446,12 +544,296 @@ describe('TransactionDetailPage department user permissions', () => {
     expect(screen.queryAllByRole('button', { name: 'تسجيل رد' })).toHaveLength(0);
   });
 
-  it('shows the department response action when the transaction requires this department response', async () => {
+  it('opens a clear department response form and scrolls to it', async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(globalThis.Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    const view = renderDetail();
+    await waitForDetailsReady();
+
+    await waitFor(() => expect(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' })).toBeInTheDocument());
+    await user.click(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' }));
+
+    const panel = screen.getByRole('region', { name: 'تسجيل إفادة' });
+    expect(panel).toHaveClass('workspace-action-panel--prominent');
+    expect(within(panel).getByRole('heading', { name: 'إفادة الإدارة' })).toBeInTheDocument();
+    expect(within(panel).getByLabelText('نص الإفادة *')).toHaveAttribute('rows', '4');
+    expect(within(panel).getByLabelText('نص الإفادة *')).toHaveFocus();
+    expect(within(panel).getByRole('button', { name: 'رفع ملف' })).toBeEnabled();
+    expect(within(panel).getByRole('button', { name: 'مسح ضوئي' })).toBeEnabled();
+    expect(view.container.querySelector('[role="group"]')).not.toBeInTheDocument();
+    expect(scrollIntoView).toHaveBeenCalled();
+  });
+
+  it('auto-saves a draft before scanning and uploads scanned files as department response attachments', async () => {
+    const user = userEvent.setup();
     renderDetail();
     await waitForDetailsReady();
 
-    const responseLink = within(getActionBar()).getByRole('link', { name: 'تسجيل إفادة' });
-    expect(responseLink).toHaveAttribute('href', '/department-responses?transactionId=1');
+    await waitFor(() => expect(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' })).toBeInTheDocument());
+    await user.click(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' }));
+    await user.type(screen.getByLabelText('نص الإفادة *'), 'نص إفادة الإدارة');
+
+    const panel = screen.getByRole('region', { name: 'تسجيل إفادة' });
+    await user.click(within(panel).getByRole('button', { name: 'مسح ضوئي' }));
+
+    await waitFor(() => {
+      expect(services.departmentResponsesApi.create).toHaveBeenCalledWith({
+        transactionId: 1,
+        responseText: 'نص إفادة الإدارة',
+      });
+      expect(services.departmentResponsesApi.uploadAttachment).toHaveBeenCalledWith(
+        100,
+        expect.any(File),
+      );
+    });
+    expect(services.transactionsApi.uploadAttachment).not.toHaveBeenCalledWith(1, expect.any(File), 'Scan');
+    expect(screen.getByRole('status')).toHaveTextContent('تم رفع مرفق الإفادة من الماسح الضوئي');
+  });
+
+  it('auto-saves a draft before uploading a department response attachment', async () => {
+    const user = userEvent.setup();
+    renderDetail();
+    await waitForDetailsReady();
+
+    await waitFor(() => expect(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' })).toBeInTheDocument());
+    await user.click(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' }));
+    await user.type(screen.getByLabelText('نص الإفادة *'), 'نص إفادة الإدارة');
+    await user.upload(screen.getByLabelText('رفع مرفق إفادة'), new File(['pdf'], 'response.pdf', { type: 'application/pdf' }));
+
+    await waitFor(() => {
+      expect(services.departmentResponsesApi.create).toHaveBeenCalledWith({
+        transactionId: 1,
+        responseText: 'نص إفادة الإدارة',
+      });
+      expect(services.departmentResponsesApi.uploadAttachment).toHaveBeenCalledWith(100, expect.any(File));
+    });
+    expect(services.transactionsApi.uploadAttachment).not.toHaveBeenCalledWith(1, expect.any(File), 'Scan');
+    expect(screen.getByRole('status')).toHaveTextContent('تم رفع مرفق الإفادة');
+  });
+
+  it('shows continue action and correction note for returned department responses', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.departmentResponsesApi.getDepartmentTransactions).mockResolvedValue({
+      data: [{
+        transactionId: 1,
+        internalTrackingNumber: 'TRK-1',
+        subject: 'موضوع',
+        priority: 'Normal',
+        departmentId: 1,
+        departmentName: 'إدارة اختبار',
+        departmentResponseId: 100,
+        departmentResponseStatus: 'ReturnedForCorrection',
+        canCreateResponse: false,
+        canEditResponse: true,
+        canSubmitResponse: true,
+      }],
+    } as never);
+    vi.mocked(services.departmentResponsesApi.getById).mockResolvedValue({
+      data: {
+        id: 100,
+        transactionId: 1,
+        transactionSubject: 'موضوع',
+        internalTrackingNumber: 'TRK-1',
+        departmentId: 1,
+        departmentName: 'إدارة اختبار',
+        responseText: 'نص يحتاج تعديل',
+        status: 'ReturnedForCorrection',
+        submittedByName: 'موظف إدارة',
+        reviewNote: 'أضف التفاصيل',
+        createdAt: '2026-01-01',
+        attachments: [],
+      },
+    } as never);
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    await waitFor(() => expect(within(getActionBar()).getByRole('button', { name: 'استكمال إفادة' })).toBeInTheDocument());
+    await user.click(within(getActionBar()).getByRole('button', { name: 'استكمال إفادة' }));
+
+    expect(await screen.findByRole('heading', { name: 'إفادة الإدارة' })).toBeInTheDocument();
+    expect(screen.getByText(/أُعيدت الإفادة للتصحيح/)).toBeInTheDocument();
+    expect(screen.getByText(/أضف التفاصيل/)).toBeInTheDocument();
+  });
+
+  it('shows submitted-for-review status without a new submit button', async () => {
+    vi.mocked(services.departmentResponsesApi.getDepartmentTransactions).mockResolvedValue({
+      data: [{
+        transactionId: 1,
+        internalTrackingNumber: 'TRK-1',
+        subject: 'موضوع',
+        priority: 'Normal',
+        departmentId: 1,
+        departmentName: 'إدارة اختبار',
+        departmentResponseId: 100,
+        departmentResponseStatus: 'SubmittedForReview',
+        canCreateResponse: false,
+        canEditResponse: false,
+        canSubmitResponse: false,
+      }],
+    } as never);
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    await waitFor(() => expect(within(getActionBar()).getByText('بانتظار المراجعة')).toBeInTheDocument());
+    expect(within(getActionBar()).queryByRole('button', { name: 'تسجيل إفادة' })).not.toBeInTheDocument();
+    expect(within(getActionBar()).queryByRole('button', { name: 'استكمال إفادة' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'إرسال الإفادة' })).not.toBeInTheDocument();
+  });
+
+  it('shows department response attachments inside the response form when available', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.departmentResponsesApi.getDepartmentTransactions).mockResolvedValue({
+      data: [{
+        transactionId: 1,
+        internalTrackingNumber: 'TRK-1',
+        subject: 'موضوع',
+        priority: 'Normal',
+        departmentId: 1,
+        departmentName: 'إدارة اختبار',
+        departmentResponseId: 100,
+        departmentResponseStatus: 'Draft',
+        canCreateResponse: false,
+        canEditResponse: true,
+        canSubmitResponse: true,
+      }],
+    } as never);
+    vi.mocked(services.departmentResponsesApi.getById).mockResolvedValue({
+      data: {
+        id: 100,
+        transactionId: 1,
+        transactionSubject: 'موضوع',
+        internalTrackingNumber: 'TRK-1',
+        departmentId: 1,
+        departmentName: 'إدارة اختبار',
+        responseText: 'نص مسودة',
+        status: 'Draft',
+        submittedByName: 'موظف إدارة',
+        createdAt: '2026-01-01',
+        attachments: [{
+          id: 7,
+          originalFileName: 'response.pdf',
+          fileSizeBytes: 1200,
+          uploadedByName: 'موظف إدارة',
+          uploadedAt: '2026-01-01',
+        }],
+      },
+    } as never);
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    await waitFor(() => expect(within(getActionBar()).getByRole('button', { name: 'استكمال إفادة' })).toBeInTheDocument());
+    await user.click(within(getActionBar()).getByRole('button', { name: 'استكمال إفادة' }));
+
+    const attachmentsToolbar = screen.getByText('مرفقات: 1').closest('fieldset');
+    if (!attachmentsToolbar) throw new Error('Expected attachment toolbar fieldset');
+    expect(within(attachmentsToolbar).getByText('مرفقات: 1')).toBeInTheDocument();
+    expect(within(attachmentsToolbar).getByRole('button', { name: 'رفع ملف' })).toBeEnabled();
+    expect(within(attachmentsToolbar).getByRole('button', { name: 'مسح ضوئي' })).toBeEnabled();
+    expect(within(attachmentsToolbar).getByText('response.pdf')).toBeInTheDocument();
+  });
+
+  it('shows error message and retry button when getDepartmentTransactions fails', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.departmentResponsesApi.getDepartmentTransactions)
+      .mockRejectedValueOnce(new Error('network error'))
+      .mockResolvedValueOnce({
+        data: [{
+          transactionId: 1,
+          internalTrackingNumber: 'TRK-1',
+          subject: 'موضوع',
+          priority: 'Normal',
+          departmentId: 1,
+          departmentName: 'إدارة اختبار',
+          canCreateResponse: true,
+          canEditResponse: false,
+          canSubmitResponse: false,
+        }],
+      } as never);
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    await waitFor(() => expect(screen.getByText('تعذر تحميل حالة إفادة الإدارة. أعد المحاولة.')).toBeInTheDocument());
+    const retryBtn = screen.getByRole('button', { name: 'إعادة المحاولة' });
+    await user.click(retryBtn);
+
+    await waitFor(() => expect(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' })).toBeInTheDocument());
+    expect(screen.queryByText('تعذر تحميل حالة إفادة الإدارة. أعد المحاولة.')).not.toBeInTheDocument();
+  });
+
+  it('submit button is disabled when canSubmitResponse is false', async () => {
+    vi.mocked(services.departmentResponsesApi.getDepartmentTransactions).mockResolvedValue({
+      data: [{
+        transactionId: 1,
+        internalTrackingNumber: 'TRK-1',
+        subject: 'موضوع',
+        priority: 'Normal',
+        departmentId: 1,
+        departmentName: 'إدارة اختبار',
+        departmentResponseId: 100,
+        departmentResponseStatus: 'Draft',
+        canCreateResponse: false,
+        canEditResponse: true,
+        canSubmitResponse: false,
+      }],
+    } as never);
+
+    const user = userEvent.setup();
+    renderDetail();
+    await waitForDetailsReady();
+
+    await waitFor(() => expect(within(getActionBar()).getByRole('button', { name: 'استكمال إفادة' })).toBeInTheDocument());
+    await user.click(within(getActionBar()).getByRole('button', { name: 'استكمال إفادة' }));
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'إفادة الإدارة' })).toBeInTheDocument());
+    const submitBtn = screen.getByRole('button', { name: 'إرسال الإفادة' });
+    expect(submitBtn).toBeDisabled();
+  });
+
+  it('does not call create again on submit retry after saveDraft succeeds but submit fails', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.departmentResponsesApi.submit).mockRejectedValueOnce(new Error('server error'));
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    await waitFor(() => expect(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' })).toBeInTheDocument());
+    await user.click(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' }));
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'إفادة الإدارة' })).toBeInTheDocument());
+    await user.type(screen.getByLabelText('نص الإفادة *'), 'نص الإفادة');
+    await user.click(screen.getByRole('button', { name: 'إرسال الإفادة' }));
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'إرسال الإفادة' })).toBeEnabled());
+    expect(services.departmentResponsesApi.create).toHaveBeenCalledTimes(1);
+
+    vi.mocked(services.departmentResponsesApi.submit).mockResolvedValueOnce({
+      data: {
+        id: 100,
+        transactionId: 1,
+        transactionSubject: 'موضوع',
+        internalTrackingNumber: 'TRK-1',
+        departmentId: 1,
+        departmentName: 'إدارة اختبار',
+        responseText: 'نص الإفادة',
+        status: 'SubmittedForReview',
+        submittedByName: 'موظف إدارة',
+        createdAt: '2026-01-01',
+        attachments: [],
+      },
+    } as never);
+    await user.click(screen.getByRole('button', { name: 'إرسال الإفادة' }));
+
+    await waitFor(() => expect(services.departmentResponsesApi.submit).toHaveBeenCalledTimes(2));
+    expect(services.departmentResponsesApi.create).toHaveBeenCalledTimes(1);
   });
 
   it('keeps mutation actions available for data entry users', async () => {
@@ -899,5 +1281,100 @@ describe('TransactionDetailPage permissions', () => {
       expect(within(getFollowUpsCard()).getByRole('button', { name: '+ إضافة تعقيب' })).toBeInTheDocument();
       expect(within(getAttachmentsCard()).getByRole('button', { name: '+ إضافة مرفق' })).toBeInTheDocument();
     });
+  });
+});
+
+describe('TransactionDetailPage Admin/Supervisor response form', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseAuth.mockReturnValue({
+      canEdit: true,
+      canClose: true,
+      isDepartmentUser: false,
+      user: { fullName: 'مختبر', role: 'Admin' },
+      logout: vi.fn(),
+      login: vi.fn(),
+      isAdmin: true,
+    });
+    setupDefaultMocks();
+    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: {
+        ...defaultWorkspace,
+        transaction: {
+          ...baseTx,
+          requiresResponse: true,
+          responseType: 'Internal',
+          responseCompleted: false,
+          pendingDepartmentNames: [],
+        },
+      },
+    } as never);
+    vi.mocked(services.transactionsApi.completeResponse).mockResolvedValue({ data: {} } as never);
+    vi.mocked(services.transactionsApi.uploadAttachment).mockResolvedValue({ data: {} } as never);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    cleanup();
+  });
+
+  it('shows CompleteResponseFormPanel as compact editor when Admin clicks تسجيل إفادة', async () => {
+    const user = userEvent.setup();
+    renderDetail();
+    await waitForDetailsReady();
+
+    await waitFor(() => expect(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' })).toBeInTheDocument());
+    await user.click(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' }));
+
+    const panel = screen.getByRole('region', { name: 'تسجيل إفادة' });
+    expect(within(panel).getByLabelText('ملخص الإفادة *')).toHaveAttribute('rows', '4');
+    expect(within(panel).getByRole('button', { name: 'إرسال الإفادة' })).toBeInTheDocument();
+    expect(within(panel).getByRole('button', { name: 'إلغاء' })).toBeInTheDocument();
+    expect(within(panel).getByRole('button', { name: 'رفع ملف' })).toBeInTheDocument();
+    expect(within(panel).getByRole('button', { name: 'مسح ضوئي' })).toBeInTheDocument();
+  });
+
+  it('uses fieldset for attachment toolbar — no role=group', async () => {
+    const user = userEvent.setup();
+    const { container } = renderDetail();
+    await waitForDetailsReady();
+
+    await waitFor(() => expect(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' })).toBeInTheDocument());
+    await user.click(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' }));
+
+    await waitFor(() => expect(screen.getByRole('region', { name: 'تسجيل إفادة' })).toBeInTheDocument());
+    expect(container.querySelector('fieldset.complete-response-attachment-toolbar')).toBeInTheDocument();
+    expect(container.querySelector('[role="group"]')).not.toBeInTheDocument();
+  });
+
+  it('submits response successfully for Admin', async () => {
+    const user = userEvent.setup();
+    renderDetail();
+    await waitForDetailsReady();
+
+    await waitFor(() => expect(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' })).toBeInTheDocument());
+    await user.click(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' }));
+
+    const panel = screen.getByRole('region', { name: 'تسجيل إفادة' });
+    await user.type(within(panel).getByLabelText('ملخص الإفادة *'), 'ملخص الإفادة');
+    await user.click(within(panel).getByRole('button', { name: 'إرسال الإفادة' }));
+
+    await waitFor(() => {
+      expect(services.transactionsApi.completeResponse).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('status')).toHaveTextContent('تم تسجيل الإفادة بنجاح');
+    });
+    expect(screen.queryByRole('region', { name: 'تسجيل إفادة' })).not.toBeInTheDocument();
+  });
+
+  it('does not show DepartmentResponseInlinePanel for non-department users', async () => {
+    const user = userEvent.setup();
+    renderDetail();
+    await waitForDetailsReady();
+
+    await waitFor(() => expect(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' })).toBeInTheDocument());
+    await user.click(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' }));
+
+    await waitFor(() => expect(screen.getByRole('region', { name: 'تسجيل إفادة' })).toBeInTheDocument());
+    expect(screen.queryByRole('heading', { name: 'إفادة الإدارة' })).not.toBeInTheDocument();
   });
 });

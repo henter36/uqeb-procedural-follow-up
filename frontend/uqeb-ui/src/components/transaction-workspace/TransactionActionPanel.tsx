@@ -1,10 +1,12 @@
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 
 type TransactionActionPanelProps = Readonly<{
   title: string;
   open: boolean;
   onClose: () => void;
   children: ReactNode;
+  panelRef?: Ref<HTMLElement>;
+  prominent?: boolean;
 }>;
 
 export default function TransactionActionPanel({
@@ -12,11 +14,17 @@ export default function TransactionActionPanel({
   open,
   onClose,
   children,
+  panelRef,
+  prominent = false,
 }: TransactionActionPanelProps) {
   if (!open) return null;
 
   return (
-    <section className="workspace-action-panel" aria-label={title}>
+    <section
+      ref={panelRef}
+      className={`workspace-action-panel${prominent ? ' workspace-action-panel--prominent' : ''}`}
+      aria-label={title}
+    >
       <div className="workspace-action-panel-header">
         <h3>{title}</h3>
         <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} aria-label="إغلاق النموذج">

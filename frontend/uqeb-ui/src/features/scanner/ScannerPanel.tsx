@@ -4,18 +4,24 @@ import { getScannerErrorMessage, ScannerBridgeError } from './scannerErrors';
 import { deleteScan, isScannerMockMode } from './scannerBridgeClient';
 import { useScannerBridge } from './useScannerBridge';
 
-interface ScannerPanelProps {
+type ScannerPanelProps = Readonly<{
   transactionId: number;
   onClose: () => void;
   onSaved: () => void;
-}
+  onSaveScannedFile?: (file: File) => Promise<void>;
+}>;
 
 function cleanupScan(scanId: string): void {
   if (isScannerMockMode()) return;
   deleteScan(scanId).catch(() => {});
 }
 
-export default function ScannerPanel({ transactionId, onClose, onSaved }: ScannerPanelProps) {
+export default function ScannerPanel({
+  transactionId,
+  onClose,
+  onSaved,
+  onSaveScannedFile,
+}: ScannerPanelProps) {
   const {
     phase,
     scanners,
@@ -54,7 +60,7 @@ export default function ScannerPanel({ transactionId, onClose, onSaved }: Scanne
 
     try {
       const file = await getFileForUpload();
-      await transactionsApi.uploadAttachment(transactionId, file, 'Scan');
+      await (onSaveScannedFile?.(file) ?? transactionsApi.uploadAttachment(transactionId, file, 'Scan'));
       if (scanResult) {
         cleanupScan(scanResult.scanId);
       }
@@ -62,9 +68,14 @@ export default function ScannerPanel({ transactionId, onClose, onSaved }: Scanne
       onClose();
     } catch (err) {
       setIsSaving(false);
-      const message = err instanceof ScannerBridgeError
-        ? err.message
-        : getScannerErrorMessage('UPLOAD_FAILED');
+      let message: string;
+      if (err instanceof ScannerBridgeError) {
+        message = err.message;
+      } else if (err instanceof Error && err.message) {
+        message = err.message;
+      } else {
+        message = getScannerErrorMessage('UPLOAD_FAILED');
+      }
       setSaveError(message);
     }
   };
