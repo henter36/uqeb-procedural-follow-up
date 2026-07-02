@@ -182,6 +182,140 @@ public class TransactionWorkspaceReadModelTests
     }
 
     [Fact]
+    public async Task SearchAsync_DefaultStatusScope_ReturnsActiveOnly()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(SearchAsync_DefaultStatusScope_ReturnsActiveOnly));
+        var active = await SeedTransactionAsync(db, 110);
+        var closed = await SeedTransactionAsync(db, 111);
+        var cancelled = await SeedTransactionAsync(db, 112);
+        var archived = await SeedTransactionAsync(db, 113);
+        closed.Status = TransactionStatus.Closed;
+        cancelled.Status = TransactionStatus.Cancelled;
+        archived.Status = TransactionStatus.Archived;
+        await db.SaveChangesAsync();
+
+        var result = await service.SearchAsync(
+            new TransactionSearchRequest { Page = 1, PageSize = 20 },
+            new TestCurrentUser(UserRole.Admin));
+
+        Assert.Contains(result.Items, tx => tx.Id == active.Id);
+        Assert.DoesNotContain(result.Items, tx => tx.Id == closed.Id);
+        Assert.DoesNotContain(result.Items, tx => tx.Id == cancelled.Id);
+        Assert.DoesNotContain(result.Items, tx => tx.Id == archived.Id);
+    }
+
+    [Fact]
+    public async Task SearchAsync_ActiveStatusScope_ExcludesClosedCancelledAndArchived()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(SearchAsync_ActiveStatusScope_ExcludesClosedCancelledAndArchived));
+        var active = await SeedTransactionAsync(db, 114);
+        var closed = await SeedTransactionAsync(db, 115);
+        var cancelled = await SeedTransactionAsync(db, 116);
+        var archived = await SeedTransactionAsync(db, 117);
+        closed.Status = TransactionStatus.Closed;
+        cancelled.Status = TransactionStatus.Cancelled;
+        archived.Status = TransactionStatus.Archived;
+        await db.SaveChangesAsync();
+
+        var result = await service.SearchAsync(
+            new TransactionSearchRequest { StatusScope = "active", Page = 1, PageSize = 20 },
+            new TestCurrentUser(UserRole.Admin));
+
+        Assert.Contains(result.Items, tx => tx.Id == active.Id);
+        Assert.DoesNotContain(result.Items, tx => tx.Id == closed.Id);
+        Assert.DoesNotContain(result.Items, tx => tx.Id == cancelled.Id);
+        Assert.DoesNotContain(result.Items, tx => tx.Id == archived.Id);
+    }
+
+    [Fact]
+    public async Task SearchAsync_ClosedStatusScope_ReturnsClosedOnly()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(SearchAsync_ClosedStatusScope_ReturnsClosedOnly));
+        var active = await SeedTransactionAsync(db, 116);
+        var closed = await SeedTransactionAsync(db, 117);
+        closed.Status = TransactionStatus.Closed;
+        await db.SaveChangesAsync();
+
+        var result = await service.SearchAsync(
+            new TransactionSearchRequest { StatusScope = "closed", Page = 1, PageSize = 20 },
+            new TestCurrentUser(UserRole.Admin));
+
+        Assert.DoesNotContain(result.Items, tx => tx.Id == active.Id);
+        Assert.Contains(result.Items, tx => tx.Id == closed.Id);
+        Assert.All(result.Items, tx => Assert.Equal(nameof(TransactionStatus.Closed), tx.Status));
+    }
+
+    [Fact]
+    public async Task SearchAsync_AllStatusScope_ReturnsActiveAndClosed()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(SearchAsync_AllStatusScope_ReturnsActiveAndClosed));
+        var active = await SeedTransactionAsync(db, 118);
+        var closed = await SeedTransactionAsync(db, 119);
+        closed.Status = TransactionStatus.Closed;
+        await db.SaveChangesAsync();
+
+        var result = await service.SearchAsync(
+            new TransactionSearchRequest { StatusScope = "all", Page = 1, PageSize = 20 },
+            new TestCurrentUser(UserRole.Admin));
+
+        Assert.Contains(result.Items, tx => tx.Id == active.Id);
+        Assert.Contains(result.Items, tx => tx.Id == closed.Id);
+    }
+
+    [Fact]
+    public async Task SearchAsync_DepartmentUser_AllStatusScope_ReturnsOnlyOwnDepartmentTransactions()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(SearchAsync_DepartmentUser_AllStatusScope_ReturnsOnlyOwnDepartmentTransactions));
+        var ownClosed = await SeedTransactionAsync(db, 120);
+        var otherClosed = await SeedTransactionAsync(db, 121);
+        ownClosed.Status = TransactionStatus.Closed;
+        otherClosed.Status = TransactionStatus.Closed;
+        db.Assignments.AddRange(
+            new Assignment
+            {
+                TransactionId = ownClosed.Id,
+                DepartmentId = 10,
+                AssignedDate = DateTime.UtcNow,
+                RequiresReply = true,
+                ReplyStatus = ReplyStatus.Pending,
+                Status = AssignmentStatus.Active,
+                CreatedById = 1
+            },
+            new Assignment
+            {
+                TransactionId = otherClosed.Id,
+                DepartmentId = 20,
+                AssignedDate = DateTime.UtcNow,
+                RequiresReply = true,
+                ReplyStatus = ReplyStatus.Pending,
+                Status = AssignmentStatus.Active,
+                CreatedById = 1
+            });
+        await db.SaveChangesAsync();
+
+        var result = await service.SearchAsync(
+            new TransactionSearchRequest { StatusScope = "all", Page = 1, PageSize = 20 },
+            new TestCurrentUser(UserRole.DepartmentUser, userId: 2, departmentId: 10));
+
+        Assert.Contains(result.Items, tx => tx.Id == ownClosed.Id);
+        Assert.DoesNotContain(result.Items, tx => tx.Id == otherClosed.Id);
+    }
+
+    [Fact]
+    public async Task SearchAsync_InvalidStatusScope_ThrowsInvalidOperation()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(SearchAsync_InvalidStatusScope_ThrowsInvalidOperation));
+        await SeedTransactionAsync(db, 122);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.SearchAsync(
+                new TransactionSearchRequest { StatusScope = "invalid", Page = 1, PageSize = 20 },
+                new TestCurrentUser(UserRole.Admin)));
+
+        Assert.Equal("نطاق حالة المعاملات غير صالح.", exception.Message);
+    }
+
+    [Fact]
     public async Task SearchAsync_DepartmentUserWithoutDepartment_ThrowsUnauthorized()
     {
         var (service, _) = await CreateServiceAsync(nameof(SearchAsync_DepartmentUserWithoutDepartment_ThrowsUnauthorized));

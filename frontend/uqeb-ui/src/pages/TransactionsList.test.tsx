@@ -53,11 +53,87 @@ describe('TransactionsList', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('لا توجد معاملات')).toBeInTheDocument();
+      expect(screen.getByText('لا توجد معاملات نشطة.')).toBeInTheDocument();
     });
 
     expect(screen.getAllByRole('heading', { name: 'المعاملات' })).toHaveLength(1);
     expect(screen.queryByText('بحث وفلترة وإدارة جميع المعاملات')).not.toBeInTheDocument();
+  });
+
+  it('defaults to the active transactions tab and sends active statusScope', async () => {
+    vi.mocked(services.transactionsApi.search).mockResolvedValue({ data: { items: [], totalCount: 0 } } as never);
+
+    render(
+      <MemoryRouter>
+        <TransactionsList />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(services.transactionsApi.search).toHaveBeenCalledWith(expect.objectContaining({
+        statusScope: 'active',
+      }));
+    });
+
+    expect(screen.getByRole('tab', { name: 'النشطة' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('لا توجد معاملات نشطة.')).toBeInTheDocument();
+  });
+
+  it('sends closed statusScope and clears status filter when the closed tab is selected', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.search).mockResolvedValue({ data: { items: [], totalCount: 0 } } as never);
+
+    render(
+      <MemoryRouter>
+        <TransactionsList />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('لا توجد معاملات نشطة.')).toBeInTheDocument();
+    });
+
+    const statusSelect = screen.getByLabelText('الحالة') as HTMLSelectElement;
+    await user.selectOptions(statusSelect, 'New');
+    expect(statusSelect.value).toBe('New');
+
+    await user.click(screen.getByRole('tab', { name: 'المغلقة' }));
+
+    await waitFor(() => {
+      expect(services.transactionsApi.search).toHaveBeenLastCalledWith(expect.objectContaining({
+        statusScope: 'closed',
+      }));
+    });
+    expect(statusSelect.value).toBe('');
+    expect(safeStorage.setStorageItem).toHaveBeenLastCalledWith(
+      'uqeb-transaction-filters',
+      expect.stringContaining('"status":""'),
+    );
+    expect(screen.getByText('لا توجد معاملات مغلقة.')).toBeInTheDocument();
+  });
+
+  it('sends all statusScope when the all tab is selected', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.search).mockResolvedValue({ data: { items: [], totalCount: 0 } } as never);
+
+    render(
+      <MemoryRouter>
+        <TransactionsList />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('لا توجد معاملات نشطة.')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('tab', { name: 'الكل' }));
+
+    await waitFor(() => {
+      expect(services.transactionsApi.search).toHaveBeenLastCalledWith(expect.objectContaining({
+        statusScope: 'all',
+      }));
+    });
+    expect(screen.getByText('لا توجد معاملات مطابقة.')).toBeInTheDocument();
   });
 
   it('shows ErrorState when search fails', async () => {
@@ -95,7 +171,7 @@ describe('TransactionsList', () => {
     await user.click(screen.getByRole('button', { name: 'إعادة المحاولة' }));
 
     await waitFor(() => {
-      expect(screen.getByText('لا توجد معاملات')).toBeInTheDocument();
+      expect(screen.getByText('لا توجد معاملات نشطة.')).toBeInTheDocument();
     });
   });
 
@@ -112,7 +188,7 @@ describe('TransactionsList', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('لا توجد معاملات')).toBeInTheDocument();
+      expect(screen.getByText('لا توجد معاملات نشطة.')).toBeInTheDocument();
     });
 
     await user.click(screen.getByRole('button', { name: 'بحث' }));
@@ -120,5 +196,30 @@ describe('TransactionsList', () => {
 
     await user.click(screen.getByRole('button', { name: 'إعادة ضبط' }));
     expect(safeStorage.removeStorageItem).toHaveBeenCalled();
+  });
+
+  it('preserves current search filters when searching from the active tab', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.search).mockResolvedValue({ data: { items: [], totalCount: 0 } } as never);
+
+    render(
+      <MemoryRouter>
+        <TransactionsList />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('لا توجد معاملات نشطة.')).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByLabelText('الموضوع'), 'اختبار');
+    await user.click(screen.getByRole('button', { name: 'بحث' }));
+
+    await waitFor(() => {
+      expect(services.transactionsApi.search).toHaveBeenLastCalledWith(expect.objectContaining({
+        statusScope: 'active',
+        subject: 'اختبار',
+      }));
+    });
   });
 });
