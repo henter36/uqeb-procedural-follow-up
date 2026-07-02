@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { departmentResponsesApi } from '../../api/services';
 import type { DepartmentResponseDto, DepartmentTransactionResponseItemDto } from '../../api/types';
 import { getApiErrorMessage } from '../../utils/apiHelpers';
@@ -43,15 +43,30 @@ export default function DepartmentResponseInlinePanel({
   const editable = isEditableStatus(status) && (item?.canCreateResponse || item?.canEditResponse || !item?.departmentResponseId);
   const canSubmit = editable && (!item?.departmentResponseId || Boolean(item?.canSubmitResponse));
 
-  function updateDetail(next: DepartmentResponseDto | null) {
+  const updateDetail = useCallback((next: DepartmentResponseDto | null) => {
     detailRef.current = next;
     setDetail(next);
-  }
+  }, []);
 
   useEffect(() => {
     const responseId = initialItem?.departmentResponseId;
-    if (!responseId) return;
+    if (!responseId) {
+      let active = true;
+      void Promise.resolve().then(() => {
+        if (!active) return;
+        detailRef.current = null;
+        setDetail(null);
+        setResponseText('');
+        setError('');
+        setLoading(false);
+      });
+      return () => { active = false; };
+    }
 
+    if (detailRef.current?.id === responseId) return;
+
+    setLoading(true);
+    setError('');
     let active = true;
     const versionAtStart = responseTextVersionRef.current;
     departmentResponsesApi.getById(responseId)
@@ -70,7 +85,7 @@ export default function DepartmentResponseInlinePanel({
       });
 
     return () => { active = false; };
-  }, [initialItem?.departmentResponseId]);
+  }, [initialItem?.departmentResponseId, updateDetail]);
 
   useEffect(() => {
     if (!loading) responseTextRef.current?.focus();
@@ -137,7 +152,7 @@ export default function DepartmentResponseInlinePanel({
       onMessage('تم حفظ مسودة الإفادة.');
       await onChanged(saved);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : getApiErrorMessage(err));
+      setError(getApiErrorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -164,7 +179,7 @@ export default function DepartmentResponseInlinePanel({
       onMessage('تم إرسال الإفادة. الحالة: بانتظار المراجعة.');
       await onChanged(submitted.data);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : getApiErrorMessage(err));
+      setError(getApiErrorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -177,17 +192,12 @@ export default function DepartmentResponseInlinePanel({
     try {
       const draft = await ensureDraft();
       const res = await departmentResponsesApi.uploadAttachment(draft.id, file);
-      setDetail((current) => (current ? {
-        ...current,
-        attachments: [...current.attachments, res.data],
-      } : current));
-      detailRef.current = detailRef.current ? {
-        ...detailRef.current,
-        attachments: [...detailRef.current.attachments, res.data],
-      } : detailRef.current;
+      if (detailRef.current) {
+        updateDetail({ ...detailRef.current, attachments: [...detailRef.current.attachments, res.data] });
+      }
       onMessage('تم رفع مرفق الإفادة.');
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : getApiErrorMessage(err));
+      setError(getApiErrorMessage(err));
     } finally {
       setUploadingAttachment(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -199,7 +209,7 @@ export default function DepartmentResponseInlinePanel({
       await ensureDraft();
       return true;
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : getApiErrorMessage(err));
+      setError(getApiErrorMessage(err));
       return false;
     }
   }
@@ -207,14 +217,9 @@ export default function DepartmentResponseInlinePanel({
   async function handleScannedFile(file: File) {
     const draft = await ensureDraft();
     const res = await departmentResponsesApi.uploadAttachment(draft.id, file);
-    setDetail((current) => (current ? {
-      ...current,
-      attachments: [...current.attachments, res.data],
-    } : current));
-    detailRef.current = detailRef.current ? {
-      ...detailRef.current,
-      attachments: [...detailRef.current.attachments, res.data],
-    } : detailRef.current;
+    if (detailRef.current) {
+      updateDetail({ ...detailRef.current, attachments: [...detailRef.current.attachments, res.data] });
+    }
     onMessage('تم رفع مرفق الإفادة من الماسح الضوئي.');
   }
 
