@@ -562,7 +562,7 @@ describe('TransactionDetailPage department user permissions', () => {
 
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('تم حفظ مسودة الإفادة'));
 
-    const panel = screen.getByRole('region', { name: 'تسجيل إفادة' });
+    const panel = screen.getByRole('region', { name: 'استكمال إفادة' });
     await user.click(within(panel).getByRole('button', { name: 'مسح ضوئي' }));
 
     await waitFor(() => {

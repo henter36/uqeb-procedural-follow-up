@@ -457,9 +457,25 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     await handleActionSuccess(successMessage, [() => loadWorkspace({ silent: true })]);
   };
 
-  const handleDepartmentResponseChanged = async () => {
+  const handleDepartmentResponseChanged = async (response: import('../api/types').DepartmentResponseDto) => {
+    setDepartmentResponseItem((current) => {
+      const editable = response.status === 'Draft' || response.status === 'ReturnedForCorrection';
+      return {
+        transactionId: response.transactionId,
+        internalTrackingNumber: response.internalTrackingNumber,
+        subject: response.transactionSubject,
+        priority: current?.priority ?? tx?.priority ?? 'Normal',
+        departmentId: response.departmentId,
+        departmentName: response.departmentName,
+        departmentResponseId: response.id,
+        departmentResponseStatus: response.status,
+        canCreateResponse: false,
+        canEditResponse: editable,
+        canSubmitResponse: editable,
+      };
+    });
+
     await Promise.all([
-      loadDepartmentResponseItem(),
       loadWorkspace({ silent: true }),
       refreshAuditIfLoaded(),
     ]);

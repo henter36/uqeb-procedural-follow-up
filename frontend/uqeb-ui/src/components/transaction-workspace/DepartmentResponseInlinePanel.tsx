@@ -12,7 +12,7 @@ type DepartmentResponseInlinePanelProps = Readonly<{
   onDirtyChange: (dirty: boolean) => void;
   onMessage: (message: string) => void;
   onCancel: () => void;
-  onChanged: () => void | Promise<void>;
+  onChanged: (detail: DepartmentResponseDto) => void | Promise<void>;
 }>;
 
 function isEditableStatus(status?: string): boolean {
@@ -110,7 +110,7 @@ export default function DepartmentResponseInlinePanel({
       }));
       onDirtyChange(false);
       onMessage('تم حفظ مسودة الإفادة.');
-      await onChanged();
+      await onChanged(saved);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : getApiErrorMessage(err));
     } finally {
@@ -136,7 +136,7 @@ export default function DepartmentResponseInlinePanel({
       } : current);
       onDirtyChange(false);
       onMessage('تم إرسال الإفادة. الحالة: بانتظار المراجعة.');
-      await onChanged();
+      await onChanged(submitted.data);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : getApiErrorMessage(err));
     } finally {
