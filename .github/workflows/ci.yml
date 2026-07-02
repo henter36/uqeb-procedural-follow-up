@@ -54,13 +54,14 @@ jobs:
       - run: dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName~InstitutionalReportVisualRegressionTests|FullyQualifiedName~InstitutionalReportPlaywrightPdfExporterTests|FullyQualifiedName~InstitutionalReportPreviewPdfParityTests"
         env:
           REQUIRE_PLAYWRIGHT_TESTS: "1"
+          UQEB_VISUAL_ARTIFACT_DIR: artifacts/test-results/reporting-visual
       - name: Upload visual artifacts on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: visual-regression-failure-artifacts
           path: |
-            backend/Uqeb.Api.Tests/Reporting/Visual/Baselines/*.actual.png
+            artifacts/test-results/reporting-visual
             backend/Uqeb.Api.Tests/TestResults
           if-no-files-found: ignore
 
