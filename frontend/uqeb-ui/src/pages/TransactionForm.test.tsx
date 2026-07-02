@@ -444,6 +444,14 @@ describe('TransactionForm searchable selects', () => {
     expect(subjectGroup).toHaveClass('transaction-form-field--wide');
   });
 
+  it('associates transaction number label with its input', async () => {
+    renderCreateForm();
+    await waitForFormReady();
+
+    const transactionNumber = screen.getByLabelText('رقم المعاملة *');
+    expect(transactionNumber).toHaveAttribute('id', 'incoming-number');
+  });
+
   it('renders subject field across full grid width', async () => {
     renderCreateForm();
     await waitForFormReady();

@@ -109,16 +109,18 @@ public class TransactionPersistenceAtomicityTests
         return (service, db, counter, cache);
     }
 
+    private static DateTime SaudiToday() => DateTime.UtcNow.AddHours(3).Date;
+
     private static CreateTransactionRequest BuildCreateRequest(params int[] outgoingDepartmentIds) =>
         new()
         {
             IncomingNumber = "IN-1001",
-            IncomingDate = DateTime.UtcNow.Date,
+            IncomingDate = SaudiToday(),
             Subject = "معاملة اختبار",
             IncomingSourceType = IncomingSourceType.External.ToString(),
             IncomingFromPartyId = 1,
             OutgoingNumber = "OUT-1001",
-            OutgoingDate = DateTime.UtcNow.Date,
+            OutgoingDate = SaudiToday(),
             OutgoingDepartmentIds = outgoingDepartmentIds.ToList(),
             ResponseType = ResponseType.External.ToString(),
             ResponseDueDays = 7,
@@ -198,7 +200,8 @@ public class TransactionPersistenceAtomicityTests
     {
         var (service, _, _, _) = await CreateServiceAsync(nameof(CreateAsync_future_incoming_date_returns_field_validation));
         var request = BuildCreateRequest(10);
-        request.IncomingDate = DateTime.Today.AddDays(1);
+        var today = SaudiToday();
+        request.IncomingDate = today.AddDays(1);
 
         var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.CreateAsync(request, userId: 1));
 
@@ -210,7 +213,8 @@ public class TransactionPersistenceAtomicityTests
     {
         var (service, _, _, _) = await CreateServiceAsync(nameof(CreateAsync_future_outgoing_date_returns_field_validation));
         var request = BuildCreateRequest(10);
-        request.OutgoingDate = DateTime.Today.AddDays(1);
+        var today = SaudiToday();
+        request.OutgoingDate = today.AddDays(1);
 
         var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.CreateAsync(request, userId: 1));
 
@@ -222,8 +226,9 @@ public class TransactionPersistenceAtomicityTests
     {
         var (service, _, _, _) = await CreateServiceAsync(nameof(CreateAsync_outgoing_date_before_incoming_date_returns_field_validation));
         var request = BuildCreateRequest(10);
-        request.IncomingDate = DateTime.Today;
-        request.OutgoingDate = DateTime.Today.AddDays(-1);
+        var today = SaudiToday();
+        request.IncomingDate = today;
+        request.OutgoingDate = today.AddDays(-1);
 
         var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.CreateAsync(request, userId: 1));
 
@@ -251,11 +256,85 @@ public class TransactionPersistenceAtomicityTests
         var ex = await Assert.ThrowsAsync<FieldValidationException>(() =>
             service.UpdateAsync(
                 created.Id,
-                new UpdateTransactionRequest { OutgoingDate = DateTime.Today.AddDays(-1) },
+                new UpdateTransactionRequest { OutgoingDate = SaudiToday().AddDays(-1) },
                 userId: 1,
                 role: UserRole.Admin));
 
         Assert.Equal("تاريخ الصادر لا يمكن أن يكون قبل تاريخ المعاملة.", ex.FieldErrors[nameof(CreateTransactionRequest.OutgoingDate)]);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_outgoing_number_without_outgoing_date_returns_specific_field_validation()
+    {
+        var (service, _, _, _) = await CreateServiceAsync(nameof(UpdateAsync_outgoing_number_without_outgoing_date_returns_specific_field_validation));
+        var request = BuildCreateRequest();
+        request.OutgoingNumber = null;
+        request.OutgoingDate = null;
+        request.OutgoingDepartmentIds = [];
+        var created = await service.CreateAsync(request, userId: 1);
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() =>
+            service.UpdateAsync(
+                created.Id,
+                new UpdateTransactionRequest { OutgoingNumber = "OUT-2001" },
+                userId: 1,
+                role: UserRole.Admin));
+
+        Assert.Equal("تاريخ الصادر مطلوب عند إدخال رقم الصادر.", ex.FieldErrors[nameof(CreateTransactionRequest.OutgoingDate)]);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_partial_outgoing_data_without_departments_returns_field_validation()
+    {
+        var (service, _, _, _) = await CreateServiceAsync(nameof(UpdateAsync_partial_outgoing_data_without_departments_returns_field_validation));
+        var request = BuildCreateRequest();
+        request.OutgoingNumber = null;
+        request.OutgoingDate = null;
+        request.OutgoingDepartmentIds = [];
+        var created = await service.CreateAsync(request, userId: 1);
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() =>
+            service.UpdateAsync(
+                created.Id,
+                new UpdateTransactionRequest
+                {
+                    OutgoingNumber = "OUT-2001",
+                    OutgoingDate = SaudiToday(),
+                    OutgoingDepartmentIds = [],
+                },
+                userId: 1,
+                role: UserRole.Admin));
+
+        Assert.Equal(
+            "عند إدخال أي بيان من بيانات الصادر يجب إكمال رقم الصادر وتاريخ الصادر والإدارة الصادر لها.",
+            ex.FieldErrors[nameof(CreateTransactionRequest.OutgoingDepartmentIds)]);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_complete_outgoing_data_succeeds()
+    {
+        var (service, db, _, _) = await CreateServiceAsync(nameof(UpdateAsync_complete_outgoing_data_succeeds));
+        var request = BuildCreateRequest();
+        request.OutgoingNumber = null;
+        request.OutgoingDate = null;
+        request.OutgoingDepartmentIds = [];
+        var created = await service.CreateAsync(request, userId: 1);
+
+        await service.UpdateAsync(
+            created.Id,
+            new UpdateTransactionRequest
+            {
+                OutgoingNumber = "OUT-2001",
+                OutgoingDate = SaudiToday(),
+                OutgoingDepartmentIds = [10],
+            },
+            userId: 1,
+            role: UserRole.Admin);
+
+        var transaction = await db.Transactions.Include(t => t.OutgoingDepartments).SingleAsync(t => t.Id == created.Id);
+        Assert.Equal("OUT-2001", transaction.OutgoingNumber);
+        Assert.Equal(SaudiToday(), transaction.OutgoingDate);
+        Assert.Equal(10, Assert.Single(transaction.OutgoingDepartments).DepartmentId);
     }
 
     [Fact]

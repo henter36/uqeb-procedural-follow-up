@@ -660,7 +660,8 @@ public class TransactionService : ITransactionService
             request,
             t.IncomingDate,
             t.OutgoingDate,
-            t.OutgoingNumber);
+            t.OutgoingNumber,
+            t.OutgoingDepartments.Select(o => o.DepartmentId).ToList());
         if (validationErrors.Count > 0)
             throw new FieldValidationException(validationErrors);
 

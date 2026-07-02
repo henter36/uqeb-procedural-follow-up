@@ -17,6 +17,14 @@ public static class TransactionRequestValidator
         || request.OutgoingDate.HasValue
         || (request.OutgoingDepartmentIds?.Count > 0);
 
+    private static bool HasAnyOutgoingData(
+        string? outgoingNumber,
+        DateTime? outgoingDate,
+        IReadOnlyCollection<int> outgoingDepartmentIds) =>
+        !string.IsNullOrWhiteSpace(outgoingNumber)
+        || outgoingDate.HasValue
+        || outgoingDepartmentIds.Count > 0;
+
     public static Dictionary<string, string> ValidateIncomingSource(
         string? incomingSourceType,
         int? incomingFromPartyId,
@@ -85,17 +93,11 @@ public static class TransactionRequestValidator
         if (string.IsNullOrWhiteSpace(request.Priority) || !Enum.TryParse<Priority>(request.Priority, true, out _))
             errors[nameof(request.Priority)] = "الأولوية مطلوبة";
 
-        if (HasAnyOutgoingData(request))
-        {
-            if (string.IsNullOrWhiteSpace(request.OutgoingNumber))
-                errors[nameof(request.OutgoingNumber)] = OutgoingPartialMessage;
-            if (!request.OutgoingDate.HasValue)
-                errors[nameof(request.OutgoingDate)] = string.IsNullOrWhiteSpace(request.OutgoingNumber)
-                    ? OutgoingPartialMessage
-                    : OutgoingDateRequiredWithNumberMessage;
-            if (request.OutgoingDepartmentIds == null || request.OutgoingDepartmentIds.Count == 0)
-                errors[nameof(request.OutgoingDepartmentIds)] = OutgoingPartialMessage;
-        }
+        AddOutgoingPartialValidationErrors(
+            errors,
+            request.OutgoingNumber,
+            request.OutgoingDate,
+            request.OutgoingDepartmentIds ?? []);
 
         var responseType = EnumHelper.ParseResponseType(request.ResponseType ?? "External");
         if (responseType == ResponseType.None)
@@ -110,15 +112,37 @@ public static class TransactionRequestValidator
         UpdateTransactionRequest request,
         DateTime currentIncomingDate,
         DateTime? currentOutgoingDate,
-        string? currentOutgoingNumber)
+        string? currentOutgoingNumber,
+        List<int> currentOutgoingDepartmentIds)
     {
         var errors = new Dictionary<string, string>();
         var incomingDate = request.IncomingDate ?? currentIncomingDate;
         var outgoingDate = request.OutgoingDate ?? currentOutgoingDate;
         var outgoingNumber = request.OutgoingNumber ?? currentOutgoingNumber;
+        var outgoingDepartments = request.OutgoingDepartmentIds ?? currentOutgoingDepartmentIds;
 
+        if (incomingDate == default)
+            errors[nameof(CreateTransactionRequest.IncomingDate)] = "تاريخ المعاملة مطلوب";
         AddDateValidationErrors(errors, incomingDate, outgoingDate, outgoingNumber);
+        AddOutgoingPartialValidationErrors(errors, outgoingNumber, outgoingDate, outgoingDepartments);
         return errors;
+    }
+
+    private static void AddOutgoingPartialValidationErrors(
+        Dictionary<string, string> errors,
+        string? outgoingNumber,
+        DateTime? outgoingDate,
+        IReadOnlyCollection<int> outgoingDepartmentIds)
+    {
+        if (!HasAnyOutgoingData(outgoingNumber, outgoingDate, outgoingDepartmentIds))
+            return;
+
+        if (string.IsNullOrWhiteSpace(outgoingNumber))
+            errors[nameof(CreateTransactionRequest.OutgoingNumber)] = OutgoingPartialMessage;
+        if (!outgoingDate.HasValue && string.IsNullOrWhiteSpace(outgoingNumber))
+            errors[nameof(CreateTransactionRequest.OutgoingDate)] = OutgoingPartialMessage;
+        if (outgoingDepartmentIds.Count == 0)
+            errors[nameof(CreateTransactionRequest.OutgoingDepartmentIds)] = OutgoingPartialMessage;
     }
 
     private static void AddDateValidationErrors(
@@ -127,7 +151,7 @@ public static class TransactionRequestValidator
         DateTime? outgoingDate,
         string? outgoingNumber)
     {
-        var today = DateTime.Today;
+        var today = GetSaudiToday();
 
         if (incomingDate != default && incomingDate.Date > today)
             errors[nameof(CreateTransactionRequest.IncomingDate)] = IncomingDateFutureMessage;
@@ -138,4 +162,6 @@ public static class TransactionRequestValidator
         if (!string.IsNullOrWhiteSpace(outgoingNumber) && !outgoingDate.HasValue)
             errors[nameof(CreateTransactionRequest.OutgoingDate)] = OutgoingDateRequiredWithNumberMessage;
     }
+
+    private static DateTime GetSaudiToday() => DateTime.UtcNow.AddHours(3).Date;
 }

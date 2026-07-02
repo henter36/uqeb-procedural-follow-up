@@ -577,8 +577,8 @@ export default function TransactionForm({ mode }: Props) {
         <FormSection title="بيانات الوارد">
           <div className="transaction-form-grid transaction-form-grid--incoming">
             <div className={formGroupClass('incomingNumber', 'transaction-form-field transaction-form-field--compact')}>
-              <label>رقم المعاملة *</label>
-              <input {...fieldProps('incomingNumber')} value={form.incomingNumber} onChange={(e) => setForm({ ...form, incomingNumber: e.target.value })} />
+              <label htmlFor="incoming-number">رقم المعاملة *</label>
+              <input id="incoming-number" {...fieldProps('incomingNumber')} value={form.incomingNumber} onChange={(e) => setForm({ ...form, incomingNumber: e.target.value })} />
               {fieldError('incomingNumber') && <span id={fieldErrorId('incomingNumber')} className="field-error">{fieldError('incomingNumber')}</span>}
             </div>
             <div className={formGroupClass('incomingDate', 'transaction-form-field transaction-form-field--compact')}>
