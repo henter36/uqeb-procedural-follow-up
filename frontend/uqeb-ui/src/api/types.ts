@@ -150,6 +150,7 @@ export interface Assignment {
   id: number;
   departmentId: number;
   departmentName: string;
+  letterNumber?: string;
   assignedDate: string;
   requiredAction?: string;
   requiresReply: boolean;
@@ -160,6 +161,9 @@ export interface Assignment {
   replySummary?: string;
   status: string;
   isOverdue: boolean;
+  responseDate?: string;
+  departmentCompletionDays?: number;
+  canAdminEdit: boolean;
   createdByName: string;
   createdAt: string;
 }

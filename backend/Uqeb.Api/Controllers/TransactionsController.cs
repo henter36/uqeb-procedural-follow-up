@@ -315,6 +315,14 @@ public class TransactionsController : ControllerBase
         }
     }
 
+    [HttpPatch("{id}/assignments/{assignmentId}")]
+    [Authorize(Policy = Policies.AdminOnly)]
+    public async Task<IActionResult> AdminEditAssignment(int id, int assignmentId, [FromBody] AdminEditAssignmentRequest request)
+    {
+        var result = await _transactions.AdminEditAssignmentAsync(id, assignmentId, request, _currentUser.UserId);
+        return result == null ? NotFound() : Ok(result);
+    }
+
     [HttpGet("{id}/attachments")]
     public async Task<IActionResult> GetAttachments(int id)
     {

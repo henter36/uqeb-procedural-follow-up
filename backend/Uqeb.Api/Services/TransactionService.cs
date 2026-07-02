@@ -28,6 +28,7 @@ public interface ITransactionService
     Task<FollowUpDto?> ReplyFollowUpAsync(int transactionId, int followUpId, ReplyFollowUpRequest request, int userId);
     Task<AssignmentDto> AddAssignmentAsync(int transactionId, CreateAssignmentRequest request, int userId);
     Task<AssignmentDto?> ReplyAssignmentAsync(int transactionId, int assignmentId, ReplyAssignmentRequest request, ICurrentUserService currentUser);
+    Task<AssignmentDto?> AdminEditAssignmentAsync(int transactionId, int assignmentId, AdminEditAssignmentRequest request, int userId);
     Task<PagedResult<AuditLogDto>> GetAuditLogAsync(int transactionId, int page, int pageSize, ICurrentUserService currentUser);
 }
 
@@ -451,34 +452,77 @@ public class TransactionService : ITransactionService
         var departmentId = currentUser.Role == UserRole.DepartmentUser
             ? RequireDepartmentUserDepartmentId(currentUser)
             : (int?)null;
+        var isAdmin = currentUser.Role == UserRole.Admin;
         var now = DateTime.UtcNow;
+
+        var incomingDate = await _db.Transactions.AsNoTracking()
+            .Where(t => t.Id == transactionId)
+            .Select(t => (DateTime?)t.IncomingDate)
+            .FirstOrDefaultAsync();
+
         var query = _db.Assignments.AsNoTracking()
             .Where(a => a.TransactionId == transactionId);
         if (departmentId.HasValue)
             query = query.Where(a => a.DepartmentId == departmentId.Value && a.Status != AssignmentStatus.Cancelled);
 
-        return await query
-            .OrderByDescending(a => a.AssignedDate)
-            .Select(a => new AssignmentDto
+        var rows = await (
+            from a in query
+            join dr in _db.DepartmentResponses.AsNoTracking()
+                on new { a.TransactionId, a.DepartmentId } equals new { dr.TransactionId, dr.DepartmentId }
+                into drGroup
+            from dr in drGroup.DefaultIfEmpty()
+            orderby a.AssignedDate descending
+            select new
             {
-                Id = a.Id,
-                DepartmentId = a.DepartmentId,
+                a.Id,
+                a.DepartmentId,
                 DepartmentName = a.Department.Name,
-                AssignedDate = a.AssignedDate,
-                RequiredAction = a.RequiredAction,
-                RequiresReply = a.RequiresReply,
-                ReplyDueDays = a.ReplyDueDays,
-                DueDate = a.DueDate,
-                ReplyStatus = a.ReplyStatus.ToString(),
-                ReplyDate = a.ReplyDate,
-                ReplySummary = a.ReplySummary,
-                Status = a.Status.ToString(),
-                IsOverdue = TransactionTemporalCalculator.IsAssignmentOverdue(
-                    a.ReplyStatus, a.RequiresReply, a.Status, a.DueDate, now),
+                a.LetterNumber,
+                a.AssignedDate,
+                a.RequiredAction,
+                a.RequiresReply,
+                a.ReplyDueDays,
+                a.DueDate,
+                a.ReplyStatus,
+                a.ReplyDate,
+                a.ReplySummary,
+                a.Status,
                 CreatedByName = a.CreatedBy != null ? a.CreatedBy.FullName : "",
-                CreatedAt = a.CreatedAt
-            })
-            .ToListAsync();
+                a.CreatedAt,
+                ResponseDate = (DateTime?)dr.SubmittedAt
+            }
+        ).ToListAsync();
+
+        return rows.Select(r =>
+        {
+            int? completionDays = null;
+            if (r.ResponseDate.HasValue && incomingDate.HasValue)
+                completionDays = Math.Max(0, (r.ResponseDate.Value.Date - incomingDate.Value.Date).Days);
+
+            return new AssignmentDto
+            {
+                Id = r.Id,
+                DepartmentId = r.DepartmentId,
+                DepartmentName = r.DepartmentName,
+                LetterNumber = r.LetterNumber,
+                AssignedDate = r.AssignedDate,
+                RequiredAction = r.RequiredAction,
+                RequiresReply = r.RequiresReply,
+                ReplyDueDays = r.ReplyDueDays,
+                DueDate = r.DueDate,
+                ReplyStatus = r.ReplyStatus.ToString(),
+                ReplyDate = r.ReplyDate,
+                ReplySummary = r.ReplySummary,
+                Status = r.Status.ToString(),
+                IsOverdue = TransactionTemporalCalculator.IsAssignmentOverdue(
+                    r.ReplyStatus, r.RequiresReply, r.Status, r.DueDate, now),
+                ResponseDate = r.ResponseDate,
+                DepartmentCompletionDays = completionDays,
+                CanAdminEdit = isAdmin,
+                CreatedByName = r.CreatedByName,
+                CreatedAt = r.CreatedAt
+            };
+        }).ToList();
     }
 
     public async Task<List<FollowUpDto>?> GetFollowUpsAsync(int transactionId, ICurrentUserService currentUser)
@@ -1089,6 +1133,7 @@ public class TransactionService : ITransactionService
             TransactionId = transactionId,
             DepartmentId = request.DepartmentId,
             AssignedDate = request.AssignedDate,
+            LetterNumber = string.IsNullOrWhiteSpace(request.LetterNumber) ? null : request.LetterNumber.Trim(),
             RequiredAction = request.RequiredAction,
             RequiresReply = true,
             ReplyDueDays = request.ReplyDueDays,
@@ -1147,6 +1192,54 @@ public class TransactionService : ITransactionService
             });
 
         return MapAssignment(assignment, assignment.Department.Name, assignment.CreatedBy.FullName);
+    }
+
+    public async Task<AssignmentDto?> AdminEditAssignmentAsync(
+        int transactionId, int assignmentId, AdminEditAssignmentRequest request, int userId)
+    {
+        var assignment = await _db.Assignments
+            .Include(a => a.Department)
+            .Include(a => a.CreatedBy)
+            .FirstOrDefaultAsync(a => a.Id == assignmentId && a.TransactionId == transactionId);
+        if (assignment == null) return null;
+
+        var oldSnapshot = JsonSerializer.Serialize(new
+        {
+            assignment.LetterNumber,
+            assignment.AssignedDate,
+            assignment.RequiredAction,
+            assignment.ReplyDueDays,
+            assignment.DueDate
+        });
+
+        if (request.AssignedDate.HasValue)
+            assignment.AssignedDate = request.AssignedDate.Value;
+        if (request.DueDate.HasValue)
+            assignment.DueDate = request.DueDate;
+        assignment.LetterNumber = string.IsNullOrWhiteSpace(request.LetterNumber) ? null : request.LetterNumber.Trim();
+        if (request.RequiredAction != null)
+            assignment.RequiredAction = string.IsNullOrWhiteSpace(request.RequiredAction) ? null : request.RequiredAction.Trim();
+        if (request.ReplyDueDays.HasValue)
+            assignment.ReplyDueDays = request.ReplyDueDays;
+
+        var newSnapshot = JsonSerializer.Serialize(new
+        {
+            assignment.LetterNumber,
+            assignment.AssignedDate,
+            assignment.RequiredAction,
+            assignment.ReplyDueDays,
+            assignment.DueDate
+        });
+
+        await CommitWorkflowMutationAsync(
+            () => Task.CompletedTask,
+            () =>
+            {
+                _audit.TrackLog(userId, AuditAction.AdminEditAssignment, AssignmentEntityName, assignmentId, transactionId, oldSnapshot, newSnapshot);
+                return Task.CompletedTask;
+            });
+
+        return MapAssignment(assignment, assignment.Department.Name, assignment.CreatedBy?.FullName ?? "");
     }
 
     public async Task<PagedResult<AuditLogDto>> GetAuditLogAsync(
@@ -1897,6 +1990,7 @@ public class TransactionService : ITransactionService
             Id = a.Id,
             DepartmentId = a.DepartmentId,
             DepartmentName = deptName,
+            LetterNumber = a.LetterNumber,
             AssignedDate = a.AssignedDate,
             RequiredAction = a.RequiredAction,
             RequiresReply = a.RequiresReply,

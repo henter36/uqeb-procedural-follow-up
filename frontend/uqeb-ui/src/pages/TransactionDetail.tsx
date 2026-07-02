@@ -31,6 +31,7 @@ import ReplyFormPanel from '../components/transaction-workspace/ReplyFormPanel';
 import CompleteResponseFormPanel from '../components/transaction-workspace/CompleteResponseFormPanel';
 import DepartmentResponseInlinePanel from '../components/transaction-workspace/DepartmentResponseInlinePanel';
 import FollowUpLetterFormPanel from '../components/transaction-workspace/FollowUpLetterFormPanel';
+import AdminEditAssignmentFormPanel from '../components/transaction-workspace/AdminEditAssignmentFormPanel';
 import { departmentResponseStatusLabels } from '../components/transaction-workspace/departmentResponseStatusLabels';
 import type { WorkspaceAction, WorkspaceActionContext } from '../components/transaction-workspace/types';
 import { parseDetailTab, type DetailTab } from './transactionDetailTabs';
@@ -86,6 +87,7 @@ const ACTION_TITLES: Record<WorkspaceAction, string> = {
   'reply-followup': 'تسجيل رد على التعقيب',
   'complete-response': 'تسجيل إفادة',
   'follow-up-letter': 'خطاب تعقيب PDF',
+  'admin-edit-assignment': 'تعديل بيانات الاحالة',
 };
 
 export default function TransactionDetailPage() {
@@ -105,7 +107,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab');
-  const { canEdit, canClose, isDepartmentUser, user } = useAuth();
+  const { canEdit, canClose, isDepartmentUser, isAdmin, user } = useAuth();
   const { departments } = useReferenceData();
   const [tx, setTx] = useState<TransactionDetail | null>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -452,6 +454,11 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     await handleActionSuccess('تم تسجيل الرد بنجاح.', [() => loadWorkspace({ silent: true })]);
   };
 
+  const handleAdminEditAssignmentSuccess = async (updated: import('../api/types').Assignment) => {
+    setAssignments((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+    closeAction();
+  };
+
   const handleReplyFollowUpSuccess = async () => {
     await handleActionSuccess('تم تسجيل الرد بنجاح.', [() => loadWorkspace({ silent: true })]);
   };
@@ -568,6 +575,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const openAssignmentsCount = countOpenAssignments(assignments);
   const replyAssignmentId = actionContext.replyAssignmentId;
   const replyFollowUpId = actionContext.replyFollowUpId;
+  const adminEditAssignmentId = actionContext.adminEditAssignmentId;
   const existingDepartmentIds = assignments.map((a) => a.departmentId);
   const isGlobalActionOpen = activeAction !== null && GLOBAL_ACTIONS.has(activeAction);
 
@@ -793,6 +801,23 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
             </CardActionPanel>
           )}
 
+          {activeAction === 'admin-edit-assignment' && adminEditAssignmentId && (
+            <CardActionPanel
+              title={ACTION_TITLES['admin-edit-assignment']}
+              onClose={closeAction}
+              testId="admin-edit-assignment-form-panel"
+            >
+              <AdminEditAssignmentFormPanel
+                transactionId={+id}
+                assignmentId={adminEditAssignmentId}
+                initialAssignment={assignments.find((a) => a.id === adminEditAssignmentId)}
+                onDirtyChange={setActionDirty}
+                onCancel={closeAction}
+                onSuccess={handleAdminEditAssignmentSuccess}
+              />
+            </CardActionPanel>
+          )}
+
           {assignmentsLoading && <LoadingInline label="جاري تحميل الاحالةات..." />}
           {assignmentsError && (
             <Alert variant="error">
@@ -815,19 +840,34 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
           {!assignmentsLoading && !assignmentsError && assignments.length > 0 && (
             <div className="table-wrapper section-data-list">
               <table className="data-table data-table-compact">
-                <thead><tr><th>الإدارة</th><th>الإجراء</th><th>الاستحقاق</th><th>الرد</th><th>إجراء</th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>الإدارة</th>
+                    <th>رقم الخطاب</th>
+                    <th>تاريخ الإحالة</th>
+                    <th>تاريخ الإفادة</th>
+                    <th>أيام الإنجاز</th>
+                    <th>الرد</th>
+                    <th></th>
+                  </tr>
+                </thead>
                 <tbody>
                   {assignments.map((a) => (
                     <tr key={a.id} className={a.isOverdue ? 'row-overdue' : ''}>
-                      <td>{a.departmentName}</td>
-                      <td>{a.requiredAction || '—'}</td>
-                      <td>{a.dueDate ? <DateDisplay date={a.dueDate} /> : '—'}</td>
+                      <td>
+                        <div>{a.departmentName}</div>
+                        {a.requiredAction && <div className="text-muted">{a.requiredAction}</div>}
+                      </td>
+                      <td>{a.letterNumber || '—'}</td>
+                      <td><DateDisplay date={a.assignedDate} /></td>
+                      <td>{a.responseDate ? <DateDisplay date={a.responseDate} /> : '—'}</td>
+                      <td>{a.departmentCompletionDays != null ? a.departmentCompletionDays : '—'}</td>
                       <td>
                         <span className={`badge ${assignmentReplyBadgeClass(a.replyStatus, a.isOverdue)}`}>
                           {replyStatusLabels[a.replyStatus] || a.replyStatus}
                         </span>
                       </td>
-                      <td>
+                      <td className="assignment-actions-cell">
                         {a.requiresReply && a.replyStatus !== 'Replied' && a.status !== 'Cancelled' && canReply && (
                           <button
                             type="button"
@@ -835,6 +875,15 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                             onClick={() => openAction('reply-assignment', { replyAssignmentId: a.id })}
                           >
                             تسجيل رد
+                          </button>
+                        )}
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline"
+                            onClick={() => openAction('admin-edit-assignment', { adminEditAssignmentId: a.id })}
+                          >
+                            تعديل
                           </button>
                         )}
                         {a.replySummary && <div className="text-muted reply-summary">{a.replySummary}</div>}
