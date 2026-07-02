@@ -50,12 +50,12 @@ export default function DepartmentResponseInlinePanel({
 
   useEffect(() => {
     const responseId = initialItem?.departmentResponseId;
+
     if (!responseId) {
       let active = true;
       void Promise.resolve().then(() => {
         if (!active) return;
-        detailRef.current = null;
-        setDetail(null);
+        updateDetail(null);
         setResponseText('');
         setError('');
         setLoading(false);
@@ -63,16 +63,24 @@ export default function DepartmentResponseInlinePanel({
       return () => { active = false; };
     }
 
-    if (detailRef.current?.id === responseId) return;
+    if (detailRef.current?.id === responseId) {
+      setError('');
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
     setError('');
+
     let active = true;
     const versionAtStart = responseTextVersionRef.current;
+
     departmentResponsesApi.getById(responseId)
       .then((res) => {
         if (!active) return;
+
         updateDetail(res.data);
+
         if (responseTextVersionRef.current === versionAtStart) {
           setResponseText(res.data.responseText);
         }
