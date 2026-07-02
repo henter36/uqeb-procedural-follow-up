@@ -33,6 +33,7 @@ import DepartmentResponseInlinePanel from '../components/transaction-workspace/D
 import FollowUpLetterFormPanel from '../components/transaction-workspace/FollowUpLetterFormPanel';
 import AdminEditAssignmentFormPanel from '../components/transaction-workspace/AdminEditAssignmentFormPanel';
 import AdminEditDatesFormPanel from '../components/transaction-workspace/AdminEditDatesFormPanel';
+import AdminEditResponseFormPanel from '../components/transaction-workspace/AdminEditResponseFormPanel';
 import { departmentResponseStatusLabels } from '../components/transaction-workspace/departmentResponseStatusLabels';
 import type { WorkspaceAction, WorkspaceActionContext } from '../components/transaction-workspace/types';
 import { parseDetailTab, type DetailTab } from './transactionDetailTabs';
@@ -90,6 +91,7 @@ const ACTION_TITLES: Record<WorkspaceAction, string> = {
   'follow-up-letter': 'خطاب تعقيب PDF',
   'admin-edit-assignment': 'تعديل بيانات الاحالة',
   'admin-edit-dates': 'تصحيح التواريخ الحساسة (إداري)',
+  'admin-edit-response': 'تعديل بيانات الرد (إداري)',
 };
 
 export default function TransactionDetailPage() {
@@ -466,6 +468,11 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     closeAction();
   };
 
+  const handleAdminEditResponseSuccess = () => {
+    closeAction();
+    loadWorkspace({ silent: true }).catch(() => undefined);
+  };
+
   const handleReplyFollowUpSuccess = async () => {
     await handleActionSuccess('تم تسجيل الرد بنجاح.', [() => loadWorkspace({ silent: true })]);
   };
@@ -583,6 +590,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const replyAssignmentId = actionContext.replyAssignmentId;
   const replyFollowUpId = actionContext.replyFollowUpId;
   const adminEditAssignmentId = actionContext.adminEditAssignmentId;
+  const adminEditResponseId = actionContext.adminEditResponseId;
   const existingDepartmentIds = assignments.map((a) => a.departmentId);
   const isGlobalActionOpen = activeAction !== null && GLOBAL_ACTIONS.has(activeAction);
 
@@ -868,6 +876,21 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
             </CardActionPanel>
           )}
 
+          {activeAction === 'admin-edit-response' && adminEditResponseId && (
+            <CardActionPanel
+              title={ACTION_TITLES['admin-edit-response']}
+              onClose={closeAction}
+              testId="admin-edit-response-form-panel"
+            >
+              <AdminEditResponseFormPanel
+                responseId={adminEditResponseId}
+                onDirtyChange={setActionDirty}
+                onCancel={closeAction}
+                onSuccess={handleAdminEditResponseSuccess}
+              />
+            </CardActionPanel>
+          )}
+
           {assignmentsLoading && <LoadingInline label="جاري تحميل الاحالةات..." />}
           {assignmentsError && (
             <Alert variant="error">
@@ -943,6 +966,15 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                             onClick={() => openAction('admin-edit-assignment', { adminEditAssignmentId: a.id })}
                           >
                             تعديل
+                          </button>
+                        )}
+                        {isAdmin && a.departmentResponseId && (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline"
+                            onClick={() => openAction('admin-edit-response', { adminEditResponseId: a.departmentResponseId })}
+                          >
+                            تعديل الرد
                           </button>
                         )}
                         {a.replySummary && <div className="text-muted reply-summary">{a.replySummary}</div>}

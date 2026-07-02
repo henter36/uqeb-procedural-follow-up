@@ -313,4 +313,6 @@ export const departmentResponsesApi = {
     api.delete(`/department-responses/${id}/attachments/${attachmentId}`),
   downloadAttachment: (id: number, attachmentId: number) =>
     api.get(`/department-responses/${id}/attachments/${attachmentId}/download`, { responseType: 'blob' }),
+  adminEdit: (id: number, data: Record<string, unknown>) =>
+    api.patch<DepartmentResponseDto>(`/department-responses/${id}/admin-edit`, data),
 };

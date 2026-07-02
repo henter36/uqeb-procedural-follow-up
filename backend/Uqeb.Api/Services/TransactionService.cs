@@ -490,6 +490,7 @@ public class TransactionService : ITransactionService
                 a.Status,
                 CreatedByName = a.CreatedBy != null ? a.CreatedBy.FullName : "",
                 a.CreatedAt,
+                DepartmentResponseId = (int?)dr.Id,
                 ResponseDate = (DateTime?)dr.SubmittedAt
             }
         ).ToListAsync();
@@ -517,6 +518,7 @@ public class TransactionService : ITransactionService
                 Status = r.Status.ToString(),
                 IsOverdue = TransactionTemporalCalculator.IsAssignmentOverdue(
                     r.ReplyStatus, r.RequiresReply, r.Status, r.DueDate, now),
+                DepartmentResponseId = r.DepartmentResponseId,
                 ResponseDate = r.ResponseDate,
                 DepartmentCompletionDays = completionDays,
                 CanAdminEdit = isAdmin,

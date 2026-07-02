@@ -45,4 +45,5 @@ public enum AuditAction
     DepartmentResponseAttachmentDeleted = 41,
     AdminEditAssignment = 42,
     AdminEditTransactionDates = 43,
+    AdminEditDepartmentResponse = 44,
 }

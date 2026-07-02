@@ -294,6 +294,7 @@ public class AssignmentDto
     public string? ReplySummary { get; set; }
     public string Status { get; set; } = string.Empty;
     public bool IsOverdue { get; set; }
+    public int? DepartmentResponseId { get; set; }
     public DateTime? ResponseDate { get; set; }
     public int? DepartmentCompletionDays { get; set; }
     public bool CanAdminEdit { get; set; }

@@ -161,6 +161,7 @@ export interface Assignment {
   replySummary?: string;
   status: string;
   isOverdue: boolean;
+  departmentResponseId?: number;
   responseDate?: string;
   departmentCompletionDays?: number;
   canAdminEdit: boolean;
