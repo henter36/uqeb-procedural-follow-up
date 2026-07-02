@@ -9,6 +9,7 @@ import HijriDateInput from '../HijriDateInput';
 type AssignmentFormState = {
   departmentId: string;
   assignedDate: string;
+  letterNumber: string;
   requiredAction: string;
   replyDueDays: string | number;
   dueDate: string;
@@ -18,6 +19,7 @@ function createInitialAssignmentForm(): AssignmentFormState {
   return {
     departmentId: '',
     assignedDate: todayLocalIso(),
+    letterNumber: '',
     requiredAction: '',
     replyDueDays: '',
     dueDate: '',
@@ -27,6 +29,7 @@ function createInitialAssignmentForm(): AssignmentFormState {
 function isAssignmentFormDirty(current: AssignmentFormState, initial: AssignmentFormState): boolean {
   return current.departmentId !== initial.departmentId
     || current.assignedDate !== initial.assignedDate
+    || current.letterNumber !== initial.letterNumber
     || current.requiredAction !== initial.requiredAction
     || current.replyDueDays !== initial.replyDueDays
     || current.dueDate !== initial.dueDate;
@@ -116,6 +119,14 @@ export default function AssignmentFormPanel({
             required
             value={form.assignedDate}
             onChange={(assignedDate) => update({ assignedDate })}
+          />
+        </div>
+        <div className="form-group">
+          <label htmlFor="assignment-letter">رقم الخطاب</label>
+          <input
+            id="assignment-letter"
+            value={form.letterNumber}
+            onChange={(e) => update({ letterNumber: e.target.value })}
           />
         </div>
         <div className="form-group full-width">
