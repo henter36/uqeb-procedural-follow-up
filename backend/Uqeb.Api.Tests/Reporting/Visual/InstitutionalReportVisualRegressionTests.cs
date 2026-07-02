@@ -172,18 +172,14 @@ public class InstitutionalReportVisualRegressionTests
     [Fact]
     public void ActualArtifactDirectory_IsNotInsideBaselinesDirectory()
     {
-        var baselineDir = NormalizeDirectoryPath(ResolveBaselineDirectory());
-        var artifactDir = NormalizeDirectoryPath(ResolveVisualArtifactDirectory());
+        var baselineDir = Path.GetFullPath(ResolveBaselineDirectory());
+        var artifactDir = Path.GetFullPath(ResolveVisualArtifactDirectory());
 
         Assert.NotEqual(baselineDir, artifactDir, StringComparer.OrdinalIgnoreCase);
         Assert.False(
             artifactDir.StartsWith(baselineDir, StringComparison.OrdinalIgnoreCase),
             $"Artifact directory '{artifactDir}' must not be inside the baselines directory '{baselineDir}'.");
     }
-
-    private static string NormalizeDirectoryPath(string path) =>
-        Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-        + Path.DirectorySeparatorChar;
 
     private static async Task AssertRenderedSectionAsync(
         IPage page,
@@ -222,15 +218,15 @@ public class InstitutionalReportVisualRegressionTests
             Environment.GetEnvironmentVariable("UPDATE_REPORT_VISUAL_BASELINES"), "1",
             StringComparison.Ordinal);
 
-        if (updateBaselines)
-        {
-            Directory.CreateDirectory(baselineDir);
-            await File.WriteAllBytesAsync(baselinePath, screenshot);
-            return;
-        }
-
         if (!File.Exists(baselinePath))
         {
+            if (updateBaselines)
+            {
+                Directory.CreateDirectory(baselineDir);
+                await File.WriteAllBytesAsync(baselinePath, screenshot);
+                return;
+            }
+
             Assert.Fail(
                 $"No baseline found for '{snapshotName}' at '{baselinePath}'. " +
                 $"Actual artifact saved to: {actualPath}. " +

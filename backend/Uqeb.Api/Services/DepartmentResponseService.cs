@@ -21,6 +21,7 @@ public interface IDepartmentResponseService
     Task<DepartmentResponseDto> ApproveAsync(int id, ICurrentUserService currentUser);
     Task<DepartmentResponseDto> ReturnForCorrectionAsync(int id, ReviewDepartmentResponseRequest request, ICurrentUserService currentUser);
     Task<DepartmentResponseDto> RejectAsync(int id, ReviewDepartmentResponseRequest request, ICurrentUserService currentUser);
+    Task<DepartmentResponseDto?> AdminEditAsync(int id, AdminEditDepartmentResponseRequest request, ICurrentUserService currentUser);
     Task<DepartmentResponseAttachmentDto> UploadAttachmentAsync(int id, IFormFile file, ICurrentUserService currentUser);
     Task DeleteAttachmentAsync(int id, int attachmentId, ICurrentUserService currentUser);
     Task<(byte[] Content, string ContentType, string FileName)?> DownloadAttachmentAsync(int id, int attachmentId, ICurrentUserService currentUser);
@@ -438,6 +439,31 @@ public class DepartmentResponseService : IDepartmentResponseService
         response.UpdatedAt = DateTime.UtcNow;
 
         _audit.TrackLog(currentUser.UserId, AuditAction.DepartmentResponseRejected, DepartmentResponseEntityName, id, response.TransactionId, DepartmentResponseStatus.SubmittedForReview.ToString(), DepartmentResponseStatus.Rejected.ToString());
+        await _db.SaveChangesAsync();
+
+        return MapToDto((await LoadWithDetailsAsync(id))!);
+    }
+
+    public async Task<DepartmentResponseDto?> AdminEditAsync(int id, AdminEditDepartmentResponseRequest request, ICurrentUserService currentUser)
+    {
+        var response = await _db.DepartmentResponses.FindAsync(id);
+        if (response == null) return null;
+
+        var reason = request.Reason?.Trim();
+        if (string.IsNullOrWhiteSpace(reason))
+            throw new InvalidOperationException("سبب التعديل مطلوب.");
+
+        var oldSnapshot = new { response.ResponseText, response.SubmittedAt };
+
+        if (!string.IsNullOrWhiteSpace(request.ResponseText))
+            response.ResponseText = request.ResponseText.Trim();
+        if (request.SubmittedAt.HasValue)
+            response.SubmittedAt = request.SubmittedAt.Value.ToUniversalTime();
+        response.UpdatedAt = DateTime.UtcNow;
+
+        var oldValue = System.Text.Json.JsonSerializer.Serialize(new { oldSnapshot.ResponseText, oldSnapshot.SubmittedAt, Reason = reason });
+        var newValue = System.Text.Json.JsonSerializer.Serialize(new { response.ResponseText, response.SubmittedAt, Reason = reason });
+        _audit.TrackLog(currentUser.UserId, AuditAction.AdminEditDepartmentResponse, DepartmentResponseEntityName, id, response.TransactionId, oldValue, newValue);
         await _db.SaveChangesAsync();
 
         return MapToDto((await LoadWithDetailsAsync(id))!);

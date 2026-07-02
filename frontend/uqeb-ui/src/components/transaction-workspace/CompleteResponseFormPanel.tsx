@@ -104,6 +104,9 @@ export default function CompleteResponseFormPanel({
   return (
     <form onSubmit={submit} className="workspace-form complete-response-compact">
       {error && <Alert variant="error">{error}</Alert>}
+      <p className="text-muted workspace-form-hint">
+        تسجيل الإفادة يُغلق إحالة الإدارة ويُسجَّل تاريخ الإفادة تلقائيًا.
+      </p>
 
       <div className="complete-response-compact-body">
         <div className="form-group">

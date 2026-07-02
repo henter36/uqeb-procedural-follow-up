@@ -170,6 +170,21 @@ public class DepartmentResponsesController : ControllerBase
         }
     }
 
+    [HttpPatch("{id:int}/admin-edit")]
+    [Authorize(Policy = Policies.AdminOnly)]
+    public async Task<IActionResult> AdminEdit(int id, [FromBody] AdminEditDepartmentResponseRequest request)
+    {
+        try
+        {
+            var dto = await _service.AdminEditAsync(id, request, _currentUser);
+            return dto == null ? NotFound() : Ok(dto);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     [HttpPost("{id:int}/attachments")]
     [Authorize(Policy = Policies.SubmitDepartmentResponse)]
     [RequestSizeLimit(AttachmentRequestSizeLimitBytes)]

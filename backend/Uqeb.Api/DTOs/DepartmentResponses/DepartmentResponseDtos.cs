@@ -68,6 +68,12 @@ public record ReviewDepartmentResponseRequest(
     string? ReviewNote
 );
 
+public record AdminEditDepartmentResponseRequest(
+    [property: JsonRequired] string Reason,
+    string? ResponseText = null,
+    DateTime? SubmittedAt = null
+);
+
 public record DepartmentTransactionResponseItemDto(
     int TransactionId,
     string InternalTrackingNumber,

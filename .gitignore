@@ -58,6 +58,7 @@ artifacts/performance-baseline/*
 
 # Visual regression test artifacts (actual screenshots written during test runs)
 artifacts/test-results/
+backend/Uqeb.Api.Tests/Reporting/Visual/Baselines/*.actual.png
 
 # Build-script output (build-production-package.ps1 / dotnet publish / EF migrations)
 artifacts/publish-api/
