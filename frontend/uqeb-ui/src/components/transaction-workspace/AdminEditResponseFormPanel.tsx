@@ -4,6 +4,7 @@ import { departmentResponsesApi } from '../../api/services';
 import { getApiErrorMessage } from '../../utils/apiHelpers';
 import { Alert, LoadingInline } from '../ui';
 import HijriDateInput from '../HijriDateInput';
+import { AdminEditAuditHint, AdminEditFormActions, AdminEditReasonField } from './AdminEditFormShared';
 
 type FormState = {
   responseText: string;
@@ -115,9 +116,7 @@ export default function AdminEditResponseFormPanel({
 
   return (
     <form onSubmit={submit} className="workspace-form">
-      <p className="text-muted workspace-form-hint">
-        هذا النموذج للتصحيح الإداري فقط. كل تعديل يُسجَّل في سجل التدقيق مع السبب.
-      </p>
+      <AdminEditAuditHint />
       {error && <Alert variant="error">{error}</Alert>}
       <div className="form-grid">
         <div className="form-group full-width">
@@ -139,23 +138,13 @@ export default function AdminEditResponseFormPanel({
           />
           <small className="text-muted">يُستخدم لحساب أيام إنجاز الإدارة.</small>
         </div>
-        <div className="form-group full-width">
-          <label htmlFor="admin-resp-reason">سبب التعديل *</label>
-          <input
-            id="admin-resp-reason"
-            required
-            value={form.reason}
-            onChange={(e) => update({ reason: e.target.value })}
-            placeholder="أدخل سبب التصحيح الإداري..."
-          />
-        </div>
+        <AdminEditReasonField
+          id="admin-resp-reason"
+          value={form.reason}
+          onChange={(reason) => update({ reason })}
+        />
       </div>
-      <div className="form-actions">
-        <button type="submit" className="btn btn-primary" disabled={saving || !dirty || !form.reason.trim()}>
-          {saving ? 'جارٍ الحفظ...' : 'حفظ التصحيح'}
-        </button>
-        <button type="button" className="btn btn-outline" onClick={onCancel}>إلغاء</button>
-      </div>
+      <AdminEditFormActions saving={saving} dirty={dirty} reason={form.reason} onCancel={onCancel} />
     </form>
   );
 }
