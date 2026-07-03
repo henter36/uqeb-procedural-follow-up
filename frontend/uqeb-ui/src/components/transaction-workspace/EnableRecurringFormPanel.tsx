@@ -3,7 +3,7 @@ import type { TransactionDetail } from '../../api/types';
 import { transactionsApi } from '../../api/services';
 import { getApiErrorMessage, getFieldErrors } from '../../utils/apiHelpers';
 import { Alert } from '../ui';
-import HijriDateInput from '../HijriDateInput';
+import { formatHijri } from '../../utils/dateUtils';
 
 const RECURRENCE_TYPE_OPTIONS = [
   { value: 'Monthly', label: 'شهري' },
@@ -14,21 +14,36 @@ const RECURRENCE_TYPE_OPTIONS = [
 
 type FormState = {
   recurrenceType: string;
-  endDate: string;
   nextTransactionCreationMethod: string;
 };
 
 type Props = Readonly<{
   transactionId: number;
+  incomingDate: string;
   onDirtyChange: (dirty: boolean) => void;
   onCancel: () => void;
   onSuccess: (updated: TransactionDetail) => void;
 }>;
 
-export default function EnableRecurringFormPanel({ transactionId, onDirtyChange, onCancel, onSuccess }: Props) {
+function calculateRecurringPeriodEnd(startDate: string, recurrenceType: string): Date | null {
+  if (!startDate) return null;
+  const monthsByType: Record<string, number> = {
+    Monthly: 1,
+    Quarterly: 3,
+    SemiAnnual: 6,
+    Annual: 12,
+  };
+  const months = monthsByType[recurrenceType];
+  if (!months) return null;
+
+  const date = new Date(`${startDate.split('T')[0]}T00:00:00`);
+  date.setMonth(date.getMonth() + months);
+  return date;
+}
+
+export default function EnableRecurringFormPanel({ transactionId, incomingDate, onDirtyChange, onCancel, onSuccess }: Props) {
   const [form, setForm] = useState<FormState>({
     recurrenceType: 'Monthly',
-    endDate: '',
     nextTransactionCreationMethod: 'Manual',
   });
   const [error, setError] = useState('');
@@ -36,7 +51,6 @@ export default function EnableRecurringFormPanel({ transactionId, onDirtyChange,
   const [saving, setSaving] = useState(false);
 
   const dirty = Boolean(
-    form.endDate ||
     form.recurrenceType !== 'Monthly' ||
     form.nextTransactionCreationMethod !== 'Manual',
   );
@@ -48,6 +62,7 @@ export default function EnableRecurringFormPanel({ transactionId, onDirtyChange,
   const update = (patch: Partial<FormState>) => setForm((prev) => ({ ...prev, ...patch }));
 
   const fieldError = (name: string) => fieldErrors[name];
+  const expectedPeriodEnd = calculateRecurringPeriodEnd(incomingDate, form.recurrenceType);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -59,7 +74,7 @@ export default function EnableRecurringFormPanel({ transactionId, onDirtyChange,
       const res = await transactionsApi.enableRecurring(transactionId, {
         recurrenceType: form.recurrenceType,
         startDate: null,
-        endDate: form.endDate || null,
+        endDate: null,
         dueDaysAfterPeriodEnd: 0,
         nextTransactionCreationMethod: form.nextTransactionCreationMethod,
       });
@@ -94,14 +109,8 @@ export default function EnableRecurringFormPanel({ transactionId, onDirtyChange,
           {fieldError('RecurrenceType') && <span className="field-error">{fieldError('RecurrenceType')}</span>}
         </div>
         <div className="form-group">
-          <HijriDateInput
-            id="enable-recurring-end"
-            label="نهاية الالتزام"
-            value={form.endDate}
-            onChange={(endDate) => update({ endDate })}
-            invalid={Boolean(fieldError('EndDate'))}
-          />
-          {fieldError('EndDate') && <span className="field-error">{fieldError('EndDate')}</span>}
+          <span className="form-label">نهاية الفترة الأولى المتوقعة</span>
+          <p className="text-muted">{expectedPeriodEnd ? formatHijri(expectedPeriodEnd) : '—'}</p>
         </div>
         <div className="form-group">
           <span className="form-label">طريقة إنشاء المعاملة التالية</span>

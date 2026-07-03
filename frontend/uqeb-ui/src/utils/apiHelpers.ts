@@ -69,7 +69,7 @@ export function buildCreateTransactionPayload(form: TransactionFormPayload) {
     enableRecurringFollowUp: isRecurring,
     recurringRecurrenceType: isRecurring ? toNullableString(form.recurringRecurrenceType ?? null) : null,
     recurringStartDate: isRecurring ? toIsoDate(form.incomingDate) : null,
-    recurringEndDate: isRecurring ? toIsoDate(form.recurringEndDate) : null,
+    recurringEndDate: null,
     recurringDueDaysAfterPeriodEnd: isRecurring ? 0 : null,
     recurringNextTransactionCreationMethod: isRecurring
       ? toNullableString(form.recurringNextTransactionCreationMethod ?? null)

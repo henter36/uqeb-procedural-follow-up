@@ -198,6 +198,22 @@ function isOutgoingBeforeIncoming(form: TransactionFormState): boolean {
   return Boolean(form.incomingDate && form.outgoingDate && form.outgoingDate < form.incomingDate);
 }
 
+function calculateRecurringPeriodEnd(startDate: string, recurrenceType: string): Date | null {
+  if (!startDate) return null;
+  const monthsByType: Record<string, number> = {
+    Monthly: 1,
+    Quarterly: 3,
+    SemiAnnual: 6,
+    Annual: 12,
+  };
+  const months = monthsByType[recurrenceType];
+  if (!months) return null;
+
+  const date = new Date(`${startDate}T00:00:00`);
+  date.setMonth(date.getMonth() + months);
+  return date;
+}
+
 function isMissingRecurringDepartments(form: TransactionFormState): boolean {
   return form.enableRecurringFollowUp && form.outgoingDepartmentIds.length === 0;
 }
@@ -207,7 +223,6 @@ function getRecurringValidationRules(form: TransactionFormState): TransactionVal
 
   return [
     { field: 'recurringRecurrenceType', isInvalid: !form.recurringRecurrenceType, message: 'نوع التكرار مطلوب.' },
-    { field: 'recurringEndDate', isInvalid: Boolean(form.recurringEndDate && form.incomingDate && form.recurringEndDate < form.incomingDate), message: 'تاريخ نهاية الالتزام لا يمكن أن يكون قبل تاريخ الوارد.' },
     {
       field: 'outgoingDepartmentIds',
       isInvalid: isMissingRecurringDepartments(form),
@@ -432,6 +447,8 @@ function RecurringFollowUpSection({
   fieldErrorId: (name: string) => string;
   formGroupClass: (name: string, extra?: string) => string;
 }>) {
+  const expectedPeriodEnd = calculateRecurringPeriodEnd(form.incomingDate, form.recurringRecurrenceType);
+
   return (
     <FormSection title="إعدادات المتابعة الدورية">
       <div className="transaction-form-grid">
@@ -461,19 +478,9 @@ function RecurringFollowUpSection({
                 <span id={fieldErrorId('recurringRecurrenceType')} className="field-error">{fieldError('recurringRecurrenceType')}</span>
               )}
             </div>
-            <div className={formGroupClass('recurringEndDate', 'transaction-form-field transaction-form-field--compact')}>
-              <HijriDateInput
-                id="recurring-end-date"
-                label="نهاية الالتزام"
-                value={form.recurringEndDate}
-                onChange={(recurringEndDate) => setForm({ ...form, recurringEndDate })}
-                invalid={Boolean(fieldError('recurringEndDate'))}
-                describedBy={fieldError('recurringEndDate') ? fieldErrorId('recurringEndDate') : undefined}
-                dataFieldName="recurringEndDate"
-              />
-              {fieldError('recurringEndDate') && (
-                <span id={fieldErrorId('recurringEndDate')} className="field-error">{fieldError('recurringEndDate')}</span>
-              )}
+            <div className="form-group transaction-form-field transaction-form-field--compact">
+              <span className="form-label">نهاية الفترة الأولى المتوقعة</span>
+              <p className="text-muted">{expectedPeriodEnd ? formatHijri(expectedPeriodEnd) : '—'}</p>
             </div>
             <div className="form-group transaction-form-field transaction-form-field--wide">
               <span className="form-label">طريقة إنشاء المعاملة التالية</span>
