@@ -48,6 +48,50 @@ describe('HijriDateInput', () => {
     expect((manualInput as HTMLInputElement).value).toMatch(/^\d{2}\/\d{2}\/\d{4}$/);
   });
 
+  it('normalizes pasted year-first Hijri dates into day month year display', () => {
+    const onChange = vi.fn();
+    render(
+      <HijriDateInput
+        id="date"
+        label="تاريخ المعاملة"
+        value=""
+        onChange={onChange}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('تاريخ المعاملة'), {
+      target: { value: '1447/01/01', selectionStart: 10, selectionEnd: 10 },
+      nativeEvent: { inputType: 'insertFromPaste' },
+    });
+
+    const input = screen.getByLabelText('تاريخ المعاملة');
+    expect(input).toHaveValue('01/01/1447');
+    expect(onChange).not.toHaveBeenCalledWith('');
+  });
+
+  it('keeps mid-field edits stable and normalizes on blur', () => {
+    render(
+      <HijriDateInput
+        id="date"
+        label="تاريخ المعاملة"
+        value=""
+        onChange={vi.fn()}
+      />,
+    );
+
+    const input = screen.getByLabelText('تاريخ المعاملة');
+    fireEvent.change(input, {
+      target: { value: '12/3/1448', selectionStart: 4, selectionEnd: 4 },
+      nativeEvent: { inputType: 'deleteContentBackward' },
+    });
+
+    expect(input).toHaveValue('12/3/1448');
+
+    fireEvent.blur(input);
+
+    expect(input).toHaveValue('12/03/1448');
+  });
+
   it('rejects future dates only when disallowFutureDate is enabled', () => {
     const blockedChange = vi.fn();
     const allowedChange = vi.fn();

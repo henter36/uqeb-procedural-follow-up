@@ -282,7 +282,7 @@ function IncomingSourceTypeField({
 }>) {
   return (
     <div className={formGroupClass}>
-      <label>نوع الجهة الوارد منها *</label>
+      <span className="form-label">نوع الجهة الوارد منها *</span>
       <div className="radio-group">
         <label className="radio-label">
           <input
@@ -613,8 +613,8 @@ export default function TransactionForm({ mode }: Props) {
               onDepartmentChange={(id) => setForm({ ...form, incomingFromDepartmentId: id, incomingFromPartyId: '' })}
             />
             <div className={formGroupClass('subject', 'transaction-form-field transaction-form-field--wide transaction-subject-field')}>
-              <label>الموضوع *</label>
-              <input {...fieldProps('subject')} value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
+              <label htmlFor="transaction-subject">الموضوع *</label>
+              <input id="transaction-subject" {...fieldProps('subject')} value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
               {fieldError('subject') && <span id={fieldErrorId('subject')} className="field-error">{fieldError('subject')}</span>}
             </div>
             <div className={formGroupClass('categoryId', 'transaction-form-field transaction-form-field--medium')}>
@@ -631,8 +631,8 @@ export default function TransactionForm({ mode }: Props) {
               {fieldError('categoryId') && <span id={fieldErrorId('categoryId')} className="field-error">{fieldError('categoryId')}</span>}
             </div>
             <div className={formGroupClass('priority', 'transaction-form-field transaction-form-field--compact')}>
-              <label>الأولوية *</label>
-              <select {...fieldProps('priority')} value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>
+              <label htmlFor="transaction-priority">الأولوية *</label>
+              <select id="transaction-priority" {...fieldProps('priority')} value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>
                 <option value="Normal">عادي</option>
                 <option value="Urgent">عاجل</option>
                 <option value="VeryUrgent">عاجل جداً</option>
@@ -640,8 +640,8 @@ export default function TransactionForm({ mode }: Props) {
               {fieldError('priority') && <span id={fieldErrorId('priority')} className="field-error">{fieldError('priority')}</span>}
             </div>
             <div className={formGroupClass('responseType', 'transaction-form-field transaction-form-field--medium')}>
-              <label>نوع الإفادة *</label>
-              <select {...fieldProps('responseType')} value={form.responseType} onChange={(e) => setForm({ ...form, responseType: e.target.value })}>
+              <label htmlFor="transaction-response-type">نوع الإفادة *</label>
+              <select id="transaction-response-type" {...fieldProps('responseType')} value={form.responseType} onChange={(e) => setForm({ ...form, responseType: e.target.value })}>
                 {mode === 'edit' && form.responseType === 'None' && (
                   <option value="None">لا تتطلب إفادة</option>
                 )}
@@ -652,8 +652,8 @@ export default function TransactionForm({ mode }: Props) {
               {fieldError('responseType') && <span id={fieldErrorId('responseType')} className="field-error">{fieldError('responseType')}</span>}
             </div>
             <div className={formGroupClass('responseDueDays', 'transaction-form-field transaction-form-field--compact')}>
-              <label>عدد الأيام للرد *</label>
-              <input {...fieldProps('responseDueDays')} type="number" min="1" value={form.responseDueDays}
+              <label htmlFor="transaction-response-due-days">عدد الأيام للرد *</label>
+              <input id="transaction-response-due-days" {...fieldProps('responseDueDays')} type="number" min="1" value={form.responseDueDays}
                 onChange={(e) => setForm({ ...form, responseDueDays: e.target.value })} />
               {fieldError('responseDueDays') && <span id={fieldErrorId('responseDueDays')} className="field-error">{fieldError('responseDueDays')}</span>}
               {computedResponseDueDate && (
@@ -686,8 +686,8 @@ export default function TransactionForm({ mode }: Props) {
               {fieldError('outgoingDepartmentIds') && <span id={fieldErrorId('outgoingDepartmentIds')} className="field-error">{fieldError('outgoingDepartmentIds')}</span>}
             </div>
             <div className={formGroupClass('outgoingNumber', 'transaction-form-field transaction-form-field--compact')}>
-              <label>رقم خطاب الإحالة للإدارة</label>
-              <input {...fieldProps('outgoingNumber')} value={form.outgoingNumber} onChange={(e) => setForm({ ...form, outgoingNumber: e.target.value })} />
+              <label htmlFor="outgoing-number">رقم خطاب الإحالة للإدارة</label>
+              <input id="outgoing-number" {...fieldProps('outgoingNumber')} value={form.outgoingNumber} onChange={(e) => setForm({ ...form, outgoingNumber: e.target.value })} />
               {fieldError('outgoingNumber') && <span id={fieldErrorId('outgoingNumber')} className="field-error">{fieldError('outgoingNumber')}</span>}
             </div>
             <div className={formGroupClass('outgoingDate', 'transaction-form-field transaction-form-field--compact')}>

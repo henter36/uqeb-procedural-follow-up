@@ -1221,6 +1221,12 @@ public class TransactionService : ITransactionService
 
     public async Task<AssignmentDto?> ReplyAssignmentAsync(int transactionId, int assignmentId, ReplyAssignmentRequest request, ICurrentUserService currentUser)
     {
+        if (request is null)
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                [nameof(ReplyAssignmentRequest)] = "بيانات طلب الرد مطلوبة."
+            });
+
         if (request.ReplyDate == default)
             throw new FieldValidationException(new Dictionary<string, string>
             {
