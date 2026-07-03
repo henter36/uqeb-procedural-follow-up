@@ -187,13 +187,13 @@ describe('FollowUpFormPanel', () => {
       />,
     );
 
-    await waitFor(() => expect(screen.getByLabelText(/تاريخ التعقيب/)).toBeInTheDocument());
-    const dateInput = screen.getByLabelText(/تاريخ التعقيب/);
+    await waitFor(() => expect(screen.getByLabelText('تاريخ التعقيب *')).toBeInTheDocument());
+    const dateInput = screen.getByLabelText('تاريخ التعقيب *');
     const originalDate = (dateInput as HTMLInputElement).value;
     onDirtyChange.mockClear();
 
     await user.clear(dateInput);
-    await user.type(dateInput, '1447/05/24');
+    await user.type(dateInput, '24/05/1447');
 
     await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(true));
 
@@ -224,10 +224,10 @@ describe('FollowUpFormPanel', () => {
       />,
     );
 
-    await waitFor(() => expect(screen.getByLabelText(/تاريخ التعقيب/)).toBeInTheDocument());
-    const dateInput = screen.getByLabelText(/تاريخ التعقيب/);
+    await waitFor(() => expect(screen.getByLabelText('تاريخ التعقيب *')).toBeInTheDocument());
+    const dateInput = screen.getByLabelText('تاريخ التعقيب *');
     await user.clear(dateInput);
-    await user.type(dateInput, '1448/01/16');
+    await user.type(dateInput, '16/01/1448');
     await user.click(screen.getByRole('button', { name: 'حفظ التعقيب' }));
 
     await waitFor(() => {

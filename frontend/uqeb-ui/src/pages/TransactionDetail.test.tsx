@@ -469,6 +469,7 @@ describe('TransactionDetailPage three-tab layout', () => {
     expect(within(card).getByTestId('assignment-form-panel')).toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText('الإدارة *'), '2');
+    await user.type(screen.getByLabelText('تاريخ الإحالة *'), '16/01/1448');
     await user.type(screen.getByLabelText('الإجراء المطلوب'), 'مراجعة');
     await user.click(screen.getByRole('button', { name: 'حفظ الاحالة' }));
 
@@ -966,6 +967,7 @@ describe('TransactionDetailPage card interaction flows', () => {
 
     await user.click(within(card).getByRole('button', { name: '+ إضافة احالة' }));
     await user.selectOptions(screen.getByLabelText('الإدارة *'), '2');
+    await user.type(screen.getByLabelText('تاريخ الإحالة *'), '16/01/1448');
     await user.type(screen.getByLabelText('الإجراء المطلوب'), 'مراجعة');
     await user.click(screen.getByRole('button', { name: 'حفظ الاحالة' }));
 
@@ -988,6 +990,7 @@ describe('TransactionDetailPage card interaction flows', () => {
 
     await user.click(within(card).getByRole('button', { name: '+ إضافة احالة' }));
     await user.selectOptions(screen.getByLabelText('الإدارة *'), '2');
+    await user.type(screen.getByLabelText('تاريخ الإحالة *'), '16/01/1448');
     await user.click(screen.getByRole('button', { name: 'حفظ الاحالة' }));
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
@@ -1042,6 +1045,7 @@ describe('TransactionDetailPage card interaction flows', () => {
 
     await user.click(within(card).getByRole('button', { name: '+ إضافة احالة' }));
     await user.selectOptions(screen.getByLabelText('الإدارة *'), '2');
+    await user.type(screen.getByLabelText('تاريخ الإحالة *'), '16/01/1448');
     await user.click(screen.getByRole('button', { name: 'حفظ الاحالة' }));
 
     await waitFor(() => expect(within(card).queryByTestId('assignment-form-panel')).not.toBeInTheDocument());
@@ -1437,6 +1441,7 @@ describe('TransactionDetailPage operational workspace', () => {
 
     await user.click(getActionBarButton('إضافة احالة'));
     await user.selectOptions(screen.getByLabelText('الإدارة *'), '2');
+    await user.type(screen.getByLabelText('تاريخ الإحالة *'), '16/01/1448');
     await user.type(screen.getByLabelText('الإجراء المطلوب'), 'مراجعة');
     await user.click(screen.getByRole('button', { name: 'حفظ الاحالة' }));
 

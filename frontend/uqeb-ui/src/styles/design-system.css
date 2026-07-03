@@ -915,6 +915,12 @@
   max-width: 180px;
 }
 
+.form-group .hijri-date-text-input {
+  direction: ltr;
+  text-align: left;
+  unicode-bidi: plaintext;
+}
+
 .filter-form input,
 .filter-form select {
   padding: var(--space-2) var(--space-3);

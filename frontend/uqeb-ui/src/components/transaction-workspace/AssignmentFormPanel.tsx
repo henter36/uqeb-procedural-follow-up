@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { Department } from '../../api/types';
 import { transactionsApi } from '../../api/services';
 import { buildCreateAssignmentPayload, getApiErrorMessage } from '../../utils/apiHelpers';
-import { addDaysIso, todayLocalIso } from '../../utils/localDate';
+import { addDaysIso } from '../../utils/localDate';
 import { Alert } from '../ui';
 import HijriDateInput from '../HijriDateInput';
 
@@ -18,7 +18,7 @@ type AssignmentFormState = {
 function createInitialAssignmentForm(defaultLetterNumber = ''): AssignmentFormState {
   return {
     departmentId: '',
-    assignedDate: todayLocalIso(),
+    assignedDate: '',
     letterNumber: defaultLetterNumber,
     requiredAction: '',
     replyDueDays: '',
@@ -64,7 +64,7 @@ export default function AssignmentFormPanel({
     onDirtyChange(isAssignmentFormDirty(form, initialFormRef.current));
   }, [form, onDirtyChange]);
 
-  const expectedDueDate = form.replyDueDays
+  const expectedDueDate = form.assignedDate && form.replyDueDays
     ? addDaysIso(form.assignedDate, Number(form.replyDueDays))
     : form.dueDate;
 
@@ -73,6 +73,10 @@ export default function AssignmentFormPanel({
     if (isSubmitting) return;
     if (form.departmentId && existingDepartmentIds.includes(Number(form.departmentId))) {
       setError('سبق احالة المعاملة إلى هذه الإدارة.');
+      return;
+    }
+    if (!form.assignedDate) {
+      setError('تاريخ الإحالة مطلوب.');
       return;
     }
     setError('');
@@ -90,7 +94,7 @@ export default function AssignmentFormPanel({
   const update = (patch: Partial<AssignmentFormState>) => setForm((prev) => ({ ...prev, ...patch }));
 
   return (
-    <form onSubmit={submit} className="workspace-form">
+    <form onSubmit={submit} className="workspace-form" noValidate>
       {error && <Alert variant="error">{error}</Alert>}
       {existingDepartmentIds.length > 0 && (
         <p className="text-muted workspace-form-hint">
@@ -117,7 +121,7 @@ export default function AssignmentFormPanel({
         <div className="form-group">
           <HijriDateInput
             id="assignment-date"
-            label="تاريخ الاحالة"
+            label="تاريخ الإحالة"
             required
             value={form.assignedDate}
             onChange={(assignedDate) => update({ assignedDate })}

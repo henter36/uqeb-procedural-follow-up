@@ -121,6 +121,8 @@ export default function HijriDateInput({
       <input
         id={id}
         type="text"
+        className="hijri-date-text-input"
+        dir="ltr"
         inputMode="numeric"
         placeholder="يوم/شهر/سنة"
         value={text}

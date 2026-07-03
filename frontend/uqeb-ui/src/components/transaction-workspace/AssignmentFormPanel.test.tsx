@@ -3,8 +3,6 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AssignmentFormPanel from './AssignmentFormPanel';
 import * as services from '../../api/services';
-import { formatHijriInputParts, gregorianToHijriParts } from '../../utils/hijriDateInput';
-import { todayLocalIso } from '../../utils/localDate';
 
 vi.mock('../../api/services', () => ({
   transactionsApi: {
@@ -43,9 +41,7 @@ describe('AssignmentFormPanel dirty state', () => {
     await waitFor(() => {
       expect(onDirtyChange).toHaveBeenCalledWith(false);
     });
-    const todayHijri = gregorianToHijriParts(todayLocalIso());
-    expect(todayHijri).not.toBeNull();
-    expect(screen.getByLabelText('تاريخ الاحالة *')).toHaveValue(formatHijriInputParts(todayHijri!));
+    expect(screen.getByLabelText('تاريخ الإحالة *')).toHaveValue('');
   });
 
   it('becomes dirty when assignedDate changes', async () => {
@@ -61,8 +57,7 @@ describe('AssignmentFormPanel dirty state', () => {
       />,
     );
 
-    const dateInput = screen.getByLabelText('تاريخ الاحالة *');
-    const originalDate = (dateInput as HTMLInputElement).value;
+    const dateInput = screen.getByLabelText('تاريخ الإحالة *');
     onDirtyChange.mockClear();
 
     await user.clear(dateInput);
@@ -72,9 +67,28 @@ describe('AssignmentFormPanel dirty state', () => {
 
     onDirtyChange.mockClear();
     await user.clear(dateInput);
-    await user.type(dateInput, originalDate);
 
     await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(false));
+  });
+
+  it('requires assignedDate before saving', async () => {
+    const user = userEvent.setup();
+    render(
+      <AssignmentFormPanel
+        transactionId={1}
+        departments={departments}
+        existingDepartmentIds={[]}
+        onDirtyChange={onDirtyChange}
+        onSuccess={onSuccess}
+        onCancel={onCancel}
+      />,
+    );
+
+    await user.selectOptions(screen.getByLabelText('الإدارة *'), '1');
+    await user.click(screen.getByRole('button', { name: 'حفظ الاحالة' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('تاريخ الإحالة مطلوب.');
+    expect(services.transactionsApi.addAssignment).not.toHaveBeenCalled();
   });
 
   it('prefills letter number from transaction outgoing number', () => {

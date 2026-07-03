@@ -1145,6 +1145,12 @@ public class TransactionService : ITransactionService
         var dept = await _db.Departments.FindAsync(request.DepartmentId)
             ?? throw new InvalidOperationException("الإدارة غير موجودة");
 
+        if (request.AssignedDate == default)
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                [nameof(CreateAssignmentRequest.AssignedDate)] = "تاريخ الإحالة مطلوب."
+            });
+
         var assignedDate = NormalizeDateOnlyUtc(request.AssignedDate);
         var requestedDueDate = request.DueDate.HasValue
             ? NormalizeDateOnlyUtc(request.DueDate.Value)

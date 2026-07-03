@@ -308,6 +308,28 @@ public class TransactionWorkflowAtomicityTests
     }
 
     [Fact]
+    public async Task AddAssignmentAsync_missing_assigned_date_returns_field_validation()
+    {
+        var (service, _, counter, cache) = await CreateServiceAsync(nameof(AddAssignmentAsync_missing_assigned_date_returns_field_validation));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        counter.Reset();
+        cache.ResetInvalidations();
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() =>
+            service.AddAssignmentAsync(created!.Id, new CreateAssignmentRequest
+            {
+                DepartmentId = 11,
+                AssignedDate = default,
+                RequiredAction = "متابعة",
+                ReplyDueDays = 5
+            }, userId: 1));
+
+        Assert.Equal("تاريخ الإحالة مطلوب.", ex.FieldErrors[nameof(CreateAssignmentRequest.AssignedDate)]);
+        Assert.Equal(0, cache.TransactionChangeInvalidations);
+        Assert.Equal(0, counter.Count);
+    }
+
+    [Fact]
     public async Task ReplyAssignmentAsync_authorization_failure_does_not_invalidate_cache()
     {
         var (service, _, counter, cache) = await CreateServiceAsync(nameof(ReplyAssignmentAsync_authorization_failure_does_not_invalidate_cache));

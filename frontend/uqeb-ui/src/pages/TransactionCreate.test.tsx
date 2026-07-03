@@ -31,6 +31,11 @@ function getIncomingSection() {
   return heading.closest('section') as HTMLElement;
 }
 
+function getRoutingSection() {
+  const heading = screen.getAllByRole('heading', { name: 'بيانات التوجيه والإرسال الداخلي' })[0];
+  return heading.closest('section') as HTMLElement;
+}
+
 function getFieldInSection(section: HTMLElement, labelText: string) {
   const label = within(section).getByText(labelText, { selector: 'label' });
   const group = label.closest('.form-group');
@@ -69,6 +74,15 @@ describe('TransactionCreate', () => {
     expect(getFieldInSection(getIncomingSection(), 'تاريخ المعاملة *')).toHaveValue('');
   });
 
+  it('shows assignment letter labels and keeps assignment date empty', async () => {
+    renderCreateForm();
+    await waitForFormReady();
+
+    const routingSection = getRoutingSection();
+    expect(getFieldInSection(routingSection, 'رقم خطاب الإحالة للإدارة')).toBeInTheDocument();
+    expect(getFieldInSection(routingSection, 'تاريخ الإحالة')).toHaveValue('');
+  });
+
   it('shows Arabic validation when saving without transaction date', async () => {
     const user = userEvent.setup();
     renderCreateForm();
@@ -85,6 +99,28 @@ describe('TransactionCreate', () => {
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
 
     expect(screen.getByRole('alert')).toHaveTextContent('تاريخ المعاملة مطلوب.');
+    expect(services.transactionsApi.create).not.toHaveBeenCalled();
+  });
+
+  it('requires assignment date when referral letter number is entered', async () => {
+    const user = userEvent.setup();
+    renderCreateForm();
+    await waitForFormReady();
+
+    const incomingSection = getIncomingSection();
+    const routingSection = getRoutingSection();
+    await user.type(getFieldInSection(incomingSection, 'رقم المعاملة *'), 'IN-100');
+    await user.type(getFieldInSection(incomingSection, 'تاريخ المعاملة *'), '16/01/1448');
+    await user.type(getFieldInSection(incomingSection, 'الموضوع *'), 'اختبار');
+    await user.click(screen.getByRole('combobox', { name: /الجهة الوارد منها/ }));
+    await user.click(screen.getByRole('option', { name: /جهة خارجية أ/ }));
+    await user.click(screen.getByRole('combobox', { name: /التصنيف/ }));
+    await user.click(screen.getByRole('option', { name: /تصنيف عام/ }));
+    await user.type(getFieldInSection(incomingSection, 'عدد الأيام للرد *'), '7');
+    await user.type(getFieldInSection(routingSection, 'رقم خطاب الإحالة للإدارة'), 'OUT-100');
+    await user.click(screen.getByRole('button', { name: 'حفظ' }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('تاريخ الإحالة مطلوب عند إدخال رقم خطاب الإحالة للإدارة.');
     expect(services.transactionsApi.create).not.toHaveBeenCalled();
   });
 });

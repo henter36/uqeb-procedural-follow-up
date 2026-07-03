@@ -45,10 +45,10 @@ type TransactionValidationRule = {
   message: string;
 };
 
-const OUTGOING_HINT = 'بيانات الصادر غير إلزامية، ولكن يجب إكمالها عند البدء بتعبئتها.';
-const OUTGOING_PARTIAL_ERROR = 'عند إدخال أي بيان من بيانات الصادر يجب إكمال رقم الصادر وتاريخ الصادر والإدارة الصادر لها.';
+const OUTGOING_HINT = 'بيانات الإحالة غير إلزامية، ولكن يجب إكمالها عند البدء بتعبئتها.';
+const OUTGOING_PARTIAL_ERROR = 'عند إدخال أي بيان من بيانات الإحالة يجب إكمال رقم خطاب الإحالة للإدارة وتاريخ الإحالة والإدارة الموجه لها.';
 const OUTGOING_DEPARTMENT_ERROR = 'اختر جهة داخلية واحدة على الأقل.';
-const OUTGOING_DATE_REQUIRED_WITH_NUMBER_ERROR = 'تاريخ الصادر مطلوب عند إدخال رقم الصادر.';
+const OUTGOING_DATE_REQUIRED_WITH_NUMBER_ERROR = 'تاريخ الإحالة مطلوب عند إدخال رقم خطاب الإحالة للإدارة.';
 // These mappings keep backend validation keys aligned with TransactionForm field names and error display order.
 // Update them when transaction DTO validation fields or form field names change.
 const FIELD_ORDER = [
@@ -197,8 +197,8 @@ function getTransactionValidationRules(form: TransactionFormState, mode: Props['
     { field: 'outgoingNumber', isInvalid: isMissingOutgoingNumber(form, hasPartialOutgoingData), message: OUTGOING_PARTIAL_ERROR },
     { field: 'outgoingDate', isInvalid: isMissingOutgoingDate(form, hasPartialOutgoingData), message: OUTGOING_PARTIAL_ERROR },
     { field: 'outgoingDate', isInvalid: isMissingOutgoingDateForNumber(form), message: OUTGOING_DATE_REQUIRED_WITH_NUMBER_ERROR },
-    { field: 'outgoingDate', isInvalid: isFutureDate(form.outgoingDate), message: 'تاريخ الصادر لا يمكن أن يكون بعد تاريخ اليوم.' },
-    { field: 'outgoingDate', isInvalid: isOutgoingBeforeIncoming(form), message: 'تاريخ الصادر لا يمكن أن يكون قبل تاريخ المعاملة.' },
+    { field: 'outgoingDate', isInvalid: isFutureDate(form.outgoingDate), message: 'تاريخ الإحالة لا يمكن أن يكون بعد تاريخ اليوم.' },
+    { field: 'outgoingDate', isInvalid: isOutgoingBeforeIncoming(form), message: 'تاريخ الإحالة لا يمكن أن يكون قبل تاريخ المعاملة.' },
     { field: 'outgoingDepartmentIds', isInvalid: isMissingOutgoingDepartments(form, hasPartialOutgoingData), message: OUTGOING_DEPARTMENT_ERROR },
     { field: 'responseType', isInvalid: isMissingResponseType(form, mode), message: 'نوع الإفادة مطلوب.' },
     { field: 'responseDueDays', isInvalid: isMissingResponseDueDays(form), message: 'عدد أيام الرد مطلوب عند طلب إفادة.' },
@@ -689,14 +689,14 @@ export default function TransactionForm({ mode }: Props) {
               {fieldError('outgoingDepartmentIds') && <span id={fieldErrorId('outgoingDepartmentIds')} className="field-error">{fieldError('outgoingDepartmentIds')}</span>}
             </div>
             <div className={formGroupClass('outgoingNumber', 'transaction-form-field transaction-form-field--compact')}>
-              <label>رقم الصادر</label>
+              <label>رقم خطاب الإحالة للإدارة</label>
               <input {...fieldProps('outgoingNumber')} value={form.outgoingNumber} onChange={(e) => setForm({ ...form, outgoingNumber: e.target.value })} />
               {fieldError('outgoingNumber') && <span id={fieldErrorId('outgoingNumber')} className="field-error">{fieldError('outgoingNumber')}</span>}
             </div>
             <div className={formGroupClass('outgoingDate', 'transaction-form-field transaction-form-field--compact')}>
               <HijriDateInput
                 id="outgoing-date"
-                label="تاريخ الصادر"
+                label="تاريخ الإحالة"
                 value={form.outgoingDate}
                 onChange={(outgoingDate) => setForm({ ...form, outgoingDate })}
                 invalid={Boolean(fieldError('outgoingDate'))}

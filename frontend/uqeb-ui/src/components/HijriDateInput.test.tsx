@@ -19,6 +19,8 @@ describe('HijriDateInput', () => {
     await user.type(input, 'ab01011447cd');
 
     expect(input).toHaveValue('01/01/1447');
+    expect(input).toHaveAttribute('dir', 'ltr');
+    expect(input).toHaveClass('hijri-date-text-input');
   });
 
   it('exposes a calendar picker while keeping manual input available', async () => {
