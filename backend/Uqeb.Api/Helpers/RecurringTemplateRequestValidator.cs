@@ -55,7 +55,7 @@ public static class RecurringTemplateRequestValidator
     {
         if (string.IsNullOrWhiteSpace(request.RecurrenceType) ||
             !Enum.TryParse<RecurrenceType>(request.RecurrenceType, true, out _))
-            errors[nameof(request.RecurrenceType)] = "نوع التكرار مطلوب ويجب أن يكون شهري أو ربع سنوي.";
+            errors[nameof(request.RecurrenceType)] = "نوع التكرار مطلوب ويجب أن يكون شهري أو ربع سنوي أو نصف سنوي أو سنوي.";
 
         if (!request.DueDaysAfterPeriodEnd.HasValue ||
             request.DueDaysAfterPeriodEnd.Value < 0 ||
@@ -65,6 +65,10 @@ public static class RecurringTemplateRequestValidator
         if (request.DefaultReplyDueDays.HasValue &&
             (request.DefaultReplyDueDays.Value < 0 || request.DefaultReplyDueDays.Value > MaxDueDaysAfterPeriodEnd))
             errors[nameof(request.DefaultReplyDueDays)] = "عدد أيام الرد يجب أن يكون بين 0 و365.";
+
+        if (!string.IsNullOrWhiteSpace(request.NextTransactionCreationMethod) &&
+            !Enum.TryParse<RecurringNextTransactionCreationMethod>(request.NextTransactionCreationMethod, true, out _))
+            errors[nameof(request.NextTransactionCreationMethod)] = "طريقة إنشاء المعاملة التالية غير صحيحة.";
     }
 
     private static void ValidateDateRange(CreateRecurringTemplateRequest request, Dictionary<string, string> errors)

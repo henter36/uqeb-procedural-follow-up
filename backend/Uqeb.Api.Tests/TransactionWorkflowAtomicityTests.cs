@@ -143,7 +143,8 @@ public class TransactionWorkflowAtomicityTests
             db,
             new AuditService(db),
             new StubTrackingNumberService(),
-            cache);
+            cache,
+            new RecurringTransactionTemplateService(db, new AuditService(db), new StubTrackingNumberService()));
 
         return (service, db, counter, cache);
     }

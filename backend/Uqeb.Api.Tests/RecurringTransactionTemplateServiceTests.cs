@@ -107,6 +107,65 @@ public class RecurringTransactionTemplateServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_defaults_NextTransactionCreationMethod_to_Manual_when_not_provided()
+    {
+        var (service, _) = await CreateServiceAsync(nameof(CreateAsync_defaults_NextTransactionCreationMethod_to_Manual_when_not_provided));
+        var request = ValidMonthlyRequest();
+        request.NextTransactionCreationMethod = null;
+
+        var result = await service.CreateAsync(request, userId: 1);
+
+        Assert.Equal("Manual", result.NextTransactionCreationMethod);
+    }
+
+    [Fact]
+    public async Task CreateAsync_accepts_explicit_AutomaticOnClose_NextTransactionCreationMethod()
+    {
+        var (service, _) = await CreateServiceAsync(nameof(CreateAsync_accepts_explicit_AutomaticOnClose_NextTransactionCreationMethod));
+        var request = ValidMonthlyRequest();
+        request.NextTransactionCreationMethod = "AutomaticOnClose";
+
+        var result = await service.CreateAsync(request, userId: 1);
+
+        Assert.Equal("AutomaticOnClose", result.NextTransactionCreationMethod);
+    }
+
+    [Fact]
+    public async Task CreateAsync_rejects_invalid_NextTransactionCreationMethod()
+    {
+        var (service, _) = await CreateServiceAsync(nameof(CreateAsync_rejects_invalid_NextTransactionCreationMethod));
+        var request = ValidMonthlyRequest();
+        request.NextTransactionCreationMethod = "SomethingElse";
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.CreateAsync(request, userId: 1));
+        Assert.True(ex.FieldErrors.ContainsKey(nameof(request.NextTransactionCreationMethod)));
+    }
+
+    [Fact]
+    public async Task CreateAsync_supports_SemiAnnual_recurrence()
+    {
+        var (service, _) = await CreateServiceAsync(nameof(CreateAsync_supports_SemiAnnual_recurrence));
+        var request = ValidMonthlyRequest();
+        request.RecurrenceType = "SemiAnnual";
+
+        var result = await service.CreateAsync(request, userId: 1);
+
+        Assert.Equal("SemiAnnual", result.RecurrenceType);
+    }
+
+    [Fact]
+    public async Task CreateAsync_supports_Annual_recurrence()
+    {
+        var (service, _) = await CreateServiceAsync(nameof(CreateAsync_supports_Annual_recurrence));
+        var request = ValidMonthlyRequest();
+        request.RecurrenceType = "Annual";
+
+        var result = await service.CreateAsync(request, userId: 1);
+
+        Assert.Equal("Annual", result.RecurrenceType);
+    }
+
+    [Fact]
     public async Task CreateAsync_creates_quarterly_template()
     {
         var (service, _) = await CreateServiceAsync(nameof(CreateAsync_creates_quarterly_template));

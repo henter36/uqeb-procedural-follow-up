@@ -579,6 +579,80 @@ describe('TransactionForm searchable selects', () => {
   });
 });
 
+describe('TransactionForm recurring follow-up', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockReferenceData();
+  });
+
+  it('TransactionForm_RecurringOptionUncheckedByDefault', async () => {
+    renderCreateForm();
+    await waitForFormReady();
+
+    const checkbox = screen.getByRole('checkbox', { name: /هذه المعاملة ذات التزام دوري/ });
+    expect(checkbox).not.toBeChecked();
+    expect(screen.queryByLabelText('نوع التكرار *')).not.toBeInTheDocument();
+    expect(screen.queryByText(/بداية الالتزام/)).not.toBeInTheDocument();
+  });
+
+  it('reveals recurring fields only after the option is checked', async () => {
+    const user = userEvent.setup();
+    renderCreateForm();
+    await waitForFormReady();
+
+    expect(screen.queryByLabelText('نوع التكرار *')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('checkbox', { name: /هذه المعاملة ذات التزام دوري/ }));
+
+    expect(screen.getByLabelText('نوع التكرار *')).toBeInTheDocument();
+    expect(screen.getByText(/بداية الالتزام/)).toBeInTheDocument();
+    expect(screen.getByLabelText('عدد الأيام بعد نهاية الفترة للاستحقاق *')).toBeInTheDocument();
+  });
+
+  it('CreateTransaction_DoesNotSendRecurringFieldsWhenOptionIsUnchecked', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.create).mockResolvedValue({ data: { id: 99 } } as never);
+
+    renderCreateForm();
+    await waitForFormReady();
+    await fillValidCreateForm(user);
+    await user.click(screen.getByRole('button', { name: 'حفظ' }));
+
+    await waitFor(() => expect(services.transactionsApi.create).toHaveBeenCalled());
+    const payload = vi.mocked(services.transactionsApi.create).mock.calls[0][0] as Record<string, unknown>;
+    expect(payload.enableRecurringFollowUp).toBe(false);
+    expect(payload.recurringRecurrenceType).toBeNull();
+    expect(payload.recurringStartDate).toBeNull();
+    expect(payload.recurringDueDaysAfterPeriodEnd).toBeNull();
+  });
+
+  it('sends recurring fields in the create payload once enabled and filled in', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.create).mockResolvedValue({ data: { id: 99 } } as never);
+
+    renderCreateForm();
+    await waitForFormReady();
+    await fillValidCreateForm(user);
+
+    const outgoingSection = getOutgoingSection();
+    await user.type(getFieldInSection(outgoingSection, 'رقم خطاب الإحالة للإدارة'), 'OUT-100');
+    await user.type(getFieldInSection(outgoingSection, 'تاريخ الإحالة'), hijriInputForGregorian(todayLocalIso()));
+    const routingSection = await openOutgoingDepartmentsDropdown(user);
+    await user.click(within(routingSection).getByLabelText('إدارة داخلية'));
+
+    await user.click(screen.getByRole('checkbox', { name: /هذه المعاملة ذات التزام دوري/ }));
+    await user.type(screen.getByLabelText('بداية الالتزام *'), hijriInputForGregorian('2026-06-01'));
+    await user.type(screen.getByLabelText('عدد الأيام بعد نهاية الفترة للاستحقاق *'), '10');
+    await user.click(screen.getByRole('button', { name: 'حفظ' }));
+
+    await waitFor(() => expect(services.transactionsApi.create).toHaveBeenCalled());
+    const payload = vi.mocked(services.transactionsApi.create).mock.calls[0][0] as Record<string, unknown>;
+    expect(payload.enableRecurringFollowUp).toBe(true);
+    expect(payload.recurringRecurrenceType).toBe('Monthly');
+    expect(payload.recurringDueDaysAfterPeriodEnd).toBe(10);
+  });
+});
+
 describe('TransactionForm validation feedback', () => {
   beforeEach(() => {
     vi.clearAllMocks();

@@ -11,21 +11,28 @@ import type {
 import { getApiErrorMessage, getFieldErrors, toNullableNumber, toNullableString, toIsoDate } from '../utils/apiHelpers';
 import { formatGregorian } from '../utils/dateUtils';
 import { FUTURE_EVENT_DATE_MESSAGE, isFutureLocalDate } from '../utils/localDate';
-import { buildMonthlyPeriodKey, buildQuarterlyPeriodKey, getExpectedDueDate, getPeriodLabel } from '../utils/recurringPeriod';
+import {
+  buildMonthlyPeriodKey, buildQuarterlyPeriodKey, buildSemiAnnualPeriodKey, buildAnnualPeriodKey,
+  getExpectedDueDate, getPeriodLabel,
+} from '../utils/recurringPeriod';
 import HijriDateInput from '../components/HijriDateInput';
 import MultiSelect from '../components/MultiSelect';
 import SearchableSelect, { type SelectOption } from '../components/SearchableSelect';
 import { FormModal } from '../components/ReferenceDataFormModal';
 import { PageHeader, Alert, LoadingInline } from '../components/ui';
 
-const RECURRENCE_LABELS: Record<string, string> = { Monthly: 'شهري', Quarterly: 'ربع سنوي' };
+const RECURRENCE_LABELS: Record<string, string> = {
+  Monthly: 'شهري', Quarterly: 'ربع سنوي', SemiAnnual: 'نصف سنوي', Annual: 'سنوي',
+};
 const STATUS_LABELS: Record<string, string> = { Active: 'نشط', Paused: 'موقوف', Terminated: 'منتهٍ' };
 const STATUS_CLASS: Record<string, string> = { Active: 'badge-green', Paused: 'badge-yellow', Terminated: 'badge-gray' };
+
+type TemplateRecurrenceType = 'Monthly' | 'Quarterly' | 'SemiAnnual' | 'Annual';
 
 type TemplateFormState = {
   title: string;
   subjectTemplate: string;
-  recurrenceType: 'Monthly' | 'Quarterly';
+  recurrenceType: TemplateRecurrenceType;
   startDate: string;
   endDate: string;
   incomingSourceType: 'External' | 'Internal';
@@ -40,6 +47,7 @@ type TemplateFormState = {
   defaultReplyDueDays: string | number;
   notes: string;
   departmentIds: number[];
+  nextTransactionCreationMethod: 'Manual' | 'AutomaticOnClose';
 };
 
 function createInitialTemplateForm(): TemplateFormState {
@@ -61,6 +69,7 @@ function createInitialTemplateForm(): TemplateFormState {
     defaultReplyDueDays: '',
     notes: '',
     departmentIds: [],
+    nextTransactionCreationMethod: 'Manual',
   };
 }
 
@@ -69,7 +78,9 @@ function buildTemplateFormState(t: RecurringTemplateDetail): TemplateFormState {
   return {
     title: t.title,
     subjectTemplate: t.subjectTemplate,
-    recurrenceType: t.recurrenceType === 'Quarterly' ? 'Quarterly' : 'Monthly',
+    recurrenceType: (['Monthly', 'Quarterly', 'SemiAnnual', 'Annual'] as const).includes(t.recurrenceType as TemplateRecurrenceType)
+      ? (t.recurrenceType as TemplateRecurrenceType)
+      : 'Monthly',
     startDate: t.startDate.split('T')[0],
     endDate: t.endDate ? t.endDate.split('T')[0] : '',
     incomingSourceType: isInternal ? 'Internal' : 'External',
@@ -84,6 +95,7 @@ function buildTemplateFormState(t: RecurringTemplateDetail): TemplateFormState {
     defaultReplyDueDays: t.defaultReplyDueDays ?? '',
     notes: t.notes ?? '',
     departmentIds: t.departments.map((d) => d.departmentId),
+    nextTransactionCreationMethod: t.nextTransactionCreationMethod === 'AutomaticOnClose' ? 'AutomaticOnClose' : 'Manual',
   };
 }
 
@@ -107,6 +119,7 @@ function buildTemplatePayload(form: TemplateFormState) {
     defaultReplyDueDays: toNullableNumber(form.defaultReplyDueDays),
     notes: toNullableString(form.notes),
     departmentIds: form.departmentIds,
+    nextTransactionCreationMethod: form.nextTransactionCreationMethod,
   };
 }
 
@@ -114,37 +127,55 @@ type GenerateFormState = {
   monthValue: string;
   quarterYear: string;
   quarterNumber: '1' | '2' | '3' | '4';
+  halfYear: string;
+  halfNumber: '1' | '2';
+  annualYear: string;
   incomingDate: string;
   referralDate: string;
   referralLetterNumber: string;
 };
 
 function createInitialGenerateForm(nextPeriodKey: string, recurrenceType: string): GenerateFormState {
-  if (recurrenceType === 'Quarterly') {
-    const match = /^(\d{4})-Q([1-4])$/.exec(nextPeriodKey);
-    return {
-      monthValue: '',
-      quarterYear: match ? match[1] : String(new Date().getFullYear()),
-      quarterNumber: (match ? match[2] : '1') as GenerateFormState['quarterNumber'],
-      incomingDate: '',
-      referralDate: '',
-      referralLetterNumber: '',
-    };
-  }
-  return {
-    monthValue: nextPeriodKey || '',
-    quarterYear: String(new Date().getFullYear()),
+  const currentYear = String(new Date().getFullYear());
+  const base: GenerateFormState = {
+    monthValue: '',
+    quarterYear: currentYear,
     quarterNumber: '1',
+    halfYear: currentYear,
+    halfNumber: '1',
+    annualYear: currentYear,
     incomingDate: '',
     referralDate: '',
     referralLetterNumber: '',
   };
+  if (recurrenceType === 'Quarterly') {
+    const match = /^(\d{4})-Q([1-4])$/.exec(nextPeriodKey);
+    return {
+      ...base,
+      quarterYear: match ? match[1] : currentYear,
+      quarterNumber: (match ? match[2] : '1') as GenerateFormState['quarterNumber'],
+    };
+  }
+  if (recurrenceType === 'SemiAnnual') {
+    const match = /^(\d{4})-H([1-2])$/.exec(nextPeriodKey);
+    return {
+      ...base,
+      halfYear: match ? match[1] : currentYear,
+      halfNumber: (match ? match[2] : '1') as GenerateFormState['halfNumber'],
+    };
+  }
+  if (recurrenceType === 'Annual') {
+    const match = /^(\d{4})$/.exec(nextPeriodKey);
+    return { ...base, annualYear: match ? match[1] : currentYear };
+  }
+  return { ...base, monthValue: nextPeriodKey || '' };
 }
 
 function getPeriodKeyFromGenerateForm(form: GenerateFormState, recurrenceType: string): string {
-  return recurrenceType === 'Quarterly'
-    ? buildQuarterlyPeriodKey(Number(form.quarterYear), Number(form.quarterNumber))
-    : buildMonthlyPeriodKey(form.monthValue);
+  if (recurrenceType === 'Quarterly') return buildQuarterlyPeriodKey(Number(form.quarterYear), Number(form.quarterNumber));
+  if (recurrenceType === 'SemiAnnual') return buildSemiAnnualPeriodKey(Number(form.halfYear), Number(form.halfNumber));
+  if (recurrenceType === 'Annual') return buildAnnualPeriodKey(Number(form.annualYear));
+  return buildMonthlyPeriodKey(form.monthValue);
 }
 
 export default function RecurringTemplatesPage() {
@@ -212,6 +243,10 @@ export default function RecurringTemplatesPage() {
     const viewTransactions = searchParams.get('viewTransactions');
     if (viewTransactions) {
       void openTransactionsPanel(Number(viewTransactions));
+    }
+    const generate = searchParams.get('generate');
+    if (generate) {
+      void openGenerateModal(Number(generate));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
@@ -679,6 +714,8 @@ function TemplateFormModal({
         >
           <option value="Monthly">شهري</option>
           <option value="Quarterly">ربع سنوي</option>
+          <option value="SemiAnnual">نصف سنوي</option>
+          <option value="Annual">سنوي</option>
         </select>
         {fieldError('RecurrenceType') && <span className="field-error">{fieldError('RecurrenceType')}</span>}
       </div>
@@ -830,6 +867,29 @@ function TemplateFormModal({
       </div>
 
       <div className="form-group">
+        <span className="form-label">طريقة إنشاء المعاملة التالية</span>
+        <div className="radio-group">
+          <label className="radio-label">
+            <input
+              type="radio"
+              checked={form.nextTransactionCreationMethod === 'Manual'}
+              onChange={() => setForm({ ...form, nextTransactionCreationMethod: 'Manual' })}
+            />
+            <span>يدويًا من شاشة الالتزامات الدورية</span>
+          </label>
+          <label className="radio-label">
+            <input
+              type="radio"
+              checked={form.nextTransactionCreationMethod === 'AutomaticOnClose'}
+              onChange={() => setForm({ ...form, nextTransactionCreationMethod: 'AutomaticOnClose' })}
+            />
+            <span>تلقائيًا عند إغلاق المعاملة الحالية</span>
+          </label>
+        </div>
+        {fieldError('NextTransactionCreationMethod') && <span className="field-error">{fieldError('NextTransactionCreationMethod')}</span>}
+      </div>
+
+      <div className="form-group">
         <label htmlFor="template-notes">ملاحظات</label>
         <textarea id="template-notes" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
       </div>
@@ -855,6 +915,8 @@ function GeneratePeriodModal({
   onClose: () => void;
 }>) {
   const isQuarterly = template.recurrenceType === 'Quarterly';
+  const isSemiAnnual = template.recurrenceType === 'SemiAnnual';
+  const isAnnual = template.recurrenceType === 'Annual';
 
   if (success) {
     return (
@@ -889,7 +951,7 @@ function GeneratePeriodModal({
 
       <div className="form-group">
         <span className="form-label">الفترة المراد توليدها *</span>
-        {isQuarterly ? (
+        {isQuarterly && (
           <div className="flex-row">
             <select
               aria-label="السنة"
@@ -911,7 +973,40 @@ function GeneratePeriodModal({
               <option value="4">الربع الرابع</option>
             </select>
           </div>
-        ) : (
+        )}
+        {isSemiAnnual && (
+          <div className="flex-row">
+            <select
+              aria-label="السنة"
+              value={form.halfYear}
+              onChange={(e) => setForm({ ...form, halfYear: e.target.value })}
+            >
+              {Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+            <select
+              aria-label="النصف"
+              value={form.halfNumber}
+              onChange={(e) => setForm({ ...form, halfNumber: e.target.value as GenerateFormState['halfNumber'] })}
+            >
+              <option value="1">النصف الأول</option>
+              <option value="2">النصف الثاني</option>
+            </select>
+          </div>
+        )}
+        {isAnnual && (
+          <select
+            aria-label="السنة"
+            value={form.annualYear}
+            onChange={(e) => setForm({ ...form, annualYear: e.target.value })}
+          >
+            {Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+        )}
+        {!isQuarterly && !isSemiAnnual && !isAnnual && (
           <input
             type="month"
             aria-label="الشهر"

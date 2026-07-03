@@ -89,7 +89,8 @@ public class TransactionReadSideEffectTests
             db,
             new AuditService(db),
             new StubTrackingNumberService(),
-            new TestCacheInvalidation());
+            new TestCacheInvalidation(),
+            new RecurringTransactionTemplateService(db, new AuditService(db), new StubTrackingNumberService()));
 
         return (service, db, counter);
     }

@@ -242,7 +242,8 @@ public class TransactionPersistenceSqlServerIntegrationTests
                 db,
                 new AuditService(db),
                 trackingService,
-                new TestCacheInvalidation());
+                new TestCacheInvalidation(),
+                new RecurringTransactionTemplateService(db, new AuditService(db), new CollisionThenUniqueTrackingService()));
 
             var created = await service.CreateAsync(
                 BuildCreateRequest(seed, seed.DepartmentAId, seed.DepartmentBId),

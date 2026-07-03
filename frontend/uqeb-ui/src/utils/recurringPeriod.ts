@@ -4,6 +4,7 @@ const ARABIC_MONTH_NAMES = [
 ];
 
 const ARABIC_QUARTER_ORDINALS = ['الأول', 'الثاني', 'الثالث', 'الرابع'];
+const ARABIC_HALF_ORDINALS = ['الأول', 'الثاني'];
 
 function parseYearMonth(periodKey: string): { year: number; month: number } | null {
   const match = /^(\d{4})-(\d{2})$/.exec(periodKey);
@@ -20,12 +21,32 @@ function parseYearQuarter(periodKey: string): { year: number; quarter: number } 
   return { year: Number(match[1]), quarter: Number(match[2]) };
 }
 
+function parseYearHalf(periodKey: string): { year: number; half: number } | null {
+  const match = /^(\d{4})-[Hh]([1-2])$/.exec(periodKey);
+  if (!match) return null;
+  return { year: Number(match[1]), half: Number(match[2]) };
+}
+
+function parseYearOnly(periodKey: string): { year: number } | null {
+  const match = /^(\d{4})$/.exec(periodKey);
+  if (!match) return null;
+  return { year: Number(match[1]) };
+}
+
 export function buildMonthlyPeriodKey(monthInputValue: string): string {
   return monthInputValue;
 }
 
 export function buildQuarterlyPeriodKey(year: number, quarter: number): string {
   return `${year}-Q${quarter}`;
+}
+
+export function buildSemiAnnualPeriodKey(year: number, half: number): string {
+  return `${year}-H${half}`;
+}
+
+export function buildAnnualPeriodKey(year: number): string {
+  return `${year}`;
 }
 
 export function getPeriodLabel(recurrenceType: string, periodKey: string): string {
@@ -38,6 +59,16 @@ export function getPeriodLabel(recurrenceType: string, periodKey: string): strin
     const parsed = parseYearQuarter(periodKey);
     if (!parsed) return periodKey;
     return `الربع ${ARABIC_QUARTER_ORDINALS[parsed.quarter - 1]} ${parsed.year}`;
+  }
+  if (recurrenceType === 'SemiAnnual') {
+    const parsed = parseYearHalf(periodKey);
+    if (!parsed) return periodKey;
+    return `النصف ${ARABIC_HALF_ORDINALS[parsed.half - 1]} ${parsed.year}`;
+  }
+  if (recurrenceType === 'Annual') {
+    const parsed = parseYearOnly(periodKey);
+    if (!parsed) return periodKey;
+    return `سنة ${parsed.year}`;
   }
   return periodKey;
 }
@@ -62,6 +93,15 @@ export function getExpectedDueDate(
       const endMonth = parsed.quarter * 3;
       periodEnd = lastDayOfMonth(parsed.year, endMonth);
     }
+  } else if (recurrenceType === 'SemiAnnual') {
+    const parsed = parseYearHalf(periodKey);
+    if (parsed) {
+      const endMonth = parsed.half * 6;
+      periodEnd = lastDayOfMonth(parsed.year, endMonth);
+    }
+  } else if (recurrenceType === 'Annual') {
+    const parsed = parseYearOnly(periodKey);
+    if (parsed) periodEnd = lastDayOfMonth(parsed.year, 12);
   }
 
   if (!periodEnd) return null;

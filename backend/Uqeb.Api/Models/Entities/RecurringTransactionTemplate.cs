@@ -23,6 +23,7 @@ public class RecurringTransactionTemplate
     public int? DefaultReplyDueDays { get; set; }
     public string? Notes { get; set; }
     public string? LastGeneratedPeriodKey { get; set; }
+    public RecurringNextTransactionCreationMethod NextTransactionCreationMethod { get; set; } = RecurringNextTransactionCreationMethod.Manual;
     public int CreatedById { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }

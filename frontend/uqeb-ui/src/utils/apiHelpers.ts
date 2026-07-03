@@ -31,6 +31,12 @@ type TransactionFormPayload = {
   priority: string;
   categoryId: string | number | null;
   notes: string;
+  enableRecurringFollowUp?: boolean;
+  recurringRecurrenceType?: string;
+  recurringStartDate?: string;
+  recurringEndDate?: string;
+  recurringDueDaysAfterPeriodEnd?: string | number | null;
+  recurringNextTransactionCreationMethod?: string;
 };
 
 function buildIncomingFields(form: Pick<TransactionFormPayload, 'incomingSourceType' | 'incomingFromPartyId' | 'incomingFromDepartmentId'>) {
@@ -46,6 +52,7 @@ export function buildCreateTransactionPayload(form: TransactionFormPayload) {
   const hasOutgoing = Boolean(
     form.outgoingNumber.trim() || form.outgoingDate || form.outgoingDepartmentIds.length > 0
   );
+  const isRecurring = form.enableRecurringFollowUp ?? false;
   return {
     incomingNumber: form.incomingNumber.trim(),
     incomingDate: toIsoDate(form.incomingDate),
@@ -59,6 +66,14 @@ export function buildCreateTransactionPayload(form: TransactionFormPayload) {
     priority: form.priority,
     categoryId: toNullableNumber(form.categoryId),
     notes: toNullableString(form.notes),
+    enableRecurringFollowUp: isRecurring,
+    recurringRecurrenceType: isRecurring ? toNullableString(form.recurringRecurrenceType ?? null) : null,
+    recurringStartDate: isRecurring ? toIsoDate(form.recurringStartDate) : null,
+    recurringEndDate: isRecurring ? toIsoDate(form.recurringEndDate) : null,
+    recurringDueDaysAfterPeriodEnd: isRecurring ? toNullableNumber(form.recurringDueDaysAfterPeriodEnd ?? null) : null,
+    recurringNextTransactionCreationMethod: isRecurring
+      ? toNullableString(form.recurringNextTransactionCreationMethod ?? null)
+      : null,
   };
 }
 

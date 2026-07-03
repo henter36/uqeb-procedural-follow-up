@@ -2,6 +2,7 @@ using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Uqeb.Api.Data;
+using Uqeb.Api.DTOs.RecurringTemplates;
 using Uqeb.Api.DTOs.Transactions;
 using Uqeb.Api.Helpers;
 using Uqeb.Api.Models.Entities;
@@ -31,6 +32,7 @@ public interface ITransactionService
     Task<AssignmentDto?> AdminEditAssignmentAsync(int transactionId, int assignmentId, AdminEditAssignmentRequest request, int userId);
     Task<TransactionDetailDto?> AdminEditTransactionDatesAsync(int transactionId, AdminEditTransactionDatesRequest request, int userId);
     Task<PagedResult<AuditLogDto>> GetAuditLogAsync(int transactionId, int page, int pageSize, ICurrentUserService currentUser);
+    Task<TransactionDetailDto?> EnableRecurringAsync(int id, EnableRecurringForTransactionRequest request, int userId);
 }
 
 public class TransactionService : ITransactionService
@@ -59,17 +61,30 @@ public class TransactionService : ITransactionService
     private readonly IAuditService _audit;
     private readonly ITrackingNumberService _trackingNumbers;
     private readonly ICacheInvalidationService _cacheInvalidation;
+    private readonly IRecurringTransactionTemplateService _recurringTemplates;
+
+    private static readonly Dictionary<string, string> RecurringFieldKeyMap = new()
+    {
+        [nameof(CreateRecurringTemplateRequest.RecurrenceType)] = nameof(CreateTransactionRequest.RecurringRecurrenceType),
+        [nameof(CreateRecurringTemplateRequest.StartDate)] = nameof(CreateTransactionRequest.RecurringStartDate),
+        [nameof(CreateRecurringTemplateRequest.EndDate)] = nameof(CreateTransactionRequest.RecurringEndDate),
+        [nameof(CreateRecurringTemplateRequest.DueDaysAfterPeriodEnd)] = nameof(CreateTransactionRequest.RecurringDueDaysAfterPeriodEnd),
+        [nameof(CreateRecurringTemplateRequest.NextTransactionCreationMethod)] = nameof(CreateTransactionRequest.RecurringNextTransactionCreationMethod),
+        [nameof(CreateRecurringTemplateRequest.DepartmentIds)] = nameof(CreateTransactionRequest.OutgoingDepartmentIds),
+    };
 
     public TransactionService(
         AppDbContext db,
         IAuditService audit,
         ITrackingNumberService trackingNumbers,
-        ICacheInvalidationService cacheInvalidation)
+        ICacheInvalidationService cacheInvalidation,
+        IRecurringTransactionTemplateService recurringTemplates)
     {
         _db = db;
         _audit = audit;
         _trackingNumbers = trackingNumbers;
         _cacheInvalidation = cacheInvalidation;
+        _recurringTemplates = recurringTemplates;
     }
 
     private static DateTime GetSaudiToday() => DateTime.UtcNow.AddHours(3).Date;
@@ -163,6 +178,26 @@ public class TransactionService : ITransactionService
         query = ApplyTextAndReferenceFilters(query, request);
         query = ApplyDateRangeFilters(query, request);
         query = ApplyStatusAndAssignmentFilters(query, request, now);
+        query = ApplyRecurringFilters(query, request);
+        return query;
+    }
+
+    private static IQueryable<Transaction> ApplyRecurringFilters(
+        IQueryable<Transaction> query, TransactionSearchRequest request)
+    {
+        if (request.IsRecurring == true)
+            query = query.Where(t => t.RecurringTemplateId != null);
+        else if (request.IsRecurring == false)
+            query = query.Where(t => t.RecurringTemplateId == null);
+
+        if (!string.IsNullOrWhiteSpace(request.RecurringRecurrenceType) &&
+            Enum.TryParse<RecurrenceType>(request.RecurringRecurrenceType, true, out var recurrenceType))
+            query = query.Where(t => t.RecurringTemplate != null && t.RecurringTemplate.RecurrenceType == recurrenceType);
+
+        if (!string.IsNullOrWhiteSpace(request.RecurringTemplateStatus) &&
+            Enum.TryParse<RecurringTemplateStatus>(request.RecurringTemplateStatus, true, out var templateStatus))
+            query = query.Where(t => t.RecurringTemplate != null && t.RecurringTemplate.Status == templateStatus);
+
         return query;
     }
 
@@ -296,7 +331,10 @@ public class TransactionService : ITransactionService
             (t.RequiresResponse && !t.ResponseCompleted
                     && t.ResponseDueDate.HasValue && t.ResponseDueDate.Value < now)
                 || t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
-                    && a.Status == AssignmentStatus.Active && a.DueDate.HasValue && a.DueDate.Value < now)));
+                    && a.Status == AssignmentStatus.Active && a.DueDate.HasValue && a.DueDate.Value < now),
+            t.RecurringTemplateId,
+            t.RecurringPeriodLabel,
+            t.RecurringTemplate != null ? t.RecurringTemplate.RecurrenceType : (RecurrenceType?)null));
 
     private async Task<List<TransactionListDto>> MapSearchRowsToDtosAsync(List<TransactionSearchRow> rows, DateTime now)
     {
@@ -359,7 +397,10 @@ public class TransactionService : ITransactionService
                 IsOverdue = r.IsOverdue,
                 IsArchived = r.IsArchived,
                 CreatedByName = r.CreatedByName,
-                CreatedAt = r.CreatedAt
+                CreatedAt = r.CreatedAt,
+                RecurringTemplateId = r.RecurringTemplateId,
+                RecurringPeriodLabel = r.RecurringPeriodLabel,
+                RecurringRecurrenceType = r.RecurringRecurrenceType?.ToString()
             };
             var lastFollowUp = lastFollowUpLookup.GetValueOrDefault(r.Id);
             TransactionTimelineHelper.ApplyTo(dto, TransactionTimelineHelper.Compute(new TransactionTimelineHelper.TimelineComputationInput
@@ -602,6 +643,15 @@ public class TransactionService : ITransactionService
         if (validationErrors.Count > 0)
             throw new FieldValidationException(validationErrors);
 
+        CreateRecurringTemplateRequest? recurringTemplateRequest = null;
+        if (request.EnableRecurringFollowUp)
+        {
+            recurringTemplateRequest = BuildRecurringTemplateRequestFromTransaction(request);
+            var recurringErrors = RecurringTemplateRequestValidator.Validate(recurringTemplateRequest);
+            if (recurringErrors.Count > 0)
+                throw new FieldValidationException(RemapRecurringFieldErrors(recurringErrors));
+        }
+
         if (await _db.Transactions.AnyAsync(t => t.IncomingNumber == request.IncomingNumber))
             throw new DuplicateIncomingNumberException();
 
@@ -616,9 +666,87 @@ public class TransactionService : ITransactionService
             request.OutgoingDepartmentIds ?? new List<int>(),
             userId);
 
+        if (recurringTemplateRequest != null)
+            await _recurringTemplates.EnableForTransactionAsync(transaction, recurringTemplateRequest, userId);
+
         _cacheInvalidation.InvalidateOnTransactionChange();
         return (await GetByIdAsync(transaction.Id, new SystemUser(userId)))!;
     }
+
+    public async Task<TransactionDetailDto?> EnableRecurringAsync(int id, EnableRecurringForTransactionRequest request, int userId)
+    {
+        var transaction = await _db.Transactions.FirstOrDefaultAsync(t => t.Id == id);
+        if (transaction == null) return null;
+
+        var templateRequest = new CreateRecurringTemplateRequest
+        {
+            Title = transaction.Subject,
+            SubjectTemplate = transaction.Subject,
+            RecurrenceType = request.RecurrenceType,
+            StartDate = request.StartDate,
+            EndDate = request.EndDate,
+            IncomingSourceType = transaction.IncomingSourceType.ToString(),
+            IncomingFromPartyId = transaction.IncomingFromPartyId,
+            IncomingFromDepartmentId = transaction.IncomingFromDepartmentId,
+            CategoryId = transaction.CategoryId,
+            Priority = transaction.Priority.ToString(),
+            ResponseType = transaction.ResponseType.ToString(),
+            RequiresResponse = transaction.RequiresResponse,
+            DefaultRequiredAction = $"متابعة: {transaction.Subject}",
+            DueDaysAfterPeriodEnd = request.DueDaysAfterPeriodEnd,
+            DefaultReplyDueDays = null,
+            Notes = null,
+            DepartmentIds = await _db.TransactionOutgoingDepartments
+                .Where(o => o.TransactionId == id)
+                .Select(o => o.DepartmentId)
+                .ToListAsync(),
+            NextTransactionCreationMethod = request.NextTransactionCreationMethod
+        };
+
+        try
+        {
+            await _recurringTemplates.EnableForTransactionAsync(transaction, templateRequest, userId);
+        }
+        catch (FieldValidationException ex)
+        {
+            throw new FieldValidationException(RemapRecurringFieldErrors(ex.FieldErrors));
+        }
+
+        _cacheInvalidation.InvalidateOnTransactionChange();
+        return await GetByIdAsync(id, new SystemUser(userId));
+    }
+
+    private static CreateRecurringTemplateRequest BuildRecurringTemplateRequestFromTransaction(CreateTransactionRequest request)
+    {
+        var subject = request.Subject.Trim();
+        var incomingSourceType = request.IncomingSourceType ?? "External";
+        var responseType = request.ResponseType ?? "External";
+
+        return new CreateRecurringTemplateRequest
+        {
+            Title = subject,
+            SubjectTemplate = subject,
+            RecurrenceType = request.RecurringRecurrenceType,
+            StartDate = request.RecurringStartDate,
+            EndDate = request.RecurringEndDate,
+            IncomingSourceType = incomingSourceType,
+            IncomingFromPartyId = request.IncomingFromPartyId,
+            IncomingFromDepartmentId = request.IncomingFromDepartmentId,
+            CategoryId = request.CategoryId,
+            Priority = request.Priority,
+            ResponseType = responseType,
+            RequiresResponse = request.RequiresResponse ?? (EnumHelper.ParseResponseType(responseType) != ResponseType.None),
+            DefaultRequiredAction = $"متابعة: {subject}",
+            DueDaysAfterPeriodEnd = request.RecurringDueDaysAfterPeriodEnd,
+            DefaultReplyDueDays = null,
+            Notes = null,
+            DepartmentIds = request.OutgoingDepartmentIds,
+            NextTransactionCreationMethod = request.RecurringNextTransactionCreationMethod
+        };
+    }
+
+    private static Dictionary<string, string> RemapRecurringFieldErrors(Dictionary<string, string> errors) =>
+        errors.ToDictionary(e => RecurringFieldKeyMap.GetValueOrDefault(e.Key, e.Key), e => e.Value);
 
     private static Transaction BuildNewTransaction(CreateTransactionRequest request, int userId)
     {

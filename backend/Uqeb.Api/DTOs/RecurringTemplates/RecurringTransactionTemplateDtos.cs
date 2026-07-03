@@ -20,6 +20,7 @@ public class RecurringTemplateListItemDto
     public string? LastGeneratedPeriodKey { get; set; }
     public string? LastGeneratedPeriodLabel { get; set; }
     public int GeneratedTransactionsCount { get; set; }
+    public string NextTransactionCreationMethod { get; set; } = string.Empty;
 }
 
 public class RecurringTemplateDetailDto : RecurringTemplateListItemDto
@@ -71,6 +72,7 @@ public class CreateRecurringTemplateRequest
     public int? DefaultReplyDueDays { get; set; }
     public string? Notes { get; set; }
     public List<int>? DepartmentIds { get; set; }
+    public string? NextTransactionCreationMethod { get; set; }
 }
 
 public class TerminateRecurringTemplateRequest

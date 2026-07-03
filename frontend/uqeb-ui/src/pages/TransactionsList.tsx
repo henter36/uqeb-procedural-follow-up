@@ -49,6 +49,9 @@ type FiltersState = {
   responseOverdue: boolean;
   hasPendingAssignments: boolean;
   hasPartialReplies: boolean;
+  isRecurring: string;
+  recurringRecurrenceType: string;
+  recurringTemplateStatus: string;
   page: number;
   pageSize: number;
   sortBy: SortKey;
@@ -63,11 +66,25 @@ const DEFAULT_FILTERS: FiltersState = {
   responseDueDateFrom: '', responseDueDateTo: '',
   overdueOnly: false, requiresResponse: '', responseCompleted: '',
   responseOverdue: false, hasPendingAssignments: false, hasPartialReplies: false,
+  isRecurring: '', recurringRecurrenceType: '', recurringTemplateStatus: '',
   page: 1,
   pageSize: 20,
   sortBy: 'incomingDate',
   sortDesc: true,
 };
+
+const RECURRENCE_TYPE_FILTER_OPTIONS = [
+  { value: 'Monthly', label: 'شهري' },
+  { value: 'Quarterly', label: 'ربع سنوي' },
+  { value: 'SemiAnnual', label: 'نصف سنوي' },
+  { value: 'Annual', label: 'سنوي' },
+];
+
+const RECURRING_TEMPLATE_STATUS_FILTER_OPTIONS = [
+  { value: 'Active', label: 'نشط' },
+  { value: 'Paused', label: 'موقوف' },
+  { value: 'Terminated', label: 'منتهٍ' },
+];
 
 const FILTERS_STORAGE_KEY = 'uqeb-transaction-filters';
 
@@ -105,6 +122,10 @@ function buildSearchParams(f: FiltersState): Record<string, unknown> {
   if (f.responseOverdue) params.responseOverdue = true;
   if (f.hasPendingAssignments) params.hasPendingAssignments = true;
   if (f.hasPartialReplies) params.hasPartialReplies = true;
+  if (f.isRecurring === 'true') params.isRecurring = true;
+  if (f.isRecurring === 'false') params.isRecurring = false;
+  if (f.recurringRecurrenceType) params.recurringRecurrenceType = f.recurringRecurrenceType;
+  if (f.recurringTemplateStatus) params.recurringTemplateStatus = f.recurringTemplateStatus;
   return params;
 }
 
@@ -343,7 +364,14 @@ export default function TransactionsList() {
                 <tr key={t.id} className={t.isOverdue ? 'row-overdue' : ''}>
                   <td>{t.incomingNumber}</td>
                   <td><DateDisplay date={t.incomingDate} /></td>
-                  <td>{t.subject}</td>
+                  <td>
+                    {t.subject}
+                    {t.recurringTemplateId && (
+                      <span className="badge badge-blue badge-gap" title={t.recurringPeriodLabel || undefined}>
+                        دورية
+                      </span>
+                    )}
+                  </td>
                   <td>
                     <span className="badge badge-gray badge-gap">
                       {t.incomingSourceType === 'Internal' ? 'داخلية' : 'خارجية'}
@@ -513,6 +541,31 @@ export default function TransactionsList() {
               <label className="checkbox-label"><input type="checkbox" checked={filters.responseOverdue} onChange={(e) => setFilters({ ...filters, responseOverdue: e.target.checked })} /> متأخر في الإفادة</label>
               <label className="checkbox-label"><input type="checkbox" checked={filters.hasPendingAssignments} onChange={(e) => setFilters({ ...filters, hasPendingAssignments: e.target.checked })} /> احالةات معلقة</label>
               <label className="checkbox-label"><input type="checkbox" checked={filters.hasPartialReplies} onChange={(e) => setFilters({ ...filters, hasPartialReplies: e.target.checked })} /> رد جزئي</label>
+              <select
+                aria-label="معاملات ذات التزام دوري"
+                value={filters.isRecurring}
+                onChange={(e) => setFilters({ ...filters, isRecurring: e.target.value })}
+              >
+                <option value="">معاملات ذات التزام دوري: الكل</option>
+                <option value="true">دورية فقط</option>
+                <option value="false">غير دورية فقط</option>
+              </select>
+              <select
+                aria-label="نوع التكرار"
+                value={filters.recurringRecurrenceType}
+                onChange={(e) => setFilters({ ...filters, recurringRecurrenceType: e.target.value })}
+              >
+                <option value="">نوع التكرار: الكل</option>
+                {RECURRENCE_TYPE_FILTER_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              <select
+                aria-label="حالة الالتزام"
+                value={filters.recurringTemplateStatus}
+                onChange={(e) => setFilters({ ...filters, recurringTemplateStatus: e.target.value })}
+              >
+                <option value="">حالة الالتزام: الكل</option>
+                {RECURRING_TEMPLATE_STATUS_FILTER_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
             </div>
           )}
         </form>

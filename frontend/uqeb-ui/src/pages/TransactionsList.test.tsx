@@ -222,4 +222,83 @@ describe('TransactionsList', () => {
       }));
     });
   });
+
+  it('shows a recurring badge for transactions linked to a recurring template', async () => {
+    vi.mocked(services.transactionsApi.search).mockResolvedValue({
+      data: {
+        items: [
+          {
+            id: 1,
+            incomingNumber: 'IN-1',
+            incomingDate: '2026-07-01',
+            subject: 'معاملة دورية',
+            incomingSourceType: 'Internal',
+            incomingFrom: 'إدارة',
+            categoryName: 'تصنيف',
+            outgoingDepartmentNames: [],
+            status: 'New',
+            recurringTemplateId: 5,
+            recurringPeriodLabel: 'يوليو 2026',
+          },
+          {
+            id: 2,
+            incomingNumber: 'IN-2',
+            incomingDate: '2026-07-01',
+            subject: 'معاملة عادية',
+            incomingSourceType: 'Internal',
+            incomingFrom: 'إدارة',
+            categoryName: 'تصنيف',
+            outgoingDepartmentNames: [],
+            status: 'New',
+          },
+        ],
+        totalCount: 2,
+      },
+    } as never);
+
+    render(
+      <MemoryRouter>
+        <TransactionsList />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('معاملة دورية')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('دورية')).toBeInTheDocument();
+    const regularRow = screen.getByText('معاملة عادية').closest('tr');
+    expect(regularRow).not.toBeNull();
+    expect(regularRow?.textContent).not.toContain('دورية فقط');
+  });
+
+  it('sends recurring filters when selected in the advanced filters panel', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.search).mockResolvedValue({ data: { items: [], totalCount: 0 } } as never);
+
+    render(
+      <MemoryRouter>
+        <TransactionsList />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('لا توجد معاملات نشطة.')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'فلاتر متقدمة' }));
+
+    await user.selectOptions(screen.getByLabelText('معاملات ذات التزام دوري'), 'true');
+    await user.selectOptions(screen.getByLabelText('نوع التكرار'), 'Monthly');
+    await user.selectOptions(screen.getByLabelText('حالة الالتزام'), 'Active');
+    await user.click(screen.getByRole('button', { name: 'بحث' }));
+
+    await waitFor(() => {
+      expect(services.transactionsApi.search).toHaveBeenLastCalledWith(expect.objectContaining({
+        isRecurring: true,
+        recurringRecurrenceType: 'Monthly',
+        recurringTemplateStatus: 'Active',
+      }));
+    });
+  });
 });

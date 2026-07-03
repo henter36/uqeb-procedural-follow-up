@@ -104,7 +104,8 @@ public class TransactionPersistenceAtomicityTests
             db,
             new AuditService(db),
             trackingNumbers ?? new StubTrackingNumberService(),
-            cache);
+            cache,
+            new RecurringTransactionTemplateService(db, new AuditService(db), new StubTrackingNumberService()));
 
         return (service, db, counter, cache);
     }
