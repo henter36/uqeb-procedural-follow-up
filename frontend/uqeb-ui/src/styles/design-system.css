@@ -910,6 +910,11 @@
     background-color var(--transition-fast);
 }
 
+.form-group .hijri-date-calendar-input {
+  margin-top: var(--space-2);
+  max-width: 180px;
+}
+
 .filter-form input,
 .filter-form select {
   padding: var(--space-2) var(--space-3);

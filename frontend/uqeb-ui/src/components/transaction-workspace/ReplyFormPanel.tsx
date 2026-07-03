@@ -1,6 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { buildReplyPayload, getApiErrorMessage } from '../../utils/apiHelpers';
-import { todayLocalIso } from '../../utils/localDate';
 import { Alert } from '../ui';
 import HijriDateInput from '../HijriDateInput';
 
@@ -8,6 +7,7 @@ type ReplyFormPanelProps = Readonly<{
   title: string;
   dateLabel?: string;
   dateHint?: string;
+  dateRequiredMessage?: string;
   summaryLabel?: string;
   submitLabel?: string;
   onDirtyChange: (dirty: boolean) => void;
@@ -20,6 +20,7 @@ export default function ReplyFormPanel({
   title,
   dateLabel = 'تاريخ الرد',
   dateHint,
+  dateRequiredMessage = 'تاريخ الرد مطلوب.',
   summaryLabel = 'ملخص الرد *',
   submitLabel = 'حفظ الرد',
   onDirtyChange,
@@ -27,17 +28,21 @@ export default function ReplyFormPanel({
   onSuccess,
   onCancel,
 }: ReplyFormPanelProps) {
-  const [form, setForm] = useState({ replyDate: todayLocalIso(), replySummary: '' });
+  const [form, setForm] = useState({ replyDate: '', replySummary: '' });
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    onDirtyChange(Boolean(form.replySummary.trim()));
-  }, [form.replySummary, onDirtyChange]);
+    onDirtyChange(Boolean(form.replyDate || form.replySummary.trim()));
+  }, [form.replyDate, form.replySummary, onDirtyChange]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
+    if (!form.replyDate) {
+      setError(dateRequiredMessage);
+      return;
+    }
     setError('');
     setIsSubmitting(true);
     try {
@@ -51,7 +56,7 @@ export default function ReplyFormPanel({
   };
 
   return (
-    <form onSubmit={submit} className="workspace-form" aria-label={title}>
+    <form onSubmit={submit} className="workspace-form" aria-label={title} noValidate>
       {error && <Alert variant="error">{error}</Alert>}
       <div className="form-grid">
         <div className="form-group">

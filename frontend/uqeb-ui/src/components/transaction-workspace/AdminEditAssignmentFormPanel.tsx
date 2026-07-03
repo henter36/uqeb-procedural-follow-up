@@ -13,11 +13,11 @@ type FormState = {
   dueDate: string;
 };
 
-function fromAssignment(a?: Assignment): FormState {
+function fromAssignment(a?: Assignment, fallbackLetterNumber = ''): FormState {
   const hasReplyDueDays = a?.replyDueDays != null;
 
   return {
-    letterNumber: a?.letterNumber ?? '',
+    letterNumber: a?.letterNumber ?? fallbackLetterNumber,
     assignedDate: a?.assignedDate?.slice(0, 10) ?? '',
     requiredAction: a?.requiredAction ?? '',
     replyDueDays: hasReplyDueDays ? String(a.replyDueDays) : '',
@@ -33,6 +33,7 @@ type Props = Readonly<{
   transactionId: number;
   assignmentId: number;
   initialAssignment?: Assignment;
+  fallbackLetterNumber?: string | null;
   onDirtyChange: (dirty: boolean) => void;
   onCancel: () => void;
   onSuccess: (updated: Assignment) => void;
@@ -42,11 +43,12 @@ export default function AdminEditAssignmentFormPanel({
   transactionId,
   assignmentId,
   initialAssignment,
+  fallbackLetterNumber,
   onDirtyChange,
   onCancel,
   onSuccess,
 }: Props) {
-  const [initialForm] = useState<FormState>(() => fromAssignment(initialAssignment));
+  const [initialForm] = useState<FormState>(() => fromAssignment(initialAssignment, fallbackLetterNumber?.trim() ?? ''));
   const [form, setForm] = useState<FormState>(initialForm);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);

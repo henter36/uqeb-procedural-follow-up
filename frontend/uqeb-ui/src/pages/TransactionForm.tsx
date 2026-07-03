@@ -100,7 +100,7 @@ function hasOutgoingData(form: { outgoingNumber: string; outgoingDate: string; o
 function createInitialTransactionForm(): TransactionFormState {
   return {
     incomingNumber: '',
-    incomingDate: todayLocalIso(),
+    incomingDate: '',
     subject: '',
     incomingSourceType: 'External',
     incomingFromPartyId: '',

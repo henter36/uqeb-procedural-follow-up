@@ -313,6 +313,10 @@ public class TransactionsController : ControllerBase
         {
             return Forbid(ex.Message);
         }
+        catch (FieldValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message, errors = ex.FieldErrors });
+        }
     }
 
     [HttpPatch("{id}/assignments/{assignmentId}")]

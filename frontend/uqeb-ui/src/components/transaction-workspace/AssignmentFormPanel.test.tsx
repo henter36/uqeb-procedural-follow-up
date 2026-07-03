@@ -45,7 +45,7 @@ describe('AssignmentFormPanel dirty state', () => {
     });
     const todayHijri = gregorianToHijriParts(todayLocalIso());
     expect(todayHijri).not.toBeNull();
-    expect(screen.getByLabelText(/تاريخ الاحالة/)).toHaveValue(formatHijriInputParts(todayHijri!));
+    expect(screen.getByLabelText('تاريخ الاحالة *')).toHaveValue(formatHijriInputParts(todayHijri!));
   });
 
   it('becomes dirty when assignedDate changes', async () => {
@@ -61,12 +61,12 @@ describe('AssignmentFormPanel dirty state', () => {
       />,
     );
 
-    const dateInput = screen.getByLabelText(/تاريخ الاحالة/);
+    const dateInput = screen.getByLabelText('تاريخ الاحالة *');
     const originalDate = (dateInput as HTMLInputElement).value;
     onDirtyChange.mockClear();
 
     await user.clear(dateInput);
-    await user.type(dateInput, '1447/06/10');
+    await user.type(dateInput, '10/06/1447');
 
     await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(true));
 
@@ -75,5 +75,21 @@ describe('AssignmentFormPanel dirty state', () => {
     await user.type(dateInput, originalDate);
 
     await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(false));
+  });
+
+  it('prefills letter number from transaction outgoing number', () => {
+    render(
+      <AssignmentFormPanel
+        transactionId={1}
+        departments={departments}
+        existingDepartmentIds={[]}
+        defaultLetterNumber="OUT-55"
+        onDirtyChange={onDirtyChange}
+        onSuccess={onSuccess}
+        onCancel={onCancel}
+      />,
+    );
+
+    expect(screen.getByLabelText('رقم الخطاب')).toHaveValue('OUT-55');
   });
 });

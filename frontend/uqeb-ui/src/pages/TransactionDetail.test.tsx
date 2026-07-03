@@ -930,6 +930,28 @@ describe('TransactionDetailPage card interaction flows', () => {
     expect(screen.queryByTestId('attachment-form-panel')).not.toBeInTheDocument();
   });
 
+  it('prefills assignment letter number from transaction outgoing number', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: {
+        ...defaultWorkspace,
+        transaction: {
+          ...baseTx,
+          outgoingNumber: 'OUT-88',
+        },
+        assignments: [],
+      },
+    } as never);
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getAssignmentsCard();
+
+    await user.click(within(card).getByRole('button', { name: '+ إضافة احالة' }));
+
+    expect(screen.getByLabelText('رقم الخطاب')).toHaveValue('OUT-88');
+  });
+
   it('saves assignment from card form and refreshes data', async () => {
     const user = userEvent.setup();
     vi.mocked(services.transactionsApi.addAssignment).mockResolvedValue({ data: { id: 9 } } as never);
@@ -1130,16 +1152,46 @@ describe('TransactionDetailPage card interaction flows', () => {
     expect(within(card).getByTestId('reply-assignment-form-panel')).toBeInTheDocument();
 
     expect(within(card).getByRole('region', { name: 'تسجيل إفادة الإدارة' })).toBeInTheDocument();
-    expect(screen.getByLabelText(/تاريخ إنجاز الإدارة/)).toBeInTheDocument();
+    expect(screen.getByLabelText('تاريخ إنجاز الإدارة *')).toHaveValue('');
     expect(screen.getByText('يمثل تاريخ الإفادة/إنجاز رد الإدارة، ويستخدم في احتساب أيام إنجاز الإدارة.')).toBeInTheDocument();
     await user.type(screen.getByLabelText(/ملخص الإفادة/), 'تم الرد');
+    await user.click(screen.getByRole('button', { name: 'حفظ الإفادة' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('تاريخ إنجاز الإدارة مطلوب.');
+    expect(services.transactionsApi.replyAssignment).not.toHaveBeenCalled();
+
+    await user.type(screen.getByLabelText('تاريخ إنجاز الإدارة *'), '16/01/1448');
     await user.click(screen.getByRole('button', { name: 'حفظ الإفادة' }));
 
     await waitFor(() => {
       expect(screen.getByRole('status')).toHaveTextContent('تم تسجيل الرد بنجاح');
       expect(within(card).queryByTestId('reply-assignment-form-panel')).not.toBeInTheDocument();
     });
-    expect(services.transactionsApi.replyAssignment).toHaveBeenCalledWith(1, 10, expect.any(Object));
+    expect(services.transactionsApi.replyAssignment).toHaveBeenCalledWith(1, 10, {
+      replyDate: '2026-07-01T00:00:00',
+      replySummary: 'تم الرد',
+    });
+  });
+
+  it('shows transaction outgoing number as assignment letter fallback', async () => {
+    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: {
+        ...defaultWorkspace,
+        transaction: {
+          ...baseTx,
+          outgoingNumber: 'OUT-77',
+        },
+        assignments: [{
+          ...sampleAssignment,
+          letterNumber: null,
+        }],
+      },
+    } as never);
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    expect(within(getAssignmentsCard()).getByText('OUT-77')).toBeInTheDocument();
   });
 
   it('lets Admin open assignment edit from the department name without a separate edit button', async () => {

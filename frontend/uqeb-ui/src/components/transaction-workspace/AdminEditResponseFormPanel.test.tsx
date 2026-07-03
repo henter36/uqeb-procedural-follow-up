@@ -53,7 +53,7 @@ describe('AdminEditResponseFormPanel', () => {
     renderPanel();
 
     expect(await screen.findByDisplayValue('نص الرد الحالي')).toBeInTheDocument();
-    expect(screen.getByLabelText('تاريخ إنجاز الإدارة')).toHaveValue('1447/07/21');
+    expect(screen.getByLabelText('تاريخ إنجاز الإدارة')).toHaveValue('21/07/1447');
     expect(services.departmentResponsesApi.getById).toHaveBeenCalledWith(100);
   });
 

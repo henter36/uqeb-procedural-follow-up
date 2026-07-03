@@ -15,11 +15,11 @@ type AssignmentFormState = {
   dueDate: string;
 };
 
-function createInitialAssignmentForm(): AssignmentFormState {
+function createInitialAssignmentForm(defaultLetterNumber = ''): AssignmentFormState {
   return {
     departmentId: '',
     assignedDate: todayLocalIso(),
-    letterNumber: '',
+    letterNumber: defaultLetterNumber,
     requiredAction: '',
     replyDueDays: '',
     dueDate: '',
@@ -39,6 +39,7 @@ type AssignmentFormPanelProps = Readonly<{
   transactionId: number;
   departments: Department[];
   existingDepartmentIds: number[];
+  defaultLetterNumber?: string | null;
   onDirtyChange: (dirty: boolean) => void;
   onSuccess: () => void;
   onCancel: () => void;
@@ -48,11 +49,12 @@ export default function AssignmentFormPanel({
   transactionId,
   departments,
   existingDepartmentIds,
+  defaultLetterNumber,
   onDirtyChange,
   onSuccess,
   onCancel,
 }: AssignmentFormPanelProps) {
-  const initialForm = createInitialAssignmentForm();
+  const initialForm = createInitialAssignmentForm(defaultLetterNumber?.trim() ?? '');
   const initialFormRef = useRef<AssignmentFormState>(initialForm);
   const [form, setForm] = useState<AssignmentFormState>(initialForm);
   const [error, setError] = useState('');

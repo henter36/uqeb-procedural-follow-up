@@ -1194,6 +1194,12 @@ public class TransactionService : ITransactionService
 
     public async Task<AssignmentDto?> ReplyAssignmentAsync(int transactionId, int assignmentId, ReplyAssignmentRequest request, ICurrentUserService currentUser)
     {
+        if (request.ReplyDate == default)
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                [nameof(ReplyAssignmentRequest.ReplyDate)] = "تاريخ إنجاز الإدارة مطلوب."
+            });
+
         var assignment = await _db.Assignments
             .Include(a => a.Department)
             .Include(a => a.CreatedBy)

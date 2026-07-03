@@ -268,6 +268,7 @@ public class TransactionWorkflowAtomicityTests
         {
             DepartmentId = 11,
             AssignedDate = DateTime.UtcNow.Date,
+            LetterNumber = "OUT-WF-1001",
             RequiredAction = "متابعة",
             ReplyDueDays = 5
         }, userId: 1);
@@ -275,7 +276,35 @@ public class TransactionWorkflowAtomicityTests
         Assert.InRange(counter.Count, 1, 2);
         Assert.Equal(1, cache.TransactionChangeInvalidations);
         Assert.Equal(TransactionStatus.WaitingForReply, await db.Transactions.Where(t => t.Id == created.Id).Select(t => t.Status).FirstAsync());
+        Assert.Equal("OUT-WF-1001", await db.Assignments.Where(a => a.Id == assignment.Id).Select(a => a.LetterNumber).FirstAsync());
         Assert.True(await db.AuditLogs.AnyAsync(a => a.Action == AuditAction.AddAssignment && a.EntityId == assignment.Id));
+    }
+
+    [Fact]
+    public async Task ReplyAssignmentAsync_missing_reply_date_returns_field_validation()
+    {
+        var (service, _, counter, cache) = await CreateServiceAsync(nameof(ReplyAssignmentAsync_missing_reply_date_returns_field_validation));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        var assignment = await service.AddAssignmentAsync(created!.Id, new CreateAssignmentRequest
+        {
+            DepartmentId = 10,
+            AssignedDate = DateTime.UtcNow.Date,
+            RequiredAction = "متابعة",
+            ReplyDueDays = 5
+        }, userId: 1);
+        counter.Reset();
+        cache.ResetInvalidations();
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() =>
+            service.ReplyAssignmentAsync(
+                created.Id,
+                assignment.Id,
+                new ReplyAssignmentRequest { ReplyDate = default, ReplySummary = "تم" },
+                new TestCurrentUser(1, UserRole.Admin)));
+
+        Assert.Equal("تاريخ إنجاز الإدارة مطلوب.", ex.FieldErrors[nameof(ReplyAssignmentRequest.ReplyDate)]);
+        Assert.Equal(0, cache.TransactionChangeInvalidations);
+        Assert.Equal(0, counter.Count);
     }
 
     [Fact]

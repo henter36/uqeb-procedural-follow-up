@@ -3,6 +3,7 @@ import {
   formatHijriInputParts,
   gregorianToHijriParts,
   hijriToGregorianDateString,
+  normalizeHijriDigits,
   parseHijriInput,
 } from '../utils/hijriDateInput';
 
@@ -39,8 +40,15 @@ export default function HijriDateInput({
   const textRef = useRef(text);
   const [localError, setLocalError] = useState('');
   const helpId = `${id}-gregorian-help`;
+  const calendarId = `${id}-calendar`;
   const describedByValue = [describedBy, value ? helpId : ''].filter(Boolean).join(' ') || undefined;
   const convertedDate = value || '';
+
+  const formatManualInput = (rawValue: string) => {
+    const digits = normalizeHijriDigits(rawValue).replace(/\D/g, '').slice(0, 8);
+    const parts = [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4, 8)].filter(Boolean);
+    return parts.join('/');
+  };
 
   const updateText = (nextText: string) => {
     textRef.current = nextText;
@@ -59,15 +67,17 @@ export default function HijriDateInput({
     }
   }, [value]);
 
-  const handleChange = (nextText: string) => {
-    updateText(nextText);
-    if (!nextText.trim()) {
+  const applyTextValue = (nextText: string) => {
+    const formattedText = formatManualInput(nextText);
+
+    updateText(formattedText);
+    if (!formattedText.trim()) {
       setLocalError('');
       onChange('');
       return;
     }
 
-    const parts = parseHijriInput(nextText);
+    const parts = parseHijriInput(formattedText);
     if (!parts) {
       setLocalError('التاريخ الهجري غير صالح.');
       onChange('');
@@ -85,6 +95,19 @@ export default function HijriDateInput({
     onChange(gregorian);
   };
 
+  const handleCalendarChange = (nextGregorian: string) => {
+    if (!nextGregorian) {
+      updateText('');
+      setLocalError('');
+      onChange('');
+      return;
+    }
+
+    updateText(displayValueFromGregorian(nextGregorian));
+    setLocalError('');
+    onChange(nextGregorian);
+  };
+
   const handleBlur = () => {
     const parts = parseHijriInput(text);
     if (parts) {
@@ -99,15 +122,24 @@ export default function HijriDateInput({
         id={id}
         type="text"
         inputMode="numeric"
-        placeholder="1448/01/10"
+        placeholder="يوم/شهر/سنة"
         value={text}
         required={required}
         disabled={disabled}
         aria-invalid={invalid || localError ? true : undefined}
         aria-describedby={describedByValue}
         data-field-name={dataFieldName}
-        onChange={(event) => handleChange(event.target.value)}
+        onChange={(event) => applyTextValue(event.target.value)}
         onBlur={handleBlur}
+      />
+      <input
+        id={calendarId}
+        type="date"
+        className="hijri-date-calendar-input"
+        aria-label={`${label} - اختيار من التقويم`}
+        value={convertedDate}
+        disabled={disabled}
+        onChange={(event) => handleCalendarChange(event.target.value)}
       />
       {convertedDate && (
         <small id={helpId} className="text-muted">الموافق: {convertedDate}</small>
