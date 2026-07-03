@@ -6,6 +6,7 @@ namespace Uqeb.Api.Helpers;
 public static class RecurringTemplateRequestValidator
 {
     private const string FutureEventDateMessage = "لا يمكن أن يكون التاريخ بعد تاريخ اليوم.";
+    private const int MaxDueDaysAfterPeriodEnd = 365;
 
     public static Dictionary<string, string> Validate(CreateRecurringTemplateRequest request)
     {
@@ -56,8 +57,14 @@ public static class RecurringTemplateRequestValidator
             !Enum.TryParse<RecurrenceType>(request.RecurrenceType, true, out _))
             errors[nameof(request.RecurrenceType)] = "نوع التكرار مطلوب ويجب أن يكون شهري أو ربع سنوي.";
 
-        if (!request.DueDaysAfterPeriodEnd.HasValue || request.DueDaysAfterPeriodEnd.Value < 0)
-            errors[nameof(request.DueDaysAfterPeriodEnd)] = "عدد الأيام بعد نهاية الفترة مطلوب ويجب ألا يكون سالبًا.";
+        if (!request.DueDaysAfterPeriodEnd.HasValue ||
+            request.DueDaysAfterPeriodEnd.Value < 0 ||
+            request.DueDaysAfterPeriodEnd.Value > MaxDueDaysAfterPeriodEnd)
+            errors[nameof(request.DueDaysAfterPeriodEnd)] = "عدد الأيام بعد نهاية الفترة مطلوب ويجب أن يكون بين 0 و365.";
+
+        if (request.DefaultReplyDueDays.HasValue &&
+            (request.DefaultReplyDueDays.Value < 0 || request.DefaultReplyDueDays.Value > MaxDueDaysAfterPeriodEnd))
+            errors[nameof(request.DefaultReplyDueDays)] = "عدد أيام الرد يجب أن يكون بين 0 و365.";
     }
 
     private static void ValidateDateRange(CreateRecurringTemplateRequest request, Dictionary<string, string> errors)

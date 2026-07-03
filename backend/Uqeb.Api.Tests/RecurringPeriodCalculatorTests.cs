@@ -18,6 +18,16 @@ public class RecurringPeriodCalculatorTests
     }
 
     [Fact]
+    public void Compute_does_not_overflow_for_the_maximum_accepted_DueDaysAfterPeriodEnd_at_max_year()
+    {
+        // RecurringTemplateRequestValidator caps DueDaysAfterPeriodEnd at 365 and periodKey years at 3000;
+        // this is the most extreme input the validator allows through to the calculator.
+        var period = RecurringPeriodCalculator.Compute(RecurrenceType.Monthly, "3000-12", 365);
+
+        Assert.True(period.DueDate > period.PeriodEnd);
+    }
+
+    [Fact]
     public void Compute_Monthly_handles_February_end_of_month_in_leap_year()
     {
         var period = RecurringPeriodCalculator.Compute(RecurrenceType.Monthly, "2028-02", 0);

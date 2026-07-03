@@ -95,11 +95,23 @@ public class RecurringTransactionTemplateService : IRecurringTransactionTemplate
             template.Departments.Add(new RecurringTransactionTemplateDepartment { DepartmentId = deptId, SortOrder = sortOrder++ });
 
         _db.RecurringTransactionTemplates.Add(template);
-        await _db.SaveChangesAsync();
 
-        _audit.TrackLog(userId, AuditAction.CreateRecurringTemplate, TemplateEntityName, template.Id, null, null,
-            JsonSerializer.Serialize(new { template.Title, RecurrenceType = template.RecurrenceType.ToString() }));
-        await _db.SaveChangesAsync();
+        await using var dbTransaction = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            await _db.SaveChangesAsync();
+
+            _audit.TrackLog(userId, AuditAction.CreateRecurringTemplate, TemplateEntityName, template.Id, null, null,
+                JsonSerializer.Serialize(new { template.Title, RecurrenceType = template.RecurrenceType.ToString() }));
+            await _db.SaveChangesAsync();
+
+            await dbTransaction.CommitAsync();
+        }
+        catch
+        {
+            await dbTransaction.RollbackAsync();
+            throw;
+        }
 
         return (await GetByIdAsync(template.Id))!;
     }
@@ -282,6 +294,12 @@ public class RecurringTransactionTemplateService : IRecurringTransactionTemplate
 
             await dbTransaction.CommitAsync();
         }
+        catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+        {
+            await dbTransaction.RollbackAsync();
+            var existingId = await FindExistingGeneratedTransactionIdAsync(id, period.PeriodKey);
+            throw new RecurringTemplatePeriodAlreadyGeneratedException(existingId ?? 0);
+        }
         catch
         {
             await dbTransaction.RollbackAsync();
@@ -316,14 +334,20 @@ public class RecurringTransactionTemplateService : IRecurringTransactionTemplate
 
     private async Task EnsurePeriodNotAlreadyGeneratedAsync(int templateId, string periodKey)
     {
-        var existing = await _db.Transactions
+        var existingId = await FindExistingGeneratedTransactionIdAsync(templateId, periodKey);
+        if (existingId.HasValue)
+            throw new RecurringTemplatePeriodAlreadyGeneratedException(existingId.Value);
+    }
+
+    private async Task<int?> FindExistingGeneratedTransactionIdAsync(int templateId, string periodKey) =>
+        await _db.Transactions
             .AsNoTracking()
             .Where(t => t.RecurringTemplateId == templateId && t.RecurringPeriodKey == periodKey)
-            .Select(t => new { t.Id })
+            .Select(t => (int?)t.Id)
             .FirstOrDefaultAsync();
-        if (existing != null)
-            throw new RecurringTemplatePeriodAlreadyGeneratedException(existing.Id);
-    }
+
+    private static bool IsUniqueConstraintViolation(DbUpdateException ex) =>
+        SqlExceptionHelper.IsDuplicateKey(ex, "IX_Transactions_RecurringTemplateId_RecurringPeriodKey");
 
     private static Transaction BuildGeneratedTransaction(
         RecurringTransactionTemplate template,

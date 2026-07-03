@@ -338,6 +338,11 @@ export default function RecurringTemplatesPage() {
         referralLetterNumber: toNullableString(generateForm.referralLetterNumber),
       });
       setGenerateSuccess({ transactionId: res.data.transactionId, internalTrackingNumber: res.data.internalTrackingNumber });
+      setExpandedTransactions((prev) => {
+        const next = { ...prev };
+        delete next[generateTemplate.id];
+        return next;
+      });
       await loadTemplates();
     } catch (err: unknown) {
       const details = err as { response?: { status?: number; data?: { existingTransactionId?: number } } };

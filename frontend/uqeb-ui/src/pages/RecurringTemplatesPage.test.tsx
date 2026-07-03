@@ -251,4 +251,36 @@ describe('RecurringTemplatesPage', () => {
       expect(row?.className).toContain('row-highlighted');
     });
   });
+
+  it('invalidates the expanded transactions cache for a template after generating a new period', async () => {
+    mockApi.generate.mockResolvedValue({
+      data: {
+        transactionId: 999,
+        internalTrackingNumber: 'UQEB-2026-00099',
+        periodKey: '2026-02',
+        periodLabel: 'فبراير 2026',
+        dueDate: '2026-03-10',
+      },
+    } as never);
+
+    renderPage();
+    await waitFor(() => screen.getByText('تقرير شهري من إدارة التشغيل'));
+    const row = screen.getByText('تقرير شهري من إدارة التشغيل').closest('tr')!;
+
+    fireEvent.click(within(row).getByText('عرض المعاملات'));
+    await waitFor(() => expect(mockApi.getTransactions).toHaveBeenCalledTimes(1));
+    fireEvent.click(within(row).getByText('إخفاء المعاملات'));
+
+    fireEvent.click(within(row).getByText('إنشاء معاملة للفترة'));
+    await waitFor(() => screen.getByText('إنشاء المعاملة'));
+    fireEvent.change(screen.getByLabelText('تاريخ المعاملة - اختيار من التقويم'), { target: { value: '2026-02-01' } });
+    fireEvent.change(screen.getByLabelText('تاريخ الإحالة - اختيار من التقويم'), { target: { value: '2026-02-01' } });
+    fireEvent.click(screen.getByText('إنشاء المعاملة'));
+
+    await waitFor(() => expect(mockApi.generate).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByText('إغلاق'));
+
+    fireEvent.click(within(row).getByText('عرض المعاملات'));
+    await waitFor(() => expect(mockApi.getTransactions).toHaveBeenCalledTimes(2));
+  });
 });

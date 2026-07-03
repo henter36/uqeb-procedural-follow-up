@@ -38,6 +38,29 @@ public class RecurringTransactionTemplateServiceTests
         return (service, db);
     }
 
+    // Connects a second service/context pair to the same InMemory store (shared by dbName)
+    // without re-seeding, so it can race against an already-seeded template.
+    private static RecurringTransactionTemplateService CreateAdditionalService(string dbName, string trackingNumberPrefix)
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(dbName)
+            .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
+            .Options;
+        var db = new AppDbContext(options);
+        return new RecurringTransactionTemplateService(db, new AuditService(db), new PrefixedTrackingNumberService(trackingNumberPrefix));
+    }
+
+    private sealed class PrefixedTrackingNumberService : ITrackingNumberService
+    {
+        private readonly string _prefix;
+        private int _counter;
+
+        public PrefixedTrackingNumberService(string prefix) => _prefix = prefix;
+
+        public Task<string> GenerateNextAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult($"{_prefix}-{++_counter:D5}");
+    }
+
     private static CreateRecurringTemplateRequest ValidMonthlyRequest() => new()
     {
         Title = "تقرير شهري من إدارة التشغيل",
@@ -135,6 +158,51 @@ public class RecurringTransactionTemplateServiceTests
 
         var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.CreateAsync(request, userId: 1));
         Assert.True(ex.FieldErrors.ContainsKey(nameof(request.DueDaysAfterPeriodEnd)));
+    }
+
+    [Fact]
+    public async Task CreateAsync_rejects_due_days_after_period_end_above_max()
+    {
+        var (service, _) = await CreateServiceAsync(nameof(CreateAsync_rejects_due_days_after_period_end_above_max));
+        var request = ValidMonthlyRequest();
+        request.DueDaysAfterPeriodEnd = 366;
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.CreateAsync(request, userId: 1));
+        Assert.True(ex.FieldErrors.ContainsKey(nameof(request.DueDaysAfterPeriodEnd)));
+    }
+
+    [Fact]
+    public async Task CreateAsync_accepts_due_days_after_period_end_at_max()
+    {
+        var (service, _) = await CreateServiceAsync(nameof(CreateAsync_accepts_due_days_after_period_end_at_max));
+        var request = ValidMonthlyRequest();
+        request.DueDaysAfterPeriodEnd = 365;
+
+        var result = await service.CreateAsync(request, userId: 1);
+
+        Assert.Equal(365, result.DueDaysAfterPeriodEnd);
+    }
+
+    [Fact]
+    public async Task CreateAsync_rejects_negative_default_reply_due_days()
+    {
+        var (service, _) = await CreateServiceAsync(nameof(CreateAsync_rejects_negative_default_reply_due_days));
+        var request = ValidMonthlyRequest();
+        request.DefaultReplyDueDays = -1;
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.CreateAsync(request, userId: 1));
+        Assert.True(ex.FieldErrors.ContainsKey(nameof(request.DefaultReplyDueDays)));
+    }
+
+    [Fact]
+    public async Task CreateAsync_rejects_default_reply_due_days_above_max()
+    {
+        var (service, _) = await CreateServiceAsync(nameof(CreateAsync_rejects_default_reply_due_days_above_max));
+        var request = ValidMonthlyRequest();
+        request.DefaultReplyDueDays = 366;
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.CreateAsync(request, userId: 1));
+        Assert.True(ex.FieldErrors.ContainsKey(nameof(request.DefaultReplyDueDays)));
     }
 
     [Fact]
@@ -473,6 +541,58 @@ public class RecurringTransactionTemplateServiceTests
                 IncomingDate = new DateTime(2026, 2, 2, 0, 0, 0, DateTimeKind.Utc),
                 ReferralDate = new DateTime(2026, 2, 2, 0, 0, 0, DateTimeKind.Utc)
             }, userId: 1));
+    }
+
+    [Fact]
+    public async Task GenerateAsync_concurrent_duplicate_period_returns_conflict_exception()
+    {
+        // A genuine cross-request race (two servers generating the same period at nearly the
+        // same instant) can slip past EnsurePeriodNotAlreadyGeneratedAsync's pre-check and only
+        // surface as a unique-constraint violation on SaveChangesAsync. Reproducing that exact
+        // timing window requires a real SQL Server connection (SqlException.Number 2601/2627) —
+        // not reliably achievable against the EF Core InMemory provider used by this test suite —
+        // so this test instead proves the surrounding contract deterministically with two
+        // independent service/context instances (simulating two application server nodes) sharing
+        // the same store: a concurrent duplicate-period attempt must never crash unhandled and must
+        // never result in two transactions for the same period. Exactly one attempt succeeds; the
+        // other fails with either RecurringTemplatePeriodAlreadyGeneratedException (the pre-check,
+        // the common case here) or a raw DbUpdateException (if the two attempts genuinely
+        // interleave past the pre-check under this test's cooperative scheduling) — the production
+        // catch block translates the latter to the same conflict exception when SqlException-backed.
+        var dbName = nameof(GenerateAsync_concurrent_duplicate_period_returns_conflict_exception);
+        var (service, db) = await CreateServiceAsync(dbName);
+        var created = await service.CreateAsync(ValidMonthlyRequest(), userId: 1);
+        var otherService = CreateAdditionalService(dbName, "UQEB-RACE");
+
+        var attempts = await Task.WhenAll(
+            SafeGenerateAsync(service, created.Id, "2026-01", new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc)),
+            SafeGenerateAsync(otherService, created.Id, "2026-01", new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc)));
+
+        Assert.Single(attempts, r => r.Succeeded);
+        var failed = Assert.Single(attempts, r => !r.Succeeded);
+        Assert.True(
+            failed.Error is RecurringTemplatePeriodAlreadyGeneratedException or DbUpdateException,
+            $"Expected a conflict-style exception, got {failed.Error?.GetType()}");
+        Assert.Equal(1, await db.Transactions.CountAsync(t => t.RecurringTemplateId == created.Id && t.RecurringPeriodKey == "2026-01"));
+    }
+
+    private static async Task<(bool Succeeded, Exception? Error)> SafeGenerateAsync(
+        RecurringTransactionTemplateService service, int templateId, string periodKey, DateTime eventDate)
+    {
+        try
+        {
+            await service.GenerateAsync(templateId, new GenerateRecurringTransactionRequest
+            {
+                PeriodKey = periodKey,
+                IncomingDate = eventDate,
+                ReferralDate = eventDate
+            }, userId: 1);
+            return (true, null);
+        }
+        catch (Exception ex)
+        {
+            return (false, ex);
+        }
     }
 
     [Fact]
