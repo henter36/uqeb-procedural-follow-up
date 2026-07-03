@@ -120,7 +120,7 @@ export default function AdminEditResponseFormPanel({
       {error && <Alert variant="error">{error}</Alert>}
       <div className="form-grid">
         <div className="form-group full-width">
-          <label htmlFor="admin-resp-text">نص الرد</label>
+          <label htmlFor="admin-resp-text">ملخص الإفادة</label>
           <textarea
             id="admin-resp-text"
             rows={4}
@@ -136,7 +136,7 @@ export default function AdminEditResponseFormPanel({
             value={form.submittedAt}
             onChange={(submittedAt) => update({ submittedAt })}
           />
-          <small className="text-muted">يُستخدم لحساب أيام إنجاز الإدارة.</small>
+          <small className="text-muted">هذا التاريخ يمثل تاريخ الإفادة/إنجاز رد الإدارة، ويستخدم في احتساب أيام إنجاز الإدارة.</small>
         </div>
         <AdminEditReasonField
           id="admin-resp-reason"
