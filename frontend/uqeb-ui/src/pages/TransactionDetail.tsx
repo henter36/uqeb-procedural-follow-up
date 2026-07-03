@@ -459,7 +459,16 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   };
 
   const handleAdminEditAssignmentSuccess = async (updated: import('../api/types').Assignment) => {
-    setAssignments((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+    setAssignments((prev) => prev.map((a) => (a.id === updated.id
+      ? {
+          ...a,
+          ...updated,
+          departmentResponseId: a.departmentResponseId,
+          responseDate: a.responseDate,
+          departmentCompletionDays: a.departmentCompletionDays,
+          canAdminEdit: a.canAdminEdit,
+        }
+      : a)));
     closeAction();
   };
 
@@ -595,9 +604,14 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     ? requiredAssignments.reduce<string | null>((max, a) => (!max || a.responseDate! > max ? a.responseDate! : max), null)
     : null;
   const effectiveCompletionDate = tx.completionDate ?? derivedCompletionDate;
+  const toUtcDateOnlyTime = (value: string) => {
+    const date = new Date(value);
+    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+  };
+
   const effectiveCompletionDays = tx.completionDays ?? (
     effectiveCompletionDate && tx.incomingDate
-      ? Math.max(0, Math.round((new Date(effectiveCompletionDate).getTime() - new Date(tx.incomingDate).getTime()) / 86400000))
+      ? Math.max(0, Math.floor((toUtcDateOnlyTime(effectiveCompletionDate) - toUtcDateOnlyTime(tx.incomingDate)) / 86400000))
       : null
   );
 

@@ -385,10 +385,15 @@ public class TransactionService : ITransactionService
         if (t == null) return null;
         if (!await CanAccessTransactionAsync(id, currentUser)) return null;
 
-        var assignmentRows = await _db.Assignments.AsNoTracking()
-            .Where(a => a.TransactionId == id)
-            .Select(a => new AssignmentSummaryRow(
-                a.Department.Name,
+        var assignmentRows = await (
+            from a in _db.Assignments.AsNoTracking()
+            join d in _db.Departments.AsNoTracking()
+                on a.DepartmentId equals d.Id
+                into departmentGroup
+            from d in departmentGroup.DefaultIfEmpty()
+            where a.TransactionId == id
+            select new AssignmentSummaryRow(
+                d != null ? d.Name : "إدارة غير معروفة",
                 a.ReplyStatus,
                 a.RequiresReply,
                 a.Status,
@@ -468,6 +473,14 @@ public class TransactionService : ITransactionService
 
         var rows = await (
             from a in query
+            join d in _db.Departments.AsNoTracking()
+                on a.DepartmentId equals d.Id
+                into departmentGroup
+            from d in departmentGroup.DefaultIfEmpty()
+            join u in _db.Users.AsNoTracking()
+                on a.CreatedById equals u.Id
+                into createdByGroup
+            from u in createdByGroup.DefaultIfEmpty()
             join dr in _db.DepartmentResponses.AsNoTracking()
                 on new { a.TransactionId, a.DepartmentId } equals new { dr.TransactionId, dr.DepartmentId }
                 into drGroup
@@ -477,7 +490,7 @@ public class TransactionService : ITransactionService
             {
                 a.Id,
                 a.DepartmentId,
-                DepartmentName = a.Department.Name,
+                DepartmentName = d != null ? d.Name : "إدارة غير معروفة",
                 a.LetterNumber,
                 a.AssignedDate,
                 a.RequiredAction,
@@ -488,7 +501,7 @@ public class TransactionService : ITransactionService
                 a.ReplyDate,
                 a.ReplySummary,
                 a.Status,
-                CreatedByName = a.CreatedBy != null ? a.CreatedBy.FullName : "",
+                CreatedByName = u != null ? u.FullName : "",
                 a.CreatedAt,
                 DepartmentResponseId = (int?)dr.Id,
                 ResponseDate = (DateTime?)dr.SubmittedAt

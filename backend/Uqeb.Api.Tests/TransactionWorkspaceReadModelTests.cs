@@ -414,6 +414,48 @@ public class TransactionWorkspaceReadModelTests
     }
 
     [Fact]
+    public async Task GetWorkspaceAsync_handles_assignment_with_missing_related_department_and_user()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(GetWorkspaceAsync_handles_assignment_with_missing_related_department_and_user));
+        var transaction = await SeedTransactionAsync(db, 205);
+        transaction.IncomingDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        db.Assignments.Add(new Assignment
+        {
+            TransactionId = transaction.Id,
+            DepartmentId = 999,
+            AssignedDate = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc),
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Pending,
+            Status = AssignmentStatus.Active,
+            CreatedById = 999,
+            CreatedAt = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc)
+        });
+        db.DepartmentResponses.Add(new DepartmentResponse
+        {
+            TransactionId = transaction.Id,
+            DepartmentId = 999,
+            ResponseText = "إفادة إدارة محذوفة",
+            Status = DepartmentResponseStatus.SubmittedForReview,
+            SubmittedByUserId = 1,
+            SubmittedAt = new DateTime(2026, 1, 6, 0, 0, 0, DateTimeKind.Utc),
+            CreatedAt = new DateTime(2026, 1, 6, 0, 0, 0, DateTimeKind.Utc)
+        });
+        await db.SaveChangesAsync();
+
+        var result = await service.GetWorkspaceAsync(transaction.Id, new TestCurrentUser(UserRole.Admin));
+
+        Assert.NotNull(result);
+        var assignment = Assert.Single(result!.Assignments);
+        Assert.Equal("إدارة غير معروفة", assignment.DepartmentName);
+        Assert.Equal("", assignment.CreatedByName);
+        Assert.Equal(new DateTime(2026, 1, 6, 0, 0, 0, DateTimeKind.Utc), assignment.ResponseDate);
+        Assert.Equal(5, assignment.DepartmentCompletionDays);
+        Assert.Contains("إدارة غير معروفة", result.Transaction.PendingDepartmentNames);
+        Assert.NotNull(result.TemporalFacts);
+    }
+
+    [Fact]
     public async Task GetWorkspaceAsync_includes_data_for_department_user_with_assignment()
     {
         var (service, db) = await CreateServiceAsync(nameof(GetWorkspaceAsync_includes_data_for_department_user_with_assignment));
