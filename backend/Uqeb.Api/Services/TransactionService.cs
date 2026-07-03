@@ -28,6 +28,8 @@ public interface ITransactionService
     Task<FollowUpDto?> ReplyFollowUpAsync(int transactionId, int followUpId, ReplyFollowUpRequest request, int userId);
     Task<AssignmentDto> AddAssignmentAsync(int transactionId, CreateAssignmentRequest request, int userId);
     Task<AssignmentDto?> ReplyAssignmentAsync(int transactionId, int assignmentId, ReplyAssignmentRequest request, ICurrentUserService currentUser);
+    Task<AssignmentDto?> AdminEditAssignmentAsync(int transactionId, int assignmentId, AdminEditAssignmentRequest request, int userId);
+    Task<TransactionDetailDto?> AdminEditTransactionDatesAsync(int transactionId, AdminEditTransactionDatesRequest request, int userId);
     Task<PagedResult<AuditLogDto>> GetAuditLogAsync(int transactionId, int page, int pageSize, ICurrentUserService currentUser);
 }
 
@@ -383,10 +385,15 @@ public class TransactionService : ITransactionService
         if (t == null) return null;
         if (!await CanAccessTransactionAsync(id, currentUser)) return null;
 
-        var assignmentRows = await _db.Assignments.AsNoTracking()
-            .Where(a => a.TransactionId == id)
-            .Select(a => new AssignmentSummaryRow(
-                a.Department.Name,
+        var assignmentRows = await (
+            from a in _db.Assignments.AsNoTracking()
+            join d in _db.Departments.AsNoTracking()
+                on a.DepartmentId equals d.Id
+                into departmentGroup
+            from d in departmentGroup.DefaultIfEmpty()
+            where a.TransactionId == id
+            select new AssignmentSummaryRow(
+                d != null ? d.Name : "إدارة غير معروفة",
                 a.ReplyStatus,
                 a.RequiresReply,
                 a.Status,
@@ -451,34 +458,87 @@ public class TransactionService : ITransactionService
         var departmentId = currentUser.Role == UserRole.DepartmentUser
             ? RequireDepartmentUserDepartmentId(currentUser)
             : (int?)null;
+        var isAdmin = currentUser.Role == UserRole.Admin;
         var now = DateTime.UtcNow;
+
+        var incomingDate = await _db.Transactions.AsNoTracking()
+            .Where(t => t.Id == transactionId)
+            .Select(t => (DateTime?)t.IncomingDate)
+            .FirstOrDefaultAsync();
+
         var query = _db.Assignments.AsNoTracking()
             .Where(a => a.TransactionId == transactionId);
         if (departmentId.HasValue)
             query = query.Where(a => a.DepartmentId == departmentId.Value && a.Status != AssignmentStatus.Cancelled);
 
-        return await query
-            .OrderByDescending(a => a.AssignedDate)
-            .Select(a => new AssignmentDto
+        var rows = await (
+            from a in query
+            join d in _db.Departments.AsNoTracking()
+                on a.DepartmentId equals d.Id
+                into departmentGroup
+            from d in departmentGroup.DefaultIfEmpty()
+            join u in _db.Users.AsNoTracking()
+                on a.CreatedById equals u.Id
+                into createdByGroup
+            from u in createdByGroup.DefaultIfEmpty()
+            join dr in _db.DepartmentResponses.AsNoTracking()
+                on new { a.TransactionId, a.DepartmentId } equals new { dr.TransactionId, dr.DepartmentId }
+                into drGroup
+            from dr in drGroup.DefaultIfEmpty()
+            orderby a.AssignedDate descending
+            select new
             {
-                Id = a.Id,
-                DepartmentId = a.DepartmentId,
-                DepartmentName = a.Department.Name,
-                AssignedDate = a.AssignedDate,
-                RequiredAction = a.RequiredAction,
-                RequiresReply = a.RequiresReply,
-                ReplyDueDays = a.ReplyDueDays,
-                DueDate = a.DueDate,
-                ReplyStatus = a.ReplyStatus.ToString(),
-                ReplyDate = a.ReplyDate,
-                ReplySummary = a.ReplySummary,
-                Status = a.Status.ToString(),
+                a.Id,
+                a.DepartmentId,
+                DepartmentName = d != null ? d.Name : "إدارة غير معروفة",
+                a.LetterNumber,
+                a.AssignedDate,
+                a.RequiredAction,
+                a.RequiresReply,
+                a.ReplyDueDays,
+                a.DueDate,
+                a.ReplyStatus,
+                a.ReplyDate,
+                a.ReplySummary,
+                a.Status,
+                CreatedByName = u != null ? u.FullName : "",
+                a.CreatedAt,
+                DepartmentResponseId = (int?)dr.Id,
+                ResponseDate = dr.SubmittedAt
+            }
+        ).ToListAsync();
+
+        return rows.Select(r =>
+        {
+            int? completionDays = null;
+            if (r.ResponseDate.HasValue && incomingDate.HasValue)
+                completionDays = Math.Max(0, (r.ResponseDate.Value.Date - incomingDate.Value.Date).Days);
+
+            return new AssignmentDto
+            {
+                Id = r.Id,
+                DepartmentId = r.DepartmentId,
+                DepartmentName = r.DepartmentName,
+                LetterNumber = r.LetterNumber,
+                AssignedDate = r.AssignedDate,
+                RequiredAction = r.RequiredAction,
+                RequiresReply = r.RequiresReply,
+                ReplyDueDays = r.ReplyDueDays,
+                DueDate = r.DueDate,
+                ReplyStatus = r.ReplyStatus.ToString(),
+                ReplyDate = r.ReplyDate,
+                ReplySummary = r.ReplySummary,
+                Status = r.Status.ToString(),
                 IsOverdue = TransactionTemporalCalculator.IsAssignmentOverdue(
-                    a.ReplyStatus, a.RequiresReply, a.Status, a.DueDate, now),
-                CreatedByName = a.CreatedBy != null ? a.CreatedBy.FullName : "",
-                CreatedAt = a.CreatedAt
-            })
-            .ToListAsync();
+                    r.ReplyStatus, r.RequiresReply, r.Status, r.DueDate, now),
+                DepartmentResponseId = r.DepartmentResponseId,
+                ResponseDate = r.ResponseDate,
+                DepartmentCompletionDays = completionDays,
+                CanAdminEdit = isAdmin,
+                CreatedByName = r.CreatedByName,
+                CreatedAt = r.CreatedAt
+            };
+        }).ToList();
     }
 
     public async Task<List<FollowUpDto>?> GetFollowUpsAsync(int transactionId, ICurrentUserService currentUser)
@@ -1076,19 +1136,33 @@ public class TransactionService : ITransactionService
 
     public async Task<AssignmentDto> AddAssignmentAsync(int transactionId, CreateAssignmentRequest request, int userId)
     {
+        if (request is null)
+            throw new InvalidOperationException("بيانات طلب الإحالة مطلوبة.");
+
         var t = await _db.Transactions.Include(x => x.Assignments).FirstOrDefaultAsync(x => x.Id == transactionId)
             ?? throw new InvalidOperationException("المعاملة غير موجودة");
 
         var dept = await _db.Departments.FindAsync(request.DepartmentId)
             ?? throw new InvalidOperationException("الإدارة غير موجودة");
 
-        var dueDate = WorkflowHelper.CalculateAssignmentDueDate(request.AssignedDate, request.ReplyDueDays, request.DueDate);
+        var assignedDate = NormalizeDateOnlyUtc(request.AssignedDate);
+        var requestedDueDate = request.DueDate.HasValue
+            ? NormalizeDateOnlyUtc(request.DueDate.Value)
+            : (DateTime?)null;
+        var dueDate = WorkflowHelper.CalculateAssignmentDueDate(assignedDate, request.ReplyDueDays, requestedDueDate);
+
+        if (assignedDate.Date < t.IncomingDate.Date)
+            throw new InvalidOperationException("تاريخ الإحالة لا يمكن أن يسبق تاريخ الوارد.");
+
+        if (dueDate.HasValue && dueDate.Value.Date < assignedDate.Date)
+            throw new InvalidOperationException("تاريخ استحقاق الإدارة لا يمكن أن يسبق تاريخ الإحالة.");
 
         var assignment = new Assignment
         {
             TransactionId = transactionId,
             DepartmentId = request.DepartmentId,
-            AssignedDate = request.AssignedDate,
+            AssignedDate = assignedDate,
+            LetterNumber = string.IsNullOrWhiteSpace(request.LetterNumber) ? null : request.LetterNumber.Trim(),
             RequiredAction = request.RequiredAction,
             RequiresReply = true,
             ReplyDueDays = request.ReplyDueDays,
@@ -1147,6 +1221,206 @@ public class TransactionService : ITransactionService
             });
 
         return MapAssignment(assignment, assignment.Department.Name, assignment.CreatedBy.FullName);
+    }
+
+    public async Task<AssignmentDto?> AdminEditAssignmentAsync(
+        int transactionId, int assignmentId, AdminEditAssignmentRequest request, int userId)
+    {
+        if (request is null)
+            throw new InvalidOperationException("بيانات طلب التعديل مطلوبة.");
+
+        var assignment = await _db.Assignments
+            .Include(a => a.Department)
+            .Include(a => a.CreatedBy)
+            .Include(a => a.Transaction)
+            .FirstOrDefaultAsync(a => a.Id == assignmentId && a.TransactionId == transactionId);
+        if (assignment == null) return null;
+
+        var oldSnapshot = JsonSerializer.Serialize(new
+        {
+            assignment.LetterNumber,
+            assignment.AssignedDate,
+            assignment.RequiredAction,
+            assignment.ReplyDueDays,
+            assignment.DueDate
+        });
+
+        var resolvedDates = ResolveAdminEditAssignmentDates(assignment, request);
+        ValidateAdminEditAssignmentDates(assignment, resolvedDates.AssignedDate, resolvedDates.DueDate);
+        ApplyAdminEditAssignmentChanges(assignment, request, resolvedDates.AssignedDate, resolvedDates.DueDate);
+
+        var newSnapshot = JsonSerializer.Serialize(new
+        {
+            assignment.LetterNumber,
+            assignment.AssignedDate,
+            assignment.RequiredAction,
+            assignment.ReplyDueDays,
+            assignment.DueDate
+        });
+
+        await CommitWorkflowMutationAsync(
+            () => Task.CompletedTask,
+            () =>
+            {
+                _audit.TrackLog(userId, AuditAction.AdminEditAssignment, AssignmentEntityName, assignmentId, transactionId, oldSnapshot, newSnapshot);
+                return Task.CompletedTask;
+            });
+
+        return MapAssignment(assignment, assignment.Department.Name, assignment.CreatedBy?.FullName ?? "", canAdminEdit: true);
+    }
+
+    public async Task<TransactionDetailDto?> AdminEditTransactionDatesAsync(
+        int transactionId, AdminEditTransactionDatesRequest request, int userId)
+    {
+        if (request is null)
+            throw new InvalidOperationException("بيانات طلب التعديل مطلوبة.");
+
+        var t = await _db.Transactions
+            .Include(x => x.CreatedBy)
+            .Include(x => x.CategoryEntity)
+            .Include(x => x.IncomingFromParty)
+            .Include(x => x.IncomingFromDepartment)
+            .Include(x => x.OutgoingDepartments).ThenInclude(o => o.Department)
+            .FirstOrDefaultAsync(x => x.Id == transactionId);
+        if (t == null) return null;
+
+        var oldSnapshot = JsonSerializer.Serialize(new
+        {
+            t.IncomingDate,
+            t.ResponseDueDate,
+            ClosedAt = t.ClosedAt,
+            Reason = request.Reason
+        });
+
+        var resolvedDates = ResolveAdminEditTransactionDates(t, request);
+        ValidateAdminEditTransactionDateOrder(resolvedDates.IncomingDate, resolvedDates.ResponseDueDate, resolvedDates.ClosedAt);
+        await EnsureIncomingDateDoesNotFollowExistingAssignmentsAsync(transactionId, request, resolvedDates.IncomingDate);
+        ApplyAdminEditTransactionDates(t, request, resolvedDates.IncomingDate, resolvedDates.ResponseDueDate, resolvedDates.ClosedAt);
+
+        var newSnapshot = JsonSerializer.Serialize(new
+        {
+            t.IncomingDate,
+            t.ResponseDueDate,
+            ClosedAt = t.ClosedAt,
+            Reason = request.Reason
+        });
+
+        await CommitWorkflowMutationAsync(
+            () => Task.CompletedTask,
+            () =>
+            {
+                _audit.TrackLog(userId, AuditAction.AdminEditTransactionDates, TransactionEntityName, transactionId, transactionId, oldSnapshot, newSnapshot);
+                return Task.CompletedTask;
+            });
+
+        var assignmentRows = await _db.Assignments.AsNoTracking()
+            .Where(a => a.TransactionId == transactionId)
+            .Select(a => new AssignmentSummaryRow(a.Department.Name, a.ReplyStatus, a.RequiresReply, a.Status, a.DueDate))
+            .ToListAsync();
+
+        return MapToBasicDetailDto(t, assignmentRows, DateTime.UtcNow);
+    }
+
+    private static (DateTime AssignedDate, DateTime? DueDate) ResolveAdminEditAssignmentDates(
+        Assignment assignment,
+        AdminEditAssignmentRequest request)
+    {
+        var assignedDate = request.AssignedDate.HasValue
+            ? NormalizeDateOnlyUtc(request.AssignedDate.Value)
+            : assignment.AssignedDate;
+        var dueDate = request.DueDate.HasValue
+            ? NormalizeDateOnlyUtc(request.DueDate.Value)
+            : assignment.DueDate;
+
+        return (assignedDate, dueDate);
+    }
+
+    private static void ValidateAdminEditAssignmentDates(
+        Assignment assignment,
+        DateTime assignedDate,
+        DateTime? dueDate)
+    {
+        if (assignedDate.Date < assignment.Transaction.IncomingDate.Date)
+            throw new InvalidOperationException("تاريخ الإحالة لا يمكن أن يسبق تاريخ الوارد.");
+        if (dueDate.HasValue && dueDate.Value.Date < assignedDate.Date)
+            throw new InvalidOperationException("تاريخ استحقاق الإدارة لا يمكن أن يسبق تاريخ الإحالة.");
+    }
+
+    private static void ApplyAdminEditAssignmentChanges(
+        Assignment assignment,
+        AdminEditAssignmentRequest request,
+        DateTime assignedDate,
+        DateTime? dueDate)
+    {
+        if (request.AssignedDate.HasValue)
+            assignment.AssignedDate = assignedDate;
+        if (request.DueDate.HasValue)
+            assignment.DueDate = dueDate;
+        if (request.IsLetterNumberSpecified)
+            assignment.LetterNumber = string.IsNullOrWhiteSpace(request.LetterNumber) ? null : request.LetterNumber.Trim();
+        if (request.RequiredAction != null)
+            assignment.RequiredAction = string.IsNullOrWhiteSpace(request.RequiredAction) ? null : request.RequiredAction.Trim();
+        if (request.ReplyDueDays.HasValue)
+            assignment.ReplyDueDays = request.ReplyDueDays;
+    }
+
+    private static (DateTime IncomingDate, DateTime? ResponseDueDate, DateTime? ClosedAt) ResolveAdminEditTransactionDates(
+        Transaction transaction,
+        AdminEditTransactionDatesRequest request)
+    {
+        var incomingDate = request.IncomingDate.HasValue
+            ? NormalizeDateOnlyUtc(request.IncomingDate.Value)
+            : transaction.IncomingDate;
+        var responseDueDate = request.ResponseDueDate.HasValue
+            ? NormalizeDateOnlyUtc(request.ResponseDueDate.Value)
+            : transaction.ResponseDueDate;
+        var closedAt = request.ClosedAt.HasValue
+            ? NormalizeDateOnlyUtc(request.ClosedAt.Value)
+            : transaction.ClosedAt;
+
+        return (incomingDate, responseDueDate, closedAt);
+    }
+
+    private static void ValidateAdminEditTransactionDateOrder(
+        DateTime incomingDate,
+        DateTime? responseDueDate,
+        DateTime? closedAt)
+    {
+        if (responseDueDate.HasValue && responseDueDate.Value.Date < incomingDate.Date)
+            throw new InvalidOperationException("تاريخ استحقاق المعاملة لا يمكن أن يسبق تاريخ الوارد.");
+        if (closedAt.HasValue && closedAt.Value.Date < incomingDate.Date)
+            throw new InvalidOperationException("تاريخ إغلاق المعاملة لا يمكن أن يسبق تاريخ الوارد.");
+    }
+
+    private async Task EnsureIncomingDateDoesNotFollowExistingAssignmentsAsync(
+        int transactionId,
+        AdminEditTransactionDatesRequest request,
+        DateTime incomingDate)
+    {
+        if (!request.IsIncomingDateSpecified || !request.IncomingDate.HasValue)
+            return;
+
+        var hasEarlierAssignment = await _db.Assignments
+            .AsNoTracking()
+            .AnyAsync(a => a.TransactionId == transactionId && a.AssignedDate.Date < incomingDate.Date);
+
+        if (hasEarlierAssignment)
+            throw new InvalidOperationException("تاريخ الوارد لا يمكن أن يكون بعد تاريخ أي إحالة قائمة.");
+    }
+
+    private static void ApplyAdminEditTransactionDates(
+        Transaction transaction,
+        AdminEditTransactionDatesRequest request,
+        DateTime incomingDate,
+        DateTime? responseDueDate,
+        DateTime? closedAt)
+    {
+        if (request.IsIncomingDateSpecified && request.IncomingDate.HasValue)
+            transaction.IncomingDate = incomingDate;
+        if (request.IsResponseDueDateSpecified)
+            transaction.ResponseDueDate = responseDueDate;
+        if (request.IsClosedAtSpecified)
+            transaction.ClosedAt = closedAt;
     }
 
     public async Task<PagedResult<AuditLogDto>> GetAuditLogAsync(
@@ -1889,7 +2163,17 @@ public class TransactionService : ITransactionService
         return MapFollowUp(f);
     }
 
-    private static AssignmentDto MapAssignment(Assignment a, string deptName, string createdByName)
+    private static DateTime NormalizeDateOnlyUtc(DateTime value) =>
+        DateTime.SpecifyKind(value.Date, DateTimeKind.Utc);
+
+    private static AssignmentDto MapAssignment(
+        Assignment a,
+        string deptName,
+        string createdByName,
+        int? departmentResponseId = null,
+        DateTime? responseDate = null,
+        int? departmentCompletionDays = null,
+        bool canAdminEdit = false)
     {
         var now = DateTime.UtcNow;
         return new AssignmentDto
@@ -1897,6 +2181,7 @@ public class TransactionService : ITransactionService
             Id = a.Id,
             DepartmentId = a.DepartmentId,
             DepartmentName = deptName,
+            LetterNumber = a.LetterNumber,
             AssignedDate = a.AssignedDate,
             RequiredAction = a.RequiredAction,
             RequiresReply = a.RequiresReply,
@@ -1907,6 +2192,10 @@ public class TransactionService : ITransactionService
             ReplySummary = a.ReplySummary,
             Status = a.Status.ToString(),
             IsOverdue = TransactionTemporalCalculator.IsAssignmentOverdue(a, now),
+            DepartmentResponseId = departmentResponseId,
+            ResponseDate = responseDate,
+            DepartmentCompletionDays = departmentCompletionDays,
+            CanAdminEdit = canAdminEdit,
             CreatedByName = createdByName,
             CreatedAt = a.CreatedAt
         };

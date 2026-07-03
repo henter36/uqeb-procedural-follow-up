@@ -522,12 +522,12 @@ public class ReportService : IReportService
 
         var completionDays = await db.Transactions.AsNoTracking()
             .Where(t => t.Status == TransactionStatus.Closed && t.ClosedAt.HasValue)
-            .Select(t => new { t.CreatedAt, ClosedAt = t.ClosedAt!.Value })
+            .Select(t => new { t.IncomingDate, ClosedAt = t.ClosedAt!.Value })
             .ToListAsync();
 
         stats.AverageCompletionDaysRaw = completionDays.Count == 0
             ? 0
-            : completionDays.Average(t => Math.Max(0, (t.ClosedAt.Date - t.CreatedAt.Date).Days));
+            : completionDays.Average(t => Math.Max(0, (t.ClosedAt.Date - t.IncomingDate.Date).Days));
 
         return stats;
     }

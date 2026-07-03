@@ -315,6 +315,39 @@ public class TransactionsController : ControllerBase
         }
     }
 
+    [HttpPatch("{id}/assignments/{assignmentId}")]
+    [Authorize(Policy = Policies.AdminOnly)]
+    public async Task<IActionResult> AdminEditAssignment(int id, int assignmentId, [FromBody] AdminEditAssignmentRequest request)
+    {
+        if (!ModelState.IsValid) return BadRequest(ModelState);
+
+        try
+        {
+            var result = await _transactions.AdminEditAssignmentAsync(id, assignmentId, request, _currentUser.UserId);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPatch("{id}/dates")]
+    [Authorize(Policy = Policies.AdminOnly)]
+    public async Task<IActionResult> AdminEditTransactionDates(int id, [FromBody] AdminEditTransactionDatesRequest request)
+    {
+        if (!ModelState.IsValid) return BadRequest(ModelState);
+        try
+        {
+            var result = await _transactions.AdminEditTransactionDatesAsync(id, request, _currentUser.UserId);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     [HttpGet("{id}/attachments")]
     public async Task<IActionResult> GetAttachments(int id)
     {

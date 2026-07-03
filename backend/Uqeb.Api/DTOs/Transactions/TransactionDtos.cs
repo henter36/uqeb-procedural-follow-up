@@ -283,6 +283,7 @@ public class AssignmentDto
     public int Id { get; set; }
     public int DepartmentId { get; set; }
     public string DepartmentName { get; set; } = string.Empty;
+    public string? LetterNumber { get; set; }
     public DateTime AssignedDate { get; set; }
     public string? RequiredAction { get; set; }
     public bool RequiresReply { get; set; }
@@ -293,6 +294,10 @@ public class AssignmentDto
     public string? ReplySummary { get; set; }
     public string Status { get; set; } = string.Empty;
     public bool IsOverdue { get; set; }
+    public int? DepartmentResponseId { get; set; }
+    public DateTime? ResponseDate { get; set; }
+    public int? DepartmentCompletionDays { get; set; }
+    public bool CanAdminEdit { get; set; }
     public string CreatedByName { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
 }
@@ -304,6 +309,30 @@ public class CreateAssignmentRequest
 
     [JsonRequired]
     public DateTime AssignedDate { get; set; }
+    public string? LetterNumber { get; set; }
+    public string? RequiredAction { get; set; }
+    public int? ReplyDueDays { get; set; }
+    public DateTime? DueDate { get; set; }
+}
+
+public class AdminEditAssignmentRequest
+{
+    private string? _letterNumber;
+
+    public string? LetterNumber
+    {
+        get => _letterNumber;
+        set
+        {
+            _letterNumber = value;
+            IsLetterNumberSpecified = true;
+        }
+    }
+
+    [JsonIgnore]
+    public bool IsLetterNumberSpecified { get; private set; }
+
+    public DateTime? AssignedDate { get; set; }
     public string? RequiredAction { get; set; }
     public int? ReplyDueDays { get; set; }
     public DateTime? DueDate { get; set; }
@@ -314,6 +343,55 @@ public class ReplyAssignmentRequest
     [JsonRequired]
     public DateTime ReplyDate { get; set; }
     public string ReplySummary { get; set; } = string.Empty;
+}
+
+public class AdminEditTransactionDatesRequest
+{
+    private DateTime? _incomingDate;
+    private DateTime? _responseDueDate;
+    private DateTime? _closedAt;
+
+    public DateTime? IncomingDate
+    {
+        get => _incomingDate;
+        set
+        {
+            _incomingDate = value;
+            IsIncomingDateSpecified = true;
+        }
+    }
+
+    [JsonIgnore]
+    public bool IsIncomingDateSpecified { get; private set; }
+
+    public DateTime? ResponseDueDate
+    {
+        get => _responseDueDate;
+        set
+        {
+            _responseDueDate = value;
+            IsResponseDueDateSpecified = true;
+        }
+    }
+
+    [JsonIgnore]
+    public bool IsResponseDueDateSpecified { get; private set; }
+
+    public DateTime? ClosedAt
+    {
+        get => _closedAt;
+        set
+        {
+            _closedAt = value;
+            IsClosedAtSpecified = true;
+        }
+    }
+
+    [JsonIgnore]
+    public bool IsClosedAtSpecified { get; private set; }
+
+    [Required(ErrorMessage = "سبب التعديل مطلوب")]
+    public string Reason { get; set; } = string.Empty;
 }
 
 public class AttachmentDto

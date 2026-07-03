@@ -31,6 +31,9 @@ import ReplyFormPanel from '../components/transaction-workspace/ReplyFormPanel';
 import CompleteResponseFormPanel from '../components/transaction-workspace/CompleteResponseFormPanel';
 import DepartmentResponseInlinePanel from '../components/transaction-workspace/DepartmentResponseInlinePanel';
 import FollowUpLetterFormPanel from '../components/transaction-workspace/FollowUpLetterFormPanel';
+import AdminEditAssignmentFormPanel from '../components/transaction-workspace/AdminEditAssignmentFormPanel';
+import AdminEditDatesFormPanel from '../components/transaction-workspace/AdminEditDatesFormPanel';
+import AdminEditResponseFormPanel from '../components/transaction-workspace/AdminEditResponseFormPanel';
 import { departmentResponseStatusLabels } from '../components/transaction-workspace/departmentResponseStatusLabels';
 import type { WorkspaceAction, WorkspaceActionContext } from '../components/transaction-workspace/types';
 import { parseDetailTab, type DetailTab } from './transactionDetailTabs';
@@ -71,6 +74,27 @@ function countOpenAssignments(items: Assignment[]): number {
   ).length;
 }
 
+function getCompletionDateHint(hasOfficialCompletionDate: boolean, hasEffectiveCompletionDate: boolean): string {
+  if (hasOfficialCompletionDate) return 'تاريخ الإغلاق الرسمي';
+  if (hasEffectiveCompletionDate) return 'محسوب من آخر تاريخ إغلاق إحالة مطلوبة';
+  return 'يُحسب عند إغلاق جميع الإحالات المطلوبة';
+}
+
+function getResponseTimingLabel(isResponseOverdue: boolean, hasEffectiveCompletionDate: boolean): string {
+  if (isResponseOverdue) return 'متأخرة';
+  if (hasEffectiveCompletionDate) return 'مُنجزة';
+  return 'في الوقت';
+}
+
+function renderDepartmentCompletionDays(completionDays?: number | null): ReactNode {
+  const hasCompletionDays = completionDays != null;
+  if (hasCompletionDays) {
+    return <>{completionDays} <small className="text-muted">يوم</small></>;
+  }
+
+  return <span className="text-muted">لم تُنجز الإدارة</span>;
+}
+
 function hasDepartmentResponseAssignment(items: Assignment[], departmentId?: number | null): boolean {
   if (!departmentId) return false;
   return items.some(
@@ -86,6 +110,9 @@ const ACTION_TITLES: Record<WorkspaceAction, string> = {
   'reply-followup': 'تسجيل رد على التعقيب',
   'complete-response': 'تسجيل إفادة',
   'follow-up-letter': 'خطاب تعقيب PDF',
+  'admin-edit-assignment': 'تعديل بيانات الاحالة',
+  'admin-edit-dates': 'تصحيح التواريخ الحساسة (إداري)',
+  'admin-edit-response': 'تعديل بيانات الرد (إداري)',
 };
 
 export default function TransactionDetailPage() {
@@ -105,7 +132,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab');
-  const { canEdit, canClose, isDepartmentUser, user } = useAuth();
+  const { canEdit, canClose, isDepartmentUser, isAdmin, user } = useAuth();
   const { departments } = useReferenceData();
   const [tx, setTx] = useState<TransactionDetail | null>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -452,6 +479,30 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     await handleActionSuccess('تم تسجيل الرد بنجاح.', [() => loadWorkspace({ silent: true })]);
   };
 
+  const handleAdminEditAssignmentSuccess = async (updated: import('../api/types').Assignment) => {
+    setAssignments((prev) => prev.map((a) => (a.id === updated.id
+      ? {
+          ...a,
+          ...updated,
+          departmentResponseId: a.departmentResponseId,
+          responseDate: a.responseDate,
+          departmentCompletionDays: a.departmentCompletionDays,
+          canAdminEdit: a.canAdminEdit,
+        }
+      : a)));
+    closeAction();
+  };
+
+  const handleAdminEditDatesSuccess = (updated: import('../api/types').TransactionDetail) => {
+    setTx(updated);
+    closeAction();
+  };
+
+  const handleAdminEditResponseSuccess = () => {
+    closeAction();
+    loadWorkspace({ silent: true }).catch(() => undefined);
+  };
+
   const handleReplyFollowUpSuccess = async () => {
     await handleActionSuccess('تم تسجيل الرد بنجاح.', [() => loadWorkspace({ silent: true })]);
   };
@@ -566,8 +617,41 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const showMutationActions = canEdit && !isDepartmentUser;
   const canReply = canEdit && !isDepartmentUser;
   const openAssignmentsCount = countOpenAssignments(assignments);
+
+  // Derive effective close date from assignments when ClosedAt is not set
+  const requiredAssignments = assignments.filter((a) => a.requiresReply && a.status !== 'Cancelled');
+  const allRequiredHaveResponse = requiredAssignments.length > 0 && requiredAssignments.every((a) => a.responseDate != null);
+  const derivedCompletionDate: string | null = allRequiredHaveResponse
+    ? requiredAssignments.reduce<string | null>((max, a) => (!max || a.responseDate! > max ? a.responseDate! : max), null)
+    : null;
+  const effectiveCompletionDate = tx.completionDate ?? derivedCompletionDate;
+  const toUtcDateOnlyTime = (value: string) => {
+    const date = new Date(value);
+    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+  };
+
+  const effectiveCompletionDays = tx.completionDays ?? (
+    effectiveCompletionDate && tx.incomingDate
+      ? Math.max(0, Math.floor((toUtcDateOnlyTime(effectiveCompletionDate) - toUtcDateOnlyTime(tx.incomingDate)) / 86400000))
+      : null
+  );
+  const hasOfficialCompletionDate = Boolean(tx.completionDate);
+  const hasEffectiveCompletionDate = Boolean(effectiveCompletionDate);
+  const hasEffectiveCompletionDays = effectiveCompletionDays != null;
+  const completionDateHint = getCompletionDateHint(hasOfficialCompletionDate, hasEffectiveCompletionDate);
+  const completionDaysLabel = hasEffectiveCompletionDays ? 'أيام إنجاز المعاملة' : 'الأيام المفتوحة';
+  const completionDaysValue = hasEffectiveCompletionDays
+    ? formatCompletionDays(effectiveCompletionDays)
+    : formatDaysSince(tx.daysSinceIncoming, '0');
+  const completionDaysHint = hasEffectiveCompletionDays
+    ? 'محسوب تلقائيًا: تاريخ الإغلاق − تاريخ الوارد'
+    : 'محسوب تلقائيًا: اليوم − تاريخ الوارد';
+  const responseTimingLabel = getResponseTimingLabel(tx.isResponseOverdue, hasEffectiveCompletionDate);
+
   const replyAssignmentId = actionContext.replyAssignmentId;
   const replyFollowUpId = actionContext.replyFollowUpId;
+  const adminEditAssignmentId = actionContext.adminEditAssignmentId;
+  const adminEditResponseId = actionContext.adminEditResponseId;
   const existingDepartmentIds = assignments.map((a) => a.departmentId);
   const isGlobalActionOpen = activeAction !== null && GLOBAL_ACTIONS.has(activeAction);
 
@@ -641,27 +725,47 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
 
         <div className="transaction-metric-grid">
           <div className="transaction-metric-tile">
-            <span className="transaction-metric-label">منذ ورود المعاملة</span>
-            <span className="transaction-metric-value">{formatDaysSince(tx.daysSinceIncoming, '0')}</span>
+            <span className="transaction-metric-label">تاريخ الوارد</span>
+            <span className="transaction-metric-value"><DateDisplay date={tx.incomingDate} /></span>
+            <small className="text-muted metric-hint">بداية عمر المعاملة وأيام الإنجاز</small>
           </div>
           <div className="transaction-metric-tile">
-            <span className="transaction-metric-label">أيام إنجاز المعاملة</span>
-            <span className="transaction-metric-value">{formatCompletionDays(tx.completionDays)}</span>
-            {tx.completionDate && (
-              <small className="text-muted">تاريخ الإنجاز: <DateDisplay date={tx.completionDate} /></small>
-            )}
-          </div>
-          <div className="transaction-metric-tile">
-            <span className="transaction-metric-label">الأيام المتبقية</span>
-            <span className={`transaction-metric-value${tx.isResponseOverdue ? ' text-danger' : ''}`}>
-              {formatDaysRemaining(tx.daysRemainingForResponse)}
-            </span>
-          </div>
-          <div className="transaction-metric-tile">
-            <span className="transaction-metric-label">تاريخ الرد المطلوب</span>
+            <span className="transaction-metric-label">تاريخ استحقاق المعاملة</span>
             <span className="transaction-metric-value">
               {tx.responseDueDate ? <DateDisplay date={tx.responseDueDate} /> : '—'}
             </span>
+            <small className="text-muted metric-hint">آخر تاريخ متوقع لإغلاق جميع الإحالات</small>
+          </div>
+          <div className="transaction-metric-tile">
+            <span className="transaction-metric-label">تاريخ إغلاق المعاملة</span>
+            <span className="transaction-metric-value">
+              {effectiveCompletionDate ? <DateDisplay date={effectiveCompletionDate} /> : '—'}
+            </span>
+            <small className="text-muted metric-hint">
+              {completionDateHint}
+            </small>
+          </div>
+          <div className="transaction-metric-tile">
+            <span className="transaction-metric-label">
+              {completionDaysLabel}
+            </span>
+            <span className="transaction-metric-value">
+              {completionDaysValue}
+            </span>
+            <small className="text-muted metric-hint">
+              {completionDaysHint}
+            </small>
+          </div>
+          <div className={`transaction-metric-tile${tx.isResponseOverdue ? ' metric-tile-overdue' : ''}`}>
+            <span className="transaction-metric-label">حالة التأخر</span>
+            <span className={`transaction-metric-value${tx.isResponseOverdue ? ' text-danger' : ' text-success'}`}>
+              {responseTimingLabel}
+            </span>
+            <small className="text-muted metric-hint">
+              {tx.responseDueDate
+                ? `${formatDaysRemaining(tx.daysRemainingForResponse)} حتى الاستحقاق`
+                : 'لم يُحدَّد تاريخ استحقاق'}
+            </small>
           </div>
           <div className="transaction-metric-tile">
             <span className="transaction-metric-label">منذ آخر تعقيب</span>
@@ -676,6 +780,35 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
             <span className="transaction-metric-value">{attachments.length}</span>
           </div>
         </div>
+
+        {isAdmin && (
+          <div className="admin-dates-edit-bar">
+            <button
+              type="button"
+              className={`btn btn-sm btn-outline${activeAction === 'admin-edit-dates' ? ' active' : ''}`}
+              aria-pressed={activeAction === 'admin-edit-dates'}
+              onClick={() => toggleAction('admin-edit-dates')}
+            >
+              تصحيح التواريخ (إداري)
+            </button>
+          </div>
+        )}
+
+        {activeAction === 'admin-edit-dates' && (
+          <CardActionPanel
+            title={ACTION_TITLES['admin-edit-dates']}
+            onClose={closeAction}
+            testId="admin-edit-dates-form-panel"
+          >
+            <AdminEditDatesFormPanel
+              transactionId={+id}
+              transaction={tx}
+              onDirtyChange={setActionDirty}
+              onCancel={closeAction}
+              onSuccess={handleAdminEditDatesSuccess}
+            />
+          </CardActionPanel>
+        )}
 
         <details className="transaction-hero-details">
           <summary>تفاصيل إضافية</summary>
@@ -793,6 +926,39 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
             </CardActionPanel>
           )}
 
+          {activeAction === 'admin-edit-assignment' && adminEditAssignmentId && (
+            <CardActionPanel
+              title={ACTION_TITLES['admin-edit-assignment']}
+              onClose={closeAction}
+              testId="admin-edit-assignment-form-panel"
+            >
+              <AdminEditAssignmentFormPanel
+                key={adminEditAssignmentId}
+                transactionId={+id}
+                assignmentId={adminEditAssignmentId}
+                initialAssignment={assignments.find((a) => a.id === adminEditAssignmentId)}
+                onDirtyChange={setActionDirty}
+                onCancel={closeAction}
+                onSuccess={handleAdminEditAssignmentSuccess}
+              />
+            </CardActionPanel>
+          )}
+
+          {activeAction === 'admin-edit-response' && adminEditResponseId && (
+            <CardActionPanel
+              title={ACTION_TITLES['admin-edit-response']}
+              onClose={closeAction}
+              testId="admin-edit-response-form-panel"
+            >
+              <AdminEditResponseFormPanel
+                responseId={adminEditResponseId}
+                onDirtyChange={setActionDirty}
+                onCancel={closeAction}
+                onSuccess={handleAdminEditResponseSuccess}
+              />
+            </CardActionPanel>
+          )}
+
           {assignmentsLoading && <LoadingInline label="جاري تحميل الاحالةات..." />}
           {assignmentsError && (
             <Alert variant="error">
@@ -815,19 +981,41 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
           {!assignmentsLoading && !assignmentsError && assignments.length > 0 && (
             <div className="table-wrapper section-data-list">
               <table className="data-table data-table-compact">
-                <thead><tr><th>الإدارة</th><th>الإجراء</th><th>الاستحقاق</th><th>الرد</th><th>إجراء</th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>الإدارة</th>
+                    <th>رقم الخطاب</th>
+                    <th>تاريخ الإحالة</th>
+                    <th>تاريخ استحقاق الإدارة</th>
+                    <th>تاريخ إنجاز الإدارة</th>
+                    <th>أيام إنجاز الإدارة</th>
+                    <th>الحالة</th>
+                    <th></th>
+                  </tr>
+                </thead>
                 <tbody>
                   {assignments.map((a) => (
                     <tr key={a.id} className={a.isOverdue ? 'row-overdue' : ''}>
-                      <td>{a.departmentName}</td>
-                      <td>{a.requiredAction || '—'}</td>
+                      <td>
+                        <div>{a.departmentName}</div>
+                        {a.requiredAction && <div className="text-muted">{a.requiredAction}</div>}
+                      </td>
+                      <td>{a.letterNumber || '—'}</td>
+                      <td><DateDisplay date={a.assignedDate} /></td>
                       <td>{a.dueDate ? <DateDisplay date={a.dueDate} /> : '—'}</td>
+                      <td>{a.responseDate ? <DateDisplay date={a.responseDate} /> : '—'}</td>
+                      <td>
+                        {renderDepartmentCompletionDays(a.departmentCompletionDays)}
+                      </td>
                       <td>
                         <span className={`badge ${assignmentReplyBadgeClass(a.replyStatus, a.isOverdue)}`}>
                           {replyStatusLabels[a.replyStatus] || a.replyStatus}
                         </span>
+                        {a.isOverdue && a.replyStatus !== 'Replied' && (
+                          <span className="badge badge-red ms-1">متأخرة</span>
+                        )}
                       </td>
-                      <td>
+                      <td className="assignment-actions-cell">
                         {a.requiresReply && a.replyStatus !== 'Replied' && a.status !== 'Cancelled' && canReply && (
                           <button
                             type="button"
@@ -835,6 +1023,24 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                             onClick={() => openAction('reply-assignment', { replyAssignmentId: a.id })}
                           >
                             تسجيل رد
+                          </button>
+                        )}
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline"
+                            onClick={() => openAction('admin-edit-assignment', { adminEditAssignmentId: a.id })}
+                          >
+                            تعديل
+                          </button>
+                        )}
+                        {isAdmin && a.departmentResponseId && (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline"
+                            onClick={() => openAction('admin-edit-response', { adminEditResponseId: a.departmentResponseId })}
+                          >
+                            تعديل الرد
                           </button>
                         )}
                         {a.replySummary && <div className="text-muted reply-summary">{a.replySummary}</div>}

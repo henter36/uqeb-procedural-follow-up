@@ -59,6 +59,10 @@ export const transactionsApi = {
     api.post<Assignment>(`/transactions/${id}/assignments`, data),
   replyAssignment: (id: number, assignmentId: number, data: Record<string, unknown>) =>
     api.post(`/transactions/${id}/assignments/${assignmentId}/reply`, data),
+  adminEditAssignment: (id: number, assignmentId: number, data: Record<string, unknown>) =>
+    api.patch<Assignment>(`/transactions/${id}/assignments/${assignmentId}`, data),
+  adminEditTransactionDates: (id: number, data: Record<string, unknown>) =>
+    api.patch<TransactionDetail>(`/transactions/${id}/dates`, data),
   uploadAttachment: (id: number, file: File, attachmentType?: string) => {
     const form = new FormData();
     form.append('file', file);
@@ -309,4 +313,6 @@ export const departmentResponsesApi = {
     api.delete(`/department-responses/${id}/attachments/${attachmentId}`),
   downloadAttachment: (id: number, attachmentId: number) =>
     api.get(`/department-responses/${id}/attachments/${attachmentId}/download`, { responseType: 'blob' }),
+  adminEdit: (id: number, data: Record<string, unknown>) =>
+    api.patch<DepartmentResponseDto>(`/department-responses/${id}/admin-edit`, data),
 };

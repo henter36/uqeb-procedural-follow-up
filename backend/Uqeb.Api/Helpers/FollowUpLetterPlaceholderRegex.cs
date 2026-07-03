@@ -4,7 +4,7 @@ namespace Uqeb.Api.Helpers;
 
 public static partial class FollowUpLetterPlaceholderRegex
 {
-    public const int MatchTimeoutMilliseconds = 200;
+    public const int MatchTimeoutMilliseconds = 2000;
 
     [GeneratedRegex(@"\{([A-Za-z0-9_]+)\}", RegexOptions.NonBacktracking | RegexOptions.CultureInvariant, MatchTimeoutMilliseconds)]
     private static partial Regex PlaceholderPattern();

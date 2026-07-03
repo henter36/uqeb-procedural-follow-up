@@ -21,6 +21,7 @@ public interface IDepartmentResponseService
     Task<DepartmentResponseDto> ApproveAsync(int id, ICurrentUserService currentUser);
     Task<DepartmentResponseDto> ReturnForCorrectionAsync(int id, ReviewDepartmentResponseRequest request, ICurrentUserService currentUser);
     Task<DepartmentResponseDto> RejectAsync(int id, ReviewDepartmentResponseRequest request, ICurrentUserService currentUser);
+    Task<DepartmentResponseDto?> AdminEditAsync(int id, AdminEditDepartmentResponseRequest request, ICurrentUserService currentUser);
     Task<DepartmentResponseAttachmentDto> UploadAttachmentAsync(int id, IFormFile file, ICurrentUserService currentUser);
     Task DeleteAttachmentAsync(int id, int attachmentId, ICurrentUserService currentUser);
     Task<(byte[] Content, string ContentType, string FileName)?> DownloadAttachmentAsync(int id, int attachmentId, ICurrentUserService currentUser);
@@ -438,6 +439,45 @@ public class DepartmentResponseService : IDepartmentResponseService
         response.UpdatedAt = DateTime.UtcNow;
 
         _audit.TrackLog(currentUser.UserId, AuditAction.DepartmentResponseRejected, DepartmentResponseEntityName, id, response.TransactionId, DepartmentResponseStatus.SubmittedForReview.ToString(), DepartmentResponseStatus.Rejected.ToString());
+        await _db.SaveChangesAsync();
+
+        return MapToDto((await LoadWithDetailsAsync(id))!);
+    }
+
+    public async Task<DepartmentResponseDto?> AdminEditAsync(int id, AdminEditDepartmentResponseRequest request, ICurrentUserService currentUser)
+    {
+        if (request is null)
+            throw new InvalidOperationException("بيانات طلب التعديل مطلوبة.");
+
+        RequireReviewer(currentUser);
+
+        var response = await _db.DepartmentResponses
+            .Include(r => r.Transaction)
+            .FirstOrDefaultAsync(r => r.Id == id);
+        if (response == null) return null;
+
+        var reason = request.Reason?.Trim();
+        if (string.IsNullOrWhiteSpace(reason))
+            throw new InvalidOperationException("سبب التعديل مطلوب.");
+
+        var oldSnapshot = new { response.ResponseText, response.SubmittedAt };
+
+        if (request.ResponseText is not null)
+            response.ResponseText = request.ResponseText.Trim();
+        if (request.SubmittedAt.HasValue)
+        {
+            var submittedAt = DateTime.SpecifyKind(request.SubmittedAt.Value.Date, DateTimeKind.Utc);
+            if (submittedAt.Date > DateTime.UtcNow.Date)
+                throw new InvalidOperationException("تاريخ إنجاز الإدارة لا يمكن أن يكون في المستقبل.");
+            if (submittedAt.Date < response.Transaction.IncomingDate.Date)
+                throw new InvalidOperationException("تاريخ إنجاز الإدارة لا يمكن أن يسبق تاريخ الوارد.");
+            response.SubmittedAt = submittedAt;
+        }
+        response.UpdatedAt = DateTime.UtcNow;
+
+        var oldValue = System.Text.Json.JsonSerializer.Serialize(new { oldSnapshot.ResponseText, oldSnapshot.SubmittedAt, Reason = reason });
+        var newValue = System.Text.Json.JsonSerializer.Serialize(new { response.ResponseText, response.SubmittedAt, Reason = reason });
+        _audit.TrackLog(currentUser.UserId, AuditAction.AdminEditDepartmentResponse, DepartmentResponseEntityName, id, response.TransactionId, oldValue, newValue);
         await _db.SaveChangesAsync();
 
         return MapToDto((await LoadWithDetailsAsync(id))!);

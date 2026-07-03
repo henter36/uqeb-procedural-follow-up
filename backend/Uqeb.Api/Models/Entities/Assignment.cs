@@ -16,6 +16,7 @@ public class Assignment
     public DateTime? ReplyDate { get; set; }
     public string? ReplySummary { get; set; }
     public AssignmentStatus Status { get; set; } = AssignmentStatus.Active;
+    public string? LetterNumber { get; set; }
     public int CreatedById { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

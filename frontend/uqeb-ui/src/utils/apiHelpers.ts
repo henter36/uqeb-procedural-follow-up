@@ -92,6 +92,7 @@ export function buildCompleteResponsePayload(form: {
 export function buildCreateAssignmentPayload(form: {
   departmentId: string | number;
   assignedDate: string;
+  letterNumber: string;
   requiredAction: string;
   replyDueDays: string | number | null;
   dueDate: string;
@@ -101,6 +102,7 @@ export function buildCreateAssignmentPayload(form: {
   return {
     departmentId,
     assignedDate: toIsoDate(form.assignedDate),
+    letterNumber: toNullableString(form.letterNumber),
     requiredAction: toNullableString(form.requiredAction),
     replyDueDays: toNullableNumber(form.replyDueDays),
     dueDate: toIsoDate(form.dueDate),

@@ -921,4 +921,41 @@ public class DepartmentResponseServiceTests
         Assert.Equal(1, stats.PendingResponse);
         Assert.Equal(0, stats.Draft);
     }
+
+    [Fact]
+    public async Task AdminEditResponse_Rejects_EmptyReason()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(AdminEditResponse_Rejects_EmptyReason));
+        var service = BuildService(db);
+        var user = new FakeUser { UserId = userId, DepartmentId = deptId, Role = UserRole.Admin };
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الرد"), user);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.AdminEditAsync(created.Id, new AdminEditDepartmentResponseRequest("   ", "نص مصحح"), user));
+
+        Assert.Equal("سبب التعديل مطلوب.", ex.Message);
+    }
+
+    [Fact]
+    public async Task AdminEditResponse_Trims_Reason_InAuditLog()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(AdminEditResponse_Trims_Reason_InAuditLog));
+        var service = BuildService(db);
+        var user = new FakeUser { UserId = userId, DepartmentId = deptId, Role = UserRole.Admin };
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الرد"), user);
+
+        await service.AdminEditAsync(created.Id,
+            new AdminEditDepartmentResponseRequest("  تصحيح تاريخ الإنجاز  ", "نص مصحح"),
+            user);
+
+        var log = await db.AuditLogs
+            .Where(a => a.Action == AuditAction.AdminEditDepartmentResponse && a.EntityId == created.Id)
+            .OrderByDescending(a => a.Id)
+            .FirstAsync();
+
+        Assert.NotNull(log.NewValue);
+        using var auditJson = System.Text.Json.JsonDocument.Parse(log.NewValue);
+        Assert.Equal("تصحيح تاريخ الإنجاز", auditJson.RootElement.GetProperty("Reason").GetString());
+        Assert.DoesNotContain("  تصحيح تاريخ الإنجاز  ", log.NewValue);
+    }
 }
