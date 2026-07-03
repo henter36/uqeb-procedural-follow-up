@@ -565,7 +565,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
       await transactionsApi.close(+id);
       await loadWorkspace({ silent: true });
       setMessage('تم إغلاق المعاملة');
-      await checkRecurringSuggestionAfterClose(tx.recurringTemplateId);
+      await checkRecurringSuggestionAfterClose(tx?.recurringTemplateId);
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
     }
@@ -836,7 +836,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
           </Alert>
         )}
 
-        {canEdit && !tx.recurringTemplateId && (
+        {canEdit && !tx?.recurringTemplateId && (
           <div className="admin-dates-edit-bar">
             <button
               type="button"

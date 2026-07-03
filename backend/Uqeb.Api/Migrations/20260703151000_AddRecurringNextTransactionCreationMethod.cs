@@ -15,7 +15,7 @@ namespace Uqeb.Api.Migrations
                 table: "RecurringTransactionTemplates",
                 type: "int",
                 nullable: false,
-                defaultValue: 0);
+                defaultValue: 1);
         }
 
         /// <inheritdoc />

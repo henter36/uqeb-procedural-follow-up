@@ -158,8 +158,10 @@ public class RecurringTransactionTemplateService : IRecurringTransactionTemplate
             CreatedAt = DateTime.UtcNow
         };
 
+        var departmentIds = templateRequest.DepartmentIds ?? new List<int>();
+
         var sortOrder = 0;
-        foreach (var deptId in templateRequest.DepartmentIds!.Distinct())
+        foreach (var deptId in departmentIds.Distinct())
             template.Departments.Add(new RecurringTransactionTemplateDepartment { DepartmentId = deptId, SortOrder = sortOrder++ });
 
         _db.RecurringTransactionTemplates.Add(template);
@@ -168,6 +170,9 @@ public class RecurringTransactionTemplateService : IRecurringTransactionTemplate
         try
         {
             await _db.SaveChangesAsync();
+
+            if (!await TryLinkTransactionToTemplateAsync(transaction, template.Id, periodKey, periodLabel))
+                throw new InvalidOperationException("هذه المعاملة مرتبطة بالتزام دوري مسبقًا.");
 
             transaction.RecurringTemplateId = template.Id;
             transaction.RecurringPeriodKey = periodKey;
@@ -188,6 +193,34 @@ public class RecurringTransactionTemplateService : IRecurringTransactionTemplate
         }
 
         return (await GetByIdAsync(template.Id))!;
+    }
+
+    private async Task<bool> TryLinkTransactionToTemplateAsync(
+        Transaction transaction,
+        int templateId,
+        string periodKey,
+        string periodLabel)
+    {
+        if (_db.Database.IsRelational())
+        {
+            var updatedRows = await _db.Transactions
+                .Where(t => t.Id == transaction.Id && t.RecurringTemplateId == null)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(t => t.RecurringTemplateId, templateId)
+                    .SetProperty(t => t.RecurringPeriodKey, periodKey)
+                    .SetProperty(t => t.RecurringPeriodLabel, periodLabel));
+
+            return updatedRows == 1;
+        }
+
+        var currentTransaction = await _db.Transactions.FirstOrDefaultAsync(t => t.Id == transaction.Id);
+        if (currentTransaction == null || currentTransaction.RecurringTemplateId.HasValue)
+            return false;
+
+        currentTransaction.RecurringTemplateId = templateId;
+        currentTransaction.RecurringPeriodKey = periodKey;
+        currentTransaction.RecurringPeriodLabel = periodLabel;
+        return true;
     }
 
     public async Task<RecurringTemplateDetailDto?> UpdateAsync(int id, CreateRecurringTemplateRequest request, int userId)

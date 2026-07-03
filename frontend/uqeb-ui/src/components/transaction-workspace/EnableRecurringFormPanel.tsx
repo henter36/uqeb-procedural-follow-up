@@ -39,7 +39,13 @@ export default function EnableRecurringFormPanel({ transactionId, onDirtyChange,
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
-  const dirty = Boolean(form.startDate || form.dueDaysAfterPeriodEnd || form.endDate);
+  const dirty = Boolean(
+    form.startDate ||
+    form.dueDaysAfterPeriodEnd ||
+    form.endDate ||
+    form.recurrenceType !== 'Monthly' ||
+    form.nextTransactionCreationMethod !== 'Manual',
+  );
 
   useEffect(() => {
     onDirtyChange(dirty);
@@ -119,6 +125,7 @@ export default function EnableRecurringFormPanel({ transactionId, onDirtyChange,
             id="enable-recurring-due-days"
             type="number"
             min="0"
+            required
             value={form.dueDaysAfterPeriodEnd}
             onChange={(e) => update({ dueDaysAfterPeriodEnd: e.target.value })}
           />
@@ -130,6 +137,7 @@ export default function EnableRecurringFormPanel({ transactionId, onDirtyChange,
             <label className="radio-label">
               <input
                 type="radio"
+                name="nextTransactionCreationMethod"
                 checked={form.nextTransactionCreationMethod === 'Manual'}
                 onChange={() => update({ nextTransactionCreationMethod: 'Manual' })}
               />
@@ -138,6 +146,7 @@ export default function EnableRecurringFormPanel({ transactionId, onDirtyChange,
             <label className="radio-label">
               <input
                 type="radio"
+                name="nextTransactionCreationMethod"
                 checked={form.nextTransactionCreationMethod === 'AutomaticOnClose'}
                 onChange={() => update({ nextTransactionCreationMethod: 'AutomaticOnClose' })}
               />

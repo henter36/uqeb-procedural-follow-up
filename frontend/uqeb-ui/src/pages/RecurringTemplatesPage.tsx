@@ -872,6 +872,7 @@ function TemplateFormModal({
           <label className="radio-label">
             <input
               type="radio"
+              name="nextTransactionCreationMethod"
               checked={form.nextTransactionCreationMethod === 'Manual'}
               onChange={() => setForm({ ...form, nextTransactionCreationMethod: 'Manual' })}
             />
@@ -880,6 +881,7 @@ function TemplateFormModal({
           <label className="radio-label">
             <input
               type="radio"
+              name="nextTransactionCreationMethod"
               checked={form.nextTransactionCreationMethod === 'AutomaticOnClose'}
               onChange={() => setForm({ ...form, nextTransactionCreationMethod: 'AutomaticOnClose' })}
             />

@@ -520,6 +520,7 @@ function RecurringFollowUpSection({
                 <label className="radio-label">
                   <input
                     type="radio"
+                    name="recurringNextTransactionCreationMethod"
                     checked={form.recurringNextTransactionCreationMethod === 'Manual'}
                     onChange={() => setForm({ ...form, recurringNextTransactionCreationMethod: 'Manual' })}
                   />
@@ -528,6 +529,7 @@ function RecurringFollowUpSection({
                 <label className="radio-label">
                   <input
                     type="radio"
+                    name="recurringNextTransactionCreationMethod"
                     checked={form.recurringNextTransactionCreationMethod === 'AutomaticOnClose'}
                     onChange={() => setForm({ ...form, recurringNextTransactionCreationMethod: 'AutomaticOnClose' })}
                   />

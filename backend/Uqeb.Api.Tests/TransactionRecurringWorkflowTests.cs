@@ -333,6 +333,28 @@ public class TransactionRecurringWorkflowTests
     }
 
     [Fact]
+    public async Task EnableRecurringAsync_returns_field_errors_with_enable_form_keys()
+    {
+        var (service, _) = await CreateServiceAsync(nameof(EnableRecurringAsync_returns_field_errors_with_enable_form_keys));
+        var created = await service.CreateAsync(BuildBaseRequest(10), userId: 1);
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() =>
+            service.EnableRecurringAsync(created.Id, new EnableRecurringForTransactionRequest
+            {
+                RecurrenceType = null,
+                StartDate = null,
+                DueDaysAfterPeriodEnd = -1
+            }, userId: 1));
+
+        Assert.True(ex.FieldErrors.ContainsKey(nameof(EnableRecurringForTransactionRequest.RecurrenceType)));
+        Assert.True(ex.FieldErrors.ContainsKey(nameof(EnableRecurringForTransactionRequest.StartDate)));
+        Assert.True(ex.FieldErrors.ContainsKey(nameof(EnableRecurringForTransactionRequest.DueDaysAfterPeriodEnd)));
+        Assert.False(ex.FieldErrors.ContainsKey(nameof(CreateTransactionRequest.RecurringRecurrenceType)));
+        Assert.False(ex.FieldErrors.ContainsKey(nameof(CreateTransactionRequest.RecurringStartDate)));
+        Assert.False(ex.FieldErrors.ContainsKey(nameof(CreateTransactionRequest.RecurringDueDaysAfterPeriodEnd)));
+    }
+
+    [Fact]
     public async Task SearchAsync_filters_by_IsRecurring()
     {
         var (service, _) = await CreateServiceAsync(nameof(SearchAsync_filters_by_IsRecurring));

@@ -703,14 +703,7 @@ public class TransactionService : ITransactionService
             NextTransactionCreationMethod = request.NextTransactionCreationMethod
         };
 
-        try
-        {
-            await _recurringTemplates.EnableForTransactionAsync(transaction, templateRequest, userId);
-        }
-        catch (FieldValidationException ex)
-        {
-            throw new FieldValidationException(RemapRecurringFieldErrors(ex.FieldErrors));
-        }
+        await _recurringTemplates.EnableForTransactionAsync(transaction, templateRequest, userId);
 
         _cacheInvalidation.InvalidateOnTransactionChange();
         return await GetByIdAsync(id, new SystemUser(userId));

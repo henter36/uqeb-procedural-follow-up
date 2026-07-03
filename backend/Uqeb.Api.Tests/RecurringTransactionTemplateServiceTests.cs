@@ -1,8 +1,13 @@
+using System.Reflection;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Migrations.Operations;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.RecurringTemplates;
 using Uqeb.Api.Helpers;
+using Uqeb.Api.Migrations;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Services;
@@ -96,6 +101,21 @@ public class RecurringTransactionTemplateServiceTests
     };
 
     [Fact]
+    public void AddRecurringNextTransactionCreationMethod_migration_defaults_existing_rows_to_Manual()
+    {
+        var migration = new AddRecurringNextTransactionCreationMethod();
+        var migrationBuilder = new MigrationBuilder("Microsoft.EntityFrameworkCore.SqlServer");
+
+        typeof(AddRecurringNextTransactionCreationMethod)
+            .GetMethod("Up", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(migration, new object[] { migrationBuilder });
+
+        var operation = Assert.Single(migrationBuilder.Operations.OfType<AddColumnOperation>());
+        Assert.Equal("NextTransactionCreationMethod", operation.Name);
+        Assert.Equal((int)RecurringNextTransactionCreationMethod.Manual, operation.DefaultValue);
+    }
+
+    [Fact]
     public async Task CreateAsync_creates_monthly_template()
     {
         var (service, _) = await CreateServiceAsync(nameof(CreateAsync_creates_monthly_template));
@@ -139,6 +159,80 @@ public class RecurringTransactionTemplateServiceTests
 
         var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.CreateAsync(request, userId: 1));
         Assert.True(ex.FieldErrors.ContainsKey(nameof(request.NextTransactionCreationMethod)));
+    }
+
+    [Fact]
+    public async Task EnableForTransactionAsync_when_transaction_already_linked_throws_without_creating_orphan_template()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseSqlite(connection)
+            .Options;
+
+        await using var db = new AppDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+
+        db.Users.Add(new User { Id = 1, Username = "admin", PasswordHash = "h", FullName = "Admin", Role = UserRole.Admin, IsActive = true });
+        db.Departments.Add(new Department { Id = 10, Name = "التشغيل", NameNormalized = "التشغيل", IsActive = true });
+        db.Categories.Add(new Category { Id = 1, Name = "تقارير دورية", NameNormalized = "تقارير دورية", IsActive = true });
+        db.Transactions.Add(new Transaction
+        {
+            Id = 100,
+            IncomingNumber = "IN-100",
+            IncomingDate = new DateTime(2026, 1, 10, 0, 0, 0, DateTimeKind.Utc),
+            Subject = "معاملة موجودة",
+            IncomingSourceType = IncomingSourceType.Internal,
+            IncomingFromDepartmentId = 10,
+            CategoryId = 1,
+            Priority = Priority.Normal,
+            ResponseType = ResponseType.Internal,
+            RequiresResponse = true,
+            Status = TransactionStatus.New,
+            CreatedById = 1,
+            CreatedAt = DateTime.UtcNow
+        });
+        db.RecurringTransactionTemplates.Add(new RecurringTransactionTemplate
+        {
+            Id = 200,
+            Title = "قالب سابق",
+            SubjectTemplate = "قالب سابق",
+            RecurrenceType = RecurrenceType.Monthly,
+            Status = RecurringTemplateStatus.Active,
+            StartDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            IncomingSourceType = IncomingSourceType.Internal,
+            IncomingFromDepartmentId = 10,
+            CategoryId = 1,
+            Priority = Priority.Normal,
+            ResponseType = ResponseType.Internal,
+            RequiresResponse = true,
+            DefaultRequiredAction = "متابعة",
+            DueDaysAfterPeriodEnd = 10,
+            CreatedById = 1,
+            CreatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        var transaction = await db.Transactions.SingleAsync(t => t.Id == 100);
+
+        await using (var competingDb = new AppDbContext(options))
+        {
+            await competingDb.Transactions
+                .Where(t => t.Id == 100 && t.RecurringTemplateId == null)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(t => t.RecurringTemplateId, 200)
+                    .SetProperty(t => t.RecurringPeriodKey, "2026-01")
+                    .SetProperty(t => t.RecurringPeriodLabel, "يناير 2026"));
+        }
+
+        var service = new RecurringTransactionTemplateService(db, new AuditService(db), new StubTrackingNumberService());
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.EnableForTransactionAsync(transaction, ValidMonthlyRequest(), userId: 1));
+
+        Assert.Equal("هذه المعاملة مرتبطة بالتزام دوري مسبقًا.", ex.Message);
+        Assert.Equal(1, await db.RecurringTransactionTemplates.CountAsync());
     }
 
     [Fact]
