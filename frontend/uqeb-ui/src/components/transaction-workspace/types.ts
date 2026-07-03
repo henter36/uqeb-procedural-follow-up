@@ -8,7 +8,8 @@ export type WorkspaceAction =
   | 'follow-up-letter'
   | 'admin-edit-assignment'
   | 'admin-edit-dates'
-  | 'admin-edit-response';
+  | 'admin-edit-response'
+  | 'enable-recurring';
 
 export type WorkspaceActionContext = Readonly<{
   replyAssignmentId?: number;

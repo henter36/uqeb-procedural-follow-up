@@ -52,4 +52,5 @@ public enum AuditAction
     ResumeRecurringTemplate = 48,
     TerminateRecurringTemplate = 49,
     GenerateRecurringTransaction = 50,
+    EnableRecurringFollowUp = 51,
 }

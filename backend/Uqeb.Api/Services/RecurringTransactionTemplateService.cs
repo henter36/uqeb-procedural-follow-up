@@ -19,11 +19,13 @@ public interface IRecurringTransactionTemplateService
     Task<RecurringTemplateDetailDto?> TerminateAsync(int id, TerminateRecurringTemplateRequest request, int userId);
     Task<GenerateRecurringTransactionResponse?> GenerateAsync(int id, GenerateRecurringTransactionRequest request, int userId);
     Task<List<RecurringTemplateTransactionItemDto>?> GetTransactionsAsync(int id);
+    Task<RecurringTemplateDetailDto> EnableForTransactionAsync(Transaction transaction, CreateRecurringTemplateRequest templateRequest, int userId);
 }
 
 public class RecurringTransactionTemplateService : IRecurringTransactionTemplateService
 {
     private const string TemplateEntityName = "RecurringTransactionTemplate";
+    private const string TransactionEntityName = "Transaction";
 
     private readonly AppDbContext _db;
     private readonly IAuditService _audit;
@@ -86,6 +88,7 @@ public class RecurringTransactionTemplateService : IRecurringTransactionTemplate
             DueDaysAfterPeriodEnd = request.DueDaysAfterPeriodEnd!.Value,
             DefaultReplyDueDays = request.DefaultReplyDueDays,
             Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
+            NextTransactionCreationMethod = ParseNextTransactionCreationMethod(request.NextTransactionCreationMethod),
             CreatedById = userId,
             CreatedAt = DateTime.UtcNow
         };
@@ -114,6 +117,108 @@ public class RecurringTransactionTemplateService : IRecurringTransactionTemplate
         }
 
         return (await GetByIdAsync(template.Id))!;
+    }
+
+    public async Task<RecurringTemplateDetailDto> EnableForTransactionAsync(
+        Transaction transaction, CreateRecurringTemplateRequest templateRequest, int userId)
+    {
+        if (transaction.RecurringTemplateId.HasValue)
+            throw new InvalidOperationException("هذه المعاملة مرتبطة بالتزام دوري مسبقًا.");
+
+        var errors = RecurringTemplateRequestValidator.Validate(templateRequest);
+        if (errors.Count > 0)
+            throw new FieldValidationException(errors);
+
+        var recurrenceType = Enum.Parse<RecurrenceType>(templateRequest.RecurrenceType!, true);
+        var periodKey = RecurringPeriodCalculator.GetPeriodKeyForDate(recurrenceType, transaction.IncomingDate);
+        var periodLabel = RecurringPeriodCalculator.GetPeriodLabel(recurrenceType, periodKey);
+
+        var template = new RecurringTransactionTemplate
+        {
+            Title = templateRequest.Title.Trim(),
+            SubjectTemplate = templateRequest.SubjectTemplate.Trim(),
+            RecurrenceType = recurrenceType,
+            Status = RecurringTemplateStatus.Active,
+            StartDate = templateRequest.StartDate!.Value.Date,
+            EndDate = templateRequest.EndDate?.Date,
+            IncomingSourceType = Enum.Parse<IncomingSourceType>(templateRequest.IncomingSourceType!, true),
+            IncomingFromPartyId = templateRequest.IncomingFromPartyId,
+            IncomingFromDepartmentId = templateRequest.IncomingFromDepartmentId,
+            CategoryId = templateRequest.CategoryId!.Value,
+            Priority = Enum.Parse<Priority>(templateRequest.Priority!, true),
+            ResponseType = Enum.Parse<ResponseType>(templateRequest.ResponseType!, true),
+            RequiresResponse = templateRequest.RequiresResponse ?? false,
+            DefaultRequiredAction = templateRequest.DefaultRequiredAction!.Trim(),
+            DueDaysAfterPeriodEnd = templateRequest.DueDaysAfterPeriodEnd!.Value,
+            DefaultReplyDueDays = templateRequest.DefaultReplyDueDays,
+            Notes = string.IsNullOrWhiteSpace(templateRequest.Notes) ? null : templateRequest.Notes.Trim(),
+            NextTransactionCreationMethod = ParseNextTransactionCreationMethod(templateRequest.NextTransactionCreationMethod),
+            LastGeneratedPeriodKey = periodKey,
+            CreatedById = userId,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        var sortOrder = 0;
+        foreach (var deptId in (templateRequest.DepartmentIds ?? Enumerable.Empty<int>()).Distinct())
+            template.Departments.Add(new RecurringTransactionTemplateDepartment { DepartmentId = deptId, SortOrder = sortOrder++ });
+
+        _db.RecurringTransactionTemplates.Add(template);
+
+        await using var dbTransaction = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            await _db.SaveChangesAsync();
+
+            if (!await TryLinkTransactionToTemplateAsync(transaction, template.Id, periodKey, periodLabel))
+                throw new InvalidOperationException("هذه المعاملة مرتبطة بالتزام دوري مسبقًا.");
+
+            transaction.RecurringTemplateId = template.Id;
+            transaction.RecurringPeriodKey = periodKey;
+            transaction.RecurringPeriodLabel = periodLabel;
+
+            _audit.TrackLog(userId, AuditAction.CreateRecurringTemplate, TemplateEntityName, template.Id, null, null,
+                JsonSerializer.Serialize(new { template.Title, RecurrenceType = template.RecurrenceType.ToString() }));
+            _audit.TrackLog(userId, AuditAction.EnableRecurringFollowUp, TransactionEntityName, transaction.Id, transaction.Id, null,
+                JsonSerializer.Serialize(new { TemplateId = template.Id, PeriodKey = periodKey, PeriodLabel = periodLabel }));
+            await _db.SaveChangesAsync();
+
+            await dbTransaction.CommitAsync();
+        }
+        catch
+        {
+            await dbTransaction.RollbackAsync();
+            throw;
+        }
+
+        return (await GetByIdAsync(template.Id))!;
+    }
+
+    private async Task<bool> TryLinkTransactionToTemplateAsync(
+        Transaction transaction,
+        int templateId,
+        string periodKey,
+        string periodLabel)
+    {
+        if (_db.Database.IsRelational())
+        {
+            var updatedRows = await _db.Transactions
+                .Where(t => t.Id == transaction.Id && t.RecurringTemplateId == null)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(t => t.RecurringTemplateId, templateId)
+                    .SetProperty(t => t.RecurringPeriodKey, periodKey)
+                    .SetProperty(t => t.RecurringPeriodLabel, periodLabel));
+
+            return updatedRows == 1;
+        }
+
+        var currentTransaction = await _db.Transactions.FirstOrDefaultAsync(t => t.Id == transaction.Id);
+        if (currentTransaction == null || currentTransaction.RecurringTemplateId.HasValue)
+            return false;
+
+        currentTransaction.RecurringTemplateId = templateId;
+        currentTransaction.RecurringPeriodKey = periodKey;
+        currentTransaction.RecurringPeriodLabel = periodLabel;
+        return true;
     }
 
     public async Task<RecurringTemplateDetailDto?> UpdateAsync(int id, CreateRecurringTemplateRequest request, int userId)
@@ -145,6 +250,7 @@ public class RecurringTransactionTemplateService : IRecurringTransactionTemplate
         template.DueDaysAfterPeriodEnd = request.DueDaysAfterPeriodEnd!.Value;
         template.DefaultReplyDueDays = request.DefaultReplyDueDays;
         template.Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim();
+        template.NextTransactionCreationMethod = ParseNextTransactionCreationMethod(request.NextTransactionCreationMethod);
         template.UpdatedAt = DateTime.UtcNow;
 
         UpdateTemplateDepartments(template, id, request.DepartmentIds!);
@@ -484,9 +590,16 @@ public class RecurringTransactionTemplateService : IRecurringTransactionTemplate
             LastGeneratedPeriodLabel = t.LastGeneratedPeriodKey != null
                 ? RecurringPeriodCalculator.GetPeriodLabel(t.RecurrenceType, t.LastGeneratedPeriodKey)
                 : null,
-            GeneratedTransactionsCount = generatedCount
+            GeneratedTransactionsCount = generatedCount,
+            NextTransactionCreationMethod = t.NextTransactionCreationMethod.ToString()
         };
     }
+
+    private static RecurringNextTransactionCreationMethod ParseNextTransactionCreationMethod(string? value) =>
+        !string.IsNullOrWhiteSpace(value) &&
+        Enum.TryParse<RecurringNextTransactionCreationMethod>(value, true, out var method)
+            ? method
+            : RecurringNextTransactionCreationMethod.Manual;
 
     private static RecurringTemplateDetailDto MapToDetail(RecurringTransactionTemplate t, int generatedCount)
     {
@@ -504,6 +617,7 @@ public class RecurringTransactionTemplateService : IRecurringTransactionTemplate
             LastGeneratedPeriodKey = list.LastGeneratedPeriodKey,
             LastGeneratedPeriodLabel = list.LastGeneratedPeriodLabel,
             GeneratedTransactionsCount = list.GeneratedTransactionsCount,
+            NextTransactionCreationMethod = list.NextTransactionCreationMethod,
             SubjectTemplate = t.SubjectTemplate,
             IncomingSourceType = t.IncomingSourceType.ToString(),
             IncomingFromPartyId = t.IncomingFromPartyId,

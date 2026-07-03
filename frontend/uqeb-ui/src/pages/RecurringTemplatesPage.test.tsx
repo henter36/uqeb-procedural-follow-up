@@ -35,6 +35,7 @@ const activeTemplate: RecurringTemplateListItem = {
   lastGeneratedPeriodKey: '2026-01',
   lastGeneratedPeriodLabel: 'يناير 2026',
   generatedTransactionsCount: 1,
+  nextTransactionCreationMethod: 'Manual',
 };
 
 const pausedTemplate: RecurringTemplateListItem = {
@@ -282,5 +283,57 @@ describe('RecurringTemplatesPage', () => {
 
     fireEvent.click(within(row).getByText('عرض المعاملات'));
     await waitFor(() => expect(mockApi.getTransactions).toHaveBeenCalledTimes(2));
+  });
+
+  it('opens the generate-period modal when a generate query param is present', async () => {
+    renderPage('/recurring-transaction-templates?generate=1');
+    await waitFor(() => {
+      expect(mockApi.getById).toHaveBeenCalledWith(1);
+      expect(screen.getByText(`إنشاء معاملة للفترة — ${activeTemplateDetail.title}`)).toBeTruthy();
+    });
+  });
+
+  it('includes the next transaction creation method radio group in the template form', async () => {
+    renderPage();
+    await waitFor(() => screen.getByText('إنشاء قالب دوري جديد'));
+    fireEvent.click(screen.getByText('إنشاء قالب دوري جديد'));
+    await waitFor(() => screen.getByText('إنشاء قالب التزام دوري'));
+
+    expect(screen.getByText('يدويًا من شاشة الالتزامات الدورية')).toBeTruthy();
+    expect(screen.getByText('تلقائيًا عند إغلاق المعاملة الحالية')).toBeTruthy();
+
+    const recurrenceSelect = screen.getByLabelText('نوع التكرار *') as HTMLSelectElement;
+    expect(within(recurrenceSelect).getByText('نصف سنوي')).toBeTruthy();
+    expect(within(recurrenceSelect).getByText('سنوي')).toBeTruthy();
+  });
+
+  it('shows a year+half picker when generating a period for a SemiAnnual template', async () => {
+    mockApi.getById.mockResolvedValue({
+      data: { ...activeTemplateDetail, recurrenceType: 'SemiAnnual', nextPeriodKey: '2026-H1', nextPeriodLabel: 'النصف الأول 2026' },
+    } as never);
+
+    renderPage();
+    await waitFor(() => screen.getByText('تقرير شهري من إدارة التشغيل'));
+    const row = screen.getByText('تقرير شهري من إدارة التشغيل').closest('tr')!;
+    fireEvent.click(within(row).getByText('إنشاء معاملة للفترة'));
+
+    await waitFor(() => screen.getByLabelText('النصف'));
+    expect(screen.getByLabelText('النصف')).toBeTruthy();
+    expect(screen.queryByLabelText('الشهر')).toBeNull();
+  });
+
+  it('shows a year picker when generating a period for an Annual template', async () => {
+    mockApi.getById.mockResolvedValue({
+      data: { ...activeTemplateDetail, recurrenceType: 'Annual', nextPeriodKey: '2026', nextPeriodLabel: 'سنة 2026' },
+    } as never);
+
+    renderPage();
+    await waitFor(() => screen.getByText('تقرير شهري من إدارة التشغيل'));
+    const row = screen.getByText('تقرير شهري من إدارة التشغيل').closest('tr')!;
+    fireEvent.click(within(row).getByText('إنشاء معاملة للفترة'));
+
+    await waitFor(() => screen.getByLabelText('السنة'));
+    expect(screen.queryByLabelText('الشهر')).toBeNull();
+    expect(screen.queryByLabelText('النصف')).toBeNull();
   });
 });

@@ -51,6 +51,9 @@ public class TransactionListDto
     public bool IsArchived { get; set; }
     public string CreatedByName { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
+    public int? RecurringTemplateId { get; set; }
+    public string? RecurringPeriodLabel { get; set; }
+    public string? RecurringRecurrenceType { get; set; }
 }
 
 public class TransactionDetailDto : TransactionListDto
@@ -66,10 +69,8 @@ public class TransactionDetailDto : TransactionListDto
     public string? Category { get; set; }
     public string? Notes { get; set; }
     public DateTime? UpdatedAt { get; set; }
-    public int? RecurringTemplateId { get; set; }
     public string? RecurringTemplateTitle { get; set; }
     public string? RecurringPeriodKey { get; set; }
-    public string? RecurringPeriodLabel { get; set; }
     public List<OutgoingPartyDto> OutgoingParties { get; set; } = new();
     public List<OutgoingDepartmentDto> OutgoingDepartments { get; set; } = new();
     public List<string> RepliedDepartmentNames { get; set; } = new();
@@ -105,6 +106,21 @@ public class CreateTransactionRequest
     public string Priority { get; set; } = "Normal";
     public int? CategoryId { get; set; }
     public string? Notes { get; set; }
+    public bool? EnableRecurringFollowUp { get; set; }
+    public string? RecurringRecurrenceType { get; set; }
+    public DateTime? RecurringStartDate { get; set; }
+    public DateTime? RecurringEndDate { get; set; }
+    public int? RecurringDueDaysAfterPeriodEnd { get; set; }
+    public string? RecurringNextTransactionCreationMethod { get; set; }
+}
+
+public class EnableRecurringForTransactionRequest
+{
+    public string? RecurrenceType { get; set; }
+    public DateTime? StartDate { get; set; }
+    public DateTime? EndDate { get; set; }
+    public int? DueDaysAfterPeriodEnd { get; set; }
+    public string? NextTransactionCreationMethod { get; set; }
 }
 
 public class UpdateTransactionRequest
@@ -167,6 +183,9 @@ public class TransactionSearchRequest
     public bool? ResponseOverdue { get; set; }
     public bool? HasPendingAssignments { get; set; }
     public bool? HasPartialReplies { get; set; }
+    public bool? IsRecurring { get; set; }
+    public string? RecurringRecurrenceType { get; set; }
+    public string? RecurringTemplateStatus { get; set; }
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 20;
     public string? SortBy { get; set; } = "IncomingDate";

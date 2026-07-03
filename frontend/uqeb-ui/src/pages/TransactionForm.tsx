@@ -33,6 +33,12 @@ type TransactionFormState = {
   priority: string;
   categoryId: string | number;
   notes: string;
+  enableRecurringFollowUp: boolean;
+  recurringRecurrenceType: string;
+  recurringStartDate: string;
+  recurringEndDate: string;
+  recurringDueDaysAfterPeriodEnd: string | number;
+  recurringNextTransactionCreationMethod: string;
 };
 type ReferenceDataResults = readonly [
   PromiseSettledResult<{ data: ExternalParty[] }>,
@@ -65,6 +71,10 @@ const FIELD_ORDER = [
   'outgoingNumber',
   'outgoingDate',
   'outgoingDepartmentIds',
+  'recurringRecurrenceType',
+  'recurringStartDate',
+  'recurringEndDate',
+  'recurringDueDaysAfterPeriodEnd',
 ];
 const BACKEND_FIELD_MAP: Record<string, string> = {
   IncomingNumber: 'incomingNumber',
@@ -113,6 +123,12 @@ function createInitialTransactionForm(): TransactionFormState {
     priority: 'Normal',
     categoryId: '',
     notes: '',
+    enableRecurringFollowUp: false,
+    recurringRecurrenceType: 'Monthly',
+    recurringStartDate: '',
+    recurringEndDate: '',
+    recurringDueDaysAfterPeriodEnd: '',
+    recurringNextTransactionCreationMethod: 'Manual',
   };
 }
 
@@ -133,6 +149,12 @@ function buildTransactionFormState(t: TransactionDetail): TransactionFormState {
     priority: t.priority,
     categoryId: t.categoryId ?? '',
     notes: t.notes || '',
+    enableRecurringFollowUp: false,
+    recurringRecurrenceType: 'Monthly',
+    recurringStartDate: '',
+    recurringEndDate: '',
+    recurringDueDaysAfterPeriodEnd: '',
+    recurringNextTransactionCreationMethod: 'Manual',
   };
 }
 
@@ -176,6 +198,34 @@ function isOutgoingBeforeIncoming(form: TransactionFormState): boolean {
   return Boolean(form.incomingDate && form.outgoingDate && form.outgoingDate < form.incomingDate);
 }
 
+function isMissingRecurringDepartments(form: TransactionFormState): boolean {
+  return form.enableRecurringFollowUp && form.outgoingDepartmentIds.length === 0;
+}
+
+function getRecurringValidationRules(form: TransactionFormState): TransactionValidationRule[] {
+  if (!form.enableRecurringFollowUp) return [];
+
+  return [
+    { field: 'recurringRecurrenceType', isInvalid: !form.recurringRecurrenceType, message: 'نوع التكرار مطلوب.' },
+    { field: 'recurringStartDate', isInvalid: !form.recurringStartDate, message: 'تاريخ بداية الالتزام مطلوب.' },
+    {
+      field: 'recurringEndDate',
+      isInvalid: Boolean(form.recurringEndDate && form.recurringStartDate && form.recurringEndDate < form.recurringStartDate),
+      message: 'تاريخ نهاية الالتزام لا يمكن أن يكون قبل تاريخ البداية.',
+    },
+    {
+      field: 'recurringDueDaysAfterPeriodEnd',
+      isInvalid: !form.recurringDueDaysAfterPeriodEnd && form.recurringDueDaysAfterPeriodEnd !== 0,
+      message: 'عدد الأيام بعد نهاية الفترة مطلوب.',
+    },
+    {
+      field: 'outgoingDepartmentIds',
+      isInvalid: isMissingRecurringDepartments(form),
+      message: 'يجب تحديد إدارة واحدة على الأقل موجهة إليها المعاملة لتفعيل الالتزام الدوري.',
+    },
+  ];
+}
+
 function getTransactionValidationRules(form: TransactionFormState, mode: Props['mode']): TransactionValidationRule[] {
   const hasPartialOutgoingData = hasOutgoingData(form);
 
@@ -198,6 +248,7 @@ function getTransactionValidationRules(form: TransactionFormState, mode: Props['
     { field: 'outgoingDepartmentIds', isInvalid: isMissingOutgoingDepartments(form, hasPartialOutgoingData), message: OUTGOING_DEPARTMENT_ERROR },
     { field: 'responseType', isInvalid: isMissingResponseType(form, mode), message: 'نوع الإفادة مطلوب.' },
     { field: 'responseDueDays', isInvalid: isMissingResponseDueDays(form), message: 'عدد أيام الرد مطلوب عند طلب إفادة.' },
+    ...getRecurringValidationRules(form),
   ];
 }
 
@@ -368,6 +419,128 @@ function IncomingSourceSelector({
       )}
       {error && <span id={errorId} className="field-error">{error}</span>}
     </div>
+  );
+}
+
+const RECURRENCE_TYPE_OPTIONS = [
+  { value: 'Monthly', label: 'شهري' },
+  { value: 'Quarterly', label: 'ربع سنوي' },
+  { value: 'SemiAnnual', label: 'نصف سنوي' },
+  { value: 'Annual', label: 'سنوي' },
+];
+
+function RecurringFollowUpSection({
+  form,
+  setForm,
+  fieldError,
+  fieldErrorId,
+  formGroupClass,
+}: Readonly<{
+  form: TransactionFormState;
+  setForm: (form: TransactionFormState) => void;
+  fieldError: (name: string) => string | undefined;
+  fieldErrorId: (name: string) => string;
+  formGroupClass: (name: string, extra?: string) => string;
+}>) {
+  return (
+    <FormSection title="إعدادات المتابعة الدورية">
+      <div className="transaction-form-grid">
+        <div className="form-group transaction-form-field transaction-form-field--wide">
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={form.enableRecurringFollowUp}
+              onChange={(e) => setForm({ ...form, enableRecurringFollowUp: e.target.checked })}
+            />
+            <span>هذه المعاملة ذات التزام دوري / متابعة متكررة</span>
+          </label>
+        </div>
+        {form.enableRecurringFollowUp && (
+          <>
+            <div className={formGroupClass('recurringRecurrenceType', 'transaction-form-field transaction-form-field--compact')}>
+              <label htmlFor="recurring-recurrence-type">نوع التكرار *</label>
+              <select
+                id="recurring-recurrence-type"
+                data-field-name="recurringRecurrenceType"
+                value={form.recurringRecurrenceType}
+                onChange={(e) => setForm({ ...form, recurringRecurrenceType: e.target.value })}
+              >
+                {RECURRENCE_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              {fieldError('recurringRecurrenceType') && (
+                <span id={fieldErrorId('recurringRecurrenceType')} className="field-error">{fieldError('recurringRecurrenceType')}</span>
+              )}
+            </div>
+            <div className={formGroupClass('recurringStartDate', 'transaction-form-field transaction-form-field--compact')}>
+              <HijriDateInput
+                id="recurring-start-date"
+                label="بداية الالتزام"
+                required
+                value={form.recurringStartDate}
+                onChange={(recurringStartDate) => setForm({ ...form, recurringStartDate })}
+                invalid={Boolean(fieldError('recurringStartDate'))}
+                describedBy={fieldError('recurringStartDate') ? fieldErrorId('recurringStartDate') : undefined}
+                dataFieldName="recurringStartDate"
+              />
+              {fieldError('recurringStartDate') && (
+                <span id={fieldErrorId('recurringStartDate')} className="field-error">{fieldError('recurringStartDate')}</span>
+              )}
+            </div>
+            <div className={formGroupClass('recurringEndDate', 'transaction-form-field transaction-form-field--compact')}>
+              <HijriDateInput
+                id="recurring-end-date"
+                label="نهاية الالتزام"
+                value={form.recurringEndDate}
+                onChange={(recurringEndDate) => setForm({ ...form, recurringEndDate })}
+                invalid={Boolean(fieldError('recurringEndDate'))}
+                describedBy={fieldError('recurringEndDate') ? fieldErrorId('recurringEndDate') : undefined}
+                dataFieldName="recurringEndDate"
+              />
+              {fieldError('recurringEndDate') && (
+                <span id={fieldErrorId('recurringEndDate')} className="field-error">{fieldError('recurringEndDate')}</span>
+              )}
+            </div>
+            <div className={formGroupClass('recurringDueDaysAfterPeriodEnd', 'transaction-form-field transaction-form-field--compact')}>
+              <label htmlFor="recurring-due-days">عدد الأيام بعد نهاية الفترة للاستحقاق *</label>
+              <input
+                id="recurring-due-days"
+                type="number"
+                min="0"
+                data-field-name="recurringDueDaysAfterPeriodEnd"
+                value={form.recurringDueDaysAfterPeriodEnd}
+                onChange={(e) => setForm({ ...form, recurringDueDaysAfterPeriodEnd: e.target.value })}
+              />
+              {fieldError('recurringDueDaysAfterPeriodEnd') && (
+                <span id={fieldErrorId('recurringDueDaysAfterPeriodEnd')} className="field-error">{fieldError('recurringDueDaysAfterPeriodEnd')}</span>
+              )}
+            </div>
+            <div className="form-group transaction-form-field transaction-form-field--wide">
+              <span className="form-label">طريقة إنشاء المعاملة التالية</span>
+              <div className="radio-group">
+                <label className="radio-label">
+                  <input
+                    type="radio"
+                    name="recurringNextTransactionCreationMethod"
+                    checked={form.recurringNextTransactionCreationMethod === 'Manual'}
+                    onChange={() => setForm({ ...form, recurringNextTransactionCreationMethod: 'Manual' })}
+                  />
+                  <span>يدويًا من شاشة الالتزامات الدورية</span>
+                </label>
+                <label className="radio-label">
+                  <input
+                    type="radio"
+                    name="recurringNextTransactionCreationMethod"
+                    checked={form.recurringNextTransactionCreationMethod === 'AutomaticOnClose'}
+                    onChange={() => setForm({ ...form, recurringNextTransactionCreationMethod: 'AutomaticOnClose' })}
+                  />
+                  <span>تلقائيًا عند إغلاق المعاملة الحالية</span>
+                </label>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </FormSection>
   );
 }
 
@@ -705,6 +878,16 @@ export default function TransactionForm({ mode }: Props) {
             </div>
           </div>
         </FormSection>
+
+        {mode === 'create' && (
+          <RecurringFollowUpSection
+            form={form}
+            setForm={setForm}
+            fieldError={fieldError}
+            fieldErrorId={fieldErrorId}
+            formGroupClass={formGroupClass}
+          />
+        )}
 
         <FormSection title="ملاحظات">
           <div className="transaction-form-grid">

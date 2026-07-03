@@ -46,6 +46,8 @@ export const transactionsApi = {
   create: (data: Record<string, unknown>) => api.post<TransactionDetail>('/transactions', data),
   update: (id: number, data: Record<string, unknown>) => api.put<TransactionDetail>(`/transactions/${id}`, data),
   close: (id: number) => api.post(`/transactions/${id}/close`),
+  enableRecurring: (id: number, data: Record<string, unknown>) =>
+    api.post<TransactionDetail>(`/transactions/${id}/enable-recurring`, data),
   completeResponse: (id: number, data: Record<string, unknown>) =>
     api.post<TransactionDetail>(`/transactions/${id}/complete-response`, data),
   cancel: (id: number) => api.post(`/transactions/${id}/cancel`),

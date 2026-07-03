@@ -3,7 +3,7 @@ import {
 } from 'react';
 import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { isAxiosError } from 'axios';
-import { departmentResponsesApi, transactionsApi } from '../api/services';
+import { departmentResponsesApi, recurringTemplatesApi, transactionsApi } from '../api/services';
 import type {
   TransactionDetail, Assignment, FollowUp, Attachment, AuditLog, DepartmentTransactionResponseItemDto,
 } from '../api/types';
@@ -34,6 +34,7 @@ import FollowUpLetterFormPanel from '../components/transaction-workspace/FollowU
 import AdminEditAssignmentFormPanel from '../components/transaction-workspace/AdminEditAssignmentFormPanel';
 import AdminEditDatesFormPanel from '../components/transaction-workspace/AdminEditDatesFormPanel';
 import AdminEditResponseFormPanel from '../components/transaction-workspace/AdminEditResponseFormPanel';
+import EnableRecurringFormPanel from '../components/transaction-workspace/EnableRecurringFormPanel';
 import { departmentResponseStatusLabels } from '../components/transaction-workspace/departmentResponseStatusLabels';
 import type { WorkspaceAction, WorkspaceActionContext } from '../components/transaction-workspace/types';
 import { parseDetailTab, type DetailTab } from './transactionDetailTabs';
@@ -118,6 +119,7 @@ const ACTION_TITLES: Record<WorkspaceAction, string> = {
   'admin-edit-assignment': 'تعديل بيانات الاحالة',
   'admin-edit-dates': 'تصحيح التواريخ الحساسة (إداري)',
   'admin-edit-response': 'تعديل بيانات الإفادة',
+  'enable-recurring': 'تفعيل متابعة دورية',
 };
 
 export default function TransactionDetailPage() {
@@ -168,6 +170,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const [actionDirty, setActionDirty] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [recurringSuggestion, setRecurringSuggestion] = useState<{ templateId: number; periodLabel: string } | null>(null);
   const [workspaceLoading, setWorkspaceLoading] = useState(true);
   const [departmentResponseItem, setDepartmentResponseItem] = useState<DepartmentTransactionResponseItemDto | null>(null);
   const [departmentResponseItemError, setDepartmentResponseItemError] = useState('');
@@ -505,6 +508,12 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     closeAction();
   };
 
+  const handleEnableRecurringSuccess = (updated: import('../api/types').TransactionDetail) => {
+    setTx(updated);
+    closeAction();
+    setMessage('تم تفعيل المتابعة الدورية لهذه المعاملة.');
+  };
+
   const handleAdminEditResponseSuccess = () => {
     closeAction();
     loadWorkspace({ silent: true }).catch(() => undefined);
@@ -556,8 +565,22 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
       await transactionsApi.close(+id);
       await loadWorkspace({ silent: true });
       setMessage('تم إغلاق المعاملة');
+      await checkRecurringSuggestionAfterClose(tx?.recurringTemplateId);
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));
+    }
+  };
+
+  const checkRecurringSuggestionAfterClose = async (recurringTemplateId?: number) => {
+    if (!recurringTemplateId) return;
+    try {
+      const res = await recurringTemplatesApi.getById(recurringTemplateId);
+      const template = res.data;
+      if (template.status === 'Active' && template.nextTransactionCreationMethod === 'AutomaticOnClose') {
+        setRecurringSuggestion({ templateId: template.id, periodLabel: template.nextPeriodLabel });
+      }
+    } catch {
+      // Best-effort suggestion only; closing the transaction has already succeeded.
     }
   };
 
@@ -802,6 +825,43 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
             <span className="transaction-hero-meta-sep">•</span>
             <Link to={`/recurring-transaction-templates?viewTransactions=${tx.recurringTemplateId}`}>عرض معاملات نفس القالب</Link>
           </div>
+        )}
+
+        {recurringSuggestion && (
+          <Alert variant="info">
+            تم إغلاق المعاملة. هل تريد إنشاء معاملة الفترة القادمة ({recurringSuggestion.periodLabel}) الآن؟{' '}
+            <Link to={`/recurring-transaction-templates?generate=${recurringSuggestion.templateId}`}>
+              إنشاء معاملة الفترة القادمة
+            </Link>
+          </Alert>
+        )}
+
+        {canEdit && !tx?.recurringTemplateId && (
+          <div className="admin-dates-edit-bar">
+            <button
+              type="button"
+              className={`btn btn-sm btn-outline${activeAction === 'enable-recurring' ? ' active' : ''}`}
+              aria-pressed={activeAction === 'enable-recurring'}
+              onClick={() => toggleAction('enable-recurring')}
+            >
+              تفعيل متابعة دورية لهذه المعاملة
+            </button>
+          </div>
+        )}
+
+        {activeAction === 'enable-recurring' && (
+          <CardActionPanel
+            title={ACTION_TITLES['enable-recurring']}
+            onClose={closeAction}
+            testId="enable-recurring-form-panel"
+          >
+            <EnableRecurringFormPanel
+              transactionId={+id}
+              onDirtyChange={setActionDirty}
+              onCancel={closeAction}
+              onSuccess={handleEnableRecurringSuccess}
+            />
+          </CardActionPanel>
         )}
 
         {isAdmin && (

@@ -106,6 +106,9 @@ export interface TransactionListItem {
   isArchived: boolean;
   createdByName: string;
   createdAt: string;
+  recurringTemplateId?: number;
+  recurringPeriodLabel?: string;
+  recurringRecurrenceType?: string;
 }
 
 export interface TransactionDetail extends TransactionListItem {
@@ -120,10 +123,8 @@ export interface TransactionDetail extends TransactionListItem {
   category?: string;
   notes?: string;
   updatedAt?: string;
-  recurringTemplateId?: number;
   recurringTemplateTitle?: string;
   recurringPeriodKey?: string;
-  recurringPeriodLabel?: string;
   outgoingParties: OutgoingParty[];
   outgoingDepartments: OutgoingDepartment[];
   repliedDepartmentNames: string[];
@@ -763,6 +764,7 @@ export interface RecurringTemplateListItem {
   lastGeneratedPeriodKey?: string;
   lastGeneratedPeriodLabel?: string;
   generatedTransactionsCount: number;
+  nextTransactionCreationMethod: string;
 }
 
 export interface RecurringTemplateDetail extends RecurringTemplateListItem {

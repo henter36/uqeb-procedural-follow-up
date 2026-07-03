@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import TransactionDetailPage from './TransactionDetail';
@@ -177,6 +177,8 @@ vi.mock('../api/services', () => ({
     adminEditTransactionDates: vi.fn(),
     getFollowUpDepartments: vi.fn(),
     downloadAttachment: vi.fn(),
+    close: vi.fn(),
+    enableRecurring: vi.fn(),
   },
   departmentResponsesApi: {
     getDepartmentTransactions: vi.fn(),
@@ -186,6 +188,9 @@ vi.mock('../api/services', () => ({
     adminEdit: vi.fn(),
     submit: vi.fn(),
     uploadAttachment: vi.fn(),
+  },
+  recurringTemplatesApi: {
+    getById: vi.fn(),
   },
   departmentsApi: { getAll: vi.fn() },
   categoriesApi: { getAll: vi.fn() },
@@ -1674,5 +1679,91 @@ describe('TransactionDetailPage recurring template info', () => {
     await waitForDetailsReady();
 
     expect(screen.queryByTestId('recurring-template-info')).not.toBeInTheDocument();
+  });
+
+  it('shows the enable-recurring action for a transaction with no recurring link', async () => {
+    renderDetail();
+    await waitForDetailsReady();
+
+    expect(screen.getByRole('button', { name: 'تفعيل متابعة دورية لهذه المعاملة' })).toBeInTheDocument();
+  });
+
+  it('does not show the enable-recurring action once a transaction is already linked to a template', async () => {
+    const recurringTx = { ...baseTx, recurringTemplateId: 7, recurringTemplateTitle: 'قالب', recurringPeriodLabel: 'يناير 2026' };
+    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: { ...defaultWorkspace, transaction: recurringTx },
+    } as never);
+    vi.mocked(services.transactionsApi.getBasic).mockResolvedValue({ data: recurringTx } as never);
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    expect(screen.queryByRole('button', { name: 'تفعيل متابعة دورية لهذه المعاملة' })).not.toBeInTheDocument();
+  });
+
+  it('enables recurring follow-up from the transaction detail page', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.enableRecurring).mockResolvedValue({
+      data: {
+        ...baseTx,
+        recurringTemplateId: 9,
+        recurringTemplateTitle: 'موضوع',
+        recurringPeriodKey: '2026-01',
+        recurringPeriodLabel: 'يناير 2026',
+      },
+    } as never);
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    await user.click(screen.getByRole('button', { name: 'تفعيل متابعة دورية لهذه المعاملة' }));
+    await waitFor(() => expect(screen.getByRole('region', { name: 'تفعيل متابعة دورية' })).toBeInTheDocument());
+
+    const panel = screen.getByRole('region', { name: 'تفعيل متابعة دورية' });
+    fireEvent.change(within(panel).getByLabelText('بداية الالتزام - اختيار من التقويم'), { target: { value: '2026-01-01' } });
+    await user.type(within(panel).getByLabelText('عدد الأيام بعد نهاية الفترة للاستحقاق *'), '10');
+    await user.click(within(panel).getByRole('button', { name: 'تفعيل المتابعة الدورية' }));
+
+    await waitFor(() => expect(services.transactionsApi.enableRecurring).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(services.transactionsApi.enableRecurring).mock.calls[0][0]).toBe(1);
+    await waitFor(() => expect(screen.getByTestId('recurring-template-info')).toBeInTheDocument());
+  });
+
+  it('suggests generating the next period after closing a transaction with AutomaticOnClose', async () => {
+    const user = userEvent.setup();
+    const recurringTx = {
+      ...baseTx,
+      recurringTemplateId: 7,
+      recurringTemplateTitle: 'قالب',
+      recurringPeriodLabel: 'يناير 2026',
+      requiresResponse: false,
+      responseType: 'None',
+    };
+    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: { ...defaultWorkspace, transaction: recurringTx },
+    } as never);
+    vi.mocked(services.transactionsApi.getBasic).mockResolvedValue({ data: recurringTx } as never);
+    vi.mocked(services.transactionsApi.close).mockResolvedValue({} as never);
+    vi.mocked(services.recurringTemplatesApi.getById).mockResolvedValue({
+      data: {
+        id: 7,
+        status: 'Active',
+        nextTransactionCreationMethod: 'AutomaticOnClose',
+        nextPeriodLabel: 'فبراير 2026',
+      },
+    } as never);
+    vi.spyOn(globalThis, 'confirm').mockReturnValue(true);
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    await user.click(getActionBarButton('إغلاق المعاملة'));
+
+    await waitFor(() => expect(services.transactionsApi.close).toHaveBeenCalled());
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: 'إنشاء معاملة الفترة القادمة' })).toBeInTheDocument();
+    });
+    expect(screen.getByRole('link', { name: 'إنشاء معاملة الفترة القادمة' }))
+      .toHaveAttribute('href', '/recurring-transaction-templates?generate=7');
   });
 });

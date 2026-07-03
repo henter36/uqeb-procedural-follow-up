@@ -356,6 +356,25 @@ public class TransactionsController : ControllerBase
         }
     }
 
+    [HttpPost("{id}/enable-recurring")]
+    [Authorize(Policy = Policies.CanEditTransactions)]
+    public async Task<IActionResult> EnableRecurring(int id, [FromBody] EnableRecurringForTransactionRequest request)
+    {
+        try
+        {
+            var result = await _transactions.EnableRecurringAsync(id, request, _currentUser.UserId);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (FieldValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message, errors = ex.FieldErrors });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     [HttpGet("{id}/attachments")]
     public async Task<IActionResult> GetAttachments(int id)
     {

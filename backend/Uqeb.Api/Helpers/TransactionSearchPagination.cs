@@ -29,7 +29,10 @@ public sealed record TransactionSearchRow(
     DateTime CreatedAt,
     bool HasPendingAssignments,
     bool IsResponseOverdue,
-    bool IsOverdue);
+    bool IsOverdue,
+    int? RecurringTemplateId,
+    string? RecurringPeriodLabel,
+    RecurrenceType? RecurringRecurrenceType);
 
 public static class TransactionSearchPagination
 {
