@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.Transactions;
+using Uqeb.Api.Helpers;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Services;
@@ -129,6 +130,41 @@ public class TransactionWorkspaceReadModelTests
 
         var result = await service.GetWorkspaceAsync(100, new TestCurrentUser(UserRole.DepartmentUser, userId: 2, departmentId: 10));
         Assert.Null(result);
+    }
+
+    [Fact]
+    public void BuildTemporalFacts_tolerates_legacy_assignment_status_values()
+    {
+        var transaction = new Transaction
+        {
+            Id = 100,
+            IncomingDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            RequiresResponse = false,
+            ResponseCompleted = false,
+            Status = TransactionStatus.InProgress,
+            CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+        };
+        var assignments = new List<AssignmentDto>
+        {
+            new()
+            {
+                Id = 10,
+                DepartmentId = 10,
+                DepartmentName = "المالية",
+                RequiresReply = true,
+                ReplyStatus = "LegacyPending",
+                Status = "LegacyActive",
+                DueDate = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc)
+            }
+        };
+
+        var facts = TransactionWorkspaceHelper.BuildTemporalFacts(
+            transaction,
+            assignments,
+            new DateTime(2026, 1, 5, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.True(facts.IsOverdue);
+        Assert.Equal(3, facts.DaysOverdue);
     }
 
     [Fact]

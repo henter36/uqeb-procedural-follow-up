@@ -14,27 +14,18 @@ public static class TransactionWorkspaceHelper
     {
         var assignmentFacts = assignments
             .Select(a => new TransactionTemporalCalculator.AssignmentSummaryFacts(
-                Enum.Parse<ReplyStatus>(a.ReplyStatus),
+                ParseReplyStatusOrDefault(a.ReplyStatus),
                 a.RequiresReply,
-                Enum.Parse<AssignmentStatus>(a.Status),
+                ParseAssignmentStatusOrDefault(a.Status),
                 a.DueDate))
             .ToList();
 
-        var earliestPendingAssignmentDueDate = assignments
+        DateTime? earliestPendingDue = assignmentFacts
             .Where(a => a.RequiresReply
-                && a.ReplyStatus != ReplyStatus.Replied.ToString()
-                && a.Status == AssignmentStatus.Active.ToString()
-                && a.DueDate.HasValue)
-            .Select(a => a.DueDate!.Value)
-            .DefaultIfEmpty()
+                && a.ReplyStatus != ReplyStatus.Replied
+                && a.Status == AssignmentStatus.Active)
+            .Select(a => a.DueDate)
             .Min();
-
-        DateTime? earliestPendingDue = assignments.Any(a => a.RequiresReply
-            && a.ReplyStatus != ReplyStatus.Replied.ToString()
-            && a.Status == AssignmentStatus.Active.ToString()
-            && a.DueDate.HasValue)
-            ? earliestPendingAssignmentDueDate
-            : null;
 
         return new TransactionTemporalFactsDto
         {
@@ -72,4 +63,14 @@ public static class TransactionWorkspaceHelper
             HasPendingDepartments = transaction.PendingDepartmentNames.Count > 0
         };
     }
+
+    private static ReplyStatus ParseReplyStatusOrDefault(string? value) =>
+        Enum.TryParse<ReplyStatus>(value, ignoreCase: true, out var status)
+            ? status
+            : ReplyStatus.Pending;
+
+    private static AssignmentStatus ParseAssignmentStatusOrDefault(string? value) =>
+        Enum.TryParse<AssignmentStatus>(value, ignoreCase: true, out var status)
+            ? status
+            : AssignmentStatus.Active;
 }
