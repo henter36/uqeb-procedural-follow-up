@@ -624,9 +624,9 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const showMutationActions = canEdit && !isDepartmentUser;
   const canReply = canEdit && !isDepartmentUser;
   const openAssignmentsCount = countOpenAssignments(assignments);
-  const assignmentCardAgeText = workspaceAgeDays != null
-    ? `عمر المعاملة: ${workspaceAgeDays} يوم`
-    : 'عمر المعاملة: غير متاح';
+  const assignmentCardAgeText = workspaceAgeDays === null || workspaceAgeDays === undefined
+    ? 'عمر المعاملة: غير متاح'
+    : `عمر المعاملة: ${workspaceAgeDays} يوم`;
 
   // Derive effective close date from assignments when ClosedAt is not set
   const requiredAssignments = assignments.filter((a) => a.requiresReply && a.status !== 'Cancelled');
