@@ -207,17 +207,7 @@ function getRecurringValidationRules(form: TransactionFormState): TransactionVal
 
   return [
     { field: 'recurringRecurrenceType', isInvalid: !form.recurringRecurrenceType, message: 'نوع التكرار مطلوب.' },
-    { field: 'recurringStartDate', isInvalid: !form.recurringStartDate, message: 'تاريخ بداية الالتزام مطلوب.' },
-    {
-      field: 'recurringEndDate',
-      isInvalid: Boolean(form.recurringEndDate && form.recurringStartDate && form.recurringEndDate < form.recurringStartDate),
-      message: 'تاريخ نهاية الالتزام لا يمكن أن يكون قبل تاريخ البداية.',
-    },
-    {
-      field: 'recurringDueDaysAfterPeriodEnd',
-      isInvalid: !form.recurringDueDaysAfterPeriodEnd && form.recurringDueDaysAfterPeriodEnd !== 0,
-      message: 'عدد الأيام بعد نهاية الفترة مطلوب.',
-    },
+    { field: 'recurringEndDate', isInvalid: Boolean(form.recurringEndDate && form.incomingDate && form.recurringEndDate < form.incomingDate), message: 'تاريخ نهاية الالتزام لا يمكن أن يكون قبل تاريخ الوارد.' },
     {
       field: 'outgoingDepartmentIds',
       isInvalid: isMissingRecurringDepartments(form),
@@ -471,21 +461,6 @@ function RecurringFollowUpSection({
                 <span id={fieldErrorId('recurringRecurrenceType')} className="field-error">{fieldError('recurringRecurrenceType')}</span>
               )}
             </div>
-            <div className={formGroupClass('recurringStartDate', 'transaction-form-field transaction-form-field--compact')}>
-              <HijriDateInput
-                id="recurring-start-date"
-                label="بداية الالتزام"
-                required
-                value={form.recurringStartDate}
-                onChange={(recurringStartDate) => setForm({ ...form, recurringStartDate })}
-                invalid={Boolean(fieldError('recurringStartDate'))}
-                describedBy={fieldError('recurringStartDate') ? fieldErrorId('recurringStartDate') : undefined}
-                dataFieldName="recurringStartDate"
-              />
-              {fieldError('recurringStartDate') && (
-                <span id={fieldErrorId('recurringStartDate')} className="field-error">{fieldError('recurringStartDate')}</span>
-              )}
-            </div>
             <div className={formGroupClass('recurringEndDate', 'transaction-form-field transaction-form-field--compact')}>
               <HijriDateInput
                 id="recurring-end-date"
@@ -498,20 +473,6 @@ function RecurringFollowUpSection({
               />
               {fieldError('recurringEndDate') && (
                 <span id={fieldErrorId('recurringEndDate')} className="field-error">{fieldError('recurringEndDate')}</span>
-              )}
-            </div>
-            <div className={formGroupClass('recurringDueDaysAfterPeriodEnd', 'transaction-form-field transaction-form-field--compact')}>
-              <label htmlFor="recurring-due-days">عدد الأيام بعد نهاية الفترة للاستحقاق *</label>
-              <input
-                id="recurring-due-days"
-                type="number"
-                min="0"
-                data-field-name="recurringDueDaysAfterPeriodEnd"
-                value={form.recurringDueDaysAfterPeriodEnd}
-                onChange={(e) => setForm({ ...form, recurringDueDaysAfterPeriodEnd: e.target.value })}
-              />
-              {fieldError('recurringDueDaysAfterPeriodEnd') && (
-                <span id={fieldErrorId('recurringDueDaysAfterPeriodEnd')} className="field-error">{fieldError('recurringDueDaysAfterPeriodEnd')}</span>
               )}
             </div>
             <div className="form-group transaction-form-field transaction-form-field--wide">

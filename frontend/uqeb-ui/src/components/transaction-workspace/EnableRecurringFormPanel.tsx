@@ -14,9 +14,7 @@ const RECURRENCE_TYPE_OPTIONS = [
 
 type FormState = {
   recurrenceType: string;
-  startDate: string;
   endDate: string;
-  dueDaysAfterPeriodEnd: string;
   nextTransactionCreationMethod: string;
 };
 
@@ -30,9 +28,7 @@ type Props = Readonly<{
 export default function EnableRecurringFormPanel({ transactionId, onDirtyChange, onCancel, onSuccess }: Props) {
   const [form, setForm] = useState<FormState>({
     recurrenceType: 'Monthly',
-    startDate: '',
     endDate: '',
-    dueDaysAfterPeriodEnd: '',
     nextTransactionCreationMethod: 'Manual',
   });
   const [error, setError] = useState('');
@@ -40,8 +36,6 @@ export default function EnableRecurringFormPanel({ transactionId, onDirtyChange,
   const [saving, setSaving] = useState(false);
 
   const dirty = Boolean(
-    form.startDate ||
-    form.dueDaysAfterPeriodEnd ||
     form.endDate ||
     form.recurrenceType !== 'Monthly' ||
     form.nextTransactionCreationMethod !== 'Manual',
@@ -64,11 +58,12 @@ export default function EnableRecurringFormPanel({ transactionId, onDirtyChange,
     try {
       const res = await transactionsApi.enableRecurring(transactionId, {
         recurrenceType: form.recurrenceType,
-        startDate: form.startDate || null,
+        startDate: null,
         endDate: form.endDate || null,
-        dueDaysAfterPeriodEnd: form.dueDaysAfterPeriodEnd === '' ? null : Number(form.dueDaysAfterPeriodEnd),
+        dueDaysAfterPeriodEnd: 0,
         nextTransactionCreationMethod: form.nextTransactionCreationMethod,
       });
+      onDirtyChange(false);
       onSuccess(res.data);
     } catch (err: unknown) {
       const errs = getFieldErrors(err);
@@ -100,17 +95,6 @@ export default function EnableRecurringFormPanel({ transactionId, onDirtyChange,
         </div>
         <div className="form-group">
           <HijriDateInput
-            id="enable-recurring-start"
-            label="بداية الالتزام"
-            required
-            value={form.startDate}
-            onChange={(startDate) => update({ startDate })}
-            invalid={Boolean(fieldError('StartDate'))}
-          />
-          {fieldError('StartDate') && <span className="field-error">{fieldError('StartDate')}</span>}
-        </div>
-        <div className="form-group">
-          <HijriDateInput
             id="enable-recurring-end"
             label="نهاية الالتزام"
             value={form.endDate}
@@ -118,18 +102,6 @@ export default function EnableRecurringFormPanel({ transactionId, onDirtyChange,
             invalid={Boolean(fieldError('EndDate'))}
           />
           {fieldError('EndDate') && <span className="field-error">{fieldError('EndDate')}</span>}
-        </div>
-        <div className="form-group">
-          <label htmlFor="enable-recurring-due-days">عدد الأيام بعد نهاية الفترة للاستحقاق *</label>
-          <input
-            id="enable-recurring-due-days"
-            type="number"
-            min="0"
-            required
-            value={form.dueDaysAfterPeriodEnd}
-            onChange={(e) => update({ dueDaysAfterPeriodEnd: e.target.value })}
-          />
-          {fieldError('DueDaysAfterPeriodEnd') && <span className="field-error">{fieldError('DueDaysAfterPeriodEnd')}</span>}
         </div>
         <div className="form-group">
           <span className="form-label">طريقة إنشاء المعاملة التالية</span>

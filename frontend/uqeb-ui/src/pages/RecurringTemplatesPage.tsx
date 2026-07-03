@@ -65,7 +65,7 @@ function createInitialTemplateForm(): TemplateFormState {
     responseType: 'Internal',
     requiresResponse: true,
     defaultRequiredAction: '',
-    dueDaysAfterPeriodEnd: '',
+    dueDaysAfterPeriodEnd: 0,
     defaultReplyDueDays: '',
     notes: '',
     departmentIds: [],
@@ -91,7 +91,7 @@ function buildTemplateFormState(t: RecurringTemplateDetail): TemplateFormState {
     responseType: t.responseType,
     requiresResponse: t.requiresResponse,
     defaultRequiredAction: t.defaultRequiredAction,
-    dueDaysAfterPeriodEnd: t.dueDaysAfterPeriodEnd,
+    dueDaysAfterPeriodEnd: 0,
     defaultReplyDueDays: t.defaultReplyDueDays ?? '',
     notes: t.notes ?? '',
     departmentIds: t.departments.map((d) => d.departmentId),
@@ -115,7 +115,7 @@ function buildTemplatePayload(form: TemplateFormState) {
     responseType: form.responseType,
     requiresResponse: form.requiresResponse,
     defaultRequiredAction: form.defaultRequiredAction.trim(),
-    dueDaysAfterPeriodEnd: toNullableNumber(form.dueDaysAfterPeriodEnd),
+    dueDaysAfterPeriodEnd: 0,
     defaultReplyDueDays: toNullableNumber(form.defaultReplyDueDays),
     notes: toNullableString(form.notes),
     departmentIds: form.departmentIds,
@@ -130,7 +130,6 @@ type GenerateFormState = {
   halfYear: string;
   halfNumber: '1' | '2';
   annualYear: string;
-  incomingDate: string;
   referralDate: string;
   referralLetterNumber: string;
 };
@@ -144,7 +143,6 @@ function createInitialGenerateForm(nextPeriodKey: string, recurrenceType: string
     halfYear: currentYear,
     halfNumber: '1',
     annualYear: currentYear,
-    incomingDate: '',
     referralDate: '',
     referralLetterNumber: '',
   };
@@ -334,7 +332,7 @@ export default function RecurringTemplatesPage() {
   const expectedDueDate = useMemo(() => {
     if (!generateTemplate || !generateForm) return null;
     const periodKey = getPeriodKeyFromGenerateForm(generateForm, generateTemplate.recurrenceType);
-    return getExpectedDueDate(generateTemplate.recurrenceType, periodKey, generateTemplate.dueDaysAfterPeriodEnd);
+    return getExpectedDueDate(generateTemplate.recurrenceType, periodKey, generateTemplate.startDate);
   }, [generateTemplate, generateForm]);
 
   const expectedPeriodLabel = useMemo(() => {
@@ -348,8 +346,6 @@ export default function RecurringTemplatesPage() {
     if (!generateTemplate || !generateForm || generateSubmitting) return;
 
     const errs: Record<string, string> = {};
-    if (!generateForm.incomingDate) errs.incomingDate = 'تاريخ المعاملة مطلوب.';
-    else if (isFutureLocalDate(generateForm.incomingDate)) errs.incomingDate = FUTURE_EVENT_DATE_MESSAGE;
     if (!generateForm.referralDate) errs.referralDate = 'تاريخ الإحالة مطلوب.';
     else if (isFutureLocalDate(generateForm.referralDate)) errs.referralDate = FUTURE_EVENT_DATE_MESSAGE;
 
@@ -368,7 +364,7 @@ export default function RecurringTemplatesPage() {
     try {
       const res = await recurringTemplatesApi.generate(generateTemplate.id, {
         periodKey,
-        incomingDate: toIsoDate(generateForm.incomingDate),
+        incomingDate: null,
         referralDate: toIsoDate(generateForm.referralDate),
         referralLetterNumber: toNullableString(generateForm.referralLetterNumber),
       });
@@ -855,18 +851,6 @@ function TemplateFormModal({
       </div>
 
       <div className="form-group">
-        <label htmlFor="template-due-days">عدد الأيام بعد نهاية الفترة للاستحقاق *</label>
-        <input
-          id="template-due-days"
-          type="number"
-          min="0"
-          value={form.dueDaysAfterPeriodEnd}
-          onChange={(e) => setForm({ ...form, dueDaysAfterPeriodEnd: e.target.value })}
-        />
-        {fieldError('DueDaysAfterPeriodEnd') && <span className="field-error">{fieldError('DueDaysAfterPeriodEnd')}</span>}
-      </div>
-
-      <div className="form-group">
         <span className="form-label">طريقة إنشاء المعاملة التالية</span>
         <div className="radio-group">
           <label className="radio-label">
@@ -1018,19 +1002,6 @@ function GeneratePeriodModal({
         )}
         <small className="text-muted">{expectedPeriodLabel}</small>
         {fieldErrors.periodKey && <span className="field-error">{fieldErrors.periodKey}</span>}
-      </div>
-
-      <div className="form-group">
-        <HijriDateInput
-          id="generate-incoming-date"
-          label="تاريخ المعاملة"
-          required
-          value={form.incomingDate}
-          onChange={(incomingDate) => setForm({ ...form, incomingDate })}
-          invalid={Boolean(fieldErrors.incomingDate)}
-          disallowFutureDate
-        />
-        {fieldErrors.incomingDate && <span className="field-error">{fieldErrors.incomingDate}</span>}
       </div>
 
       <div className="form-group">

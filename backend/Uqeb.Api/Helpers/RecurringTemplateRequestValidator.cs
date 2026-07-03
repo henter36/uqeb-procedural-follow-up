@@ -26,9 +26,7 @@ public static class RecurringTemplateRequestValidator
     {
         var errors = new Dictionary<string, string>();
 
-        if (!request.IncomingDate.HasValue)
-            errors[nameof(request.IncomingDate)] = "تاريخ المعاملة مطلوب.";
-        else if (IsFutureEventDate(request.IncomingDate.Value))
+        if (request.IncomingDate.HasValue && IsFutureEventDate(request.IncomingDate.Value))
             errors[nameof(request.IncomingDate)] = FutureEventDateMessage;
 
         if (!request.ReferralDate.HasValue)
@@ -57,9 +55,8 @@ public static class RecurringTemplateRequestValidator
             !Enum.TryParse<RecurrenceType>(request.RecurrenceType, true, out _))
             errors[nameof(request.RecurrenceType)] = "نوع التكرار مطلوب ويجب أن يكون شهري أو ربع سنوي أو نصف سنوي أو سنوي.";
 
-        if (!request.DueDaysAfterPeriodEnd.HasValue ||
-            request.DueDaysAfterPeriodEnd.Value < 0 ||
-            request.DueDaysAfterPeriodEnd.Value > MaxDueDaysAfterPeriodEnd)
+        if (request.DueDaysAfterPeriodEnd.HasValue &&
+            (request.DueDaysAfterPeriodEnd.Value < 0 || request.DueDaysAfterPeriodEnd.Value > MaxDueDaysAfterPeriodEnd))
             errors[nameof(request.DueDaysAfterPeriodEnd)] = "عدد الأيام بعد نهاية الفترة مطلوب ويجب أن يكون بين 0 و365.";
 
         if (request.DefaultReplyDueDays.HasValue &&

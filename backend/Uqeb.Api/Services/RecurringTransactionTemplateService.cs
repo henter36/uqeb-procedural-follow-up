@@ -85,7 +85,7 @@ public class RecurringTransactionTemplateService : IRecurringTransactionTemplate
             ResponseType = Enum.Parse<ResponseType>(request.ResponseType!, true),
             RequiresResponse = request.RequiresResponse ?? false,
             DefaultRequiredAction = request.DefaultRequiredAction!.Trim(),
-            DueDaysAfterPeriodEnd = request.DueDaysAfterPeriodEnd!.Value,
+            DueDaysAfterPeriodEnd = request.DueDaysAfterPeriodEnd ?? 0,
             DefaultReplyDueDays = request.DefaultReplyDueDays,
             Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
             NextTransactionCreationMethod = ParseNextTransactionCreationMethod(request.NextTransactionCreationMethod),
@@ -132,6 +132,7 @@ public class RecurringTransactionTemplateService : IRecurringTransactionTemplate
         var recurrenceType = Enum.Parse<RecurrenceType>(templateRequest.RecurrenceType!, true);
         var periodKey = RecurringPeriodCalculator.GetPeriodKeyForDate(recurrenceType, transaction.IncomingDate);
         var periodLabel = RecurringPeriodCalculator.GetPeriodLabel(recurrenceType, periodKey);
+        var period = RecurringPeriodCalculator.Compute(recurrenceType, periodKey, transaction.IncomingDate);
 
         var template = new RecurringTransactionTemplate
         {
@@ -139,7 +140,7 @@ public class RecurringTransactionTemplateService : IRecurringTransactionTemplate
             SubjectTemplate = templateRequest.SubjectTemplate.Trim(),
             RecurrenceType = recurrenceType,
             Status = RecurringTemplateStatus.Active,
-            StartDate = templateRequest.StartDate!.Value.Date,
+            StartDate = transaction.IncomingDate.Date,
             EndDate = templateRequest.EndDate?.Date,
             IncomingSourceType = Enum.Parse<IncomingSourceType>(templateRequest.IncomingSourceType!, true),
             IncomingFromPartyId = templateRequest.IncomingFromPartyId,
@@ -149,7 +150,7 @@ public class RecurringTransactionTemplateService : IRecurringTransactionTemplate
             ResponseType = Enum.Parse<ResponseType>(templateRequest.ResponseType!, true),
             RequiresResponse = templateRequest.RequiresResponse ?? false,
             DefaultRequiredAction = templateRequest.DefaultRequiredAction!.Trim(),
-            DueDaysAfterPeriodEnd = templateRequest.DueDaysAfterPeriodEnd!.Value,
+            DueDaysAfterPeriodEnd = 0,
             DefaultReplyDueDays = templateRequest.DefaultReplyDueDays,
             Notes = string.IsNullOrWhiteSpace(templateRequest.Notes) ? null : templateRequest.Notes.Trim(),
             NextTransactionCreationMethod = ParseNextTransactionCreationMethod(templateRequest.NextTransactionCreationMethod),
@@ -169,12 +170,13 @@ public class RecurringTransactionTemplateService : IRecurringTransactionTemplate
         {
             await _db.SaveChangesAsync();
 
-            if (!await TryLinkTransactionToTemplateAsync(transaction, template.Id, periodKey, periodLabel))
+            if (!await TryLinkTransactionToTemplateAsync(transaction, template.Id, periodKey, periodLabel, period.DueDate))
                 throw new InvalidOperationException("هذه المعاملة مرتبطة بالتزام دوري مسبقًا.");
 
             transaction.RecurringTemplateId = template.Id;
             transaction.RecurringPeriodKey = periodKey;
             transaction.RecurringPeriodLabel = periodLabel;
+            transaction.ResponseDueDate = transaction.RequiresResponse ? period.DueDate : null;
 
             _audit.TrackLog(userId, AuditAction.CreateRecurringTemplate, TemplateEntityName, template.Id, null, null,
                 JsonSerializer.Serialize(new { template.Title, RecurrenceType = template.RecurrenceType.ToString() }));
@@ -197,7 +199,8 @@ public class RecurringTransactionTemplateService : IRecurringTransactionTemplate
         Transaction transaction,
         int templateId,
         string periodKey,
-        string periodLabel)
+        string periodLabel,
+        DateTime dueDate)
     {
         if (_db.Database.IsRelational())
         {
@@ -206,7 +209,8 @@ public class RecurringTransactionTemplateService : IRecurringTransactionTemplate
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(t => t.RecurringTemplateId, templateId)
                     .SetProperty(t => t.RecurringPeriodKey, periodKey)
-                    .SetProperty(t => t.RecurringPeriodLabel, periodLabel));
+                    .SetProperty(t => t.RecurringPeriodLabel, periodLabel)
+                    .SetProperty(t => t.ResponseDueDate, t => t.RequiresResponse ? dueDate : null));
 
             return updatedRows == 1;
         }
@@ -218,6 +222,7 @@ public class RecurringTransactionTemplateService : IRecurringTransactionTemplate
         currentTransaction.RecurringTemplateId = templateId;
         currentTransaction.RecurringPeriodKey = periodKey;
         currentTransaction.RecurringPeriodLabel = periodLabel;
+        currentTransaction.ResponseDueDate = currentTransaction.RequiresResponse ? dueDate : null;
         return true;
     }
 
@@ -247,7 +252,7 @@ public class RecurringTransactionTemplateService : IRecurringTransactionTemplate
         template.ResponseType = Enum.Parse<ResponseType>(request.ResponseType!, true);
         template.RequiresResponse = request.RequiresResponse ?? false;
         template.DefaultRequiredAction = request.DefaultRequiredAction!.Trim();
-        template.DueDaysAfterPeriodEnd = request.DueDaysAfterPeriodEnd!.Value;
+        template.DueDaysAfterPeriodEnd = request.DueDaysAfterPeriodEnd ?? 0;
         template.DefaultReplyDueDays = request.DefaultReplyDueDays;
         template.Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim();
         template.NextTransactionCreationMethod = ParseNextTransactionCreationMethod(request.NextTransactionCreationMethod);
@@ -372,7 +377,7 @@ public class RecurringTransactionTemplateService : IRecurringTransactionTemplate
 
         EnsureTemplateCanGenerate(template);
 
-        var period = RecurringPeriodCalculator.Compute(template.RecurrenceType, request.PeriodKey, template.DueDaysAfterPeriodEnd);
+        var period = RecurringPeriodCalculator.Compute(template.RecurrenceType, request.PeriodKey, template.StartDate);
         EnsurePeriodWithinTemplateRange(template, period);
         await EnsurePeriodNotAlreadyGeneratedAsync(id, period.PeriodKey);
 
@@ -380,7 +385,7 @@ public class RecurringTransactionTemplateService : IRecurringTransactionTemplate
         if (dateErrors.Count > 0)
             throw new FieldValidationException(dateErrors);
 
-        var incomingDate = request.IncomingDate!.Value.Date;
+        var incomingDate = period.PeriodStart.Date;
         var referralDate = request.ReferralDate!.Value.Date;
         var letterNumber = string.IsNullOrWhiteSpace(request.ReferralLetterNumber) ? null : request.ReferralLetterNumber.Trim();
 
@@ -434,7 +439,7 @@ public class RecurringTransactionTemplateService : IRecurringTransactionTemplate
     {
         if (period.PeriodStart.Date < template.StartDate.Date)
             throw new RecurringTemplatePeriodOutOfRangeException();
-        if (template.EndDate.HasValue && period.PeriodStart.Date > template.EndDate.Value.Date)
+        if (template.EndDate.HasValue && period.PeriodStart.Date >= template.EndDate.Value.Date)
             throw new RecurringTemplatePeriodOutOfRangeException();
     }
 

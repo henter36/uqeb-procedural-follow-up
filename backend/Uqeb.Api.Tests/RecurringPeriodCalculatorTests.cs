@@ -6,31 +6,36 @@ namespace Uqeb.Api.Tests;
 
 public class RecurringPeriodCalculatorTests
 {
+    private static readonly DateTime Anchor = new(2026, 7, 10, 0, 0, 0, DateTimeKind.Utc);
+
     [Fact]
     public void Compute_Monthly_calculates_period_start_and_end_correctly()
     {
-        var period = RecurringPeriodCalculator.Compute(RecurrenceType.Monthly, "2026-07", 10);
+        var period = RecurringPeriodCalculator.Compute(RecurrenceType.Monthly, "2026-07", Anchor);
 
-        Assert.Equal(new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc), period.PeriodStart);
-        Assert.Equal(new DateTime(2026, 7, 31, 0, 0, 0, DateTimeKind.Utc), period.PeriodEnd);
+        Assert.Equal(new DateTime(2026, 7, 10, 0, 0, 0, DateTimeKind.Utc), period.PeriodStart);
         Assert.Equal(new DateTime(2026, 8, 10, 0, 0, 0, DateTimeKind.Utc), period.DueDate);
+        Assert.Equal(period.DueDate, period.PeriodEnd);
         Assert.Equal("يوليو 2026", period.PeriodLabel);
     }
 
     [Fact]
-    public void Compute_does_not_overflow_for_the_maximum_accepted_DueDaysAfterPeriodEnd_at_max_year()
+    public void Compute_Monthly_returns_contiguous_next_period()
     {
-        // RecurringTemplateRequestValidator caps DueDaysAfterPeriodEnd at 365 and periodKey years at 3000;
-        // this is the most extreme input the validator allows through to the calculator.
-        var period = RecurringPeriodCalculator.Compute(RecurrenceType.Monthly, "3000-12", 365);
+        var period = RecurringPeriodCalculator.Compute(RecurrenceType.Monthly, "2026-08", Anchor);
 
-        Assert.True(period.DueDate > period.PeriodEnd);
+        Assert.Equal(new DateTime(2026, 8, 10, 0, 0, 0, DateTimeKind.Utc), period.PeriodStart);
+        Assert.Equal(new DateTime(2026, 9, 10, 0, 0, 0, DateTimeKind.Utc), period.PeriodEnd);
+        Assert.Equal(period.PeriodEnd, period.DueDate);
     }
 
     [Fact]
-    public void Compute_Monthly_handles_February_end_of_month_in_leap_year()
+    public void Compute_Monthly_handles_end_of_month_anchor()
     {
-        var period = RecurringPeriodCalculator.Compute(RecurrenceType.Monthly, "2028-02", 0);
+        var period = RecurringPeriodCalculator.Compute(
+            RecurrenceType.Monthly,
+            "2028-02",
+            new DateTime(2028, 1, 31, 0, 0, 0, DateTimeKind.Utc));
 
         Assert.Equal(new DateTime(2028, 2, 29, 0, 0, 0, DateTimeKind.Utc), period.PeriodEnd);
     }
@@ -38,21 +43,21 @@ public class RecurringPeriodCalculatorTests
     [Fact]
     public void Compute_Quarterly_calculates_period_start_and_end_correctly()
     {
-        var period = RecurringPeriodCalculator.Compute(RecurrenceType.Quarterly, "2026-Q3", 10);
+        var period = RecurringPeriodCalculator.Compute(RecurrenceType.Quarterly, "2026-Q3", Anchor);
 
-        Assert.Equal(new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc), period.PeriodStart);
-        Assert.Equal(new DateTime(2026, 9, 30, 0, 0, 0, DateTimeKind.Utc), period.PeriodEnd);
-        Assert.Equal(new DateTime(2026, 10, 10, 0, 0, 0, DateTimeKind.Utc), period.DueDate);
+        Assert.Equal(new DateTime(2026, 7, 10, 0, 0, 0, DateTimeKind.Utc), period.PeriodStart);
+        Assert.Equal(new DateTime(2026, 10, 10, 0, 0, 0, DateTimeKind.Utc), period.PeriodEnd);
+        Assert.Equal(period.PeriodEnd, period.DueDate);
         Assert.Equal("الربع الثالث 2026", period.PeriodLabel);
     }
 
     [Fact]
-    public void Compute_Quarterly_calculates_first_quarter_correctly()
+    public void Compute_Quarterly_returns_contiguous_next_period()
     {
-        var period = RecurringPeriodCalculator.Compute(RecurrenceType.Quarterly, "2026-Q1", 0);
+        var period = RecurringPeriodCalculator.Compute(RecurrenceType.Quarterly, "2026-Q4", Anchor);
 
-        Assert.Equal(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), period.PeriodStart);
-        Assert.Equal(new DateTime(2026, 3, 31, 0, 0, 0, DateTimeKind.Utc), period.PeriodEnd);
+        Assert.Equal(new DateTime(2026, 10, 10, 0, 0, 0, DateTimeKind.Utc), period.PeriodStart);
+        Assert.Equal(new DateTime(2027, 1, 10, 0, 0, 0, DateTimeKind.Utc), period.PeriodEnd);
     }
 
     [Theory]
@@ -62,7 +67,7 @@ public class RecurringPeriodCalculatorTests
     [InlineData(RecurrenceType.Annual, "2026")]
     public void Compute_returns_Utc_DateTimeKind_for_all_period_dates(RecurrenceType recurrenceType, string periodKey)
     {
-        var period = RecurringPeriodCalculator.Compute(recurrenceType, periodKey, 5);
+        var period = RecurringPeriodCalculator.Compute(recurrenceType, periodKey, new DateTime(2026, 1, 10, 0, 0, 0, DateTimeKind.Utc));
 
         Assert.Equal(DateTimeKind.Utc, period.PeriodStart.Kind);
         Assert.Equal(DateTimeKind.Utc, period.PeriodEnd.Kind);
@@ -72,39 +77,39 @@ public class RecurringPeriodCalculatorTests
     [Fact]
     public void Compute_SemiAnnual_calculates_first_half_correctly()
     {
-        var period = RecurringPeriodCalculator.Compute(RecurrenceType.SemiAnnual, "2026-H1", 10);
+        var period = RecurringPeriodCalculator.Compute(RecurrenceType.SemiAnnual, "2026-H2", Anchor);
 
-        Assert.Equal(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), period.PeriodStart);
-        Assert.Equal(new DateTime(2026, 6, 30, 0, 0, 0, DateTimeKind.Utc), period.PeriodEnd);
-        Assert.Equal(new DateTime(2026, 7, 10, 0, 0, 0, DateTimeKind.Utc), period.DueDate);
-        Assert.Equal("النصف الأول 2026", period.PeriodLabel);
+        Assert.Equal(new DateTime(2026, 7, 10, 0, 0, 0, DateTimeKind.Utc), period.PeriodStart);
+        Assert.Equal(new DateTime(2027, 1, 10, 0, 0, 0, DateTimeKind.Utc), period.PeriodEnd);
+        Assert.Equal(period.PeriodEnd, period.DueDate);
+        Assert.Equal("النصف الثاني 2026", period.PeriodLabel);
     }
 
     [Fact]
     public void Compute_SemiAnnual_calculates_second_half_correctly()
     {
-        var period = RecurringPeriodCalculator.Compute(RecurrenceType.SemiAnnual, "2026-H2", 0);
+        var period = RecurringPeriodCalculator.Compute(RecurrenceType.SemiAnnual, "2027-H1", Anchor);
 
-        Assert.Equal(new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc), period.PeriodStart);
-        Assert.Equal(new DateTime(2026, 12, 31, 0, 0, 0, DateTimeKind.Utc), period.PeriodEnd);
-        Assert.Equal("النصف الثاني 2026", period.PeriodLabel);
+        Assert.Equal(new DateTime(2027, 1, 10, 0, 0, 0, DateTimeKind.Utc), period.PeriodStart);
+        Assert.Equal(new DateTime(2027, 7, 10, 0, 0, 0, DateTimeKind.Utc), period.PeriodEnd);
+        Assert.Equal("النصف الأول 2027", period.PeriodLabel);
     }
 
     [Fact]
     public void Compute_Annual_calculates_full_year_correctly()
     {
-        var period = RecurringPeriodCalculator.Compute(RecurrenceType.Annual, "2026", 10);
+        var period = RecurringPeriodCalculator.Compute(RecurrenceType.Annual, "2026", Anchor);
 
-        Assert.Equal(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), period.PeriodStart);
-        Assert.Equal(new DateTime(2026, 12, 31, 0, 0, 0, DateTimeKind.Utc), period.PeriodEnd);
-        Assert.Equal(new DateTime(2027, 1, 10, 0, 0, 0, DateTimeKind.Utc), period.DueDate);
+        Assert.Equal(new DateTime(2026, 7, 10, 0, 0, 0, DateTimeKind.Utc), period.PeriodStart);
+        Assert.Equal(new DateTime(2027, 7, 10, 0, 0, 0, DateTimeKind.Utc), period.PeriodEnd);
+        Assert.Equal(period.PeriodEnd, period.DueDate);
         Assert.Equal("سنة 2026", period.PeriodLabel);
     }
 
     [Fact]
     public void Compute_Annual_rejects_a_periodKey_with_month_suffix()
     {
-        Assert.Throws<InvalidOperationException>(() => RecurringPeriodCalculator.Compute(RecurrenceType.Annual, "2026-01", 0));
+        Assert.Throws<InvalidOperationException>(() => RecurringPeriodCalculator.Compute(RecurrenceType.Annual, "2026-01", Anchor));
     }
 
     [Fact]

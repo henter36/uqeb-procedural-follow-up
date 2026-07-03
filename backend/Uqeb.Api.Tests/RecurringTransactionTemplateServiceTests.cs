@@ -303,14 +303,15 @@ public class RecurringTransactionTemplateServiceTests
     }
 
     [Fact]
-    public async Task CreateAsync_rejects_missing_DueDaysAfterPeriodEnd()
+    public async Task CreateAsync_defaults_missing_DueDaysAfterPeriodEnd_to_zero()
     {
-        var (service, _) = await CreateServiceAsync(nameof(CreateAsync_rejects_missing_DueDaysAfterPeriodEnd));
+        var (service, _) = await CreateServiceAsync(nameof(CreateAsync_defaults_missing_DueDaysAfterPeriodEnd_to_zero));
         var request = ValidMonthlyRequest();
         request.DueDaysAfterPeriodEnd = null;
 
-        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.CreateAsync(request, userId: 1));
-        Assert.True(ex.FieldErrors.ContainsKey(nameof(request.DueDaysAfterPeriodEnd)));
+        var result = await service.CreateAsync(request, userId: 1);
+
+        Assert.Equal(0, result.DueDaysAfterPeriodEnd);
     }
 
     [Fact]
@@ -640,13 +641,15 @@ public class RecurringTransactionTemplateServiceTests
         Assert.NotNull(result);
         Assert.Equal("2026-01", result!.PeriodKey);
         Assert.Equal("يناير 2026", result.PeriodLabel);
-        Assert.Equal(new DateTime(2026, 2, 10, 0, 0, 0, DateTimeKind.Utc), result.DueDate);
+        Assert.Equal(new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc), result.DueDate);
 
         var tx = await db.Transactions.Include(t => t.Assignments).FirstOrDefaultAsync(t => t.Id == result.TransactionId);
         Assert.NotNull(tx);
         Assert.Equal(created.Id, tx!.RecurringTemplateId);
         Assert.Equal("2026-01", tx.RecurringPeriodKey);
         Assert.Equal("يناير 2026", tx.RecurringPeriodLabel);
+        Assert.Equal(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), tx.IncomingDate);
+        Assert.Equal(result.DueDate, tx.ResponseDueDate);
         Assert.Contains("يناير 2026", tx.Subject);
         Assert.Single(tx.Assignments);
         Assert.Equal("ABC-123", tx.Assignments.First().LetterNumber);
@@ -668,7 +671,7 @@ public class RecurringTransactionTemplateServiceTests
 
         Assert.NotNull(result);
         Assert.Equal("الربع الأول 2026", result!.PeriodLabel);
-        Assert.Equal(new DateTime(2026, 4, 10, 0, 0, 0, DateTimeKind.Utc), result.DueDate);
+        Assert.Equal(new DateTime(2026, 4, 1, 0, 0, 0, DateTimeKind.Utc), result.DueDate);
 
         var tx = await db.Transactions.Include(t => t.Assignments).FirstOrDefaultAsync(t => t.Id == result.TransactionId);
         Assert.Equal(2, tx!.Assignments.Count);
@@ -807,20 +810,20 @@ public class RecurringTransactionTemplateServiceTests
     }
 
     [Fact]
-    public async Task GenerateAsync_rejects_missing_IncomingDate_instead_of_defaulting()
+    public async Task GenerateAsync_uses_period_start_when_IncomingDate_is_missing()
     {
-        var (service, _) = await CreateServiceAsync(nameof(GenerateAsync_rejects_missing_IncomingDate_instead_of_defaulting));
+        var (service, db) = await CreateServiceAsync(nameof(GenerateAsync_uses_period_start_when_IncomingDate_is_missing));
         var created = await service.CreateAsync(ValidMonthlyRequest(), userId: 1);
 
-        var ex = await Assert.ThrowsAsync<FieldValidationException>(() =>
-            service.GenerateAsync(created.Id, new GenerateRecurringTransactionRequest
+        var result = await service.GenerateAsync(created.Id, new GenerateRecurringTransactionRequest
             {
                 PeriodKey = "2026-01",
                 IncomingDate = null,
                 ReferralDate = new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc)
-            }, userId: 1));
+            }, userId: 1);
 
-        Assert.True(ex.FieldErrors.ContainsKey("IncomingDate"));
+        var tx = await db.Transactions.FindAsync(result!.TransactionId);
+        Assert.Equal(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), tx!.IncomingDate);
     }
 
     [Fact]

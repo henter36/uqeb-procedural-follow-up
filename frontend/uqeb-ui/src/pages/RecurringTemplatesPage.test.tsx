@@ -274,7 +274,6 @@ describe('RecurringTemplatesPage', () => {
 
     fireEvent.click(within(row).getByText('إنشاء معاملة للفترة'));
     await waitFor(() => screen.getByText('إنشاء المعاملة'));
-    fireEvent.change(screen.getByLabelText('تاريخ المعاملة - اختيار من التقويم'), { target: { value: '2026-02-01' } });
     fireEvent.change(screen.getByLabelText('تاريخ الإحالة - اختيار من التقويم'), { target: { value: '2026-02-01' } });
     fireEvent.click(screen.getByText('إنشاء المعاملة'));
 

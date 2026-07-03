@@ -33,6 +33,18 @@ function parseYearOnly(periodKey: string): { year: number } | null {
   return { year: Number(match[1]) };
 }
 
+function daysInUtcMonth(year: number, monthIndex: number): number {
+  return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+}
+
+function addUtcMonthsClamped(date: Date, months: number): Date {
+  const targetMonthIndex = date.getUTCMonth() + months;
+  const targetYear = date.getUTCFullYear() + Math.floor(targetMonthIndex / 12);
+  const normalizedMonthIndex = ((targetMonthIndex % 12) + 12) % 12;
+  const day = Math.min(date.getUTCDate(), daysInUtcMonth(targetYear, normalizedMonthIndex));
+  return new Date(Date.UTC(targetYear, normalizedMonthIndex, day));
+}
+
 export function buildMonthlyPeriodKey(monthInputValue: string): string {
   return monthInputValue;
 }
@@ -73,40 +85,53 @@ export function getPeriodLabel(recurrenceType: string, periodKey: string): strin
   return periodKey;
 }
 
-function lastDayOfMonth(year: number, month: number): Date {
-  return new Date(Date.UTC(year, month, 0));
-}
-
 export function getExpectedDueDate(
   recurrenceType: string,
   periodKey: string,
-  dueDaysAfterPeriodEnd: number,
+  startDate: string,
 ): string | null {
-  let periodEnd: Date | null = null;
+  const anchorDate = new Date(`${startDate.split('T')[0]}T00:00:00Z`);
+  if (Number.isNaN(anchorDate.getTime())) return null;
+
+  let targetYear: number | null = null;
+  let targetStartMonth: number | null = null;
+  let spanMonths: number | null = null;
 
   if (recurrenceType === 'Monthly') {
     const parsed = parseYearMonth(periodKey);
-    if (parsed) periodEnd = lastDayOfMonth(parsed.year, parsed.month);
+    if (parsed) {
+      targetYear = parsed.year;
+      targetStartMonth = parsed.month;
+      spanMonths = 1;
+    }
   } else if (recurrenceType === 'Quarterly') {
     const parsed = parseYearQuarter(periodKey);
     if (parsed) {
-      const endMonth = parsed.quarter * 3;
-      periodEnd = lastDayOfMonth(parsed.year, endMonth);
+      targetYear = parsed.year;
+      targetStartMonth = ((parsed.quarter - 1) * 3) + 1;
+      spanMonths = 3;
     }
   } else if (recurrenceType === 'SemiAnnual') {
     const parsed = parseYearHalf(periodKey);
     if (parsed) {
-      const endMonth = parsed.half * 6;
-      periodEnd = lastDayOfMonth(parsed.year, endMonth);
+      targetYear = parsed.year;
+      targetStartMonth = ((parsed.half - 1) * 6) + 1;
+      spanMonths = 6;
     }
   } else if (recurrenceType === 'Annual') {
     const parsed = parseYearOnly(periodKey);
-    if (parsed) periodEnd = lastDayOfMonth(parsed.year, 12);
+    if (parsed) {
+      targetYear = parsed.year;
+      targetStartMonth = 1;
+      spanMonths = 12;
+    }
   }
 
-  if (!periodEnd) return null;
+  if (targetYear === null || targetStartMonth === null || spanMonths === null) return null;
 
-  const dueDate = new Date(periodEnd);
-  dueDate.setUTCDate(dueDate.getUTCDate() + dueDaysAfterPeriodEnd);
+  const anchorPeriodStartMonth = (Math.floor(anchorDate.getUTCMonth() / spanMonths) * spanMonths) + 1;
+  const monthOffset = ((targetYear - anchorDate.getUTCFullYear()) * 12) + targetStartMonth - anchorPeriodStartMonth;
+  const periodIndex = Math.trunc(monthOffset / spanMonths);
+  const dueDate = addUtcMonthsClamped(anchorDate, (periodIndex + 1) * spanMonths);
   return dueDate.toISOString().split('T')[0];
 }
