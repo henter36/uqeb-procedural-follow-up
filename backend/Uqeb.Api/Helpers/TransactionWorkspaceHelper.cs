@@ -14,24 +14,24 @@ public static class TransactionWorkspaceHelper
     {
         var assignmentFacts = assignments
             .Select(a => new TransactionTemporalCalculator.AssignmentSummaryFacts(
-                Enum.Parse<ReplyStatus>(a.ReplyStatus),
+                ParseReplyStatusOrDefault(a.ReplyStatus),
                 a.RequiresReply,
-                Enum.Parse<AssignmentStatus>(a.Status),
+                ParseAssignmentStatusOrDefault(a.Status),
                 a.DueDate))
             .ToList();
 
         var earliestPendingAssignmentDueDate = assignments
             .Where(a => a.RequiresReply
-                && a.ReplyStatus != ReplyStatus.Replied.ToString()
-                && a.Status == AssignmentStatus.Active.ToString()
+                && ParseReplyStatusOrDefault(a.ReplyStatus) != ReplyStatus.Replied
+                && ParseAssignmentStatusOrDefault(a.Status) == AssignmentStatus.Active
                 && a.DueDate.HasValue)
             .Select(a => a.DueDate!.Value)
             .DefaultIfEmpty()
             .Min();
 
         DateTime? earliestPendingDue = assignments.Any(a => a.RequiresReply
-            && a.ReplyStatus != ReplyStatus.Replied.ToString()
-            && a.Status == AssignmentStatus.Active.ToString()
+            && ParseReplyStatusOrDefault(a.ReplyStatus) != ReplyStatus.Replied
+            && ParseAssignmentStatusOrDefault(a.Status) == AssignmentStatus.Active
             && a.DueDate.HasValue)
             ? earliestPendingAssignmentDueDate
             : null;
@@ -72,4 +72,14 @@ public static class TransactionWorkspaceHelper
             HasPendingDepartments = transaction.PendingDepartmentNames.Count > 0
         };
     }
+
+    private static ReplyStatus ParseReplyStatusOrDefault(string? value) =>
+        Enum.TryParse<ReplyStatus>(value, ignoreCase: true, out var status)
+            ? status
+            : ReplyStatus.Pending;
+
+    private static AssignmentStatus ParseAssignmentStatusOrDefault(string? value) =>
+        Enum.TryParse<AssignmentStatus>(value, ignoreCase: true, out var status)
+            ? status
+            : AssignmentStatus.Active;
 }
