@@ -21,6 +21,7 @@ import SecurityPage from './pages/SecurityPage';
 import TransactionImport from './pages/TransactionImport';
 import DepartmentTransactionsPage from './pages/DepartmentTransactionsPage';
 import DepartmentResponseReviewPage from './pages/DepartmentResponseReviewPage';
+import RecurringTemplatesPage from './pages/RecurringTemplatesPage';
 import { institutionalReportsEnabled } from './config/institutionalReportsRuntime';
 import { PendingPrintSummaryProvider } from './context/PendingPrintSummaryContext';
 
@@ -168,6 +169,14 @@ export default function App() {
               element={(
                 <ProtectedRoute requiredRoles={['Admin']}>
                   <CategoriesPage />
+                </ProtectedRoute>
+              )}
+            />
+            <Route
+              path="recurring-transaction-templates"
+              element={(
+                <ProtectedRoute requiredRoles={['Admin']}>
+                  <RecurringTemplatesPage />
                 </ProtectedRoute>
               )}
             />

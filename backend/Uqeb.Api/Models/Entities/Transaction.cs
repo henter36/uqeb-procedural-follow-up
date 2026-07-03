@@ -36,6 +36,9 @@ public class Transaction
     public bool IsArchived { get; set; }
     public DateTime? ArchivedAt { get; set; }
     public DateTime? ClosedAt { get; set; }
+    public int? RecurringTemplateId { get; set; }
+    public string? RecurringPeriodKey { get; set; }
+    public string? RecurringPeriodLabel { get; set; }
 
     public User CreatedBy { get; set; } = null!;
     public User? UpdatedBy { get; set; }
@@ -43,6 +46,7 @@ public class Transaction
     public Department? IncomingFromDepartment { get; set; }
     public ExternalParty? OutgoingToParty { get; set; }
     public Category? CategoryEntity { get; set; }
+    public RecurringTransactionTemplate? RecurringTemplate { get; set; }
     public ICollection<TransactionOutgoingParty> OutgoingParties { get; set; } = new List<TransactionOutgoingParty>();
     public ICollection<TransactionOutgoingDepartment> OutgoingDepartments { get; set; } = new List<TransactionOutgoingDepartment>();
     public ICollection<FollowUp> FollowUps { get; set; } = new List<FollowUp>();

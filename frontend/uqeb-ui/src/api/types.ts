@@ -120,6 +120,10 @@ export interface TransactionDetail extends TransactionListItem {
   category?: string;
   notes?: string;
   updatedAt?: string;
+  recurringTemplateId?: number;
+  recurringTemplateTitle?: string;
+  recurringPeriodKey?: string;
+  recurringPeriodLabel?: string;
   outgoingParties: OutgoingParty[];
   outgoingDepartments: OutgoingDepartment[];
   repliedDepartmentNames: string[];
@@ -739,4 +743,73 @@ export interface DepartmentResponseStatsDto {
   returnedForCorrection: number;
   approved: number;
   rejected: number;
+}
+
+export interface RecurringTemplateDepartmentDto {
+  departmentId: number;
+  departmentName: string;
+  sortOrder?: number;
+}
+
+export interface RecurringTemplateListItem {
+  id: number;
+  title: string;
+  recurrenceType: string;
+  status: string;
+  startDate: string;
+  endDate?: string;
+  nextPeriodKey: string;
+  nextPeriodLabel: string;
+  lastGeneratedPeriodKey?: string;
+  lastGeneratedPeriodLabel?: string;
+  generatedTransactionsCount: number;
+}
+
+export interface RecurringTemplateDetail extends RecurringTemplateListItem {
+  subjectTemplate: string;
+  incomingSourceType: string;
+  incomingFromPartyId?: number;
+  incomingFromPartyName?: string;
+  incomingFromDepartmentId?: number;
+  incomingFromDepartmentName?: string;
+  categoryId: number;
+  categoryName?: string;
+  priority: string;
+  responseType: string;
+  requiresResponse: boolean;
+  defaultRequiredAction: string;
+  dueDaysAfterPeriodEnd: number;
+  defaultReplyDueDays?: number;
+  notes?: string;
+  departments: RecurringTemplateDepartmentDto[];
+  createdByName: string;
+  createdAt: string;
+  updatedAt?: string;
+  pausedAt?: string;
+  pausedByName?: string;
+  resumedAt?: string;
+  resumedByName?: string;
+  terminatedAt?: string;
+  terminatedByName?: string;
+  terminationReason?: string;
+}
+
+export interface GenerateRecurringTransactionResponse {
+  transactionId: number;
+  internalTrackingNumber: string;
+  periodKey: string;
+  periodLabel: string;
+  dueDate: string;
+}
+
+export interface RecurringTemplateTransactionItem {
+  transactionId: number;
+  internalTrackingNumber: string;
+  subject: string;
+  periodKey: string;
+  periodLabel: string;
+  status: string;
+  incomingDate: string;
+  dueDate?: string;
+  closedAt?: string;
 }

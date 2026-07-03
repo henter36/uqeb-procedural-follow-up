@@ -1,7 +1,7 @@
 import {
   useCallback, useEffect, useRef, useState, type ReactNode,
 } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { isAxiosError } from 'axios';
 import { departmentResponsesApi, transactionsApi } from '../api/services';
 import type {
@@ -790,6 +790,19 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
             <span className="transaction-metric-value">{attachments.length}</span>
           </div>
         </div>
+
+        {tx.recurringTemplateId && (
+          <div className="recurring-template-info-bar" data-testid="recurring-template-info">
+            <span className="badge badge-blue">معاملة دورية</span>
+            <span>القالب: {tx.recurringTemplateTitle}</span>
+            <span className="transaction-hero-meta-sep">•</span>
+            <span>الفترة: {tx.recurringPeriodLabel}</span>
+            <span className="transaction-hero-meta-sep">•</span>
+            <Link to={`/recurring-transaction-templates?highlight=${tx.recurringTemplateId}`}>الرجوع إلى القالب</Link>
+            <span className="transaction-hero-meta-sep">•</span>
+            <Link to={`/recurring-transaction-templates?viewTransactions=${tx.recurringTemplateId}`}>عرض معاملات نفس القالب</Link>
+          </div>
+        )}
 
         {isAdmin && (
           <div className="admin-dates-edit-bar">

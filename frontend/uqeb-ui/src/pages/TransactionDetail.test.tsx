@@ -1623,3 +1623,56 @@ describe('TransactionDetailPage Admin/Supervisor response form', () => {
     expect(screen.queryByRole('heading', { name: 'إفادة الإدارة' })).not.toBeInTheDocument();
   });
 });
+
+describe('TransactionDetailPage recurring template info', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseAuth.mockReturnValue({
+      canEdit: true,
+      canClose: true,
+      isDepartmentUser: false,
+      user: { fullName: 'مختبر', role: 'Admin' },
+      logout: vi.fn(),
+      login: vi.fn(),
+      isAdmin: true,
+    });
+    setupDefaultMocks();
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('shows recurring template card and links when the transaction was generated from a template', async () => {
+    const recurringTx = {
+      ...baseTx,
+      recurringTemplateId: 7,
+      recurringTemplateTitle: 'تقرير شهري من إدارة التشغيل',
+      recurringPeriodKey: '2026-01',
+      recurringPeriodLabel: 'يناير 2026',
+    };
+    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: { ...defaultWorkspace, transaction: recurringTx },
+    } as never);
+    vi.mocked(services.transactionsApi.getBasic).mockResolvedValue({ data: recurringTx } as never);
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    const infoBar = await screen.findByTestId('recurring-template-info');
+    expect(infoBar).toHaveTextContent('معاملة دورية');
+    expect(infoBar).toHaveTextContent('تقرير شهري من إدارة التشغيل');
+    expect(infoBar).toHaveTextContent('يناير 2026');
+    expect(within(infoBar).getByRole('link', { name: 'الرجوع إلى القالب' }))
+      .toHaveAttribute('href', '/recurring-transaction-templates?highlight=7');
+    expect(within(infoBar).getByRole('link', { name: 'عرض معاملات نفس القالب' }))
+      .toHaveAttribute('href', '/recurring-transaction-templates?viewTransactions=7');
+  });
+
+  it('does not show recurring template card for regular transactions', async () => {
+    renderDetail();
+    await waitForDetailsReady();
+
+    expect(screen.queryByTestId('recurring-template-info')).not.toBeInTheDocument();
+  });
+});
