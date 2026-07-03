@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { buildReplyPayload, getApiErrorMessage } from '../../utils/apiHelpers';
+import { FUTURE_EVENT_DATE_MESSAGE, isFutureLocalDate } from '../../utils/localDate';
 import { Alert } from '../ui';
 import HijriDateInput from '../HijriDateInput';
 
@@ -43,6 +44,10 @@ export default function ReplyFormPanel({
       setError(dateRequiredMessage);
       return;
     }
+    if (isFutureLocalDate(form.replyDate)) {
+      setError(FUTURE_EVENT_DATE_MESSAGE);
+      return;
+    }
     setError('');
     setIsSubmitting(true);
     try {
@@ -66,6 +71,7 @@ export default function ReplyFormPanel({
             required
             value={form.replyDate}
             onChange={(replyDate) => setForm({ ...form, replyDate })}
+            disallowFutureDate
           />
           {dateHint && <small className="text-muted">{dateHint}</small>}
         </div>

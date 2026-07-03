@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import type { Assignment } from '../../api/types';
 import { transactionsApi } from '../../api/services';
 import { getApiErrorMessage } from '../../utils/apiHelpers';
+import { FUTURE_EVENT_DATE_MESSAGE, isFutureLocalDate } from '../../utils/localDate';
 import { Alert } from '../ui';
 import HijriDateInput from '../HijriDateInput';
 
@@ -62,6 +63,10 @@ export default function AdminEditAssignmentFormPanel({
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (saving) return;
+    if (isFutureLocalDate(form.assignedDate)) {
+      setError(FUTURE_EVENT_DATE_MESSAGE);
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -98,6 +103,7 @@ export default function AdminEditAssignmentFormPanel({
             label="تاريخ الإحالة"
             value={form.assignedDate}
             onChange={(assignedDate) => update({ assignedDate })}
+            disallowFutureDate
           />
         </div>
         <div className="form-group full-width">

@@ -748,8 +748,31 @@ describe('TransactionForm validation feedback', () => {
     await user.type(incomingDate, hijriInputForGregorian(addDaysIso(todayLocalIso(), 1)));
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
 
-    expect(screen.getByRole('alert')).toHaveTextContent('تاريخ المعاملة لا يمكن أن يكون بعد تاريخ اليوم.');
+    expect(screen.getByRole('alert')).toHaveTextContent('لا يمكن أن يكون التاريخ بعد تاريخ اليوم.');
     expect(services.transactionsApi.create).not.toHaveBeenCalled();
+  });
+
+  it('CreateTransaction_ResponseDueDateCanBeInFuture', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.create).mockResolvedValue({ data: { id: 99 } } as never);
+
+    renderCreateForm();
+    await waitForFormReady();
+
+    const incomingSection = getIncomingSection();
+    const responseSection = getResponseSection();
+    await user.type(getFieldInSection(incomingSection, 'رقم المعاملة *'), 'IN-100');
+    await user.type(getFieldInSection(incomingSection, 'تاريخ المعاملة *'), hijriInputForGregorian(todayLocalIso()));
+    await user.type(getFieldInSection(incomingSection, 'الموضوع *'), 'اختبار');
+    await user.click(screen.getByRole('combobox', { name: /الجهة الوارد منها/ }));
+    await user.click(screen.getByRole('option', { name: /جهة خارجية أ/ }));
+    await user.click(screen.getByRole('combobox', { name: /التصنيف/ }));
+    await user.click(screen.getByRole('option', { name: /تصنيف عام/ }));
+    await user.type(getFieldInSection(responseSection, 'عدد الأيام للرد *'), '30');
+    await user.click(screen.getByRole('button', { name: 'حفظ' }));
+
+    await waitFor(() => expect(services.transactionsApi.create).toHaveBeenCalled());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('CreateTransaction_OutgoingNumberWithoutDate_ShowsSpecificValidationError', async () => {
@@ -776,7 +799,7 @@ describe('TransactionForm validation feedback', () => {
     await user.type(getFieldInSection(outgoingSection, 'تاريخ الإحالة'), hijriInputForGregorian(addDaysIso(todayLocalIso(), 1)));
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
 
-    expect(screen.getByRole('alert')).toHaveTextContent('تاريخ الإحالة لا يمكن أن يكون بعد تاريخ اليوم.');
+    expect(screen.getByRole('alert')).toHaveTextContent('لا يمكن أن يكون التاريخ بعد تاريخ اليوم.');
     expect(services.transactionsApi.create).not.toHaveBeenCalled();
   });
 

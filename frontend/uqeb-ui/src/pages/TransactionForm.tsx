@@ -14,7 +14,7 @@ import MultiSelect from '../components/MultiSelect';
 import HijriDateInput from '../components/HijriDateInput';
 import SearchableSelect, { type SelectOption } from '../components/SearchableSelect';
 import { PageHeader, FormSection, Alert, LoadingInline } from '../components/ui';
-import { todayLocalIso } from '../utils/localDate';
+import { FUTURE_EVENT_DATE_MESSAGE, isFutureLocalDate } from '../utils/localDate';
 
 interface Props { mode: 'create' | 'edit' }
 
@@ -172,10 +172,6 @@ function isMissingOutgoingDepartments(form: TransactionFormState, hasPartialOutg
   return hasPartialOutgoingData && form.outgoingDepartmentIds.length === 0;
 }
 
-function isFutureDate(value: string): boolean {
-  return Boolean(value && value > todayLocalIso());
-}
-
 function isOutgoingBeforeIncoming(form: TransactionFormState): boolean {
   return Boolean(form.incomingDate && form.outgoingDate && form.outgoingDate < form.incomingDate);
 }
@@ -186,7 +182,7 @@ function getTransactionValidationRules(form: TransactionFormState, mode: Props['
   return [
     { field: 'incomingNumber', isInvalid: !form.incomingNumber.trim(), message: 'رقم المعاملة مطلوب.' },
     { field: 'incomingDate', isInvalid: !form.incomingDate, message: 'تاريخ المعاملة مطلوب.' },
-    { field: 'incomingDate', isInvalid: isFutureDate(form.incomingDate), message: 'تاريخ المعاملة لا يمكن أن يكون بعد تاريخ اليوم.' },
+    { field: 'incomingDate', isInvalid: isFutureLocalDate(form.incomingDate), message: FUTURE_EVENT_DATE_MESSAGE },
     { field: 'subject', isInvalid: !form.subject.trim(), message: 'الموضوع مطلوب.' },
     { field: 'incomingSourceType', isInvalid: !form.incomingSourceType, message: 'يجب اختيار نوع الجهة الوارد منها.' },
     { field: 'incomingFromPartyId', isInvalid: isMissingExternalIncomingParty(form), message: 'الجهة الخارجية مطلوبة.' },
@@ -197,7 +193,7 @@ function getTransactionValidationRules(form: TransactionFormState, mode: Props['
     { field: 'outgoingNumber', isInvalid: isMissingOutgoingNumber(form, hasPartialOutgoingData), message: OUTGOING_PARTIAL_ERROR },
     { field: 'outgoingDate', isInvalid: isMissingOutgoingDate(form, hasPartialOutgoingData), message: OUTGOING_PARTIAL_ERROR },
     { field: 'outgoingDate', isInvalid: isMissingOutgoingDateForNumber(form), message: OUTGOING_DATE_REQUIRED_WITH_NUMBER_ERROR },
-    { field: 'outgoingDate', isInvalid: isFutureDate(form.outgoingDate), message: 'تاريخ الإحالة لا يمكن أن يكون بعد تاريخ اليوم.' },
+    { field: 'outgoingDate', isInvalid: isFutureLocalDate(form.outgoingDate), message: FUTURE_EVENT_DATE_MESSAGE },
     { field: 'outgoingDate', isInvalid: isOutgoingBeforeIncoming(form), message: 'تاريخ الإحالة لا يمكن أن يكون قبل تاريخ المعاملة.' },
     { field: 'outgoingDepartmentIds', isInvalid: isMissingOutgoingDepartments(form, hasPartialOutgoingData), message: OUTGOING_DEPARTMENT_ERROR },
     { field: 'responseType', isInvalid: isMissingResponseType(form, mode), message: 'نوع الإفادة مطلوب.' },
@@ -591,6 +587,7 @@ export default function TransactionForm({ mode }: Props) {
                 invalid={Boolean(fieldError('incomingDate'))}
                 describedBy={fieldError('incomingDate') ? fieldErrorId('incomingDate') : undefined}
                 dataFieldName="incomingDate"
+                disallowFutureDate
               />
               {fieldError('incomingDate') && <span id={fieldErrorId('incomingDate')} className="field-error">{fieldError('incomingDate')}</span>}
             </div>
@@ -702,6 +699,7 @@ export default function TransactionForm({ mode }: Props) {
                 invalid={Boolean(fieldError('outgoingDate'))}
                 describedBy={fieldError('outgoingDate') ? fieldErrorId('outgoingDate') : undefined}
                 dataFieldName="outgoingDate"
+                disallowFutureDate
               />
               {fieldError('outgoingDate') && <span id={fieldErrorId('outgoingDate')} className="field-error">{fieldError('outgoingDate')}</span>}
             </div>

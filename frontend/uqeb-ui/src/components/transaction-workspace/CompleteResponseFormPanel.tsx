@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
 import { transactionsApi } from '../../api/services';
 import { buildCompleteResponsePayload, getApiErrorMessage } from '../../utils/apiHelpers';
-import { todayLocalIso } from '../../utils/localDate';
+import { FUTURE_EVENT_DATE_MESSAGE, isFutureLocalDate, todayLocalIso } from '../../utils/localDate';
 import { Alert } from '../ui';
 import HijriDateInput from '../HijriDateInput';
 
@@ -58,6 +58,10 @@ export default function CompleteResponseFormPanel({
     if (!responseSaved) {
       if (!form.responseSummary.trim()) {
         setError('ملخص الإفادة مطلوب');
+        return;
+      }
+      if (isFutureLocalDate(form.responseDate) || isFutureLocalDate(form.outgoingDate)) {
+        setError(FUTURE_EVENT_DATE_MESSAGE);
         return;
       }
       if (requiresOutgoing && (!form.outgoingNumber.trim() || !form.outgoingDate)) {
@@ -117,6 +121,7 @@ export default function CompleteResponseFormPanel({
             value={form.responseDate}
             disabled={responseSaved}
             onChange={(responseDate) => setForm({ ...form, responseDate })}
+            disallowFutureDate
           />
         </div>
 
@@ -152,6 +157,7 @@ export default function CompleteResponseFormPanel({
                 value={form.outgoingDate}
                 disabled={responseSaved}
                 onChange={(outgoingDate) => setForm({ ...form, outgoingDate })}
+                disallowFutureDate
               />
             </div>
           </>

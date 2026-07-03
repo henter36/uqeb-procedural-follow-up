@@ -6,6 +6,7 @@ import {
   normalizeHijriDigits,
   parseHijriInput,
 } from '../utils/hijriDateInput';
+import { FUTURE_EVENT_DATE_MESSAGE, isFutureLocalDate } from '../utils/localDate';
 
 type HijriDateInputProps = Readonly<{
   id: string;
@@ -17,6 +18,7 @@ type HijriDateInputProps = Readonly<{
   invalid?: boolean;
   describedBy?: string;
   dataFieldName?: string;
+  disallowFutureDate?: boolean;
 }>;
 
 function displayValueFromGregorian(value: string): string {
@@ -35,6 +37,7 @@ export default function HijriDateInput({
   invalid = false,
   describedBy,
   dataFieldName,
+  disallowFutureDate = false,
 }: HijriDateInputProps) {
   const [text, setText] = useState(() => displayValueFromGregorian(value));
   const textRef = useRef(text);
@@ -91,6 +94,12 @@ export default function HijriDateInput({
       return;
     }
 
+    if (disallowFutureDate && isFutureLocalDate(gregorian)) {
+      setLocalError(FUTURE_EVENT_DATE_MESSAGE);
+      onChange(gregorian);
+      return;
+    }
+
     setLocalError('');
     onChange(gregorian);
   };
@@ -104,6 +113,12 @@ export default function HijriDateInput({
     }
 
     updateText(displayValueFromGregorian(nextGregorian));
+    if (disallowFutureDate && isFutureLocalDate(nextGregorian)) {
+      setLocalError(FUTURE_EVENT_DATE_MESSAGE);
+      onChange(nextGregorian);
+      return;
+    }
+
     setLocalError('');
     onChange(nextGregorian);
   };

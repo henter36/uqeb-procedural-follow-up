@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { Department } from '../../api/types';
 import { transactionsApi } from '../../api/services';
 import { buildCreateAssignmentPayload, getApiErrorMessage } from '../../utils/apiHelpers';
-import { addDaysIso } from '../../utils/localDate';
+import { addDaysIso, FUTURE_EVENT_DATE_MESSAGE, isFutureLocalDate } from '../../utils/localDate';
 import { Alert } from '../ui';
 import HijriDateInput from '../HijriDateInput';
 
@@ -79,6 +79,10 @@ export default function AssignmentFormPanel({
       setError('تاريخ الإحالة مطلوب.');
       return;
     }
+    if (isFutureLocalDate(form.assignedDate)) {
+      setError(FUTURE_EVENT_DATE_MESSAGE);
+      return;
+    }
     setError('');
     setIsSubmitting(true);
     try {
@@ -125,6 +129,7 @@ export default function AssignmentFormPanel({
             required
             value={form.assignedDate}
             onChange={(assignedDate) => update({ assignedDate })}
+            disallowFutureDate
           />
         </div>
         <div className="form-group">

@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import type { TransactionDetail } from '../../api/types';
 import { transactionsApi } from '../../api/services';
 import { getApiErrorMessage } from '../../utils/apiHelpers';
+import { FUTURE_EVENT_DATE_MESSAGE, isFutureLocalDate } from '../../utils/localDate';
 import { Alert } from '../ui';
 import HijriDateInput from '../HijriDateInput';
 import { AdminEditAuditHint, AdminEditFormActions, AdminEditReasonField } from './AdminEditFormShared';
@@ -59,6 +60,10 @@ export default function AdminEditDatesFormPanel({
       setError('سبب التعديل مطلوب للحقول الزمنية الحساسة.');
       return;
     }
+    if (isFutureLocalDate(form.incomingDate) || isFutureLocalDate(form.completionDate)) {
+      setError(FUTURE_EVENT_DATE_MESSAGE);
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -88,6 +93,7 @@ export default function AdminEditDatesFormPanel({
             label="تاريخ الوارد"
             value={form.incomingDate}
             onChange={(incomingDate) => update({ incomingDate })}
+            disallowFutureDate
           />
           <small className="text-muted">بداية احتساب عمر المعاملة وأيام الإنجاز.</small>
         </div>
@@ -106,6 +112,7 @@ export default function AdminEditDatesFormPanel({
             label="تاريخ إغلاق المعاملة"
             value={form.completionDate}
             onChange={(completionDate) => update({ completionDate })}
+            disallowFutureDate
           />
           <small className="text-muted">يُستخدم لحساب أيام إنجاز المعاملة. لا يسبق تاريخ الوارد.</small>
         </div>

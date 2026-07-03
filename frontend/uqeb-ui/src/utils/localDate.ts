@@ -18,3 +18,9 @@ export function addDaysIso(baseDate: string, days: number): string {
 
   return `${resultYear}-${resultMonth}-${resultDay}`;
 }
+
+export const FUTURE_EVENT_DATE_MESSAGE = 'لا يمكن أن يكون التاريخ بعد تاريخ اليوم.';
+
+export function isFutureLocalDate(value: string): boolean {
+  return Boolean(value && value > todayLocalIso());
+}

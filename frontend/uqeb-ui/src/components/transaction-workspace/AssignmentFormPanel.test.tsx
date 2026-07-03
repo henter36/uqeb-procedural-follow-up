@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AssignmentFormPanel from './AssignmentFormPanel';
 import * as services from '../../api/services';
+import { addDaysIso, todayLocalIso } from '../../utils/localDate';
 
 vi.mock('../../api/services', () => ({
   transactionsApi: {
@@ -88,6 +89,29 @@ describe('AssignmentFormPanel dirty state', () => {
     await user.click(screen.getByRole('button', { name: 'حفظ الاحالة' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('تاريخ الإحالة مطلوب.');
+    expect(services.transactionsApi.addAssignment).not.toHaveBeenCalled();
+  });
+
+  it('rejects future assignedDate before saving', async () => {
+    const user = userEvent.setup();
+    render(
+      <AssignmentFormPanel
+        transactionId={1}
+        departments={departments}
+        existingDepartmentIds={[]}
+        onDirtyChange={onDirtyChange}
+        onSuccess={onSuccess}
+        onCancel={onCancel}
+      />,
+    );
+
+    await user.selectOptions(screen.getByLabelText('الإدارة *'), '1');
+    fireEvent.change(screen.getByLabelText('تاريخ الإحالة - اختيار من التقويم'), {
+      target: { value: addDaysIso(todayLocalIso(), 1) },
+    });
+    await user.click(screen.getByRole('button', { name: 'حفظ الاحالة' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('لا يمكن أن يكون التاريخ بعد تاريخ اليوم.');
     expect(services.transactionsApi.addAssignment).not.toHaveBeenCalled();
   });
 

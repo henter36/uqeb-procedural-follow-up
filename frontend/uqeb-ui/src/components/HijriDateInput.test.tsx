@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import HijriDateInput from './HijriDateInput';
+import { addDaysIso, todayLocalIso } from '../utils/localDate';
 
 describe('HijriDateInput', () => {
   it('formats typed digits as day month year and ignores letters', async () => {
@@ -45,5 +46,40 @@ describe('HijriDateInput', () => {
 
     expect(onChange).toHaveBeenLastCalledWith('2026-07-01');
     expect((manualInput as HTMLInputElement).value).toMatch(/^\d{2}\/\d{2}\/\d{4}$/);
+  });
+
+  it('rejects future dates only when disallowFutureDate is enabled', () => {
+    const blockedChange = vi.fn();
+    const allowedChange = vi.fn();
+    const futureDate = addDaysIso(todayLocalIso(), 1);
+
+    const { rerender } = render(
+      <HijriDateInput
+        id="date"
+        label="تاريخ الإحالة"
+        value=""
+        onChange={blockedChange}
+        disallowFutureDate
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('تاريخ الإحالة - اختيار من التقويم'), { target: { value: futureDate } });
+
+    expect(blockedChange).toHaveBeenLastCalledWith(futureDate);
+    expect(screen.getByText('لا يمكن أن يكون التاريخ بعد تاريخ اليوم.')).toBeInTheDocument();
+
+    rerender(
+      <HijriDateInput
+        id="date"
+        label="تاريخ الاستحقاق"
+        value=""
+        onChange={allowedChange}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('تاريخ الاستحقاق - اختيار من التقويم'), { target: { value: futureDate } });
+
+    expect(allowedChange).toHaveBeenLastCalledWith(futureDate);
+    expect(screen.queryByText('لا يمكن أن يكون التاريخ بعد تاريخ اليوم.')).not.toBeInTheDocument();
   });
 });
