@@ -504,7 +504,7 @@ public class TransactionService : ITransactionService
                 CreatedByName = u != null ? u.FullName : "",
                 a.CreatedAt,
                 DepartmentResponseId = (int?)dr.Id,
-                ResponseDate = (DateTime?)dr.SubmittedAt
+                ResponseDate = dr.SubmittedAt
             }
         ).ToListAsync();
 
@@ -1245,28 +1245,9 @@ public class TransactionService : ITransactionService
             assignment.DueDate
         });
 
-        var newAssignedDate = request.AssignedDate.HasValue
-            ? NormalizeDateOnlyUtc(request.AssignedDate.Value)
-            : assignment.AssignedDate;
-        var newDueDate = request.DueDate.HasValue
-            ? NormalizeDateOnlyUtc(request.DueDate.Value)
-            : assignment.DueDate;
-
-        if (newAssignedDate.Date < assignment.Transaction.IncomingDate.Date)
-            throw new InvalidOperationException("تاريخ الإحالة لا يمكن أن يسبق تاريخ الوارد.");
-        if (newDueDate.HasValue && newDueDate.Value.Date < newAssignedDate.Date)
-            throw new InvalidOperationException("تاريخ استحقاق الإدارة لا يمكن أن يسبق تاريخ الإحالة.");
-
-        if (request.AssignedDate.HasValue)
-            assignment.AssignedDate = newAssignedDate;
-        if (request.DueDate.HasValue)
-            assignment.DueDate = newDueDate;
-        if (request.IsLetterNumberSpecified)
-            assignment.LetterNumber = string.IsNullOrWhiteSpace(request.LetterNumber) ? null : request.LetterNumber.Trim();
-        if (request.RequiredAction != null)
-            assignment.RequiredAction = string.IsNullOrWhiteSpace(request.RequiredAction) ? null : request.RequiredAction.Trim();
-        if (request.ReplyDueDays.HasValue)
-            assignment.ReplyDueDays = request.ReplyDueDays;
+        var resolvedDates = ResolveAdminEditAssignmentDates(assignment, request);
+        ValidateAdminEditAssignmentDates(assignment, resolvedDates.AssignedDate, resolvedDates.DueDate);
+        ApplyAdminEditAssignmentChanges(assignment, request, resolvedDates.AssignedDate, resolvedDates.DueDate);
 
         var newSnapshot = JsonSerializer.Serialize(new
         {
@@ -1311,37 +1292,10 @@ public class TransactionService : ITransactionService
             Reason = request.Reason
         });
 
-        var newIncomingDate = request.IncomingDate.HasValue
-            ? NormalizeDateOnlyUtc(request.IncomingDate.Value)
-            : t.IncomingDate;
-        var newResponseDueDate = request.ResponseDueDate.HasValue
-            ? NormalizeDateOnlyUtc(request.ResponseDueDate.Value)
-            : t.ResponseDueDate;
-        var newClosedAt = request.ClosedAt.HasValue
-            ? NormalizeDateOnlyUtc(request.ClosedAt.Value)
-            : t.ClosedAt;
-
-        if (newResponseDueDate.HasValue && newResponseDueDate.Value.Date < newIncomingDate.Date)
-            throw new InvalidOperationException("تاريخ استحقاق المعاملة لا يمكن أن يسبق تاريخ الوارد.");
-        if (newClosedAt.HasValue && newClosedAt.Value.Date < newIncomingDate.Date)
-            throw new InvalidOperationException("تاريخ إغلاق المعاملة لا يمكن أن يسبق تاريخ الوارد.");
-
-        if (request.IsIncomingDateSpecified && request.IncomingDate.HasValue)
-        {
-            var hasEarlierAssignment = await _db.Assignments
-                .AsNoTracking()
-                .AnyAsync(a => a.TransactionId == transactionId && a.AssignedDate.Date < newIncomingDate.Date);
-
-            if (hasEarlierAssignment)
-                throw new InvalidOperationException("تاريخ الوارد لا يمكن أن يكون بعد تاريخ أي إحالة قائمة.");
-        }
-
-        if (request.IsIncomingDateSpecified && request.IncomingDate.HasValue)
-            t.IncomingDate = newIncomingDate;
-        if (request.IsResponseDueDateSpecified)
-            t.ResponseDueDate = newResponseDueDate;
-        if (request.IsClosedAtSpecified)
-            t.ClosedAt = newClosedAt;
+        var resolvedDates = ResolveAdminEditTransactionDates(t, request);
+        ValidateAdminEditTransactionDateOrder(resolvedDates.IncomingDate, resolvedDates.ResponseDueDate, resolvedDates.ClosedAt);
+        await EnsureIncomingDateDoesNotFollowExistingAssignmentsAsync(transactionId, request, resolvedDates.IncomingDate);
+        ApplyAdminEditTransactionDates(t, request, resolvedDates.IncomingDate, resolvedDates.ResponseDueDate, resolvedDates.ClosedAt);
 
         var newSnapshot = JsonSerializer.Serialize(new
         {
@@ -1365,6 +1319,108 @@ public class TransactionService : ITransactionService
             .ToListAsync();
 
         return MapToBasicDetailDto(t, assignmentRows, DateTime.UtcNow);
+    }
+
+    private static (DateTime AssignedDate, DateTime? DueDate) ResolveAdminEditAssignmentDates(
+        Assignment assignment,
+        AdminEditAssignmentRequest request)
+    {
+        var assignedDate = request.AssignedDate.HasValue
+            ? NormalizeDateOnlyUtc(request.AssignedDate.Value)
+            : assignment.AssignedDate;
+        var dueDate = request.DueDate.HasValue
+            ? NormalizeDateOnlyUtc(request.DueDate.Value)
+            : assignment.DueDate;
+
+        return (assignedDate, dueDate);
+    }
+
+    private static void ValidateAdminEditAssignmentDates(
+        Assignment assignment,
+        DateTime assignedDate,
+        DateTime? dueDate)
+    {
+        if (assignedDate.Date < assignment.Transaction.IncomingDate.Date)
+            throw new InvalidOperationException("تاريخ الإحالة لا يمكن أن يسبق تاريخ الوارد.");
+        if (dueDate.HasValue && dueDate.Value.Date < assignedDate.Date)
+            throw new InvalidOperationException("تاريخ استحقاق الإدارة لا يمكن أن يسبق تاريخ الإحالة.");
+    }
+
+    private static void ApplyAdminEditAssignmentChanges(
+        Assignment assignment,
+        AdminEditAssignmentRequest request,
+        DateTime assignedDate,
+        DateTime? dueDate)
+    {
+        if (request.AssignedDate.HasValue)
+            assignment.AssignedDate = assignedDate;
+        if (request.DueDate.HasValue)
+            assignment.DueDate = dueDate;
+        if (request.IsLetterNumberSpecified)
+            assignment.LetterNumber = string.IsNullOrWhiteSpace(request.LetterNumber) ? null : request.LetterNumber.Trim();
+        if (request.RequiredAction != null)
+            assignment.RequiredAction = string.IsNullOrWhiteSpace(request.RequiredAction) ? null : request.RequiredAction.Trim();
+        if (request.ReplyDueDays.HasValue)
+            assignment.ReplyDueDays = request.ReplyDueDays;
+    }
+
+    private static (DateTime IncomingDate, DateTime? ResponseDueDate, DateTime? ClosedAt) ResolveAdminEditTransactionDates(
+        Transaction transaction,
+        AdminEditTransactionDatesRequest request)
+    {
+        var incomingDate = request.IncomingDate.HasValue
+            ? NormalizeDateOnlyUtc(request.IncomingDate.Value)
+            : transaction.IncomingDate;
+        var responseDueDate = request.ResponseDueDate.HasValue
+            ? NormalizeDateOnlyUtc(request.ResponseDueDate.Value)
+            : transaction.ResponseDueDate;
+        var closedAt = request.ClosedAt.HasValue
+            ? NormalizeDateOnlyUtc(request.ClosedAt.Value)
+            : transaction.ClosedAt;
+
+        return (incomingDate, responseDueDate, closedAt);
+    }
+
+    private static void ValidateAdminEditTransactionDateOrder(
+        DateTime incomingDate,
+        DateTime? responseDueDate,
+        DateTime? closedAt)
+    {
+        if (responseDueDate.HasValue && responseDueDate.Value.Date < incomingDate.Date)
+            throw new InvalidOperationException("تاريخ استحقاق المعاملة لا يمكن أن يسبق تاريخ الوارد.");
+        if (closedAt.HasValue && closedAt.Value.Date < incomingDate.Date)
+            throw new InvalidOperationException("تاريخ إغلاق المعاملة لا يمكن أن يسبق تاريخ الوارد.");
+    }
+
+    private async Task EnsureIncomingDateDoesNotFollowExistingAssignmentsAsync(
+        int transactionId,
+        AdminEditTransactionDatesRequest request,
+        DateTime incomingDate)
+    {
+        if (!request.IsIncomingDateSpecified || !request.IncomingDate.HasValue)
+            return;
+
+        var hasEarlierAssignment = await _db.Assignments
+            .AsNoTracking()
+            .AnyAsync(a => a.TransactionId == transactionId && a.AssignedDate.Date < incomingDate.Date);
+
+        if (hasEarlierAssignment)
+            throw new InvalidOperationException("تاريخ الوارد لا يمكن أن يكون بعد تاريخ أي إحالة قائمة.");
+    }
+
+    private static void ApplyAdminEditTransactionDates(
+        Transaction transaction,
+        AdminEditTransactionDatesRequest request,
+        DateTime incomingDate,
+        DateTime? responseDueDate,
+        DateTime? closedAt)
+    {
+        if (request.IsIncomingDateSpecified && request.IncomingDate.HasValue)
+            transaction.IncomingDate = incomingDate;
+        if (request.IsResponseDueDateSpecified)
+            transaction.ResponseDueDate = responseDueDate;
+        if (request.IsClosedAtSpecified)
+            transaction.ClosedAt = closedAt;
     }
 
     public async Task<PagedResult<AuditLogDto>> GetAuditLogAsync(

@@ -14,11 +14,13 @@ type FormState = {
 };
 
 function fromAssignment(a?: Assignment): FormState {
+  const hasReplyDueDays = a?.replyDueDays != null;
+
   return {
     letterNumber: a?.letterNumber ?? '',
     assignedDate: a?.assignedDate?.slice(0, 10) ?? '',
     requiredAction: a?.requiredAction ?? '',
-    replyDueDays: a?.replyDueDays != null ? String(a.replyDueDays) : '',
+    replyDueDays: hasReplyDueDays ? String(a.replyDueDays) : '',
     dueDate: a?.dueDate?.slice(0, 10) ?? '',
   };
 }

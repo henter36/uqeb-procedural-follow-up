@@ -74,6 +74,27 @@ function countOpenAssignments(items: Assignment[]): number {
   ).length;
 }
 
+function getCompletionDateHint(hasOfficialCompletionDate: boolean, hasEffectiveCompletionDate: boolean): string {
+  if (hasOfficialCompletionDate) return 'تاريخ الإغلاق الرسمي';
+  if (hasEffectiveCompletionDate) return 'محسوب من آخر تاريخ إغلاق إحالة مطلوبة';
+  return 'يُحسب عند إغلاق جميع الإحالات المطلوبة';
+}
+
+function getResponseTimingLabel(isResponseOverdue: boolean, hasEffectiveCompletionDate: boolean): string {
+  if (isResponseOverdue) return 'متأخرة';
+  if (hasEffectiveCompletionDate) return 'مُنجزة';
+  return 'في الوقت';
+}
+
+function renderDepartmentCompletionDays(completionDays?: number | null): ReactNode {
+  const hasCompletionDays = completionDays != null;
+  if (hasCompletionDays) {
+    return <>{completionDays} <small className="text-muted">يوم</small></>;
+  }
+
+  return <span className="text-muted">لم تُنجز الإدارة</span>;
+}
+
 function hasDepartmentResponseAssignment(items: Assignment[], departmentId?: number | null): boolean {
   if (!departmentId) return false;
   return items.some(
@@ -614,6 +635,18 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
       ? Math.max(0, Math.floor((toUtcDateOnlyTime(effectiveCompletionDate) - toUtcDateOnlyTime(tx.incomingDate)) / 86400000))
       : null
   );
+  const hasOfficialCompletionDate = Boolean(tx.completionDate);
+  const hasEffectiveCompletionDate = Boolean(effectiveCompletionDate);
+  const hasEffectiveCompletionDays = effectiveCompletionDays != null;
+  const completionDateHint = getCompletionDateHint(hasOfficialCompletionDate, hasEffectiveCompletionDate);
+  const completionDaysLabel = hasEffectiveCompletionDays ? 'أيام إنجاز المعاملة' : 'الأيام المفتوحة';
+  const completionDaysValue = hasEffectiveCompletionDays
+    ? formatCompletionDays(effectiveCompletionDays)
+    : formatDaysSince(tx.daysSinceIncoming, '0');
+  const completionDaysHint = hasEffectiveCompletionDays
+    ? 'محسوب تلقائيًا: تاريخ الإغلاق − تاريخ الوارد'
+    : 'محسوب تلقائيًا: اليوم − تاريخ الوارد';
+  const responseTimingLabel = getResponseTimingLabel(tx.isResponseOverdue, hasEffectiveCompletionDate);
 
   const replyAssignmentId = actionContext.replyAssignmentId;
   const replyFollowUpId = actionContext.replyFollowUpId;
@@ -709,32 +742,24 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
               {effectiveCompletionDate ? <DateDisplay date={effectiveCompletionDate} /> : '—'}
             </span>
             <small className="text-muted metric-hint">
-              {tx.completionDate
-                ? 'تاريخ الإغلاق الرسمي'
-                : effectiveCompletionDate
-                  ? 'محسوب من آخر تاريخ إغلاق إحالة مطلوبة'
-                  : 'يُحسب عند إغلاق جميع الإحالات المطلوبة'}
+              {completionDateHint}
             </small>
           </div>
           <div className="transaction-metric-tile">
             <span className="transaction-metric-label">
-              {effectiveCompletionDays != null ? 'أيام إنجاز المعاملة' : 'الأيام المفتوحة'}
+              {completionDaysLabel}
             </span>
             <span className="transaction-metric-value">
-              {effectiveCompletionDays != null
-                ? formatCompletionDays(effectiveCompletionDays)
-                : formatDaysSince(tx.daysSinceIncoming, '0')}
+              {completionDaysValue}
             </span>
             <small className="text-muted metric-hint">
-              {effectiveCompletionDays != null
-                ? 'محسوب تلقائيًا: تاريخ الإغلاق − تاريخ الوارد'
-                : 'محسوب تلقائيًا: اليوم − تاريخ الوارد'}
+              {completionDaysHint}
             </small>
           </div>
           <div className={`transaction-metric-tile${tx.isResponseOverdue ? ' metric-tile-overdue' : ''}`}>
             <span className="transaction-metric-label">حالة التأخر</span>
             <span className={`transaction-metric-value${tx.isResponseOverdue ? ' text-danger' : ' text-success'}`}>
-              {tx.isResponseOverdue ? 'متأخرة' : effectiveCompletionDate ? 'مُنجزة' : 'في الوقت'}
+              {responseTimingLabel}
             </span>
             <small className="text-muted metric-hint">
               {tx.responseDueDate
@@ -980,9 +1005,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                       <td>{a.dueDate ? <DateDisplay date={a.dueDate} /> : '—'}</td>
                       <td>{a.responseDate ? <DateDisplay date={a.responseDate} /> : '—'}</td>
                       <td>
-                        {a.departmentCompletionDays != null
-                          ? <>{a.departmentCompletionDays} <small className="text-muted">يوم</small></>
-                          : <span className="text-muted">لم تُنجز الإدارة</span>}
+                        {renderDepartmentCompletionDays(a.departmentCompletionDays)}
                       </td>
                       <td>
                         <span className={`badge ${assignmentReplyBadgeClass(a.replyStatus, a.isOverdue)}`}>
