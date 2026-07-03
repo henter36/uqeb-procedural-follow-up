@@ -298,6 +298,10 @@ public class TransactionsController : ControllerBase
         {
             return BadRequest(new { message = ex.Message });
         }
+        catch (FieldValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message, errors = ex.FieldErrors });
+        }
     }
 
     [HttpPost("{id}/assignments/{assignmentId}/reply")]
@@ -312,6 +316,10 @@ public class TransactionsController : ControllerBase
         catch (UnauthorizedAccessException ex)
         {
             return Forbid(ex.Message);
+        }
+        catch (FieldValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message, errors = ex.FieldErrors });
         }
     }
 

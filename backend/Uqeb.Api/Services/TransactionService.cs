@@ -44,6 +44,7 @@ public class TransactionService : ITransactionService
     private const string ActiveStatusScope = "active";
     private const string ClosedStatusScope = "closed";
     private const string AllStatusScope = "all";
+    private const string FutureEventDateMessage = "لا يمكن أن يكون التاريخ بعد تاريخ اليوم.";
     private static readonly UserRole[] DepartmentResponseReviewRoles =
         [UserRole.Admin, UserRole.Supervisor, UserRole.DataEntry];
     private static readonly AuditAction[] DepartmentResponseSufficientAuditActions =
@@ -70,6 +71,16 @@ public class TransactionService : ITransactionService
         _trackingNumbers = trackingNumbers;
         _cacheInvalidation = cacheInvalidation;
     }
+
+    private static DateTime GetSaudiToday() => DateTime.UtcNow.AddHours(3).Date;
+
+    private static bool IsFutureEventDate(DateTime value) => value.Date > GetSaudiToday();
+
+    private static void ThrowFutureEventDateValidation(string fieldName) =>
+        throw new FieldValidationException(new Dictionary<string, string>
+        {
+            [fieldName] = FutureEventDateMessage
+        });
 
     private IQueryable<Transaction> BaseQuery() =>
         _db.Transactions
@@ -948,6 +959,8 @@ public class TransactionService : ITransactionService
 
         if (request.ResponseDate == default)
             throw new InvalidOperationException("تاريخ الإفادة مطلوب");
+        if (IsFutureEventDate(request.ResponseDate))
+            throw new InvalidOperationException(FutureEventDateMessage);
 
         if (string.IsNullOrWhiteSpace(request.ResponseSummary))
             throw new InvalidOperationException("ملخص الإفادة مطلوب");
@@ -959,6 +972,8 @@ public class TransactionService : ITransactionService
                 throw new InvalidOperationException("رقم الصادر مطلوب لنوع الإفادة المحدد");
             if (!request.OutgoingDate.HasValue)
                 throw new InvalidOperationException("تاريخ الصادر مطلوب لنوع الإفادة المحدد");
+            if (IsFutureEventDate(request.OutgoingDate.Value))
+                throw new InvalidOperationException(FutureEventDateMessage);
         }
 
         await CommitWorkflowMutationAsync(() =>
@@ -1010,6 +1025,8 @@ public class TransactionService : ITransactionService
         var departmentIds = request.DepartmentIds?.Distinct().ToList() ?? new List<int>();
         if (departmentIds.Count == 0)
             throw new InvalidOperationException("يجب اختيار إدارة واحدة على الأقل لإرسال التعقيب.");
+        if (IsFutureEventDate(request.FollowUpDate))
+            ThrowFutureEventDateValidation(nameof(CreateFollowUpRequest.FollowUpDate));
 
         var allowedIds = GetAllowedFollowUpDepartmentIds(t);
         var invalid = departmentIds.Where(id => !allowedIds.Contains(id)).ToList();
@@ -1116,6 +1133,8 @@ public class TransactionService : ITransactionService
         var followUp = await _db.FollowUps.Include(f => f.CreatedBy)
             .FirstOrDefaultAsync(f => f.Id == followUpId && f.TransactionId == transactionId);
         if (followUp == null) return null;
+        if (IsFutureEventDate(request.ReplyDate))
+            ThrowFutureEventDateValidation(nameof(ReplyFollowUpRequest.ReplyDate));
 
         await CommitWorkflowMutationAsync(
             () =>
@@ -1145,7 +1164,15 @@ public class TransactionService : ITransactionService
         var dept = await _db.Departments.FindAsync(request.DepartmentId)
             ?? throw new InvalidOperationException("الإدارة غير موجودة");
 
+        if (request.AssignedDate == default)
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                [nameof(CreateAssignmentRequest.AssignedDate)] = "تاريخ الإحالة مطلوب."
+            });
+
         var assignedDate = NormalizeDateOnlyUtc(request.AssignedDate);
+        if (IsFutureEventDate(assignedDate))
+            ThrowFutureEventDateValidation(nameof(CreateAssignmentRequest.AssignedDate));
         var requestedDueDate = request.DueDate.HasValue
             ? NormalizeDateOnlyUtc(request.DueDate.Value)
             : (DateTime?)null;
@@ -1194,6 +1221,20 @@ public class TransactionService : ITransactionService
 
     public async Task<AssignmentDto?> ReplyAssignmentAsync(int transactionId, int assignmentId, ReplyAssignmentRequest request, ICurrentUserService currentUser)
     {
+        if (request is null)
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                [nameof(ReplyAssignmentRequest)] = "بيانات طلب الرد مطلوبة."
+            });
+
+        if (request.ReplyDate == default)
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                [nameof(ReplyAssignmentRequest.ReplyDate)] = "تاريخ إنجاز الإدارة مطلوب."
+            });
+        if (IsFutureEventDate(request.ReplyDate))
+            ThrowFutureEventDateValidation(nameof(ReplyAssignmentRequest.ReplyDate));
+
         var assignment = await _db.Assignments
             .Include(a => a.Department)
             .Include(a => a.CreatedBy)
@@ -1340,6 +1381,8 @@ public class TransactionService : ITransactionService
         DateTime assignedDate,
         DateTime? dueDate)
     {
+        if (IsFutureEventDate(assignedDate))
+            throw new InvalidOperationException(FutureEventDateMessage);
         if (assignedDate.Date < assignment.Transaction.IncomingDate.Date)
             throw new InvalidOperationException("تاريخ الإحالة لا يمكن أن يسبق تاريخ الوارد.");
         if (dueDate.HasValue && dueDate.Value.Date < assignedDate.Date)
@@ -1386,6 +1429,8 @@ public class TransactionService : ITransactionService
         DateTime? responseDueDate,
         DateTime? closedAt)
     {
+        if (IsFutureEventDate(incomingDate) || (closedAt.HasValue && IsFutureEventDate(closedAt.Value)))
+            throw new InvalidOperationException(FutureEventDateMessage);
         if (responseDueDate.HasValue && responseDueDate.Value.Date < incomingDate.Date)
             throw new InvalidOperationException("تاريخ استحقاق المعاملة لا يمكن أن يسبق تاريخ الوارد.");
         if (closedAt.HasValue && closedAt.Value.Date < incomingDate.Date)

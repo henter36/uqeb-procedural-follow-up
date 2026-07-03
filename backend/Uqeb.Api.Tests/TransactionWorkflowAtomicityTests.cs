@@ -268,6 +268,7 @@ public class TransactionWorkflowAtomicityTests
         {
             DepartmentId = 11,
             AssignedDate = DateTime.UtcNow.Date,
+            LetterNumber = "OUT-WF-1001",
             RequiredAction = "متابعة",
             ReplyDueDays = 5
         }, userId: 1);
@@ -275,7 +276,151 @@ public class TransactionWorkflowAtomicityTests
         Assert.InRange(counter.Count, 1, 2);
         Assert.Equal(1, cache.TransactionChangeInvalidations);
         Assert.Equal(TransactionStatus.WaitingForReply, await db.Transactions.Where(t => t.Id == created.Id).Select(t => t.Status).FirstAsync());
+        Assert.Equal("OUT-WF-1001", await db.Assignments.Where(a => a.Id == assignment.Id).Select(a => a.LetterNumber).FirstAsync());
         Assert.True(await db.AuditLogs.AnyAsync(a => a.Action == AuditAction.AddAssignment && a.EntityId == assignment.Id));
+    }
+
+    [Fact]
+    public async Task ReplyAssignmentAsync_missing_reply_date_returns_field_validation()
+    {
+        var (service, _, counter, cache) = await CreateServiceAsync(nameof(ReplyAssignmentAsync_missing_reply_date_returns_field_validation));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        var assignment = await service.AddAssignmentAsync(created!.Id, new CreateAssignmentRequest
+        {
+            DepartmentId = 10,
+            AssignedDate = DateTime.UtcNow.Date,
+            RequiredAction = "متابعة",
+            ReplyDueDays = 5
+        }, userId: 1);
+        counter.Reset();
+        cache.ResetInvalidations();
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() =>
+            service.ReplyAssignmentAsync(
+                created.Id,
+                assignment.Id,
+                new ReplyAssignmentRequest { ReplyDate = default, ReplySummary = "تم" },
+                new TestCurrentUser(1, UserRole.Admin)));
+
+        Assert.Equal("تاريخ إنجاز الإدارة مطلوب.", ex.FieldErrors[nameof(ReplyAssignmentRequest.ReplyDate)]);
+        Assert.Equal(0, cache.TransactionChangeInvalidations);
+        Assert.Equal(0, counter.Count);
+    }
+
+    [Fact]
+    public async Task ReplyAssignmentAsync_null_request_returns_validation_error()
+    {
+        var (service, _, counter, cache) = await CreateServiceAsync(nameof(ReplyAssignmentAsync_null_request_returns_validation_error));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        var assignment = await service.AddAssignmentAsync(created!.Id, new CreateAssignmentRequest
+        {
+            DepartmentId = 10,
+            AssignedDate = DateTime.UtcNow.Date,
+            RequiredAction = "متابعة",
+            ReplyDueDays = 5
+        }, userId: 1);
+        counter.Reset();
+        cache.ResetInvalidations();
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() =>
+            service.ReplyAssignmentAsync(
+                created.Id,
+                assignment.Id,
+                null!,
+                new TestCurrentUser(1, UserRole.Admin)));
+
+        Assert.Equal("بيانات طلب الرد مطلوبة.", ex.FieldErrors[nameof(ReplyAssignmentRequest)]);
+        Assert.Equal(0, cache.TransactionChangeInvalidations);
+        Assert.Equal(0, counter.Count);
+    }
+
+    [Fact]
+    public async Task AddAssignmentAsync_missing_assigned_date_returns_field_validation()
+    {
+        var (service, _, counter, cache) = await CreateServiceAsync(nameof(AddAssignmentAsync_missing_assigned_date_returns_field_validation));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        counter.Reset();
+        cache.ResetInvalidations();
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() =>
+            service.AddAssignmentAsync(created!.Id, new CreateAssignmentRequest
+            {
+                DepartmentId = 11,
+                AssignedDate = default,
+                RequiredAction = "متابعة",
+                ReplyDueDays = 5
+            }, userId: 1));
+
+        Assert.Equal("تاريخ الإحالة مطلوب.", ex.FieldErrors[nameof(CreateAssignmentRequest.AssignedDate)]);
+        Assert.Equal(0, cache.TransactionChangeInvalidations);
+        Assert.Equal(0, counter.Count);
+    }
+
+    [Fact]
+    public async Task AddAssignmentAsync_future_assigned_date_returns_field_validation()
+    {
+        var (service, _, counter, cache) = await CreateServiceAsync(nameof(AddAssignmentAsync_future_assigned_date_returns_field_validation));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        counter.Reset();
+        cache.ResetInvalidations();
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() =>
+            service.AddAssignmentAsync(created!.Id, new CreateAssignmentRequest
+            {
+                DepartmentId = 11,
+                AssignedDate = DateTime.UtcNow.Date.AddDays(1),
+                RequiredAction = "متابعة",
+                ReplyDueDays = 5
+            }, userId: 1));
+
+        Assert.Equal("لا يمكن أن يكون التاريخ بعد تاريخ اليوم.", ex.FieldErrors[nameof(CreateAssignmentRequest.AssignedDate)]);
+        Assert.Equal(0, cache.TransactionChangeInvalidations);
+        Assert.Equal(0, counter.Count);
+    }
+
+    [Fact]
+    public async Task AddAssignmentAsync_allows_future_due_date()
+    {
+        var (service, db, _, _) = await CreateServiceAsync(nameof(AddAssignmentAsync_allows_future_due_date));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        var dueDate = DateTime.UtcNow.Date.AddDays(3);
+
+        var assignment = await service.AddAssignmentAsync(created!.Id, new CreateAssignmentRequest
+        {
+            DepartmentId = 11,
+            AssignedDate = DateTime.UtcNow.Date,
+            RequiredAction = "متابعة",
+            DueDate = dueDate
+        }, userId: 1);
+
+        Assert.Equal(dueDate, await db.Assignments.Where(a => a.Id == assignment.Id).Select(a => a.DueDate).SingleAsync());
+    }
+
+    [Fact]
+    public async Task ReplyAssignmentAsync_future_reply_date_returns_field_validation()
+    {
+        var (service, _, counter, cache) = await CreateServiceAsync(nameof(ReplyAssignmentAsync_future_reply_date_returns_field_validation));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        var assignment = await service.AddAssignmentAsync(created!.Id, new CreateAssignmentRequest
+        {
+            DepartmentId = 10,
+            AssignedDate = DateTime.UtcNow.Date,
+            RequiredAction = "متابعة",
+            ReplyDueDays = 5
+        }, userId: 1);
+        counter.Reset();
+        cache.ResetInvalidations();
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() =>
+            service.ReplyAssignmentAsync(
+                created.Id,
+                assignment.Id,
+                new ReplyAssignmentRequest { ReplyDate = DateTime.UtcNow.Date.AddDays(1), ReplySummary = "تم" },
+                new TestCurrentUser(1, UserRole.Admin)));
+
+        Assert.Equal("لا يمكن أن يكون التاريخ بعد تاريخ اليوم.", ex.FieldErrors[nameof(ReplyAssignmentRequest.ReplyDate)]);
+        Assert.Equal(0, cache.TransactionChangeInvalidations);
+        Assert.Equal(0, counter.Count);
     }
 
     [Fact]

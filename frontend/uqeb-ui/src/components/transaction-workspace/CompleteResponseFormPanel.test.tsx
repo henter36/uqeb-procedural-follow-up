@@ -111,7 +111,7 @@ describe('CompleteResponseFormPanel', () => {
     const user = await fillRequiredFields();
     const responseDate = screen.getByLabelText('تاريخ الإفادة *');
     await user.clear(responseDate);
-    await user.type(responseDate, '1448/01/16');
+    await user.type(responseDate, '16/01/1448');
     await user.click(screen.getByRole('button', { name: 'إرسال الإفادة' }));
 
     await waitFor(() => {

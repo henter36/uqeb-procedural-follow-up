@@ -14,7 +14,7 @@ import MultiSelect from '../components/MultiSelect';
 import HijriDateInput from '../components/HijriDateInput';
 import SearchableSelect, { type SelectOption } from '../components/SearchableSelect';
 import { PageHeader, FormSection, Alert, LoadingInline } from '../components/ui';
-import { todayLocalIso } from '../utils/localDate';
+import { FUTURE_EVENT_DATE_MESSAGE, isFutureLocalDate } from '../utils/localDate';
 
 interface Props { mode: 'create' | 'edit' }
 
@@ -45,10 +45,10 @@ type TransactionValidationRule = {
   message: string;
 };
 
-const OUTGOING_HINT = 'بيانات الصادر غير إلزامية، ولكن يجب إكمالها عند البدء بتعبئتها.';
-const OUTGOING_PARTIAL_ERROR = 'عند إدخال أي بيان من بيانات الصادر يجب إكمال رقم الصادر وتاريخ الصادر والإدارة الصادر لها.';
+const OUTGOING_HINT = 'بيانات الإحالة غير إلزامية، ولكن يجب إكمالها عند البدء بتعبئتها.';
+const OUTGOING_PARTIAL_ERROR = 'عند إدخال أي بيان من بيانات الإحالة يجب إكمال رقم خطاب الإحالة للإدارة وتاريخ الإحالة والإدارة الموجه لها.';
 const OUTGOING_DEPARTMENT_ERROR = 'اختر جهة داخلية واحدة على الأقل.';
-const OUTGOING_DATE_REQUIRED_WITH_NUMBER_ERROR = 'تاريخ الصادر مطلوب عند إدخال رقم الصادر.';
+const OUTGOING_DATE_REQUIRED_WITH_NUMBER_ERROR = 'تاريخ الإحالة مطلوب عند إدخال رقم خطاب الإحالة للإدارة.';
 // These mappings keep backend validation keys aligned with TransactionForm field names and error display order.
 // Update them when transaction DTO validation fields or form field names change.
 const FIELD_ORDER = [
@@ -100,7 +100,7 @@ function hasOutgoingData(form: { outgoingNumber: string; outgoingDate: string; o
 function createInitialTransactionForm(): TransactionFormState {
   return {
     incomingNumber: '',
-    incomingDate: todayLocalIso(),
+    incomingDate: '',
     subject: '',
     incomingSourceType: 'External',
     incomingFromPartyId: '',
@@ -172,10 +172,6 @@ function isMissingOutgoingDepartments(form: TransactionFormState, hasPartialOutg
   return hasPartialOutgoingData && form.outgoingDepartmentIds.length === 0;
 }
 
-function isFutureDate(value: string): boolean {
-  return Boolean(value && value > todayLocalIso());
-}
-
 function isOutgoingBeforeIncoming(form: TransactionFormState): boolean {
   return Boolean(form.incomingDate && form.outgoingDate && form.outgoingDate < form.incomingDate);
 }
@@ -186,7 +182,7 @@ function getTransactionValidationRules(form: TransactionFormState, mode: Props['
   return [
     { field: 'incomingNumber', isInvalid: !form.incomingNumber.trim(), message: 'رقم المعاملة مطلوب.' },
     { field: 'incomingDate', isInvalid: !form.incomingDate, message: 'تاريخ المعاملة مطلوب.' },
-    { field: 'incomingDate', isInvalid: isFutureDate(form.incomingDate), message: 'تاريخ المعاملة لا يمكن أن يكون بعد تاريخ اليوم.' },
+    { field: 'incomingDate', isInvalid: isFutureLocalDate(form.incomingDate), message: FUTURE_EVENT_DATE_MESSAGE },
     { field: 'subject', isInvalid: !form.subject.trim(), message: 'الموضوع مطلوب.' },
     { field: 'incomingSourceType', isInvalid: !form.incomingSourceType, message: 'يجب اختيار نوع الجهة الوارد منها.' },
     { field: 'incomingFromPartyId', isInvalid: isMissingExternalIncomingParty(form), message: 'الجهة الخارجية مطلوبة.' },
@@ -197,8 +193,8 @@ function getTransactionValidationRules(form: TransactionFormState, mode: Props['
     { field: 'outgoingNumber', isInvalid: isMissingOutgoingNumber(form, hasPartialOutgoingData), message: OUTGOING_PARTIAL_ERROR },
     { field: 'outgoingDate', isInvalid: isMissingOutgoingDate(form, hasPartialOutgoingData), message: OUTGOING_PARTIAL_ERROR },
     { field: 'outgoingDate', isInvalid: isMissingOutgoingDateForNumber(form), message: OUTGOING_DATE_REQUIRED_WITH_NUMBER_ERROR },
-    { field: 'outgoingDate', isInvalid: isFutureDate(form.outgoingDate), message: 'تاريخ الصادر لا يمكن أن يكون بعد تاريخ اليوم.' },
-    { field: 'outgoingDate', isInvalid: isOutgoingBeforeIncoming(form), message: 'تاريخ الصادر لا يمكن أن يكون قبل تاريخ المعاملة.' },
+    { field: 'outgoingDate', isInvalid: isFutureLocalDate(form.outgoingDate), message: FUTURE_EVENT_DATE_MESSAGE },
+    { field: 'outgoingDate', isInvalid: isOutgoingBeforeIncoming(form), message: 'تاريخ الإحالة لا يمكن أن يكون قبل تاريخ المعاملة.' },
     { field: 'outgoingDepartmentIds', isInvalid: isMissingOutgoingDepartments(form, hasPartialOutgoingData), message: OUTGOING_DEPARTMENT_ERROR },
     { field: 'responseType', isInvalid: isMissingResponseType(form, mode), message: 'نوع الإفادة مطلوب.' },
     { field: 'responseDueDays', isInvalid: isMissingResponseDueDays(form), message: 'عدد أيام الرد مطلوب عند طلب إفادة.' },
@@ -286,7 +282,7 @@ function IncomingSourceTypeField({
 }>) {
   return (
     <div className={formGroupClass}>
-      <label>نوع الجهة الوارد منها *</label>
+      <span className="form-label">نوع الجهة الوارد منها *</span>
       <div className="radio-group">
         <label className="radio-label">
           <input
@@ -591,6 +587,7 @@ export default function TransactionForm({ mode }: Props) {
                 invalid={Boolean(fieldError('incomingDate'))}
                 describedBy={fieldError('incomingDate') ? fieldErrorId('incomingDate') : undefined}
                 dataFieldName="incomingDate"
+                disallowFutureDate
               />
               {fieldError('incomingDate') && <span id={fieldErrorId('incomingDate')} className="field-error">{fieldError('incomingDate')}</span>}
             </div>
@@ -616,8 +613,8 @@ export default function TransactionForm({ mode }: Props) {
               onDepartmentChange={(id) => setForm({ ...form, incomingFromDepartmentId: id, incomingFromPartyId: '' })}
             />
             <div className={formGroupClass('subject', 'transaction-form-field transaction-form-field--wide transaction-subject-field')}>
-              <label>الموضوع *</label>
-              <input {...fieldProps('subject')} value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
+              <label htmlFor="transaction-subject">الموضوع *</label>
+              <input id="transaction-subject" {...fieldProps('subject')} value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
               {fieldError('subject') && <span id={fieldErrorId('subject')} className="field-error">{fieldError('subject')}</span>}
             </div>
             <div className={formGroupClass('categoryId', 'transaction-form-field transaction-form-field--medium')}>
@@ -634,8 +631,8 @@ export default function TransactionForm({ mode }: Props) {
               {fieldError('categoryId') && <span id={fieldErrorId('categoryId')} className="field-error">{fieldError('categoryId')}</span>}
             </div>
             <div className={formGroupClass('priority', 'transaction-form-field transaction-form-field--compact')}>
-              <label>الأولوية *</label>
-              <select {...fieldProps('priority')} value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>
+              <label htmlFor="transaction-priority">الأولوية *</label>
+              <select id="transaction-priority" {...fieldProps('priority')} value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>
                 <option value="Normal">عادي</option>
                 <option value="Urgent">عاجل</option>
                 <option value="VeryUrgent">عاجل جداً</option>
@@ -643,8 +640,8 @@ export default function TransactionForm({ mode }: Props) {
               {fieldError('priority') && <span id={fieldErrorId('priority')} className="field-error">{fieldError('priority')}</span>}
             </div>
             <div className={formGroupClass('responseType', 'transaction-form-field transaction-form-field--medium')}>
-              <label>نوع الإفادة *</label>
-              <select {...fieldProps('responseType')} value={form.responseType} onChange={(e) => setForm({ ...form, responseType: e.target.value })}>
+              <label htmlFor="transaction-response-type">نوع الإفادة *</label>
+              <select id="transaction-response-type" {...fieldProps('responseType')} value={form.responseType} onChange={(e) => setForm({ ...form, responseType: e.target.value })}>
                 {mode === 'edit' && form.responseType === 'None' && (
                   <option value="None">لا تتطلب إفادة</option>
                 )}
@@ -655,8 +652,8 @@ export default function TransactionForm({ mode }: Props) {
               {fieldError('responseType') && <span id={fieldErrorId('responseType')} className="field-error">{fieldError('responseType')}</span>}
             </div>
             <div className={formGroupClass('responseDueDays', 'transaction-form-field transaction-form-field--compact')}>
-              <label>عدد الأيام للرد *</label>
-              <input {...fieldProps('responseDueDays')} type="number" min="1" value={form.responseDueDays}
+              <label htmlFor="transaction-response-due-days">عدد الأيام للرد *</label>
+              <input id="transaction-response-due-days" {...fieldProps('responseDueDays')} type="number" min="1" value={form.responseDueDays}
                 onChange={(e) => setForm({ ...form, responseDueDays: e.target.value })} />
               {fieldError('responseDueDays') && <span id={fieldErrorId('responseDueDays')} className="field-error">{fieldError('responseDueDays')}</span>}
               {computedResponseDueDate && (
@@ -689,19 +686,20 @@ export default function TransactionForm({ mode }: Props) {
               {fieldError('outgoingDepartmentIds') && <span id={fieldErrorId('outgoingDepartmentIds')} className="field-error">{fieldError('outgoingDepartmentIds')}</span>}
             </div>
             <div className={formGroupClass('outgoingNumber', 'transaction-form-field transaction-form-field--compact')}>
-              <label>رقم الصادر</label>
-              <input {...fieldProps('outgoingNumber')} value={form.outgoingNumber} onChange={(e) => setForm({ ...form, outgoingNumber: e.target.value })} />
+              <label htmlFor="outgoing-number">رقم خطاب الإحالة للإدارة</label>
+              <input id="outgoing-number" {...fieldProps('outgoingNumber')} value={form.outgoingNumber} onChange={(e) => setForm({ ...form, outgoingNumber: e.target.value })} />
               {fieldError('outgoingNumber') && <span id={fieldErrorId('outgoingNumber')} className="field-error">{fieldError('outgoingNumber')}</span>}
             </div>
             <div className={formGroupClass('outgoingDate', 'transaction-form-field transaction-form-field--compact')}>
               <HijriDateInput
                 id="outgoing-date"
-                label="تاريخ الصادر"
+                label="تاريخ الإحالة"
                 value={form.outgoingDate}
                 onChange={(outgoingDate) => setForm({ ...form, outgoingDate })}
                 invalid={Boolean(fieldError('outgoingDate'))}
                 describedBy={fieldError('outgoingDate') ? fieldErrorId('outgoingDate') : undefined}
                 dataFieldName="outgoingDate"
+                disallowFutureDate
               />
               {fieldError('outgoingDate') && <span id={fieldErrorId('outgoingDate')} className="field-error">{fieldError('outgoingDate')}</span>}
             </div>

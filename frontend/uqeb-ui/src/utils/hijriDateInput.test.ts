@@ -17,6 +17,7 @@ describe('hijriDateInput', () => {
 
   it('accepts Arabic and Persian digits', () => {
     expect(normalizeHijriDigits('١٤٤٨/۰۱/۱۰')).toBe('1448/01/10');
+    expect(parseHijriInput('١٦/٠١/١٤٤٨')).toEqual({ year: 1448, month: 1, day: 16 });
     expect(parseHijriInput('١٤٤٨/٠١/١٦')).toEqual({ year: 1448, month: 1, day: 16 });
   });
 

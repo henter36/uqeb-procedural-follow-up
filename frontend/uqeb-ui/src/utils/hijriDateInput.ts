@@ -51,7 +51,11 @@ export function parseHijriInput(value: string): HijriDateParts | null {
   const parts = normalized.split('/').map((part) => part.trim());
   if (parts.length !== 3) return null;
 
-  const [yearText, monthText, dayText] = parts;
+  const [firstText, secondText, thirdText] = parts;
+  const isYearFirst = firstText.length === 4;
+  const [yearText, monthText, dayText] = isYearFirst
+    ? [firstText, secondText, thirdText]
+    : [thirdText, secondText, firstText];
   if (!/^\d+$/.test(yearText) || !/^\d+$/.test(monthText) || !/^\d+$/.test(dayText)) return null;
 
   const year = Number(yearText);
@@ -63,7 +67,7 @@ export function parseHijriInput(value: string): HijriDateParts | null {
 }
 
 export function formatHijriInputParts(parts: HijriDateParts): string {
-  return `${parts.year}/${pad2(parts.month)}/${pad2(parts.day)}`;
+  return `${pad2(parts.day)}/${pad2(parts.month)}/${parts.year}`;
 }
 
 export function gregorianToHijriParts(value: string | Date): HijriDateParts | null {

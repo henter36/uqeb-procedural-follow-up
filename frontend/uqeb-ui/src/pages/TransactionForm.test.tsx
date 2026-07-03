@@ -101,6 +101,7 @@ async function fillValidCreateForm(user: ReturnType<typeof userEvent.setup>) {
   const incomingSection = getIncomingSection();
   const responseSection = getResponseSection();
   await user.type(getFieldInSection(incomingSection, 'رقم المعاملة *'), 'IN-100');
+  await user.type(getFieldInSection(incomingSection, 'تاريخ المعاملة *'), hijriInputForGregorian('2026-06-01'));
   await user.type(getFieldInSection(incomingSection, 'الموضوع *'), 'اختبار');
   await user.click(screen.getByRole('combobox', { name: /الجهة الوارد منها/ }));
   await user.click(screen.getByRole('option', { name: /جهة خارجية أ/ }));
@@ -307,6 +308,7 @@ describe('TransactionForm searchable selects', () => {
     const classificationSection = getClassificationSection();
     const responseSection = getResponseSection();
     await user.type(getFieldInSection(incomingSection, 'رقم المعاملة *'), 'IN-100');
+    await user.type(getFieldInSection(incomingSection, 'تاريخ المعاملة *'), hijriInputForGregorian('2026-06-01'));
     await user.type(getFieldInSection(incomingSection, 'الموضوع *'), 'اختبار');
     await user.click(screen.getByRole('combobox', { name: /الجهة الوارد منها/ }));
     await user.click(screen.getByRole('option', { name: /جهة خارجية أ/ }));
@@ -546,8 +548,8 @@ describe('TransactionForm searchable selects', () => {
     await fillValidCreateForm(user);
 
     const outgoingSection = getOutgoingSection();
-    await user.type(getFieldInSection(outgoingSection, 'رقم الصادر'), 'OUT-100');
-    await user.type(getFieldInSection(outgoingSection, 'تاريخ الصادر'), hijriInputForGregorian(todayLocalIso()));
+    await user.type(getFieldInSection(outgoingSection, 'رقم خطاب الإحالة للإدارة'), 'OUT-100');
+    await user.type(getFieldInSection(outgoingSection, 'تاريخ الإحالة'), hijriInputForGregorian(todayLocalIso()));
     const routingSection = await openOutgoingDepartmentsDropdown(user);
     await user.click(within(routingSection).getByLabelText('إدارة داخلية'));
     await user.click(within(routingSection).getByLabelText('إدارة المتابعة'));
@@ -568,7 +570,7 @@ describe('TransactionForm searchable selects', () => {
 
     const incomingDate = getFieldInSection(getIncomingSection(), 'تاريخ المعاملة *');
     await user.clear(incomingDate);
-    await user.type(incomingDate, '1448/01/16');
+    await user.type(incomingDate, '16/01/1448');
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
 
     await waitFor(() => expect(services.transactionsApi.create).toHaveBeenCalled());
@@ -593,6 +595,7 @@ describe('TransactionForm validation feedback', () => {
     const alert = screen.getByRole('alert');
     expect(alert).toHaveTextContent('يرجى تصحيح الحقول التالية:');
     expect(alert).toHaveTextContent('رقم المعاملة مطلوب.');
+    expect(alert).toHaveTextContent('تاريخ المعاملة مطلوب.');
     expect(alert).toHaveTextContent('الموضوع مطلوب.');
     expect(alert).toHaveTextContent('الجهة الخارجية مطلوبة.');
     expect(alert).toHaveTextContent('التصنيف مطلوب.');
@@ -639,6 +642,13 @@ describe('TransactionForm validation feedback', () => {
 
     expect(incomingDate).toHaveAttribute('aria-invalid', 'true');
     expect(screen.getByRole('alert')).toHaveTextContent('تاريخ المعاملة مطلوب.');
+  });
+
+  it('CreateTransaction_IncomingDate_StartsEmpty', async () => {
+    renderCreateForm();
+    await waitForFormReady();
+
+    expect(getFieldInSection(getIncomingSection(), 'تاريخ المعاملة *')).toHaveValue('');
   });
 
   it('CreateTransaction_MissingSubject_HighlightsSubject', async () => {
@@ -696,8 +706,8 @@ describe('TransactionForm validation feedback', () => {
     await fillValidCreateForm(user);
 
     const outgoingSection = getOutgoingSection();
-    await user.type(getFieldInSection(outgoingSection, 'رقم الصادر'), 'OUT-100');
-    await user.type(getFieldInSection(outgoingSection, 'تاريخ الصادر'), hijriInputForGregorian(todayLocalIso()));
+    await user.type(getFieldInSection(outgoingSection, 'رقم خطاب الإحالة للإدارة'), 'OUT-100');
+    await user.type(getFieldInSection(outgoingSection, 'تاريخ الإحالة'), hijriInputForGregorian(todayLocalIso()));
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
 
     const outgoingDepartments = document.querySelector<HTMLElement>('[data-field-name="outgoingDepartmentIds"]');
@@ -713,8 +723,8 @@ describe('TransactionForm validation feedback', () => {
     await fillValidCreateForm(user);
 
     const outgoingSection = getOutgoingSection();
-    await user.type(getFieldInSection(outgoingSection, 'رقم الصادر'), 'OUT-100');
-    await user.type(getFieldInSection(outgoingSection, 'تاريخ الصادر'), hijriInputForGregorian(todayLocalIso()));
+    await user.type(getFieldInSection(outgoingSection, 'رقم خطاب الإحالة للإدارة'), 'OUT-100');
+    await user.type(getFieldInSection(outgoingSection, 'تاريخ الإحالة'), hijriInputForGregorian(todayLocalIso()));
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
 
     const outgoingDepartments = document.querySelector<HTMLElement>('[data-field-name="outgoingDepartmentIds"]');
@@ -738,8 +748,31 @@ describe('TransactionForm validation feedback', () => {
     await user.type(incomingDate, hijriInputForGregorian(addDaysIso(todayLocalIso(), 1)));
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
 
-    expect(screen.getByRole('alert')).toHaveTextContent('تاريخ المعاملة لا يمكن أن يكون بعد تاريخ اليوم.');
+    expect(screen.getByRole('alert')).toHaveTextContent('لا يمكن أن يكون التاريخ بعد تاريخ اليوم.');
     expect(services.transactionsApi.create).not.toHaveBeenCalled();
+  });
+
+  it('CreateTransaction_ResponseDueDateCanBeInFuture', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.create).mockResolvedValue({ data: { id: 99 } } as never);
+
+    renderCreateForm();
+    await waitForFormReady();
+
+    const incomingSection = getIncomingSection();
+    const responseSection = getResponseSection();
+    await user.type(getFieldInSection(incomingSection, 'رقم المعاملة *'), 'IN-100');
+    await user.type(getFieldInSection(incomingSection, 'تاريخ المعاملة *'), hijriInputForGregorian(todayLocalIso()));
+    await user.type(getFieldInSection(incomingSection, 'الموضوع *'), 'اختبار');
+    await user.click(screen.getByRole('combobox', { name: /الجهة الوارد منها/ }));
+    await user.click(screen.getByRole('option', { name: /جهة خارجية أ/ }));
+    await user.click(screen.getByRole('combobox', { name: /التصنيف/ }));
+    await user.click(screen.getByRole('option', { name: /تصنيف عام/ }));
+    await user.type(getFieldInSection(responseSection, 'عدد الأيام للرد *'), '30');
+    await user.click(screen.getByRole('button', { name: 'حفظ' }));
+
+    await waitFor(() => expect(services.transactionsApi.create).toHaveBeenCalled());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('CreateTransaction_OutgoingNumberWithoutDate_ShowsSpecificValidationError', async () => {
@@ -748,10 +781,10 @@ describe('TransactionForm validation feedback', () => {
     await waitForFormReady();
     await fillValidCreateForm(user);
 
-    await user.type(getFieldInSection(getOutgoingSection(), 'رقم الصادر'), 'OUT-100');
+    await user.type(getFieldInSection(getOutgoingSection(), 'رقم خطاب الإحالة للإدارة'), 'OUT-100');
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
 
-    expect(screen.getByRole('alert')).toHaveTextContent('تاريخ الصادر مطلوب عند إدخال رقم الصادر.');
+    expect(screen.getByRole('alert')).toHaveTextContent('تاريخ الإحالة مطلوب عند إدخال رقم خطاب الإحالة للإدارة.');
     expect(services.transactionsApi.create).not.toHaveBeenCalled();
   });
 
@@ -762,11 +795,11 @@ describe('TransactionForm validation feedback', () => {
     await fillValidCreateForm(user);
 
     const outgoingSection = getOutgoingSection();
-    await user.type(getFieldInSection(outgoingSection, 'رقم الصادر'), 'OUT-100');
-    await user.type(getFieldInSection(outgoingSection, 'تاريخ الصادر'), hijriInputForGregorian(addDaysIso(todayLocalIso(), 1)));
+    await user.type(getFieldInSection(outgoingSection, 'رقم خطاب الإحالة للإدارة'), 'OUT-100');
+    await user.type(getFieldInSection(outgoingSection, 'تاريخ الإحالة'), hijriInputForGregorian(addDaysIso(todayLocalIso(), 1)));
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
 
-    expect(screen.getByRole('alert')).toHaveTextContent('تاريخ الصادر لا يمكن أن يكون بعد تاريخ اليوم.');
+    expect(screen.getByRole('alert')).toHaveTextContent('لا يمكن أن يكون التاريخ بعد تاريخ اليوم.');
     expect(services.transactionsApi.create).not.toHaveBeenCalled();
   });
 
@@ -779,12 +812,12 @@ describe('TransactionForm validation feedback', () => {
     const incomingSection = getIncomingSection();
     const outgoingSection = getOutgoingSection();
     await user.clear(getFieldInSection(incomingSection, 'تاريخ المعاملة *'));
-    await user.type(getFieldInSection(incomingSection, 'تاريخ المعاملة *'), '1448/01/16');
-    await user.type(getFieldInSection(outgoingSection, 'رقم الصادر'), 'OUT-100');
-    await user.type(getFieldInSection(outgoingSection, 'تاريخ الصادر'), '1448/01/15');
+    await user.type(getFieldInSection(incomingSection, 'تاريخ المعاملة *'), '16/01/1448');
+    await user.type(getFieldInSection(outgoingSection, 'رقم خطاب الإحالة للإدارة'), 'OUT-100');
+    await user.type(getFieldInSection(outgoingSection, 'تاريخ الإحالة'), '15/01/1448');
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
 
-    expect(screen.getByRole('alert')).toHaveTextContent('تاريخ الصادر لا يمكن أن يكون قبل تاريخ المعاملة.');
+    expect(screen.getByRole('alert')).toHaveTextContent('تاريخ الإحالة لا يمكن أن يكون قبل تاريخ المعاملة.');
     expect(services.transactionsApi.create).not.toHaveBeenCalled();
   });
 

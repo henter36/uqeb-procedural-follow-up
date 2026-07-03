@@ -8,8 +8,7 @@ public static class TransactionRequestValidator
     private const string OutgoingPartialMessage =
         "عند إدخال أي بيان من بيانات الصادر يجب إكمال رقم الصادر وتاريخ الصادر والإدارة الصادر لها.";
     private const string OutgoingDateRequiredWithNumberMessage = "تاريخ الصادر مطلوب عند إدخال رقم الصادر.";
-    private const string IncomingDateFutureMessage = "تاريخ المعاملة لا يمكن أن يكون بعد تاريخ اليوم.";
-    private const string OutgoingDateFutureMessage = "تاريخ الصادر لا يمكن أن يكون بعد تاريخ اليوم.";
+    private const string FutureEventDateMessage = "لا يمكن أن يكون التاريخ بعد تاريخ اليوم.";
     private const string OutgoingDateBeforeIncomingMessage = "تاريخ الصادر لا يمكن أن يكون قبل تاريخ المعاملة.";
 
     public static bool HasAnyOutgoingData(CreateTransactionRequest request) =>
@@ -154,9 +153,9 @@ public static class TransactionRequestValidator
         var today = GetSaudiToday();
 
         if (incomingDate != default && incomingDate.Date > today)
-            errors[nameof(CreateTransactionRequest.IncomingDate)] = IncomingDateFutureMessage;
+            errors[nameof(CreateTransactionRequest.IncomingDate)] = FutureEventDateMessage;
         if (outgoingDate.HasValue && outgoingDate.Value.Date > today)
-            errors[nameof(CreateTransactionRequest.OutgoingDate)] = OutgoingDateFutureMessage;
+            errors[nameof(CreateTransactionRequest.OutgoingDate)] = FutureEventDateMessage;
         if (outgoingDate.HasValue && incomingDate != default && outgoingDate.Value.Date < incomingDate.Date)
             errors[nameof(CreateTransactionRequest.OutgoingDate)] = OutgoingDateBeforeIncomingMessage;
         if (!string.IsNullOrWhiteSpace(outgoingNumber) && !outgoingDate.HasValue)

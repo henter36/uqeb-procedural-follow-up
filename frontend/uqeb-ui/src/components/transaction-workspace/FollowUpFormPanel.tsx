@@ -3,6 +3,7 @@ import type { FollowUp, FollowUpDepartmentOption } from '../../api/types';
 import { transactionsApi } from '../../api/services';
 import { buildCreateFollowUpPayload, getApiErrorMessage } from '../../utils/apiHelpers';
 import { areSortedIdsEqual } from '../../utils/formDirty';
+import { FUTURE_EVENT_DATE_MESSAGE, isFutureLocalDate } from '../../utils/localDate';
 import MultiSelect from '../MultiSelect';
 import HijriDateInput from '../HijriDateInput';
 import { Alert, LoadingInline } from '../ui';
@@ -90,6 +91,10 @@ function FollowUpFormPanelBody({
       setError('يجب اختيار إدارة واحدة على الأقل لإرسال التعقيب.');
       return;
     }
+    if (isFutureLocalDate(form.followUpDate)) {
+      setError(FUTURE_EVENT_DATE_MESSAGE);
+      return;
+    }
     setError('');
     setIsSubmitting(true);
     try {
@@ -134,6 +139,7 @@ function FollowUpFormPanelBody({
               required
               value={form.followUpDate}
               onChange={(followUpDate) => setForm({ ...form, followUpDate })}
+              disallowFutureDate
             />
           </div>
           <div className="form-group full-width">

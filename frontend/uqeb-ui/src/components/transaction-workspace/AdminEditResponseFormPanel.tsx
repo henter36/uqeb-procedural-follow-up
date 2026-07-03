@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import type { DepartmentResponseDto } from '../../api/types';
 import { departmentResponsesApi } from '../../api/services';
 import { getApiErrorMessage } from '../../utils/apiHelpers';
+import { FUTURE_EVENT_DATE_MESSAGE, isFutureLocalDate } from '../../utils/localDate';
 import { Alert, LoadingInline } from '../ui';
 import HijriDateInput from '../HijriDateInput';
 import { AdminEditAuditHint, AdminEditFormActions, AdminEditReasonField } from './AdminEditFormShared';
@@ -85,6 +86,10 @@ export default function AdminEditResponseFormPanel({
       setError('سبب التعديل مطلوب.');
       return;
     }
+    if (isFutureLocalDate(form.submittedAt)) {
+      setError(FUTURE_EVENT_DATE_MESSAGE);
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -135,6 +140,7 @@ export default function AdminEditResponseFormPanel({
             label="تاريخ إنجاز الإدارة"
             value={form.submittedAt}
             onChange={(submittedAt) => update({ submittedAt })}
+            disallowFutureDate
           />
           <small className="text-muted">هذا التاريخ يمثل تاريخ الإفادة/إنجاز رد الإدارة، ويستخدم في احتساب أيام إنجاز الإدارة.</small>
         </div>

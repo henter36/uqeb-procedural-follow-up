@@ -914,6 +914,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                 transactionId={+id}
                 departments={departments}
                 existingDepartmentIds={existingDepartmentIds}
+                defaultLetterNumber={tx.outgoingNumber}
                 onDirtyChange={setActionDirty}
                 onCancel={closeAction}
                 onSuccess={handleAssignmentSuccess}
@@ -931,6 +932,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                 title={ACTION_TITLES['reply-assignment']}
                 dateLabel="تاريخ إنجاز الإدارة"
                 dateHint="يمثل تاريخ الإفادة/إنجاز رد الإدارة، ويستخدم في احتساب أيام إنجاز الإدارة."
+                dateRequiredMessage="تاريخ إنجاز الإدارة مطلوب."
                 summaryLabel="ملخص الإفادة *"
                 submitLabel="حفظ الإفادة"
                 onDirtyChange={setActionDirty}
@@ -952,6 +954,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                 transactionId={+id}
                 assignmentId={adminEditAssignmentId}
                 initialAssignment={assignments.find((a) => a.id === adminEditAssignmentId)}
+                fallbackLetterNumber={tx.outgoingNumber}
                 onDirtyChange={setActionDirty}
                 onCancel={closeAction}
                 onSuccess={handleAdminEditAssignmentSuccess}
@@ -1033,7 +1036,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                           </div>
                           {a.requiredAction && <div className="text-muted">{a.requiredAction}</div>}
                         </td>
-                        <td>{a.letterNumber || '—'}</td>
+                        <td>{a.letterNumber || tx.outgoingNumber || '—'}</td>
                         <td><DateDisplay date={a.assignedDate} /></td>
                         <td>{a.dueDate ? <DateDisplay date={a.dueDate} /> : '—'}</td>
                         <td>{a.responseDate ? <DateDisplay date={a.responseDate} /> : '—'}</td>

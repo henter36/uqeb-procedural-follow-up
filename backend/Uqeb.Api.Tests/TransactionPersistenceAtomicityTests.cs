@@ -205,7 +205,19 @@ public class TransactionPersistenceAtomicityTests
 
         var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.CreateAsync(request, userId: 1));
 
-        Assert.Equal("تاريخ المعاملة لا يمكن أن يكون بعد تاريخ اليوم.", ex.FieldErrors[nameof(CreateTransactionRequest.IncomingDate)]);
+        Assert.Equal("لا يمكن أن يكون التاريخ بعد تاريخ اليوم.", ex.FieldErrors[nameof(CreateTransactionRequest.IncomingDate)]);
+    }
+
+    [Fact]
+    public async Task CreateAsync_missing_incoming_date_returns_field_validation()
+    {
+        var (service, _, _, _) = await CreateServiceAsync(nameof(CreateAsync_missing_incoming_date_returns_field_validation));
+        var request = BuildCreateRequest(10);
+        request.IncomingDate = default;
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.CreateAsync(request, userId: 1));
+
+        Assert.Equal("تاريخ المعاملة مطلوب", ex.FieldErrors[nameof(CreateTransactionRequest.IncomingDate)]);
     }
 
     [Fact]
@@ -218,7 +230,7 @@ public class TransactionPersistenceAtomicityTests
 
         var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.CreateAsync(request, userId: 1));
 
-        Assert.Equal("تاريخ الصادر لا يمكن أن يكون بعد تاريخ اليوم.", ex.FieldErrors[nameof(CreateTransactionRequest.OutgoingDate)]);
+        Assert.Equal("لا يمكن أن يكون التاريخ بعد تاريخ اليوم.", ex.FieldErrors[nameof(CreateTransactionRequest.OutgoingDate)]);
     }
 
     [Fact]

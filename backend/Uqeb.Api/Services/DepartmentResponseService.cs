@@ -32,6 +32,7 @@ public class DepartmentResponseService : IDepartmentResponseService
     private const long MaxFileSizeBytes = 10 * 1024 * 1024; // 10 MB
     private const string DepartmentResponseEntityName = "DepartmentResponse";
     private const string DepartmentResponseAttachmentEntityName = "DepartmentResponseAttachment";
+    private const string FutureEventDateMessage = "لا يمكن أن يكون التاريخ بعد تاريخ اليوم.";
     private const string ResponseNotFoundMessage = "الرد غير موجود.";
 
     private static readonly HashSet<string> AllowedExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -76,6 +77,8 @@ public class DepartmentResponseService : IDepartmentResponseService
         if (currentUser.Role is not (UserRole.Admin or UserRole.Supervisor or UserRole.DataEntry))
             throw new UnauthorizedAccessException("المستخدم غير مخول بمراجعة إفادات الإدارات.");
     }
+
+    private static DateTime GetSaudiToday() => DateTime.UtcNow.AddHours(3).Date;
 
     // InMemory (test) provider throws InvalidOperationException on BeginTransactionAsync.
     // Production (SQL Server) supports transactions fully.
@@ -467,8 +470,8 @@ public class DepartmentResponseService : IDepartmentResponseService
         if (request.SubmittedAt.HasValue)
         {
             var submittedAt = DateTime.SpecifyKind(request.SubmittedAt.Value.Date, DateTimeKind.Utc);
-            if (submittedAt.Date > DateTime.UtcNow.Date)
-                throw new InvalidOperationException("تاريخ إنجاز الإدارة لا يمكن أن يكون في المستقبل.");
+            if (submittedAt.Date > GetSaudiToday())
+                throw new InvalidOperationException(FutureEventDateMessage);
             if (submittedAt.Date < response.Transaction.IncomingDate.Date)
                 throw new InvalidOperationException("تاريخ إنجاز الإدارة لا يمكن أن يسبق تاريخ الوارد.");
             response.SubmittedAt = submittedAt;
