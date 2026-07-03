@@ -20,21 +20,12 @@ public static class TransactionWorkspaceHelper
                 a.DueDate))
             .ToList();
 
-        var earliestPendingAssignmentDueDate = assignments
+        DateTime? earliestPendingDue = assignmentFacts
             .Where(a => a.RequiresReply
-                && ParseReplyStatusOrDefault(a.ReplyStatus) != ReplyStatus.Replied
-                && ParseAssignmentStatusOrDefault(a.Status) == AssignmentStatus.Active
-                && a.DueDate.HasValue)
-            .Select(a => a.DueDate!.Value)
-            .DefaultIfEmpty()
+                && a.ReplyStatus != ReplyStatus.Replied
+                && a.Status == AssignmentStatus.Active)
+            .Select(a => a.DueDate)
             .Min();
-
-        DateTime? earliestPendingDue = assignments.Any(a => a.RequiresReply
-            && ParseReplyStatusOrDefault(a.ReplyStatus) != ReplyStatus.Replied
-            && ParseAssignmentStatusOrDefault(a.Status) == AssignmentStatus.Active
-            && a.DueDate.HasValue)
-            ? earliestPendingAssignmentDueDate
-            : null;
 
         return new TransactionTemporalFactsDto
         {
