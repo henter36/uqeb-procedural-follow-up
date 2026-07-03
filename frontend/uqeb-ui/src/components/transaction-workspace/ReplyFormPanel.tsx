@@ -6,6 +6,10 @@ import HijriDateInput from '../HijriDateInput';
 
 type ReplyFormPanelProps = Readonly<{
   title: string;
+  dateLabel?: string;
+  dateHint?: string;
+  summaryLabel?: string;
+  submitLabel?: string;
   onDirtyChange: (dirty: boolean) => void;
   onSubmit: (payload: ReturnType<typeof buildReplyPayload>) => Promise<unknown>;
   onSuccess: () => void;
@@ -14,6 +18,10 @@ type ReplyFormPanelProps = Readonly<{
 
 export default function ReplyFormPanel({
   title,
+  dateLabel = 'تاريخ الرد',
+  dateHint,
+  summaryLabel = 'ملخص الرد *',
+  submitLabel = 'حفظ الرد',
   onDirtyChange,
   onSubmit,
   onSuccess,
@@ -49,20 +57,21 @@ export default function ReplyFormPanel({
         <div className="form-group">
           <HijriDateInput
             id="reply-date"
-            label="تاريخ الرد"
+            label={dateLabel}
             required
             value={form.replyDate}
             onChange={(replyDate) => setForm({ ...form, replyDate })}
           />
+          {dateHint && <small className="text-muted">{dateHint}</small>}
         </div>
         <div className="form-group full-width">
-          <label htmlFor="reply-summary">ملخص الرد *</label>
+          <label htmlFor="reply-summary">{summaryLabel}</label>
           <textarea id="reply-summary" required rows={4} value={form.replySummary} onChange={(e) => setForm({ ...form, replySummary: e.target.value })} />
         </div>
       </div>
       <div className="form-actions">
         <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
-          {isSubmitting ? 'جاري الحفظ...' : 'حفظ الرد'}
+          {isSubmitting ? 'جاري الحفظ...' : submitLabel}
         </button>
         <button type="button" className="btn btn-outline" onClick={onCancel}>إلغاء</button>
       </div>

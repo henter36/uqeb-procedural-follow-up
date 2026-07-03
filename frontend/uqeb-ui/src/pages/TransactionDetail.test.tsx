@@ -173,6 +173,8 @@ vi.mock('../api/services', () => ({
     replyAssignment: vi.fn(),
     replyFollowUp: vi.fn(),
     completeResponse: vi.fn(),
+    adminEditAssignment: vi.fn(),
+    adminEditTransactionDates: vi.fn(),
     getFollowUpDepartments: vi.fn(),
     downloadAttachment: vi.fn(),
   },
@@ -285,6 +287,28 @@ function setupDefaultMocks() {
       attachments: [],
     },
   } as never);
+  vi.mocked(services.departmentResponsesApi.adminEdit).mockResolvedValue({
+    data: {
+      id: 100,
+      transactionId: 1,
+      transactionSubject: 'موضوع',
+      internalTrackingNumber: 'TRK-1',
+      departmentId: 1,
+      departmentName: 'إدارة اختبار',
+      responseText: 'نص الإفادة',
+      status: 'Approved',
+      submittedByName: 'موظف إدارة',
+      submittedAt: '2026-01-05',
+      createdAt: '2026-01-01',
+      attachments: [],
+    },
+  } as never);
+  vi.mocked(services.transactionsApi.adminEditAssignment).mockResolvedValue({
+    data: {
+      ...sampleAssignment,
+      assignedDate: '2026-01-01',
+    },
+  } as never);
   vi.mocked(services.departmentResponsesApi.uploadAttachment).mockResolvedValue({
     data: {
       id: 101,
@@ -337,6 +361,10 @@ describe('TransactionDetailPage three-tab layout', () => {
     expect(screen.getByText('TRK-1')).toBeInTheDocument();
     expect(screen.getByText('مراجعة')).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'تاريخ إنجاز الإدارة' })).toBeInTheDocument();
+    const assignmentsCard = getAssignmentsCard();
+    expect(within(assignmentsCard).getByText('عمر المعاملة: 1 يوم')).toBeInTheDocument();
+    expect(within(assignmentsCard).getAllByText(/عمر المعاملة:/)).toHaveLength(1);
+    expect(within(assignmentsCard).getByText('عمر المعاملة: 1 يوم').closest('.transaction-metric-tile')).toBeNull();
     expect(screen.getByText('F-1')).toBeInTheDocument();
     expect(screen.getByText('file.pdf')).toBeInTheDocument();
   });
@@ -1101,14 +1129,172 @@ describe('TransactionDetailPage card interaction flows', () => {
     await user.click(within(card).getByRole('button', { name: 'تسجيل رد' }));
     expect(within(card).getByTestId('reply-assignment-form-panel')).toBeInTheDocument();
 
-    await user.type(screen.getByLabelText(/ملخص الرد/), 'تم الرد');
-    await user.click(screen.getByRole('button', { name: 'حفظ الرد' }));
+    expect(within(card).getByRole('region', { name: 'تسجيل إفادة الإدارة' })).toBeInTheDocument();
+    expect(screen.getByLabelText(/تاريخ إنجاز الإدارة/)).toBeInTheDocument();
+    expect(screen.getByText('يمثل تاريخ الإفادة/إنجاز رد الإدارة، ويستخدم في احتساب أيام إنجاز الإدارة.')).toBeInTheDocument();
+    await user.type(screen.getByLabelText(/ملخص الإفادة/), 'تم الرد');
+    await user.click(screen.getByRole('button', { name: 'حفظ الإفادة' }));
 
     await waitFor(() => {
       expect(screen.getByRole('status')).toHaveTextContent('تم تسجيل الرد بنجاح');
       expect(within(card).queryByTestId('reply-assignment-form-panel')).not.toBeInTheDocument();
     });
     expect(services.transactionsApi.replyAssignment).toHaveBeenCalledWith(1, 10, expect.any(Object));
+  });
+
+  it('lets Admin open assignment edit from the department name without a separate edit button', async () => {
+    const user = userEvent.setup();
+    const editableAssignment = {
+        ...sampleAssignment,
+        assignedDate: '2026-01-02',
+        canAdminEdit: true,
+      };
+    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: {
+        ...defaultWorkspace,
+        assignments: [editableAssignment],
+      },
+    } as never);
+    vi.mocked(services.transactionsApi.getAssignments).mockResolvedValue({
+      data: [editableAssignment],
+    } as never);
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getAssignmentsCard();
+
+    const departmentButton = await within(card).findByRole('button', { name: 'تعديل إحالة إدارة إدارة اختبار' });
+    expect(departmentButton).toHaveTextContent('إدارة اختبار');
+    expect(within(card).queryByText(/^تعديل$/)).not.toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: 'تعديل' })).not.toBeInTheDocument();
+
+    await user.click(departmentButton);
+
+    expect(within(card).getByTestId('admin-edit-assignment-form-panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('الإجراء المطلوب')).toHaveValue('مراجعة');
+  });
+
+  it('renders department name as plain text for DepartmentUser', async () => {
+    mockUseAuth.mockReturnValue({
+      canEdit: false,
+      canClose: false,
+      isDepartmentUser: true,
+      user: {
+        fullName: 'موظف إدارة',
+        role: 'DepartmentUser',
+        departmentId: 1,
+      },
+      logout: vi.fn(),
+      login: vi.fn(),
+      isAdmin: false,
+    });
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getAssignmentsCard();
+
+    expect(within(card).getByText('إدارة اختبار')).toBeInTheDocument();
+    expect(within(card).getByText('بانتظار الرد')).toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: 'تعديل إحالة إدارة إدارة اختبار' })).not.toBeInTheDocument();
+  });
+
+  it('lets Admin open response edit from completed response status', async () => {
+    const user = userEvent.setup();
+    const repliedAssignment = {
+      ...sampleAssignment,
+      replyStatus: 'Replied',
+      responseDate: '2026-01-05',
+      departmentResponseId: 100,
+    };
+    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: {
+        ...defaultWorkspace,
+        assignments: [repliedAssignment],
+      },
+    } as never);
+    vi.mocked(services.transactionsApi.getAssignments).mockResolvedValue({
+      data: [repliedAssignment],
+    } as never);
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getAssignmentsCard();
+
+    const responseButton = await within(card).findByRole('button', { name: 'تعديل إفادة إدارة إدارة اختبار' });
+    expect(responseButton).toHaveTextContent('تمت الإفادة');
+    expect(within(card).queryByText('تعديل الرد')).not.toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: 'تعديل الرد' })).not.toBeInTheDocument();
+
+    await user.click(responseButton);
+
+    expect(within(card).getByTestId('admin-edit-response-form-panel')).toBeInTheDocument();
+    expect(await screen.findByLabelText('ملخص الإفادة')).toHaveValue('نص الإفادة');
+  });
+
+  it('does not make completed response status editable without departmentResponseId', async () => {
+    const repliedAssignment = {
+      ...sampleAssignment,
+      replyStatus: 'Replied',
+      responseDate: '2026-01-05',
+      departmentResponseId: undefined,
+    };
+    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: {
+        ...defaultWorkspace,
+        assignments: [repliedAssignment],
+      },
+    } as never);
+    vi.mocked(services.transactionsApi.getAssignments).mockResolvedValue({
+      data: [repliedAssignment],
+    } as never);
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getAssignmentsCard();
+
+    expect(within(card).getByText('تمت الإفادة')).toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: 'تعديل إفادة إدارة إدارة اختبار' })).not.toBeInTheDocument();
+  });
+
+  it('renders completed response status as plain text for DepartmentUser', async () => {
+    const repliedAssignment = {
+      ...sampleAssignment,
+      replyStatus: 'Replied',
+      responseDate: '2026-01-05',
+      departmentResponseId: 100,
+      canAdminEdit: true,
+    };
+    mockUseAuth.mockReturnValue({
+      canEdit: false,
+      canClose: false,
+      isDepartmentUser: true,
+      user: {
+        fullName: 'موظف إدارة',
+        role: 'DepartmentUser',
+        departmentId: 1,
+      },
+      logout: vi.fn(),
+      login: vi.fn(),
+      isAdmin: false,
+    });
+    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: {
+        ...defaultWorkspace,
+        assignments: [repliedAssignment],
+      },
+    } as never);
+    vi.mocked(services.transactionsApi.getAssignments).mockResolvedValue({
+      data: [repliedAssignment],
+    } as never);
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getAssignmentsCard();
+
+    expect(within(card).getByText('إدارة اختبار')).toBeInTheDocument();
+    expect(within(card).getByText('تمت الإفادة')).toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: 'تعديل إحالة إدارة إدارة اختبار' })).not.toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: 'تعديل إفادة إدارة إدارة اختبار' })).not.toBeInTheDocument();
   });
 });
 
