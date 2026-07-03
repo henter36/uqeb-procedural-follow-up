@@ -644,7 +644,7 @@ public class TransactionService : ITransactionService
             throw new FieldValidationException(validationErrors);
 
         CreateRecurringTemplateRequest? recurringTemplateRequest = null;
-        if (request.EnableRecurringFollowUp)
+        if (request.EnableRecurringFollowUp == true)
         {
             recurringTemplateRequest = BuildRecurringTemplateRequestFromTransaction(request);
             var recurringErrors = RecurringTemplateRequestValidator.Validate(recurringTemplateRequest);

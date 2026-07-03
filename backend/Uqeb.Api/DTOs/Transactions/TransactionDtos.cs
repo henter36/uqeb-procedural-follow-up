@@ -106,7 +106,7 @@ public class CreateTransactionRequest
     public string Priority { get; set; } = "Normal";
     public int? CategoryId { get; set; }
     public string? Notes { get; set; }
-    public bool EnableRecurringFollowUp { get; set; }
+    public bool? EnableRecurringFollowUp { get; set; }
     public string? RecurringRecurrenceType { get; set; }
     public DateTime? RecurringStartDate { get; set; }
     public DateTime? RecurringEndDate { get; set; }

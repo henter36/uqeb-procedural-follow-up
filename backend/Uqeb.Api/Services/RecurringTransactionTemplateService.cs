@@ -158,10 +158,8 @@ public class RecurringTransactionTemplateService : IRecurringTransactionTemplate
             CreatedAt = DateTime.UtcNow
         };
 
-        var departmentIds = templateRequest.DepartmentIds ?? new List<int>();
-
         var sortOrder = 0;
-        foreach (var deptId in departmentIds.Distinct())
+        foreach (var deptId in (templateRequest.DepartmentIds ?? Enumerable.Empty<int>()).Distinct())
             template.Departments.Add(new RecurringTransactionTemplateDepartment { DepartmentId = deptId, SortOrder = sortOrder++ });
 
         _db.RecurringTransactionTemplates.Add(template);
