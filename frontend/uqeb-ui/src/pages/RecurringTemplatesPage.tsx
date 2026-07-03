@@ -97,7 +97,7 @@ function buildTemplatePayload(form: TemplateFormState) {
     endDate: form.endDate ? toIsoDate(form.endDate) : null,
     incomingSourceType: form.incomingSourceType,
     incomingFromPartyId: isExternal ? toNullableNumber(form.incomingFromPartyId) : null,
-    incomingFromDepartmentId: !isExternal ? toNullableNumber(form.incomingFromDepartmentId) : null,
+    incomingFromDepartmentId: isExternal ? null : toNullableNumber(form.incomingFromDepartmentId),
     categoryId: toNullableNumber(form.categoryId),
     priority: form.priority,
     responseType: form.responseType,
@@ -177,7 +177,7 @@ export default function RecurringTemplatesPage() {
   const [terminateSubmitting, setTerminateSubmitting] = useState(false);
 
   const [expandedTemplateId, setExpandedTemplateId] = useState<number | null>(null);
-  const [expandedTransactions, setExpandedTransactions] = useState<RecurringTemplateTransactionItem[] | null>(null);
+  const [expandedTransactions, setExpandedTransactions] = useState<Record<number, RecurringTemplateTransactionItem[]>>({});
   const [expandedLoading, setExpandedLoading] = useState(false);
 
   const loadTemplates = async () => {
@@ -401,14 +401,16 @@ export default function RecurringTemplatesPage() {
   async function openTransactionsPanel(id: number) {
     if (expandedTemplateId === id) {
       setExpandedTemplateId(null);
-      setExpandedTransactions(null);
       return;
     }
     setExpandedTemplateId(id);
+    if (expandedTransactions[id]) {
+      return;
+    }
     setExpandedLoading(true);
     try {
       const res = await recurringTemplatesApi.getTransactions(id);
-      setExpandedTransactions(res.data);
+      setExpandedTransactions((prev) => ({ ...prev, [id]: res.data }));
     } catch (err) {
       setError(getApiErrorMessage(err));
     } finally {
@@ -453,7 +455,7 @@ export default function RecurringTemplatesPage() {
                 template={t}
                 highlighted={searchParams.get('highlight') === String(t.id)}
                 isExpanded={expandedTemplateId === t.id}
-                expandedTransactions={expandedTemplateId === t.id ? expandedTransactions : null}
+                expandedTransactions={expandedTransactions[t.id] || null}
                 expandedLoading={expandedTemplateId === t.id && expandedLoading}
                 onEdit={() => openEditModal(t.id)}
                 onGenerate={() => openGenerateModal(t.id)}
@@ -527,6 +529,12 @@ export default function RecurringTemplatesPage() {
   );
 }
 
+function getGenerateDisabledReason(status: string): string | undefined {
+  if (status === 'Paused') return 'القالب الدوري موقوف مؤقتًا.';
+  if (status === 'Terminated') return 'تم إنهاء هذا الالتزام الدوري ولا يمكن إنشاء فترات جديدة منه.';
+  return undefined;
+}
+
 function RecurringTemplateRow({
   template, highlighted, isExpanded, expandedTransactions, expandedLoading,
   onEdit, onGenerate, onPause, onResume, onTerminate, onToggleTransactions,
@@ -546,11 +554,7 @@ function RecurringTemplateRow({
   const isActive = template.status === 'Active';
   const isPaused = template.status === 'Paused';
   const isTerminated = template.status === 'Terminated';
-  const generateDisabledReason = isPaused
-    ? 'القالب الدوري موقوف مؤقتًا.'
-    : isTerminated
-      ? 'تم إنهاء هذا الالتزام الدوري ولا يمكن إنشاء فترات جديدة منه.'
-      : undefined;
+  const generateDisabledReason = getGenerateDisabledReason(template.status);
 
   return (
     <>
@@ -586,7 +590,7 @@ function RecurringTemplateRow({
         <tr>
           <td colSpan={9}>
             {expandedLoading && <LoadingInline label="جاري تحميل المعاملات..." />}
-            {!expandedLoading && expandedTransactions && expandedTransactions.length === 0 && (
+            {!expandedLoading && expandedTransactions?.length === 0 && (
               <p className="text-muted">لا توجد معاملات منشأة من هذا القالب بعد.</p>
             )}
             {!expandedLoading && expandedTransactions && expandedTransactions.length > 0 && (

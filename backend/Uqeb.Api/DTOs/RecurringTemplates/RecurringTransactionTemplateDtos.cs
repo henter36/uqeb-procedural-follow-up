@@ -57,7 +57,7 @@ public class CreateRecurringTemplateRequest
     public string Title { get; set; } = string.Empty;
     public string SubjectTemplate { get; set; } = string.Empty;
     public string? RecurrenceType { get; set; }
-    public DateTime StartDate { get; set; }
+    public DateTime? StartDate { get; set; }
     public DateTime? EndDate { get; set; }
     public string? IncomingSourceType { get; set; }
     public int? IncomingFromPartyId { get; set; }
@@ -65,16 +65,12 @@ public class CreateRecurringTemplateRequest
     public int? CategoryId { get; set; }
     public string? Priority { get; set; }
     public string? ResponseType { get; set; }
-    public bool RequiresResponse { get; set; }
+    public bool? RequiresResponse { get; set; }
     public string? DefaultRequiredAction { get; set; }
     public int? DueDaysAfterPeriodEnd { get; set; }
     public int? DefaultReplyDueDays { get; set; }
     public string? Notes { get; set; }
     public List<int>? DepartmentIds { get; set; }
-}
-
-public class UpdateRecurringTemplateRequest : CreateRecurringTemplateRequest
-{
 }
 
 public class TerminateRecurringTemplateRequest
@@ -85,8 +81,8 @@ public class TerminateRecurringTemplateRequest
 public class GenerateRecurringTransactionRequest
 {
     public string PeriodKey { get; set; } = string.Empty;
-    public DateTime IncomingDate { get; set; }
-    public DateTime ReferralDate { get; set; }
+    public DateTime? IncomingDate { get; set; }
+    public DateTime? ReferralDate { get; set; }
     public string? ReferralLetterNumber { get; set; }
 }
 

@@ -127,11 +127,33 @@ public class RecurringTransactionTemplateServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_rejects_missing_DueDaysAfterPeriodEnd()
+    {
+        var (service, _) = await CreateServiceAsync(nameof(CreateAsync_rejects_missing_DueDaysAfterPeriodEnd));
+        var request = ValidMonthlyRequest();
+        request.DueDaysAfterPeriodEnd = null;
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.CreateAsync(request, userId: 1));
+        Assert.True(ex.FieldErrors.ContainsKey(nameof(request.DueDaysAfterPeriodEnd)));
+    }
+
+    [Fact]
+    public async Task CreateAsync_rejects_missing_StartDate_instead_of_defaulting()
+    {
+        var (service, _) = await CreateServiceAsync(nameof(CreateAsync_rejects_missing_StartDate_instead_of_defaulting));
+        var request = ValidMonthlyRequest();
+        request.StartDate = null;
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.CreateAsync(request, userId: 1));
+        Assert.True(ex.FieldErrors.ContainsKey(nameof(request.StartDate)));
+    }
+
+    [Fact]
     public async Task CreateAsync_rejects_EndDate_before_StartDate()
     {
         var (service, _) = await CreateServiceAsync(nameof(CreateAsync_rejects_EndDate_before_StartDate));
         var request = ValidMonthlyRequest();
-        request.EndDate = request.StartDate.AddDays(-1);
+        request.EndDate = request.StartDate!.Value.AddDays(-1);
 
         var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.CreateAsync(request, userId: 1));
         Assert.True(ex.FieldErrors.ContainsKey(nameof(request.EndDate)));
@@ -153,7 +175,7 @@ public class RecurringTransactionTemplateServiceTests
         var (service, db) = await CreateServiceAsync(nameof(UpdateAsync_updates_fields_and_logs_audit));
         var created = await service.CreateAsync(ValidMonthlyRequest(), userId: 1);
 
-        var updateRequest = new UpdateRecurringTemplateRequest
+        var updateRequest = new CreateRecurringTemplateRequest
         {
             Title = "تقرير شهري محدث",
             SubjectTemplate = "تقرير شهري محدث",
@@ -179,6 +201,79 @@ public class RecurringTransactionTemplateServiceTests
         var log = await db.AuditLogs.FirstOrDefaultAsync(a => a.Action == AuditAction.UpdateRecurringTemplate && a.EntityId == created.Id);
         Assert.NotNull(log);
     }
+
+    [Fact]
+    public async Task UpdateAsync_removes_unselected_departments()
+    {
+        var (service, _) = await CreateServiceAsync(nameof(UpdateAsync_removes_unselected_departments));
+        var created = await service.CreateAsync(ValidQuarterlyRequest(), userId: 1);
+        Assert.Equal(2, created.Departments.Count);
+
+        var updateRequest = BuildUpdateRequestFrom(created, new List<int> { 10 });
+        var result = await service.UpdateAsync(created.Id, updateRequest, userId: 1);
+
+        Assert.NotNull(result);
+        Assert.Single(result!.Departments);
+        Assert.Equal(10, result.Departments[0].DepartmentId);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_adds_new_departments_with_sort_order()
+    {
+        var (service, _) = await CreateServiceAsync(nameof(UpdateAsync_adds_new_departments_with_sort_order));
+        var request = ValidMonthlyRequest();
+        request.DepartmentIds = new List<int> { 10 };
+        var created = await service.CreateAsync(request, userId: 1);
+
+        var updateRequest = BuildUpdateRequestFrom(created, new List<int> { 10, 20 });
+        var result = await service.UpdateAsync(created.Id, updateRequest, userId: 1);
+
+        Assert.NotNull(result);
+        Assert.Equal(2, result!.Departments.Count);
+        Assert.Equal(10, result.Departments[0].DepartmentId);
+        Assert.Equal(0, result.Departments[0].SortOrder);
+        Assert.Equal(20, result.Departments[1].DepartmentId);
+        Assert.Equal(1, result.Departments[1].SortOrder);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_updates_existing_department_sort_order()
+    {
+        var (service, _) = await CreateServiceAsync(nameof(UpdateAsync_updates_existing_department_sort_order));
+        var created = await service.CreateAsync(ValidQuarterlyRequest(), userId: 1);
+        Assert.Equal(10, created.Departments[0].DepartmentId);
+        Assert.Equal(20, created.Departments[1].DepartmentId);
+
+        var updateRequest = BuildUpdateRequestFrom(created, new List<int> { 20, 10 });
+        var result = await service.UpdateAsync(created.Id, updateRequest, userId: 1);
+
+        Assert.NotNull(result);
+        Assert.Equal(20, result!.Departments[0].DepartmentId);
+        Assert.Equal(0, result.Departments[0].SortOrder);
+        Assert.Equal(10, result.Departments[1].DepartmentId);
+        Assert.Equal(1, result.Departments[1].SortOrder);
+    }
+
+    private static CreateRecurringTemplateRequest BuildUpdateRequestFrom(RecurringTemplateDetailDto template, List<int> departmentIds) => new()
+    {
+        Title = template.Title,
+        SubjectTemplate = template.SubjectTemplate,
+        RecurrenceType = template.RecurrenceType,
+        StartDate = template.StartDate,
+        EndDate = template.EndDate,
+        IncomingSourceType = template.IncomingSourceType,
+        IncomingFromPartyId = template.IncomingFromPartyId,
+        IncomingFromDepartmentId = template.IncomingFromDepartmentId,
+        CategoryId = template.CategoryId,
+        Priority = template.Priority,
+        ResponseType = template.ResponseType,
+        RequiresResponse = template.RequiresResponse,
+        DefaultRequiredAction = template.DefaultRequiredAction,
+        DueDaysAfterPeriodEnd = template.DueDaysAfterPeriodEnd,
+        DefaultReplyDueDays = template.DefaultReplyDueDays,
+        Notes = template.Notes,
+        DepartmentIds = departmentIds,
+    };
 
     [Fact]
     public async Task PauseAsync_pauses_active_template()
@@ -433,6 +528,40 @@ public class RecurringTransactionTemplateServiceTests
                 PeriodKey = "2026-01",
                 IncomingDate = new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc),
                 ReferralDate = DateTime.UtcNow.AddDays(5)
+            }, userId: 1));
+
+        Assert.True(ex.FieldErrors.ContainsKey("ReferralDate"));
+    }
+
+    [Fact]
+    public async Task GenerateAsync_rejects_missing_IncomingDate_instead_of_defaulting()
+    {
+        var (service, _) = await CreateServiceAsync(nameof(GenerateAsync_rejects_missing_IncomingDate_instead_of_defaulting));
+        var created = await service.CreateAsync(ValidMonthlyRequest(), userId: 1);
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() =>
+            service.GenerateAsync(created.Id, new GenerateRecurringTransactionRequest
+            {
+                PeriodKey = "2026-01",
+                IncomingDate = null,
+                ReferralDate = new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc)
+            }, userId: 1));
+
+        Assert.True(ex.FieldErrors.ContainsKey("IncomingDate"));
+    }
+
+    [Fact]
+    public async Task GenerateAsync_rejects_missing_ReferralDate_instead_of_defaulting()
+    {
+        var (service, _) = await CreateServiceAsync(nameof(GenerateAsync_rejects_missing_ReferralDate_instead_of_defaulting));
+        var created = await service.CreateAsync(ValidMonthlyRequest(), userId: 1);
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() =>
+            service.GenerateAsync(created.Id, new GenerateRecurringTransactionRequest
+            {
+                PeriodKey = "2026-01",
+                IncomingDate = new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc),
+                ReferralDate = null
             }, userId: 1));
 
         Assert.True(ex.FieldErrors.ContainsKey("ReferralDate"));

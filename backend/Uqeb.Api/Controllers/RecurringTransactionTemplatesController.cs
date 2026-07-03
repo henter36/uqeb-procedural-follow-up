@@ -55,7 +55,7 @@ public class RecurringTransactionTemplatesController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    public async Task<IActionResult> Update(int id, [FromBody] UpdateRecurringTemplateRequest request)
+    public async Task<IActionResult> Update(int id, [FromBody] CreateRecurringTemplateRequest request)
     {
         try
         {

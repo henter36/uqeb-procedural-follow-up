@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { cleanup, render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import RecurringTemplatesPage from './RecurringTemplatesPage';
 import * as services from '../api/services';
@@ -147,6 +147,43 @@ describe('RecurringTemplatesPage', () => {
       expect(mockApi.getTransactions).toHaveBeenCalledWith(1);
       expect(screen.getByText('UQEB-2026-00001')).toBeTruthy();
     });
+  });
+
+  it('does not show one template\'s transactions under another template after switching', async () => {
+    const templateOneTx = { ...sampleTransaction, transactionId: 100, internalTrackingNumber: 'UQEB-TEMPLATE-1' };
+    const templateTwoTx = { ...sampleTransaction, transactionId: 200, internalTrackingNumber: 'UQEB-TEMPLATE-2' };
+    mockApi.getTransactions.mockImplementation((id: number) =>
+      Promise.resolve({ data: id === activeTemplate.id ? [templateOneTx] : [templateTwoTx] } as never));
+
+    renderPage();
+    await waitFor(() => screen.getByText('تقرير ربع سنوي من إدارة المالية'));
+    const activeRow = screen.getByText('تقرير شهري من إدارة التشغيل').closest('tr')!;
+    const pausedRow = screen.getByText('تقرير ربع سنوي من إدارة المالية').closest('tr')!;
+
+    fireEvent.click(within(activeRow).getByText('عرض المعاملات'));
+    await waitFor(() => expect(screen.getByText('UQEB-TEMPLATE-1')).toBeTruthy());
+
+    fireEvent.click(within(pausedRow).getByText('عرض المعاملات'));
+    await waitFor(() => expect(screen.getByText('UQEB-TEMPLATE-2')).toBeTruthy());
+    expect(screen.queryByText('UQEB-TEMPLATE-1')).toBeNull();
+  });
+
+  it('does not re-fetch transactions when reopening a template already loaded', async () => {
+    renderPage();
+    await waitFor(() => screen.getByText('تقرير شهري من إدارة التشغيل'));
+    const row = screen.getByText('تقرير شهري من إدارة التشغيل').closest('tr')!;
+    const toggleButton = () => within(row).getByText(/عرض المعاملات|إخفاء المعاملات/);
+
+    fireEvent.click(toggleButton());
+    await waitFor(() => expect(screen.getByText('UQEB-2026-00001')).toBeTruthy());
+
+    fireEvent.click(toggleButton());
+    await waitFor(() => expect(screen.queryByText('UQEB-2026-00001')).toBeNull());
+
+    fireEvent.click(toggleButton());
+    await waitFor(() => expect(screen.getByText('UQEB-2026-00001')).toBeTruthy());
+
+    expect(mockApi.getTransactions).toHaveBeenCalledTimes(1);
   });
 
   it('pauses an active template', async () => {

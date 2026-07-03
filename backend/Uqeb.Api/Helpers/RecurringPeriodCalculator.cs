@@ -113,9 +113,9 @@ public static class RecurringPeriodCalculator
         {
             DateTime next;
             if (!string.IsNullOrWhiteSpace(lastGeneratedPeriodKey) && TryParseYearMonth(lastGeneratedPeriodKey, out var y, out var m))
-                next = new DateTime(y, m, 1).AddMonths(1);
+                next = new DateTime(y, m, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(1);
             else
-                next = new DateTime(startDate.Year, startDate.Month, 1);
+                next = new DateTime(startDate.Year, startDate.Month, 1, 0, 0, 0, DateTimeKind.Utc);
 
             return NormalizeMonthlyKey(next.Year, next.Month);
         }
@@ -125,13 +125,13 @@ public static class RecurringPeriodCalculator
             if (!string.IsNullOrWhiteSpace(lastGeneratedPeriodKey) && TryParseYearQuarter(lastGeneratedPeriodKey, out var y, out var q))
             {
                 var startMonth = ((q - 1) * 3) + 1;
-                next = new DateTime(y, startMonth, 1).AddMonths(3);
+                next = new DateTime(y, startMonth, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(3);
             }
             else
             {
                 var currentQuarter = ((startDate.Month - 1) / 3) + 1;
                 var startMonth = ((currentQuarter - 1) * 3) + 1;
-                next = new DateTime(startDate.Year, startMonth, 1);
+                next = new DateTime(startDate.Year, startMonth, 1, 0, 0, 0, DateTimeKind.Utc);
             }
 
             var quarter = ((next.Month - 1) / 3) + 1;
