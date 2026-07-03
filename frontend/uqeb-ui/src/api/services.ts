@@ -12,6 +12,7 @@ import type {
   CreateDirectPrintRequest,
   DepartmentResponseDto, DepartmentResponseSummaryDto, DepartmentResponseAttachmentDto, DepartmentTransactionResponseItemDto,
   DepartmentResponseStatsDto, SystemVersionInfo,
+  RecurringTemplateListItem, RecurringTemplateDetail, GenerateRecurringTransactionResponse, RecurringTemplateTransactionItem,
 } from './types';
 import type {
   InstitutionalReportManifest,
@@ -315,4 +316,21 @@ export const departmentResponsesApi = {
     api.get(`/department-responses/${id}/attachments/${attachmentId}/download`, { responseType: 'blob' }),
   adminEdit: (id: number, data: Record<string, unknown>) =>
     api.patch<DepartmentResponseDto>(`/department-responses/${id}/admin-edit`, data),
+};
+
+export const recurringTemplatesApi = {
+  getAll: () => api.get<RecurringTemplateListItem[]>('/recurring-transaction-templates'),
+  getById: (id: number) => api.get<RecurringTemplateDetail>(`/recurring-transaction-templates/${id}`),
+  getTransactions: (id: number) =>
+    api.get<RecurringTemplateTransactionItem[]>(`/recurring-transaction-templates/${id}/transactions`),
+  create: (data: Record<string, unknown>) =>
+    api.post<RecurringTemplateDetail>('/recurring-transaction-templates', data),
+  update: (id: number, data: Record<string, unknown>) =>
+    api.put<RecurringTemplateDetail>(`/recurring-transaction-templates/${id}`, data),
+  pause: (id: number) => api.post<RecurringTemplateDetail>(`/recurring-transaction-templates/${id}/pause`),
+  resume: (id: number) => api.post<RecurringTemplateDetail>(`/recurring-transaction-templates/${id}/resume`),
+  terminate: (id: number, reason: string) =>
+    api.post<RecurringTemplateDetail>(`/recurring-transaction-templates/${id}/terminate`, { reason }),
+  generate: (id: number, data: Record<string, unknown>) =>
+    api.post<GenerateRecurringTransactionResponse>(`/recurring-transaction-templates/${id}/generate`, data),
 };

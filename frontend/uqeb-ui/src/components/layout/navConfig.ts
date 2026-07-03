@@ -48,6 +48,7 @@ export function buildNavSections(institutionalReportsEnabled = isInstitutionalRe
       label: 'العمليات',
       items: [
         { path: '/reports?tab=waiting', label: 'الاحالات والردود', icon: IconReports, hideForDepartmentUser: true },
+        { path: '/recurring-transaction-templates', label: 'الالتزامات الدورية', icon: IconReports, adminOnly: true, matchPrefix: true },
         { path: '/letter-template', label: 'قوالب خطاب التعقيب', icon: IconLetter, supervisorOnly: true, matchPrefix: true },
         { path: '/follow-up-print/eligible', label: 'طباعة التعقيب — المستحقة', icon: IconPrint, followUpPrintOnly: true, matchPrefix: true },
         { path: '/follow-up-print/jobs', label: 'مهام طباعة التعقيب', icon: IconPrint, followUpPrintOnly: true, matchPrefix: true },
@@ -98,6 +99,7 @@ export function getRouteMeta(pathname: string, search: string): RouteMeta {
     '/external-parties': { title: 'الجهات الخارجية', breadcrumbs: [{ label: 'الإدارة' }, { label: 'الجهات الخارجية' }] },
     '/categories': { title: 'التصنيفات', breadcrumbs: [{ label: 'الإدارة' }, { label: 'التصنيفات' }] },
     '/security': { title: 'الأمن والتنبيهات', breadcrumbs: [{ label: 'الإدارة' }, { label: 'الأمن والتنبيهات' }] },
+    '/recurring-transaction-templates': { title: 'الالتزامات الدورية', breadcrumbs: [{ label: 'الالتزامات الدورية' }] },
     '/department-responses': { title: 'معاملات إدارتي', breadcrumbs: [{ label: 'إفادات الإدارات' }, { label: 'معاملات إدارتي' }] },
     '/department-responses/review': { title: 'إفادات بانتظار المراجعة', breadcrumbs: [{ label: 'إفادات الإدارات' }, { label: 'بانتظار المراجعة' }] },
   };

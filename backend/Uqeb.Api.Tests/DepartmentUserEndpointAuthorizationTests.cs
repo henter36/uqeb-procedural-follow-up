@@ -24,6 +24,12 @@ public class DepartmentUserEndpointAuthorizationTests : IClassFixture<Department
     [InlineData("POST", "/api/department-responses/1/approve", "{}")]
     [InlineData("POST", "/api/department-responses/1/return", """{"reviewNote":"x"}""")]
     [InlineData("POST", "/api/department-responses/1/reject", """{"reviewNote":"x"}""")]
+    [InlineData("POST", "/api/recurring-transaction-templates", """{"title":"x"}""")]
+    [InlineData("PUT", "/api/recurring-transaction-templates/1", """{"title":"x"}""")]
+    [InlineData("POST", "/api/recurring-transaction-templates/1/pause", "{}")]
+    [InlineData("POST", "/api/recurring-transaction-templates/1/resume", "{}")]
+    [InlineData("POST", "/api/recurring-transaction-templates/1/terminate", """{"reason":"x"}""")]
+    [InlineData("POST", "/api/recurring-transaction-templates/1/generate", """{"periodKey":"2026-01","incomingDate":"2026-01-01","referralDate":"2026-01-01"}""")]
     public async Task DepartmentUser_MutationEndpoints_ReturnForbidden(string method, string url, string body)
     {
         using var client = CreateDepartmentUserClient();
@@ -44,6 +50,9 @@ public class DepartmentUserEndpointAuthorizationTests : IClassFixture<Department
     [InlineData("/api/follow-up-print/pending")]
     [InlineData("/api/follow-up-print/pending-summary")]
     [InlineData("/api/department-responses/pending-review")]
+    [InlineData("/api/recurring-transaction-templates")]
+    [InlineData("/api/recurring-transaction-templates/1")]
+    [InlineData("/api/recurring-transaction-templates/1/transactions")]
     public async Task DepartmentUser_PrivilegedReadEndpoints_ReturnForbidden(string url)
     {
         using var client = CreateDepartmentUserClient();

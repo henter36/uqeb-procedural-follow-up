@@ -66,6 +66,10 @@ public class TransactionDetailDto : TransactionListDto
     public string? Category { get; set; }
     public string? Notes { get; set; }
     public DateTime? UpdatedAt { get; set; }
+    public int? RecurringTemplateId { get; set; }
+    public string? RecurringTemplateTitle { get; set; }
+    public string? RecurringPeriodKey { get; set; }
+    public string? RecurringPeriodLabel { get; set; }
     public List<OutgoingPartyDto> OutgoingParties { get; set; } = new();
     public List<OutgoingDepartmentDto> OutgoingDepartments { get; set; } = new();
     public List<string> RepliedDepartmentNames { get; set; } = new();

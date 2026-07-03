@@ -46,4 +46,10 @@ public enum AuditAction
     AdminEditAssignment = 42,
     AdminEditTransactionDates = 43,
     AdminEditDepartmentResponse = 44,
+    CreateRecurringTemplate = 45,
+    UpdateRecurringTemplate = 46,
+    PauseRecurringTemplate = 47,
+    ResumeRecurringTemplate = 48,
+    TerminateRecurringTemplate = 49,
+    GenerateRecurringTransaction = 50,
 }

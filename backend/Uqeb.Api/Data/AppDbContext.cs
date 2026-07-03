@@ -36,6 +36,8 @@ public class AppDbContext : DbContext
     public DbSet<ReportNumberSequence> ReportNumberSequences => Set<ReportNumberSequence>();
     public DbSet<DepartmentResponse> DepartmentResponses => Set<DepartmentResponse>();
     public DbSet<DepartmentResponseAttachment> DepartmentResponseAttachments => Set<DepartmentResponseAttachment>();
+    public DbSet<RecurringTransactionTemplate> RecurringTransactionTemplates => Set<RecurringTransactionTemplate>();
+    public DbSet<RecurringTransactionTemplateDepartment> RecurringTransactionTemplateDepartments => Set<RecurringTransactionTemplateDepartment>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -89,6 +91,10 @@ public class AppDbContext : DbContext
             e.HasOne(t => t.IncomingFromDepartment).WithMany(d => d.IncomingTransactions).HasForeignKey(t => t.IncomingFromDepartmentId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne(t => t.OutgoingToParty).WithMany().HasForeignKey(t => t.OutgoingToPartyId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne(t => t.CategoryEntity).WithMany(c => c.Transactions).HasForeignKey(t => t.CategoryId).OnDelete(DeleteBehavior.NoAction);
+            e.HasIndex(t => new { t.RecurringTemplateId, t.RecurringPeriodKey })
+                .IsUnique()
+                .HasFilter("[RecurringTemplateId] IS NOT NULL");
+            e.HasOne(t => t.RecurringTemplate).WithMany(r => r.GeneratedTransactions).HasForeignKey(t => t.RecurringTemplateId).OnDelete(DeleteBehavior.NoAction);
         });
 
         modelBuilder.Entity<TransactionOutgoingParty>(e =>
@@ -313,6 +319,26 @@ public class AppDbContext : DbContext
             e.HasOne(a => a.DepartmentResponse).WithMany(r => r.Attachments).HasForeignKey(a => a.DepartmentResponseId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(a => a.UploadedBy).WithMany().HasForeignKey(a => a.UploadedByUserId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne(a => a.DeletedBy).WithMany().HasForeignKey(a => a.DeletedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        modelBuilder.Entity<RecurringTransactionTemplate>(e =>
+        {
+            e.HasIndex(r => r.Status);
+            e.HasIndex(r => r.RecurrenceType);
+            e.HasOne(r => r.CreatedBy).WithMany().HasForeignKey(r => r.CreatedById).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(r => r.PausedBy).WithMany().HasForeignKey(r => r.PausedById).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(r => r.ResumedBy).WithMany().HasForeignKey(r => r.ResumedById).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(r => r.TerminatedBy).WithMany().HasForeignKey(r => r.TerminatedById).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(r => r.IncomingFromParty).WithMany().HasForeignKey(r => r.IncomingFromPartyId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(r => r.IncomingFromDepartment).WithMany().HasForeignKey(r => r.IncomingFromDepartmentId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(r => r.CategoryEntity).WithMany().HasForeignKey(r => r.CategoryId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        modelBuilder.Entity<RecurringTransactionTemplateDepartment>(e =>
+        {
+            e.HasIndex(x => new { x.TemplateId, x.DepartmentId }).IsUnique();
+            e.HasOne(x => x.Template).WithMany(r => r.Departments).HasForeignKey(x => x.TemplateId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Department).WithMany().HasForeignKey(x => x.DepartmentId).OnDelete(DeleteBehavior.NoAction);
         });
 
         if (Database.ProviderName == SqliteProviderName)

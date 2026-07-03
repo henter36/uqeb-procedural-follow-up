@@ -391,6 +391,7 @@ public class TransactionService : ITransactionService
             .Include(x => x.IncomingFromParty)
             .Include(x => x.IncomingFromDepartment)
             .Include(x => x.OutgoingDepartments).ThenInclude(o => o.Department)
+            .Include(x => x.RecurringTemplate)
             .FirstOrDefaultAsync(x => x.Id == id);
 
         if (t == null) return null;
@@ -2153,6 +2154,10 @@ public class TransactionService : ITransactionService
             CreatedByName = t.CreatedBy?.FullName ?? "",
             CreatedAt = t.CreatedAt,
             UpdatedAt = t.UpdatedAt,
+            RecurringTemplateId = t.RecurringTemplateId,
+            RecurringTemplateTitle = t.RecurringTemplate?.Title,
+            RecurringPeriodKey = t.RecurringPeriodKey,
+            RecurringPeriodLabel = t.RecurringPeriodLabel,
             OutgoingDepartments = t.OutgoingDepartments.Select(o => new OutgoingDepartmentDto
             {
                 Id = o.Id,
