@@ -20,6 +20,7 @@ type CompleteResponseFormPanelProps = Readonly<{
 }>;
 
 const ATTACHMENT_PARTIAL_WARNING = 'تم تسجيل الإفادة، لكن تعذر رفع المرفق. يمكنك رفعه من قسم المرفقات.';
+type AttachmentUploadResult = 'success' | 'partial-warning' | 'none';
 
 export default function CompleteResponseFormPanel({
   transactionId,
@@ -52,47 +53,59 @@ export default function CompleteResponseFormPanel({
     onDirtyChange(dirty && !responseSaved);
   }, [form, attachment, onDirtyChange, responseSaved]);
 
+  const validateBeforeSubmit = (): string | null => {
+    if (isSubmitting) return '';
+    if (responseSaved) return attachment ? null : '';
+    if (!form.responseSummary.trim()) return 'ملخص الإفادة مطلوب';
+    if (isFutureLocalDate(form.responseDate) || isFutureLocalDate(form.outgoingDate)) {
+      return FUTURE_EVENT_DATE_MESSAGE;
+    }
+    if (requiresOutgoing && (!form.outgoingNumber.trim() || !form.outgoingDate)) {
+      return 'رقم الصادر وتاريخ الصادر مطلوبان لنوع الإفادة المحدد';
+    }
+    return null;
+  };
+
+  const saveResponseIfNeeded = async (): Promise<void> => {
+    if (responseSavedRef.current) return;
+
+    await transactionsApi.completeResponse(
+      transactionId,
+      buildCompleteResponsePayload({ ...form, requiresOutgoing }),
+    );
+    responseSavedRef.current = true;
+    setResponseSaved(true);
+    onDirtyChange(false);
+  };
+
+  const uploadAttachmentIfPresent = async (): Promise<AttachmentUploadResult> => {
+    if (!attachment) return 'none';
+
+    try {
+      await transactionsApi.uploadAttachment(transactionId, attachment, 'Response');
+      return 'success';
+    } catch {
+      setAttachment(null);
+      return 'partial-warning';
+    }
+  };
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (isSubmitting) return;
-    if (!responseSaved) {
-      if (!form.responseSummary.trim()) {
-        setError('ملخص الإفادة مطلوب');
-        return;
-      }
-      if (isFutureLocalDate(form.responseDate) || isFutureLocalDate(form.outgoingDate)) {
-        setError(FUTURE_EVENT_DATE_MESSAGE);
-        return;
-      }
-      if (requiresOutgoing && (!form.outgoingNumber.trim() || !form.outgoingDate)) {
-        setError('رقم الصادر وتاريخ الصادر مطلوبان لنوع الإفادة المحدد');
-        return;
-      }
-    } else if (!attachment) {
+
+    const validationError = validateBeforeSubmit();
+    if (validationError !== null) {
+      if (validationError) setError(validationError);
       return;
     }
 
     setError('');
     setIsSubmitting(true);
     try {
-      if (!responseSavedRef.current) {
-        await transactionsApi.completeResponse(
-          transactionId,
-          buildCompleteResponsePayload({ ...form, requiresOutgoing }),
-        );
-        responseSavedRef.current = true;
-        setResponseSaved(true);
-        onDirtyChange(false);
-      }
-
-      if (attachment) {
-        try {
-          await transactionsApi.uploadAttachment(transactionId, attachment, 'Response');
-          onSuccess();
-        } catch {
-          setAttachment(null);
-          onSuccess({ attachmentWarning: ATTACHMENT_PARTIAL_WARNING });
-        }
+      await saveResponseIfNeeded();
+      const attachmentResult = await uploadAttachmentIfPresent();
+      if (attachmentResult === 'partial-warning') {
+        onSuccess({ attachmentWarning: ATTACHMENT_PARTIAL_WARNING });
       } else {
         onSuccess();
       }

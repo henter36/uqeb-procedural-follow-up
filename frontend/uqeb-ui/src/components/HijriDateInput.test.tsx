@@ -1,8 +1,12 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import HijriDateInput from './HijriDateInput';
 import { addDaysIso, todayLocalIso } from '../utils/localDate';
+
+afterEach(() => {
+  cleanup();
+});
 
 describe('HijriDateInput', () => {
   it('formats typed digits as day month year and ignores letters', async () => {
@@ -48,7 +52,8 @@ describe('HijriDateInput', () => {
     expect((manualInput as HTMLInputElement).value).toMatch(/^\d{2}\/\d{2}\/\d{4}$/);
   });
 
-  it('normalizes pasted year-first Hijri dates into day month year display', () => {
+  it('normalizes pasted year-first Hijri dates into day month year display', async () => {
+    const user = userEvent.setup({ writeToClipboard: true });
     const onChange = vi.fn();
     render(
       <HijriDateInput
@@ -59,14 +64,13 @@ describe('HijriDateInput', () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText('تاريخ المعاملة'), {
-      target: { value: '1447/01/01', selectionStart: 10, selectionEnd: 10 },
-      nativeEvent: { inputType: 'insertFromPaste' },
-    });
-
     const input = screen.getByLabelText('تاريخ المعاملة');
-    expect(input).toHaveValue('01/01/1447');
-    expect(onChange).not.toHaveBeenCalledWith('');
+    await navigator.clipboard.writeText('1448/01/16');
+    await user.click(input);
+    await user.paste();
+
+    expect(input).toHaveValue('16/01/1448');
+    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith('2026-07-01'));
   });
 
   it('keeps mid-field edits stable and normalizes on blur', () => {
@@ -74,22 +78,22 @@ describe('HijriDateInput', () => {
       <HijriDateInput
         id="date"
         label="تاريخ المعاملة"
-        value=""
+        value="2026-07-01"
         onChange={vi.fn()}
       />,
     );
 
     const input = screen.getByLabelText('تاريخ المعاملة');
     fireEvent.change(input, {
-      target: { value: '12/3/1448', selectionStart: 4, selectionEnd: 4 },
+      target: { value: '16/1/1448', selectionStart: 4, selectionEnd: 4 },
       nativeEvent: { inputType: 'deleteContentBackward' },
     });
 
-    expect(input).toHaveValue('12/3/1448');
+    expect(input).toHaveValue('16/1/1448');
 
     fireEvent.blur(input);
 
-    expect(input).toHaveValue('12/03/1448');
+    expect(input).toHaveValue('16/01/1448');
   });
 
   it('rejects future dates only when disallowFutureDate is enabled', () => {
