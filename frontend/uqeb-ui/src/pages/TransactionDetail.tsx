@@ -95,6 +95,11 @@ function renderDepartmentCompletionDays(completionDays?: number | null): ReactNo
   return <span className="text-muted">لم تُنجز الإدارة</span>;
 }
 
+function getAssignmentReplyStatusLabel(replyStatus: string): string {
+  if (replyStatus === 'Replied') return 'تمت الإفادة';
+  return replyStatusLabels[replyStatus] || replyStatus;
+}
+
 function hasDepartmentResponseAssignment(items: Assignment[], departmentId?: number | null): boolean {
   if (!departmentId) return false;
   return items.some(
@@ -106,13 +111,13 @@ const ACTION_TITLES: Record<WorkspaceAction, string> = {
   assignment: 'إضافة احالة',
   followup: 'إضافة تعقيب',
   attachment: 'إضافة مرفق',
-  'reply-assignment': 'تسجيل رد على الاحالة',
+  'reply-assignment': 'تسجيل إفادة الإدارة',
   'reply-followup': 'تسجيل رد على التعقيب',
   'complete-response': 'تسجيل إفادة',
   'follow-up-letter': 'خطاب تعقيب PDF',
   'admin-edit-assignment': 'تعديل بيانات الاحالة',
   'admin-edit-dates': 'تصحيح التواريخ الحساسة (إداري)',
-  'admin-edit-response': 'تعديل بيانات الرد (إداري)',
+  'admin-edit-response': 'تعديل بيانات الإفادة',
 };
 
 export default function TransactionDetailPage() {
@@ -917,7 +922,11 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
               testId="reply-assignment-form-panel"
             >
               <ReplyFormPanel
-                title="تسجيل رد على الاحالة"
+                title={ACTION_TITLES['reply-assignment']}
+                dateLabel="تاريخ إنجاز الإدارة"
+                dateHint="يمثل تاريخ الإفادة/إنجاز رد الإدارة، ويستخدم في احتساب أيام إنجاز الإدارة."
+                summaryLabel="ملخص الإفادة *"
+                submitLabel="حفظ الإفادة"
                 onDirtyChange={setActionDirty}
                 onCancel={closeAction}
                 onSubmit={(payload) => transactionsApi.replyAssignment(+id, replyAssignmentId, payload)}
@@ -994,59 +1003,71 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                   </tr>
                 </thead>
                 <tbody>
-                  {assignments.map((a) => (
-                    <tr key={a.id} className={a.isOverdue ? 'row-overdue' : ''}>
-                      <td>
-                        <div>{a.departmentName}</div>
-                        {a.requiredAction && <div className="text-muted">{a.requiredAction}</div>}
-                      </td>
-                      <td>{a.letterNumber || '—'}</td>
-                      <td><DateDisplay date={a.assignedDate} /></td>
-                      <td>{a.dueDate ? <DateDisplay date={a.dueDate} /> : '—'}</td>
-                      <td>{a.responseDate ? <DateDisplay date={a.responseDate} /> : '—'}</td>
-                      <td>
-                        {renderDepartmentCompletionDays(a.departmentCompletionDays)}
-                      </td>
-                      <td>
-                        <span className={`badge ${assignmentReplyBadgeClass(a.replyStatus, a.isOverdue)}`}>
-                          {replyStatusLabels[a.replyStatus] || a.replyStatus}
-                        </span>
-                        {a.isOverdue && a.replyStatus !== 'Replied' && (
-                          <span className="badge badge-red ms-1">متأخرة</span>
-                        )}
-                      </td>
-                      <td className="assignment-actions-cell">
-                        {a.requiresReply && a.replyStatus !== 'Replied' && a.status !== 'Cancelled' && canReply && (
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-outline"
-                            onClick={() => openAction('reply-assignment', { replyAssignmentId: a.id })}
-                          >
-                            تسجيل رد
-                          </button>
-                        )}
-                        {isAdmin && (
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-outline"
-                            onClick={() => openAction('admin-edit-assignment', { adminEditAssignmentId: a.id })}
-                          >
-                            تعديل
-                          </button>
-                        )}
-                        {isAdmin && a.departmentResponseId && (
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-outline"
-                            onClick={() => openAction('admin-edit-response', { adminEditResponseId: a.departmentResponseId })}
-                          >
-                            تعديل الرد
-                          </button>
-                        )}
-                        {a.replySummary && <div className="text-muted reply-summary">{a.replySummary}</div>}
-                      </td>
-                    </tr>
-                  ))}
+                  {assignments.map((a) => {
+                    const replyStatusLabel = getAssignmentReplyStatusLabel(a.replyStatus);
+                    const canOpenAdminAssignmentEdit = isAdmin && a.canAdminEdit !== false;
+                    const canOpenAdminResponseEdit = isAdmin && a.replyStatus === 'Replied' && Boolean(a.departmentResponseId);
+
+                    return (
+                      <tr key={a.id} className={a.isOverdue ? 'row-overdue' : ''}>
+                        <td>
+                          <div>
+                            {canOpenAdminAssignmentEdit ? (
+                              <button
+                                type="button"
+                                className="link-button assignment-department-link"
+                                aria-label={`تعديل إحالة إدارة ${a.departmentName}`}
+                                onClick={() => openAction('admin-edit-assignment', { adminEditAssignmentId: a.id })}
+                              >
+                                {a.departmentName}
+                              </button>
+                            ) : (
+                              <span>{a.departmentName}</span>
+                            )}
+                          </div>
+                          {a.requiredAction && <div className="text-muted">{a.requiredAction}</div>}
+                        </td>
+                        <td>{a.letterNumber || '—'}</td>
+                        <td><DateDisplay date={a.assignedDate} /></td>
+                        <td>{a.dueDate ? <DateDisplay date={a.dueDate} /> : '—'}</td>
+                        <td>{a.responseDate ? <DateDisplay date={a.responseDate} /> : '—'}</td>
+                        <td>
+                          {renderDepartmentCompletionDays(a.departmentCompletionDays)}
+                        </td>
+                        <td>
+                          {canOpenAdminResponseEdit ? (
+                            <button
+                              type="button"
+                              className={`badge assignment-response-status-link ${assignmentReplyBadgeClass(a.replyStatus, a.isOverdue)}`}
+                              aria-label={`تعديل إفادة إدارة ${a.departmentName}`}
+                              onClick={() => openAction('admin-edit-response', { adminEditResponseId: a.departmentResponseId! })}
+                            >
+                              {replyStatusLabel}
+                            </button>
+                          ) : (
+                            <span className={`badge ${assignmentReplyBadgeClass(a.replyStatus, a.isOverdue)}`}>
+                              {replyStatusLabel}
+                            </span>
+                          )}
+                          {a.isOverdue && a.replyStatus !== 'Replied' && (
+                            <span className="badge badge-red ms-1">متأخرة</span>
+                          )}
+                        </td>
+                        <td className="assignment-actions-cell">
+                          {a.requiresReply && a.replyStatus !== 'Replied' && a.status !== 'Cancelled' && canReply && (
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-outline"
+                              onClick={() => openAction('reply-assignment', { replyAssignmentId: a.id })}
+                            >
+                              تسجيل رد
+                            </button>
+                          )}
+                          {a.replySummary && <div className="text-muted reply-summary">{a.replySummary}</div>}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
