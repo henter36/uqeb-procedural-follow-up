@@ -52,7 +52,7 @@ const MONTHS_BY_RECURRENCE_TYPE: Record<string, number> = {
   Annual: 12,
 };
 
-export function calculateRecurringPeriodEndDate(startDate: string, recurrenceType: string): Date | null {
+export function calculateRecurringPeriodEndDate(startDate: string, recurrenceType: string): string | null {
   if (!startDate) return null;
 
   const months = MONTHS_BY_RECURRENCE_TYPE[recurrenceType];
@@ -61,7 +61,8 @@ export function calculateRecurringPeriodEndDate(startDate: string, recurrenceTyp
   const anchorDate = new Date(`${startDate.split('T')[0]}T00:00:00Z`);
   if (Number.isNaN(anchorDate.getTime())) return null;
 
-  return addUtcMonthsClamped(anchorDate, months);
+  const resultDate = addUtcMonthsClamped(anchorDate, months);
+  return resultDate.toISOString().split('T')[0];
 }
 
 export function buildMonthlyPeriodKey(monthInputValue: string): string {

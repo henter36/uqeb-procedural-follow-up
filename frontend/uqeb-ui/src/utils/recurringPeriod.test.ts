@@ -37,12 +37,10 @@ describe('recurringPeriod', () => {
   });
 
   it('clamps the first period end to the last valid day of the target month', () => {
-    const toIsoDate = (date: Date | null) => date?.toISOString().split('T')[0];
-
-    expect(toIsoDate(calculateRecurringPeriodEndDate('2026-01-31', 'Monthly'))).toBe('2026-02-28');
-    expect(toIsoDate(calculateRecurringPeriodEndDate('2026-01-31', 'Quarterly'))).toBe('2026-04-30');
-    expect(toIsoDate(calculateRecurringPeriodEndDate('2026-08-31', 'SemiAnnual'))).toBe('2027-02-28');
-    expect(toIsoDate(calculateRecurringPeriodEndDate('2024-02-29', 'Annual'))).toBe('2025-02-28');
+    expect(calculateRecurringPeriodEndDate('2026-01-31', 'Monthly')).toBe('2026-02-28');
+    expect(calculateRecurringPeriodEndDate('2026-01-31', 'Quarterly')).toBe('2026-04-30');
+    expect(calculateRecurringPeriodEndDate('2026-08-31', 'SemiAnnual')).toBe('2027-02-28');
+    expect(calculateRecurringPeriodEndDate('2024-02-29', 'Annual')).toBe('2025-02-28');
   });
 
   it('returns null for an empty start date or unknown recurrence type', () => {
