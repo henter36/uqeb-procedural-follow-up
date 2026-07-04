@@ -37,7 +37,9 @@ public class RecurringPeriodCalculatorTests
             "2028-02",
             new DateTime(2028, 1, 31, 0, 0, 0, DateTimeKind.Utc));
 
-        Assert.Equal(new DateTime(2028, 2, 29, 0, 0, 0, DateTimeKind.Utc), period.PeriodEnd);
+        Assert.Equal(new DateTime(2028, 2, 29, 0, 0, 0, DateTimeKind.Utc), period.PeriodStart);
+        Assert.Equal(new DateTime(2028, 3, 31, 0, 0, 0, DateTimeKind.Utc), period.PeriodEnd);
+        Assert.Equal(period.PeriodEnd, period.DueDate);
     }
 
     [Fact]
@@ -75,7 +77,7 @@ public class RecurringPeriodCalculatorTests
     }
 
     [Fact]
-    public void Compute_SemiAnnual_calculates_first_half_correctly()
+    public void Compute_SemiAnnual_calculates_second_half_correctly()
     {
         var period = RecurringPeriodCalculator.Compute(RecurrenceType.SemiAnnual, "2026-H2", Anchor);
 
@@ -86,7 +88,7 @@ public class RecurringPeriodCalculatorTests
     }
 
     [Fact]
-    public void Compute_SemiAnnual_calculates_second_half_correctly()
+    public void Compute_SemiAnnual_calculates_first_half_correctly()
     {
         var period = RecurringPeriodCalculator.Compute(RecurrenceType.SemiAnnual, "2027-H1", Anchor);
 
