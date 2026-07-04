@@ -9,6 +9,7 @@ public static class InstitutionalReportXlsxExporter
     private const string SeverityHeader = "الخطورة";
     private const string DepartmentHeader = "الإدارة";
     private const string PriorityHeader = "الأولوية";
+    private const string OnTimeHeader = "ضمن المهلة";
 
     public static byte[] Export(
         InstitutionalReportModel model,
@@ -160,7 +161,7 @@ public static class InstitutionalReportXlsxExporter
     {
         var ws = workbook.Worksheets.Add("أداء الإدارات");
         ws.RightToLeft = true;
-        var headers = new[] { DepartmentHeader, "إجمالي", "مغلقة", "مفتوحة", "بانتظار إفادة", "متأخرة", "إدارات مشتركة", "متوسط الإنجاز", "ضمن المهلة", "التقييم" };
+        var headers = new[] { DepartmentHeader, "إجمالي", "مغلقة", "مفتوحة", "بانتظار إفادة", "متأخرة", "إدارات مشتركة", "متوسط الإنجاز", OnTimeHeader, "التقييم" };
         for (var i = 0; i < headers.Length; i++) ws.Cell(1, i + 1).Value = headers[i];
         ws.Range(1, 1, 1, headers.Length).Style.Fill.BackgroundColor = XLColor.FromHtml("#123F32");
         ws.Range(1, 1, 1, headers.Length).Style.Font.FontColor = XLColor.White;
@@ -235,7 +236,7 @@ public static class InstitutionalReportXlsxExporter
 
         var ws = workbook.Worksheets.Add("Department Time Series");
         ws.RightToLeft = true;
-        var headers = new[] { "الفترة", DepartmentHeader, "الوارد", "المغلق", "المفتوح", "المتأخر", "ضمن المهلة", "متوسط الإنجاز", "الإفادات المعلقة", "الردود الجزئية", "تغير التراكم" };
+        var headers = new[] { "الفترة", DepartmentHeader, "الوارد", "المغلق", "المفتوح", "المتأخر", OnTimeHeader, "متوسط الإنجاز", "الإفادات المعلقة", "الردود الجزئية", "تغير التراكم" };
         WriteHeaders(ws, headers);
         var row = 2;
         foreach (var point in model.Analysis.DepartmentTimeSeries)
@@ -260,7 +261,7 @@ public static class InstitutionalReportXlsxExporter
     {
         var ws = workbook.Worksheets.Add("Categories");
         ws.RightToLeft = true;
-        var headers = new[] { "التصنيف", "الإجمالي", "مفتوحة", "متأخرة", "ضمن المهلة", "متوسط الإنجاز", "إفادات معلقة" };
+        var headers = new[] { "التصنيف", "الإجمالي", "مفتوحة", "متأخرة", OnTimeHeader, "متوسط الإنجاز", "إفادات معلقة" };
         WriteHeaders(ws, headers);
         var row = 2;
         foreach (var category in model.Analysis.Categories)
@@ -281,7 +282,7 @@ public static class InstitutionalReportXlsxExporter
     {
         var ws = workbook.Worksheets.Add("Priorities");
         ws.RightToLeft = true;
-        var headers = new[] { PriorityHeader, "الإجمالي", "مفتوحة", "متأخرة", "متوسط العمر", "ضمن المهلة" };
+        var headers = new[] { PriorityHeader, "الإجمالي", "مفتوحة", "متأخرة", "متوسط العمر", OnTimeHeader };
         WriteHeaders(ws, headers);
         var row = 2;
         foreach (var priority in model.Analysis.Priorities)
