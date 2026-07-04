@@ -25,12 +25,14 @@ describe('recurringPeriod', () => {
   });
 
   it('computes the expected due date for SemiAnnual and Annual periods', () => {
-    expect(getExpectedDueDate('SemiAnnual', '2026-H1', 10)).toBe('2026-07-10');
-    expect(getExpectedDueDate('Annual', '2026', 15)).toBe('2027-01-15');
+    expect(getExpectedDueDate('Monthly', '2026-07', '2026-07-10')).toBe('2026-08-10');
+    expect(getExpectedDueDate('Quarterly', '2026-Q3', '2026-07-10')).toBe('2026-10-10');
+    expect(getExpectedDueDate('SemiAnnual', '2026-H2', '2026-07-10')).toBe('2027-01-10');
+    expect(getExpectedDueDate('Annual', '2026', '2026-07-10')).toBe('2027-07-10');
   });
 
   it('returns null when the period key does not match the recurrence type', () => {
-    expect(getExpectedDueDate('SemiAnnual', 'not-a-period', 10)).toBeNull();
-    expect(getExpectedDueDate('Annual', 'not-a-period', 10)).toBeNull();
+    expect(getExpectedDueDate('SemiAnnual', 'not-a-period', '2026-07-10')).toBeNull();
+    expect(getExpectedDueDate('Annual', 'not-a-period', '2026-07-10')).toBeNull();
   });
 });

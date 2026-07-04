@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import TransactionDetailPage from './TransactionDetail';
@@ -1720,8 +1720,6 @@ describe('TransactionDetailPage recurring template info', () => {
     await waitFor(() => expect(screen.getByRole('region', { name: 'تفعيل متابعة دورية' })).toBeInTheDocument());
 
     const panel = screen.getByRole('region', { name: 'تفعيل متابعة دورية' });
-    fireEvent.change(within(panel).getByLabelText('بداية الالتزام - اختيار من التقويم'), { target: { value: '2026-01-01' } });
-    await user.type(within(panel).getByLabelText('عدد الأيام بعد نهاية الفترة للاستحقاق *'), '10');
     await user.click(within(panel).getByRole('button', { name: 'تفعيل المتابعة الدورية' }));
 
     await waitFor(() => expect(services.transactionsApi.enableRecurring).toHaveBeenCalledTimes(1));

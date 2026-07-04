@@ -20,66 +20,68 @@ public static class RecurringPeriodCalculator
         DateTime PeriodEnd,
         DateTime DueDate);
 
-    public static PeriodInfo Compute(RecurrenceType recurrenceType, string periodKey, int dueDaysAfterPeriodEnd)
+    public static PeriodInfo Compute(RecurrenceType recurrenceType, string periodKey, DateTime anchorStartDate)
     {
         if (string.IsNullOrWhiteSpace(periodKey))
             throw new InvalidOperationException("الفترة مطلوبة.");
 
         return recurrenceType switch
         {
-            RecurrenceType.Monthly => ComputeMonthly(periodKey, dueDaysAfterPeriodEnd),
-            RecurrenceType.Quarterly => ComputeQuarterly(periodKey, dueDaysAfterPeriodEnd),
-            RecurrenceType.SemiAnnual => ComputeSemiAnnual(periodKey, dueDaysAfterPeriodEnd),
-            RecurrenceType.Annual => ComputeAnnual(periodKey, dueDaysAfterPeriodEnd),
+            RecurrenceType.Monthly => ComputeMonthly(periodKey, anchorStartDate),
+            RecurrenceType.Quarterly => ComputeQuarterly(periodKey, anchorStartDate),
+            RecurrenceType.SemiAnnual => ComputeSemiAnnual(periodKey, anchorStartDate),
+            RecurrenceType.Annual => ComputeAnnual(periodKey, anchorStartDate),
             _ => throw new InvalidOperationException("نوع التكرار غير مدعوم.")
         };
     }
 
     private static PeriodInfo ComputeFromYearAndStartMonth(
-        int year, int startMonth, int spanMonths, string periodKey, string label, int dueDaysAfterPeriodEnd)
+        DateTime anchorStartDate, int targetYear, int targetStartMonth, int spanMonths, string periodKey, string label)
     {
-        var periodStart = new DateTime(year, startMonth, 1, 0, 0, 0, DateTimeKind.Utc);
-        var periodEnd = periodStart.AddMonths(spanMonths).AddDays(-1);
-        var dueDate = periodEnd.AddDays(dueDaysAfterPeriodEnd);
-        return new PeriodInfo(periodKey, label, periodStart, periodEnd, dueDate);
+        var anchorPeriodStartMonth = ((anchorStartDate.Month - 1) / spanMonths * spanMonths) + 1;
+        var monthOffset = ((targetYear - anchorStartDate.Year) * 12) + targetStartMonth - anchorPeriodStartMonth;
+        var periodIndex = monthOffset / spanMonths;
+        var periodStart = anchorStartDate.Date.AddMonths(periodIndex * spanMonths);
+        var periodEnd = anchorStartDate.Date.AddMonths((periodIndex + 1) * spanMonths);
+        return new PeriodInfo(periodKey, label, periodStart, periodEnd, periodEnd);
     }
 
-    private static PeriodInfo ComputeMonthly(string periodKey, int dueDaysAfterPeriodEnd)
+    private static PeriodInfo ComputeMonthly(string periodKey, DateTime anchorStartDate)
     {
         if (!TryParseYearMonth(periodKey, out var year, out var month))
             throw new InvalidOperationException("صيغة الفترة الشهرية غير صحيحة. الصيغة الصحيحة: YYYY-MM.");
 
         var label = $"{ArabicMonthNames[month - 1]} {year}";
-        return ComputeFromYearAndStartMonth(year, month, 1, NormalizeMonthlyKey(year, month), label, dueDaysAfterPeriodEnd);
+        return ComputeFromYearAndStartMonth(anchorStartDate, year, month, 1, NormalizeMonthlyKey(year, month), label);
     }
 
-    private static PeriodInfo ComputeQuarterly(string periodKey, int dueDaysAfterPeriodEnd)
+    private static PeriodInfo ComputeQuarterly(string periodKey, DateTime anchorStartDate)
     {
         if (!TryParseYearQuarter(periodKey, out var year, out var quarter))
             throw new InvalidOperationException("صيغة الفترة الربع سنوية غير صحيحة. الصيغة الصحيحة: YYYY-Q1 إلى YYYY-Q4.");
 
         var startMonth = ((quarter - 1) * 3) + 1;
         var label = $"الربع {ArabicQuarterOrdinals[quarter - 1]} {year}";
-        return ComputeFromYearAndStartMonth(year, startMonth, 3, NormalizeQuarterlyKey(year, quarter), label, dueDaysAfterPeriodEnd);
+        return ComputeFromYearAndStartMonth(anchorStartDate, year, startMonth, 3, NormalizeQuarterlyKey(year, quarter), label);
     }
 
-    private static PeriodInfo ComputeSemiAnnual(string periodKey, int dueDaysAfterPeriodEnd)
+    private static PeriodInfo ComputeSemiAnnual(string periodKey, DateTime anchorStartDate)
     {
         if (!TryParseYearHalf(periodKey, out var year, out var half))
             throw new InvalidOperationException("صيغة الفترة النصف سنوية غير صحيحة. الصيغة الصحيحة: YYYY-H1 أو YYYY-H2.");
 
         var startMonth = ((half - 1) * 6) + 1;
         var label = $"النصف {ArabicHalfOrdinals[half - 1]} {year}";
-        return ComputeFromYearAndStartMonth(year, startMonth, 6, NormalizeHalfKey(year, half), label, dueDaysAfterPeriodEnd);
+        return ComputeFromYearAndStartMonth(anchorStartDate, year, startMonth, 6, NormalizeHalfKey(year, half), label);
     }
 
-    private static PeriodInfo ComputeAnnual(string periodKey, int dueDaysAfterPeriodEnd)
+    private static PeriodInfo ComputeAnnual(string periodKey, DateTime anchorStartDate)
     {
         if (!TryParseYearOnly(periodKey, out var year))
             throw new InvalidOperationException("صيغة الفترة السنوية غير صحيحة. الصيغة الصحيحة: YYYY.");
 
         var label = $"سنة {year}";
-        return ComputeFromYearAndStartMonth(year, 1, 12, NormalizeYearKey(year), label, dueDaysAfterPeriodEnd);
+        return ComputeFromYearAndStartMonth(anchorStartDate, year, 1, 12, NormalizeYearKey(year), label);
     }
 
     public static bool TryParseYearMonth(string periodKey, out int year, out int month)

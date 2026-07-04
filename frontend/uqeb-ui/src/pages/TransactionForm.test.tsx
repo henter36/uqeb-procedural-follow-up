@@ -605,8 +605,8 @@ describe('TransactionForm recurring follow-up', () => {
     await user.click(screen.getByRole('checkbox', { name: /هذه المعاملة ذات التزام دوري/ }));
 
     expect(screen.getByLabelText('نوع التكرار *')).toBeInTheDocument();
-    expect(screen.getByText(/بداية الالتزام/)).toBeInTheDocument();
-    expect(screen.getByLabelText('عدد الأيام بعد نهاية الفترة للاستحقاق *')).toBeInTheDocument();
+    expect(screen.queryByText(/بداية الالتزام/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('عدد الأيام بعد نهاية الفترة للاستحقاق *')).not.toBeInTheDocument();
   });
 
   it('CreateTransaction_DoesNotSendRecurringFieldsWhenOptionIsUnchecked', async () => {
@@ -641,15 +641,14 @@ describe('TransactionForm recurring follow-up', () => {
     await user.click(within(routingSection).getByLabelText('إدارة داخلية'));
 
     await user.click(screen.getByRole('checkbox', { name: /هذه المعاملة ذات التزام دوري/ }));
-    await user.type(screen.getByLabelText('بداية الالتزام *'), hijriInputForGregorian('2026-06-01'));
-    await user.type(screen.getByLabelText('عدد الأيام بعد نهاية الفترة للاستحقاق *'), '10');
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
 
     await waitFor(() => expect(services.transactionsApi.create).toHaveBeenCalled());
     const payload = vi.mocked(services.transactionsApi.create).mock.calls[0][0] as Record<string, unknown>;
     expect(payload.enableRecurringFollowUp).toBe(true);
     expect(payload.recurringRecurrenceType).toBe('Monthly');
-    expect(payload.recurringDueDaysAfterPeriodEnd).toBe(10);
+    expect(payload.recurringStartDate).toBe('2026-06-01T00:00:00');
+    expect(payload.recurringDueDaysAfterPeriodEnd).toBe(0);
   });
 });
 

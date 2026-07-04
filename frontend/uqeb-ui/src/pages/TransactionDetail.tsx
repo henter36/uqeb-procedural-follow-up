@@ -857,6 +857,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
           >
             <EnableRecurringFormPanel
               transactionId={+id}
+              incomingDate={tx.incomingDate}
               onDirtyChange={setActionDirty}
               onCancel={closeAction}
               onSuccess={handleEnableRecurringSuccess}
