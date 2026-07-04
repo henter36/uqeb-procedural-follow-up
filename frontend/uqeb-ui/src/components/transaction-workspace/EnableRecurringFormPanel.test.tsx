@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import EnableRecurringFormPanel from './EnableRecurringFormPanel';
 import { transactionsApi } from '../../api/services';
 
@@ -47,7 +47,9 @@ describe('EnableRecurringFormPanel', () => {
   it('does not send a dueDaysAfterPeriodEnd input and resets dirty state after success', async () => {
     const onDirtyChange = vi.fn();
     const onSuccess = vi.fn();
-    vi.mocked(transactionsApi.enableRecurring).mockResolvedValue({ data: {} } as never);
+    vi.mocked(transactionsApi.enableRecurring).mockResolvedValue(
+      { data: {} } as Awaited<ReturnType<typeof transactionsApi.enableRecurring>>,
+    );
 
     const { container } = render(
       <EnableRecurringFormPanel
@@ -62,12 +64,12 @@ describe('EnableRecurringFormPanel', () => {
     expect(container.querySelector('[name*="dueDays" i]')).toBeNull();
 
     const form = container.querySelector('form')!;
-    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    fireEvent.submit(form);
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(transactionsApi.enableRecurring).toHaveBeenCalledWith(1, expect.objectContaining({ dueDaysAfterPeriodEnd: 0 }));
     });
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(onDirtyChange).toHaveBeenLastCalledWith(false);
     });
     expect(onSuccess).toHaveBeenCalled();

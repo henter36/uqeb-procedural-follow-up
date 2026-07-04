@@ -102,7 +102,7 @@ public class TransactionRecurringWorkflowTests
 
         var result = await service.CreateAsync(request, userId: 1);
 
-        Assert.False(request.EnableRecurringFollowUp ?? false);
+        Assert.Null(request.EnableRecurringFollowUp);
         Assert.Null(result.RecurringTemplateId);
         Assert.Null(result.RecurringPeriodLabel);
     }
@@ -211,8 +211,10 @@ public class TransactionRecurringWorkflowTests
 
         var result = await service.CreateAsync(request, userId: 1);
 
-        var template = await db.RecurringTransactionTemplates.FindAsync(result.RecurringTemplateId!.Value);
-        Assert.Equal(request.IncomingDate.Date, template!.StartDate);
+        Assert.NotNull(result.RecurringTemplateId);
+        var template = await db.RecurringTransactionTemplates.FindAsync(result.RecurringTemplateId.Value);
+        Assert.NotNull(template);
+        Assert.Equal(request.IncomingDate.Date, template.StartDate);
     }
 
     [Fact]
@@ -227,10 +229,13 @@ public class TransactionRecurringWorkflowTests
 
         var result = await service.CreateAsync(request, userId: 1);
 
-        var template = await db.RecurringTransactionTemplates.FindAsync(result.RecurringTemplateId!.Value);
+        Assert.NotNull(result.RecurringTemplateId);
+        var template = await db.RecurringTransactionTemplates.FindAsync(result.RecurringTemplateId.Value);
         var tx = await db.Transactions.FindAsync(result.Id);
-        Assert.Equal(request.IncomingDate, template!.StartDate);
-        Assert.Equal(new DateTime(2020, 2, 10, 0, 0, 0, DateTimeKind.Utc), tx!.ResponseDueDate);
+        Assert.NotNull(template);
+        Assert.NotNull(tx);
+        Assert.Equal(request.IncomingDate, template.StartDate);
+        Assert.Equal(new DateTime(2020, 2, 10, 0, 0, 0, DateTimeKind.Utc), tx.ResponseDueDate);
     }
 
     [Fact]
@@ -302,10 +307,12 @@ public class TransactionRecurringWorkflowTests
         Assert.NotNull(result!.RecurringTemplateId);
         Assert.Equal(1, await db.RecurringTransactionTemplates.CountAsync());
 
-        var template = await db.RecurringTransactionTemplates.FindAsync(result.RecurringTemplateId!.Value);
+        var template = await db.RecurringTransactionTemplates.FindAsync(result.RecurringTemplateId.Value);
         var tx = await db.Transactions.FindAsync(result.Id);
-        Assert.Equal(request.IncomingDate, template!.StartDate);
-        Assert.Equal(new DateTime(2020, 2, 10, 0, 0, 0, DateTimeKind.Utc), tx!.ResponseDueDate);
+        Assert.NotNull(template);
+        Assert.NotNull(tx);
+        Assert.Equal(request.IncomingDate, template.StartDate);
+        Assert.Equal(new DateTime(2020, 2, 10, 0, 0, 0, DateTimeKind.Utc), tx.ResponseDueDate);
     }
 
     [Fact]
