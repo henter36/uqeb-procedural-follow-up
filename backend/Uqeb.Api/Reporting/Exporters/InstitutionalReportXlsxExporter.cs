@@ -9,6 +9,7 @@ public static class InstitutionalReportXlsxExporter
     private const string SeverityHeader = "الخطورة";
     private const string DepartmentHeader = "الإدارة";
     private const string PriorityHeader = "الأولوية";
+    private const string OnTimeHeader = "ضمن المهلة";
 
     public static byte[] Export(
         InstitutionalReportModel model,
@@ -31,6 +32,9 @@ public static class InstitutionalReportXlsxExporter
 
         if (ShouldInclude(manifest, ReportSectionId.DepartmentPerformance))
             AddDepartmentsSheet(workbook, model);
+
+        if (ShouldInclude(manifest, ReportSectionId.TimeTrends))
+            AddDepartmentTimeSeriesSheet(workbook, model);
 
         if (ShouldInclude(manifest, ReportSectionId.ExternalPartyAnalysis))
             AddExternalPartiesSheet(workbook, model);
@@ -157,7 +161,7 @@ public static class InstitutionalReportXlsxExporter
     {
         var ws = workbook.Worksheets.Add("أداء الإدارات");
         ws.RightToLeft = true;
-        var headers = new[] { DepartmentHeader, "إجمالي", "مغلقة", "مفتوحة", "بانتظار إفادة", "متأخرة", "إدارات مشتركة", "متوسط الإنجاز", "ضمن المهلة", "التقييم" };
+        var headers = new[] { DepartmentHeader, "إجمالي", "مغلقة", "مفتوحة", "بانتظار إفادة", "متأخرة", "إدارات مشتركة", "متوسط الإنجاز", OnTimeHeader, "التقييم" };
         for (var i = 0; i < headers.Length; i++) ws.Cell(1, i + 1).Value = headers[i];
         ws.Range(1, 1, 1, headers.Length).Style.Fill.BackgroundColor = XLColor.FromHtml("#123F32");
         ws.Range(1, 1, 1, headers.Length).Style.Font.FontColor = XLColor.White;
@@ -221,11 +225,43 @@ public static class InstitutionalReportXlsxExporter
         FinishTable(ws, row - 1, headers.Length);
     }
 
+    /// <summary>
+    /// Unlike the HTML/PDF view (RenderDepartmentTimeSeries), this sheet exports the full,
+    /// uncapped department × period breakdown — no top-10 department limit is applied here.
+    /// </summary>
+    private static void AddDepartmentTimeSeriesSheet(XLWorkbook workbook, InstitutionalReportModel model)
+    {
+        if (model.Analysis.DepartmentTimeSeries.Count == 0)
+            return;
+
+        var ws = workbook.Worksheets.Add("Department Time Series");
+        ws.RightToLeft = true;
+        var headers = new[] { "الفترة", DepartmentHeader, "الوارد", "المغلق", "المفتوح", "المتأخر", OnTimeHeader, "متوسط الإنجاز", "الإفادات المعلقة", "الردود الجزئية", "تغير التراكم" };
+        WriteHeaders(ws, headers);
+        var row = 2;
+        foreach (var point in model.Analysis.DepartmentTimeSeries)
+        {
+            ws.Cell(row, 1).Value = point.PeriodLabel;
+            ws.Cell(row, 2).Value = point.DepartmentName;
+            ws.Cell(row, 3).Value = point.IncomingCount;
+            ws.Cell(row, 4).Value = point.ClosedCount;
+            ws.Cell(row, 5).Value = point.OpenCount;
+            ws.Cell(row, 6).Value = point.OverdueCount;
+            ws.Cell(row, 7).Value = point.OnTimeCompletionRate;
+            ws.Cell(row, 8).Value = point.AverageCompletionDays;
+            ws.Cell(row, 9).Value = point.PendingAssignments;
+            ws.Cell(row, 10).Value = point.PartialReplies;
+            ws.Cell(row, 11).Value = point.BacklogGrowth;
+            row++;
+        }
+        FinishTable(ws, row - 1, headers.Length);
+    }
+
     private static void AddCategoriesSheet(XLWorkbook workbook, InstitutionalReportModel model)
     {
         var ws = workbook.Worksheets.Add("Categories");
         ws.RightToLeft = true;
-        var headers = new[] { "التصنيف", "الإجمالي", "مفتوحة", "متأخرة", "ضمن المهلة", "متوسط الإنجاز", "إفادات معلقة" };
+        var headers = new[] { "التصنيف", "الإجمالي", "مفتوحة", "متأخرة", OnTimeHeader, "متوسط الإنجاز", "إفادات معلقة" };
         WriteHeaders(ws, headers);
         var row = 2;
         foreach (var category in model.Analysis.Categories)
@@ -246,7 +282,7 @@ public static class InstitutionalReportXlsxExporter
     {
         var ws = workbook.Worksheets.Add("Priorities");
         ws.RightToLeft = true;
-        var headers = new[] { PriorityHeader, "الإجمالي", "مفتوحة", "متأخرة", "متوسط العمر", "ضمن المهلة" };
+        var headers = new[] { PriorityHeader, "الإجمالي", "مفتوحة", "متأخرة", "متوسط العمر", OnTimeHeader };
         WriteHeaders(ws, headers);
         var row = 2;
         foreach (var priority in model.Analysis.Priorities)

@@ -216,6 +216,10 @@ internal static class InstitutionalReportVisualFixtures
         [
             new TimeSeriesPointDto { PeriodLabel = "2026-06", PeriodStart = new DateTime(2026, 6, 1), Incoming = 125, Closed = 83, OpenBalance = 42, Overdue = 11, OnTimeRate = 88.2, AverageCompletionDays = 12.5, BacklogGrowth = 42 },
         ],
+        DepartmentTimeSeries =
+        [
+            new DepartmentTimeSeriesPointDto { DepartmentId = 1, DepartmentName = "الشؤون الإدارية", PeriodStart = new DateTime(2026, 6, 1), PeriodLabel = "2026-06", IncomingCount = 40, ClosedCount = 25, OpenCount = 15, OverdueCount = 3, OnTimeCompletionRate = 88.2, AverageCompletionDays = 12.5, PendingAssignments = 4, PartialReplies = 2, BacklogGrowth = 15 },
+        ],
         DepartmentPerformance =
         [
             new DepartmentAnalysisRowDto { DepartmentName = "الشؤون الإدارية", IncomingCount = 40, ClosedCount = 25, OpenCount = 15, OverdueCount = 3, OnTimeCompletionRate = 88.2, AverageCompletionDays = 12.5, MedianCompletionDays = 11, PendingAssignments = 4, PartialReplies = 2, OldestOpenAgeDays = 45, DataCompletenessRate = 94, SampleSize = 40, SystemComparison = "أفضل من متوسط النظام" },

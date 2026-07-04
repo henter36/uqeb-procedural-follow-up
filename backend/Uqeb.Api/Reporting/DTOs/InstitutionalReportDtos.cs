@@ -242,6 +242,28 @@ public sealed class TimeSeriesPointDto
     public int BacklogGrowth { get; set; }
 }
 
+/// <summary>
+/// One department's metrics within a single time-grouped period. Grouped by IncomingDate
+/// (same basis as TimeSeriesPointDto) and ResponsibleDepartment — a transaction is counted
+/// under its single responsible department, never duplicated across joint departments.
+/// </summary>
+public sealed class DepartmentTimeSeriesPointDto
+{
+    public int? DepartmentId { get; set; }
+    public string DepartmentName { get; set; } = string.Empty;
+    public DateTime PeriodStart { get; set; }
+    public string PeriodLabel { get; set; } = string.Empty;
+    public int IncomingCount { get; set; }
+    public int ClosedCount { get; set; }
+    public int OpenCount { get; set; }
+    public int OverdueCount { get; set; }
+    public double OnTimeCompletionRate { get; set; }
+    public double AverageCompletionDays { get; set; }
+    public int PendingAssignments { get; set; }
+    public int PartialReplies { get; set; }
+    public int BacklogGrowth { get; set; }
+}
+
 public sealed class MethodologyDto
 {
     public string ReportName { get; set; } = string.Empty;
@@ -270,6 +292,7 @@ public sealed class InstitutionalReportAnalysisResult
     public List<SignificantFindingDto> Findings { get; set; } = [];
     public List<CriticalCaseDto> CriticalCases { get; set; } = [];
     public List<TimeSeriesPointDto> TimeSeries { get; set; } = [];
+    public List<DepartmentTimeSeriesPointDto> DepartmentTimeSeries { get; set; } = [];
     public List<DepartmentAnalysisRowDto> DepartmentPerformance { get; set; } = [];
     public List<ExternalPartyAnalysisRowDto> ExternalParties { get; set; } = [];
     public List<CategoryAnalysisRowDto> Categories { get; set; } = [];

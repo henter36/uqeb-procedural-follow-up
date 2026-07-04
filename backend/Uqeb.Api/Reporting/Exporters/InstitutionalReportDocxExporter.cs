@@ -3,6 +3,7 @@ using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
+using Uqeb.Api.Reporting.Services;
 
 namespace Uqeb.Api.Reporting.Exporters;
 
@@ -157,6 +158,27 @@ public static class InstitutionalReportDocxExporter
         AppendHeading(body, "التحليل الزمني");
         foreach (var point in model.Analysis.TimeSeries)
             AppendParagraph(body, $"{point.PeriodLabel}: وارد {point.Incoming}، مغلق {point.Closed}، متأخر {point.Overdue}");
+
+        var departmentPoints = model.Analysis.DepartmentTimeSeries;
+        if (departmentPoints.Count == 0)
+            return;
+
+        var departmentGroups = DepartmentTimeSeriesRanking.RankDepartments(departmentPoints);
+        var topDepartmentKeys = DepartmentTimeSeriesRanking.TopDepartmentKeys(departmentGroups);
+
+        AppendHeading(body, "التحليل الزمني حسب الإدارة");
+        if (topDepartmentKeys.Count < departmentGroups.Count)
+        {
+            AppendParagraph(
+                body,
+                $"تعرض هذه القائمة أعلى {DepartmentTimeSeriesRanking.TopDepartments} إدارات حسب المتأخرات ثم المفتوحة ثم الوارد؛ تصدير XLSX يشمل كل الإدارات.",
+                bold: true);
+        }
+        foreach (var point in departmentPoints.Where(p => DepartmentTimeSeriesRanking.IsTopDepartment(p, topDepartmentKeys)))
+        {
+            var departmentName = DepartmentTimeSeriesRanking.NormalizeDepartmentName(point.DepartmentName);
+            AppendParagraph(body, $"{point.PeriodLabel} — {departmentName}: وارد {point.IncomingCount}، مغلق {point.ClosedCount}، متأخر {point.OverdueCount}");
+        }
     }
 
     private static void AppendDepartmentPerformanceSection(Body body, InstitutionalReportModel model)

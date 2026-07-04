@@ -170,6 +170,14 @@ internal static class InstitutionalReportAnalysisService
                 reportType,
                 snapshotCount,
                 () => BuildTimeSeries(currentSnapshots, timeGrouping));
+        var departmentTimeSeries = request.IncludeTimeTrends == false || request.IncludeDepartmentPerformance == false
+            ? []
+            : MeasureStage(
+                instrumentation,
+                "department_time_series",
+                reportType,
+                snapshotCount,
+                () => BuildDepartmentTimeSeries(currentSnapshots, timeGrouping));
         var insights = request.IncludeExecutiveSummary == false
             ? []
             : MeasureStage(
@@ -192,6 +200,7 @@ internal static class InstitutionalReportAnalysisService
             Findings = findings,
             CriticalCases = criticalCases,
             TimeSeries = timeSeries,
+            DepartmentTimeSeries = departmentTimeSeries,
             DepartmentPerformance = departments,
             ExternalParties = externalParties,
             Categories = categories,
@@ -1009,6 +1018,47 @@ internal static class InstitutionalReportAnalysisService
             .ToList();
     }
 
+    /// <summary>
+    /// Departmental breakdown of BuildTimeSeries: same IncomingDate/grouping basis, further
+    /// split by ResponsibleDepartment so each transaction is counted under its single
+    /// responsible department per period — never duplicated across joint departments.
+    /// </summary>
+    private static List<DepartmentTimeSeriesPointDto> BuildDepartmentTimeSeries(
+        IReadOnlyList<TransactionReportSnapshot> snapshots,
+        ReportTimeGrouping grouping)
+    {
+        return snapshots
+            .GroupBy(s => PeriodStart(s.IncomingDate, grouping))
+            .SelectMany(periodGroup => periodGroup
+                .GroupBy(s => new { s.ResponsibleDepartmentId, Name = BlankToUnknown(s.ResponsibleDepartment) })
+                .Select(deptGroup =>
+                {
+                    var incoming = deptGroup.Count();
+                    var closed = deptGroup.Count(s => s.IsClosed);
+                    return new DepartmentTimeSeriesPointDto
+                    {
+                        DepartmentId = deptGroup.Key.ResponsibleDepartmentId,
+                        DepartmentName = deptGroup.Key.Name,
+                        PeriodStart = periodGroup.Key,
+                        PeriodLabel = PeriodLabel(periodGroup.Key, grouping),
+                        IncomingCount = incoming,
+                        ClosedCount = closed,
+                        OpenCount = deptGroup.Count(s => s.IsOpen),
+                        OverdueCount = deptGroup.Count(s => s.IsOverdue),
+                        OnTimeCompletionRate = CalculateOnTimeRate(deptGroup),
+                        AverageCompletionDays = Average(CompletionDays(deptGroup)),
+                        PendingAssignments = deptGroup.Sum(s => s.PendingReplyAssignmentCount),
+                        PartialReplies = deptGroup.Count(s => s.IsPartialReply),
+                        BacklogGrowth = incoming - closed
+                    };
+                }))
+            .OrderBy(p => p.PeriodStart)
+            .ThenByDescending(p => p.OverdueCount)
+            .ThenByDescending(p => p.OpenCount)
+            .ThenByDescending(p => p.IncomingCount)
+            .ToList();
+    }
+
     private static MethodologyDto BuildMethodology(
         ReportMetadataDto metadata,
         ReportFiltersDto filters,
@@ -1027,6 +1077,8 @@ internal static class InstitutionalReportAnalysisService
             "AverageResponseDays (تقديري): لا يوجد حقل ResponseCompletedAt مستقل في النموذج الحالي. " +
             "يُستخدم ClosedAt كبديل تقريبي للمعاملات ذات ResponseCompleted=true. " +
             "التحسين المستقبلي يتطلب حقل ResponseCompletedAt أو مصدر رد مكتمل من التكليفات.",
+            "التحليل الزمني حسب الإدارة يعتمد على تاريخ الوارد وتجميع المعاملة تحت الإدارة المسؤولة الأساسية الحالية، " +
+            "ولا يكرر المعاملة على كل الإدارات المشاركة.",
         };
         if (detailRowsTruncated)
             deferred.Add("Detail rows truncated: بعض الجداول التفصيلية محدودة حسب إعدادات التصدير.");
