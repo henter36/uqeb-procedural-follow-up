@@ -210,25 +210,32 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         var generatedAt = DateTime.UtcNow;
         var referenceDate = ReportingTemporalCalculator.RiyadhBusinessDate();
 
-        var metricSnapshots = await LoadSnapshotsAsync(request, ct, takeLimit: null, referenceDate);
+        // The overdue report evaluates "is this overdue" as of the requested period end
+        // (DateTo), not as of today, so old-but-still-overdue transactions from earlier
+        // periods aren't dropped just because a later period was requested. Every other
+        // report type keeps evaluating against today (same as referenceDate).
+        var overdueEvaluationDate = InstitutionalReportSnapshotQuery.ResolveOverdueEvaluationDate(
+            request.ReportType, request.Filters.DateTo);
+
+        var metricSnapshots = await LoadSnapshotsAsync(request, ct, takeLimit: null, overdueEvaluationDate);
         if (request.Filters.IncludeOverdue)
         {
             metricSnapshots = metricSnapshots.Where(s => s.IsOverdue).ToList();
             totalMatched = metricSnapshots.Count;
         }
-        var metrics = InstitutionalReportMetricsCalculator.Calculate(metricSnapshots, referenceDate);
+        var metrics = InstitutionalReportMetricsCalculator.Calculate(metricSnapshots, overdueEvaluationDate);
         var comparisonRequest = InstitutionalReportAnalysisService.CreateComparisonRequest(request);
         var comparisonSnapshots = comparisonRequest is null
             ? []
-            : await LoadSnapshotsAsync(comparisonRequest, ct, takeLimit: null, referenceDate);
+            : await LoadSnapshotsAsync(comparisonRequest, ct, takeLimit: null, overdueEvaluationDate);
         if (request.Filters.IncludeOverdue && comparisonSnapshots.Count > 0)
             comparisonSnapshots = comparisonSnapshots.Where(s => s.IsOverdue).ToList();
         var comparisonMetrics = comparisonRequest is null
             ? null
-            : InstitutionalReportMetricsCalculator.Calculate(comparisonSnapshots, referenceDate);
+            : InstitutionalReportMetricsCalculator.Calculate(comparisonSnapshots, overdueEvaluationDate);
 
         var (detailSnapshots, exportedDetailRows) = await ResolveDetailRowsAsync(
-            request, options, totalMatched, metricSnapshots, ct);
+            request, options, totalMatched, metricSnapshots, overdueEvaluationDate, ct);
 
         var detailRowsTruncated = options.DetailRowsTruncated || totalMatched > exportedDetailRows || options.DetailPartsCount > 1;
         string reportNumber;
@@ -312,6 +319,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         ReportAssemblyOptions options,
         int totalMatched,
         List<TransactionReportSnapshot> metricSnapshots,
+        DateTime overdueEvaluationDate,
         CancellationToken ct)
     {
         if (options.OmitDetailRows)
@@ -322,7 +330,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             var exportedCount = options.ExportedDetailRowsOverride ?? Math.Min(totalMatched, options.DetailRowsToLoad.Value);
             var snapshots = exportedCount >= metricSnapshots.Count
                 ? metricSnapshots
-                : await LoadSnapshotsAsync(request, ct, takeLimit: exportedCount);
+                : await LoadSnapshotsAsync(request, ct, takeLimit: exportedCount, overdueEvaluationDate);
             return (snapshots, exportedCount);
         }
 

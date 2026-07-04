@@ -86,7 +86,8 @@ public class InstitutionalReportOverdueQueryTests
         query = InstitutionalReportSnapshotQuery.ApplyReportTypeFilter(
             query,
             InstitutionalReportType.OverdueTransactions,
-            singleTransactionId: null);
+            singleTransactionId: null,
+            dateTo: null);
         var filteredIds = await query.Select(t => t.IncomingNumber).ToListAsync();
 
         var allRows = await db.Transactions.AsNoTracking()

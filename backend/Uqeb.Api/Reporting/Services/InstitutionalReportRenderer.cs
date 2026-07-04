@@ -909,6 +909,7 @@ public sealed class InstitutionalReportRenderer
           <dt>إصدار التقرير</dt><dd>{Esc(m.ReportVersion)}</dd>
           <dt>وقت الإنشاء</dt><dd>{FormatDateTime(m.GeneratedAtUtc)}</dd>
           <dt>فترة البيانات</dt><dd>{Esc(m.DataPeriod)}</dd>
+          <dt>أساس الفترة الزمنية</dt><dd>{Esc(DisplayValue(m.PeriodBasis))}</dd>
           <dt>فترة المقارنة</dt><dd>{Esc(m.ComparisonPeriod)}</dd>
           <dt>الفلاتر</dt><dd>{Esc(m.Filters)}</dd>
           <dt>مصدر البيانات</dt><dd>{Esc(DisplayValue(m.DataSource))}</dd>

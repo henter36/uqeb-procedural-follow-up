@@ -41,7 +41,7 @@ public class InstitutionalReportXlsxExporterTests
         Assert.Contains("ارتفاع نسبة التأخر", findings!.Cell(2, 2).GetString());
         Assert.Equal("IN-0001", criticalCases!.Cell(2, 2).GetString());
         Assert.Contains("مراجعة المعاملات المتأخرة", recommendations!.Cell(2, 3).GetString());
-        Assert.Contains("AverageFirstActionHours", methodology!.Cell(12, 2).GetString());
+        Assert.Contains("AverageFirstActionHours", methodology!.Cell(13, 2).GetString());
 
         AssertHeaders(findings, ["الكود", "العنوان", "الوصف", "الدليل", SeverityHeader, "النطاق"]);
         AssertHeaders(criticalCases, ["المعرف", "رقم الوارد", "الموضوع", DepartmentHeader, "الجهة", PriorityHeader, "العمر", "أيام التأخر", "السبب", "الإجراء", SeverityHeader]);

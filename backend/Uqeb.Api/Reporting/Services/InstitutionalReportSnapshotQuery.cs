@@ -101,7 +101,8 @@ internal static class InstitutionalReportSnapshotQuery
     internal static IQueryable<Transaction> ApplyReportTypeFilter(
         IQueryable<Transaction> query,
         InstitutionalReportType reportType,
-        int? singleTransactionId)
+        int? singleTransactionId,
+        DateTime? dateTo)
     {
         if (reportType == InstitutionalReportType.SingleTransaction)
         {
@@ -120,7 +121,7 @@ internal static class InstitutionalReportSnapshotQuery
         {
             return InstitutionalReportOverdueQuery.ApplyOverdueFilter(
                 query,
-                ReportingTemporalCalculator.RiyadhBusinessDate());
+                ResolveOverdueEvaluationDate(reportType, dateTo));
         }
 
         if (reportType == InstitutionalReportType.JointDepartmentTransactions)
@@ -163,9 +164,10 @@ internal static class InstitutionalReportSnapshotQuery
     internal static IQueryable<Transaction> ApplyInstitutionalFilter(
         IQueryable<Transaction> query,
         ReportFiltersDto filters,
-        ReportFilterRequest legacy)
+        ReportFilterRequest legacy,
+        InstitutionalReportType reportType)
     {
-        query = ApplyDateFilter(query, legacy);
+        query = ApplyDateFilter(query, legacy, reportType);
         query = ApplyCategoryFilter(query, filters);
         query = ApplyDepartmentFilter(query, filters);
         query = ApplyPartyFilter(query, filters);
@@ -175,9 +177,17 @@ internal static class InstitutionalReportSnapshotQuery
         return query;
     }
 
-    private static IQueryable<Transaction> ApplyDateFilter(IQueryable<Transaction> query, ReportFilterRequest legacy)
+    /// <summary>
+    /// The overdue report answers "what's open and overdue as of the period end", so a
+    /// transaction that arrived before the period must not be excluded just because its
+    /// IncomingDate predates DateFrom. Every other report type keeps filtering by IncomingDate.
+    /// </summary>
+    private static IQueryable<Transaction> ApplyDateFilter(
+        IQueryable<Transaction> query,
+        ReportFilterRequest legacy,
+        InstitutionalReportType reportType)
     {
-        if (legacy.DateFrom.HasValue)
+        if (legacy.DateFrom.HasValue && reportType != InstitutionalReportType.OverdueTransactions)
             query = query.Where(t => t.IncomingDate >= legacy.DateFrom.Value.Date);
         if (legacy.DateTo.HasValue)
         {
@@ -186,6 +196,17 @@ internal static class InstitutionalReportSnapshotQuery
         }
         return query;
     }
+
+    /// <summary>
+    /// The date "as of" which overdue-ness is evaluated. The overdue report evaluates against
+    /// the requested period end (DateTo) so old-but-still-overdue transactions from earlier
+    /// periods keep showing up when a later period is requested; every other report type (and
+    /// the additive IncludeOverdue filter on general reports) keeps evaluating against today.
+    /// </summary>
+    internal static DateTime ResolveOverdueEvaluationDate(InstitutionalReportType reportType, DateTime? dateTo) =>
+        reportType == InstitutionalReportType.OverdueTransactions
+            ? (dateTo?.Date ?? ReportingTemporalCalculator.RiyadhBusinessDate())
+            : ReportingTemporalCalculator.RiyadhBusinessDate();
 
     private static IQueryable<Transaction> ApplyCategoryFilter(IQueryable<Transaction> query, ReportFiltersDto filters)
     {
