@@ -641,8 +641,6 @@ public sealed class InstitutionalReportRenderer
         """;
     }
 
-    private const int DepartmentTimeSeriesTopDepartments = 10;
-
     /// <summary>
     /// Caps the HTML/PDF view to the top departments (by Overdue, then Open, then Incoming
     /// totals across the whole window) so the report doesn't balloon with every department ×
@@ -654,26 +652,12 @@ public sealed class InstitutionalReportRenderer
         if (points.Count == 0)
             return string.Empty;
 
-        var allDepartmentKeys = points.Select(p => (p.DepartmentId, p.DepartmentName)).Distinct().ToList();
-        var topDepartmentKeys = points
-            .GroupBy(p => (p.DepartmentId, p.DepartmentName))
-            .Select(g => new
-            {
-                g.Key,
-                OverdueCount = g.Sum(p => p.OverdueCount),
-                OpenCount = g.Sum(p => p.OpenCount),
-                IncomingCount = g.Sum(p => p.IncomingCount),
-            })
-            .OrderByDescending(x => x.OverdueCount)
-            .ThenByDescending(x => x.OpenCount)
-            .ThenByDescending(x => x.IncomingCount)
-            .Take(DepartmentTimeSeriesTopDepartments)
-            .Select(x => x.Key)
-            .ToHashSet();
+        var departmentGroups = DepartmentTimeSeriesRanking.RankDepartments(points);
+        var topDepartmentKeys = DepartmentTimeSeriesRanking.TopDepartmentKeys(departmentGroups);
 
         var visibleRows = points.Where(p => topDepartmentKeys.Contains((p.DepartmentId, p.DepartmentName))).ToList();
-        var truncationNote = topDepartmentKeys.Count < allDepartmentKeys.Count
-            ? $"""<div class="partial-note">تعرض هذه القائمة أعلى {DepartmentTimeSeriesTopDepartments} إدارات حسب المتأخرات ثم المفتوحة ثم الوارد؛ تصدير XLSX يشمل كل الإدارات.</div>"""
+        var truncationNote = topDepartmentKeys.Count < departmentGroups.Count
+            ? $"""<div class="partial-note">تعرض هذه القائمة أعلى {DepartmentTimeSeriesRanking.TopDepartments} إدارات حسب المتأخرات ثم المفتوحة ثم الوارد؛ تصدير XLSX يشمل كل الإدارات.</div>"""
             : string.Empty;
 
         var rows = string.Join(string.Empty, visibleRows.Select(p =>

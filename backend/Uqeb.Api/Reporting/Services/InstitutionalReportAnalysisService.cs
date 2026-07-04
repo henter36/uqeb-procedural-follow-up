@@ -1029,7 +1029,6 @@ internal static class InstitutionalReportAnalysisService
     {
         return snapshots
             .GroupBy(s => PeriodStart(s.IncomingDate, grouping))
-            .OrderBy(g => g.Key)
             .SelectMany(periodGroup => periodGroup
                 .GroupBy(s => new { s.ResponsibleDepartmentId, Name = BlankToUnknown(s.ResponsibleDepartment) })
                 .Select(deptGroup =>

@@ -3,6 +3,7 @@ using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
+using Uqeb.Api.Reporting.Services;
 
 namespace Uqeb.Api.Reporting.Exporters;
 
@@ -152,8 +153,6 @@ public static class InstitutionalReportDocxExporter
             AppendParagraph(body, $"{item.IncomingNumber} — {item.Subject} — {item.ReasonLabel} — {item.RequiredAction}");
     }
 
-    private const int DepartmentTimeSeriesTopDepartments = 10;
-
     private static void AppendTimeTrendsSection(Body body, InstitutionalReportModel model)
     {
         AppendHeading(body, "التحليل الزمني");
@@ -164,21 +163,8 @@ public static class InstitutionalReportDocxExporter
         if (departmentPoints.Count == 0)
             return;
 
-        var topDepartmentKeys = departmentPoints
-            .GroupBy(p => (p.DepartmentId, p.DepartmentName))
-            .Select(g => new
-            {
-                g.Key,
-                OverdueCount = g.Sum(p => p.OverdueCount),
-                OpenCount = g.Sum(p => p.OpenCount),
-                IncomingCount = g.Sum(p => p.IncomingCount),
-            })
-            .OrderByDescending(x => x.OverdueCount)
-            .ThenByDescending(x => x.OpenCount)
-            .ThenByDescending(x => x.IncomingCount)
-            .Take(DepartmentTimeSeriesTopDepartments)
-            .Select(x => x.Key)
-            .ToHashSet();
+        var topDepartmentKeys = DepartmentTimeSeriesRanking.TopDepartmentKeys(
+            DepartmentTimeSeriesRanking.RankDepartments(departmentPoints));
 
         AppendHeading(body, "التحليل الزمني حسب الإدارة");
         foreach (var point in departmentPoints.Where(p => topDepartmentKeys.Contains((p.DepartmentId, p.DepartmentName))))
