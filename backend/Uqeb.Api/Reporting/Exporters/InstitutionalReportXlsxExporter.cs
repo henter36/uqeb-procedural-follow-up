@@ -410,6 +410,7 @@ public static class InstitutionalReportXlsxExporter
             ("Report version", m.ReportVersion),
             ("Generated at UTC", m.GeneratedAtUtc.ToString("yyyy-MM-dd HH:mm")),
             ("Data period", m.DataPeriod),
+            ("Period basis", m.PeriodBasis),
             ("Comparison period", m.ComparisonPeriod),
             ("Filters", m.Filters),
             ("Data source", m.DataSource),

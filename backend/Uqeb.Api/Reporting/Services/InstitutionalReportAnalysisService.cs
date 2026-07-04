@@ -1037,11 +1037,32 @@ internal static class InstitutionalReportAnalysisService
             ReportVersion = InstitutionalReportStyles.TemplateVersion,
             GeneratedAtUtc = metadata.GeneratedAt,
             DataPeriod = $"{metadata.PeriodFrom:yyyy-MM-dd} إلى {metadata.PeriodTo:yyyy-MM-dd}",
+            PeriodBasis = BuildPeriodBasisNote(request.ReportType, filters.IncludeOverdue),
             ComparisonPeriod = BuildComparisonPeriodLabel(request, comparisonRequest, previousSnapshots, comparisonMode),
             Filters = BuildFilterSummary(filters),
             RowLimits = $"DetailLimit={detailLimit:N0}; Truncated={(detailRowsTruncated ? "yes" : "no")}",
             DeferredMetrics = deferred
         };
+    }
+
+    /// <summary>Documents which date field the report's period actually filters on, per the report type.</summary>
+    private static string BuildPeriodBasisNote(InstitutionalReportType reportType, bool includeOverdue)
+    {
+        if (reportType == InstitutionalReportType.OverdueTransactions)
+        {
+            return "يعرض التقرير المعاملات المفتوحة المتأخرة حتى تاريخ نهاية الفترة (تاريخ التقييم)، " +
+                   "بغض النظر عن كون تاريخ الوارد قبل بداية الفترة، مع استبعاد المعاملات ذات تاريخ وارد بعد نهاية الفترة. " +
+                   "أيام التأخير محسوبة حتى تاريخ نهاية الفترة نفسه.";
+        }
+
+        var basis = "الفترة الزمنية مبنية على تاريخ الوارد.";
+        if (includeOverdue)
+        {
+            basis += " فلتر «تضمين المتأخرات» يعرض المعاملات المتأخرة ضمن نطاق تاريخ الوارد المحدد فقط، " +
+                     "وليس كل المعاملات المتأخرة المفتوحة (استخدم تقرير المعاملات المتأخرة لذلك).";
+        }
+
+        return basis;
     }
 
     private static string BuildComparisonPeriodLabel(

@@ -236,6 +236,7 @@ public static class InstitutionalReportDocxExporter
         var m = model.Analysis.Methodology;
         AppendHeading(body, "المنهجية والتعريفات");
         AppendParagraph(body, $"فترة البيانات: {m.DataPeriod}");
+        AppendParagraph(body, $"أساس الفترة الزمنية: {m.PeriodBasis}");
         AppendParagraph(body, $"فترة المقارنة: {m.ComparisonPeriod}");
         AppendParagraph(body, $"الفلاتر: {m.Filters}");
         AppendParagraph(body, $"مصدر البيانات: {m.DataSource}");

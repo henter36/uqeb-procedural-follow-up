@@ -248,6 +248,7 @@ public sealed class MethodologyDto
     public string ReportVersion { get; set; } = string.Empty;
     public DateTime GeneratedAtUtc { get; set; }
     public string DataPeriod { get; set; } = string.Empty;
+    public string PeriodBasis { get; set; } = string.Empty;
     public string ComparisonPeriod { get; set; } = "غير مطبقة";
     public string Filters { get; set; } = string.Empty;
     public string DataSource { get; set; } = "Live query";
