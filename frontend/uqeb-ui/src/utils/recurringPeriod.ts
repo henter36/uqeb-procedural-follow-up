@@ -90,6 +90,8 @@ export function getExpectedDueDate(
   periodKey: string,
   startDate: string,
 ): string | null {
+  if (!startDate) return null;
+
   const anchorDate = new Date(`${startDate.split('T')[0]}T00:00:00Z`);
   if (Number.isNaN(anchorDate.getTime())) return null;
 
