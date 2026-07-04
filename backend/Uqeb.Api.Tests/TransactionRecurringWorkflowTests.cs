@@ -102,7 +102,7 @@ public class TransactionRecurringWorkflowTests
 
         var result = await service.CreateAsync(request, userId: 1);
 
-        Assert.False(request.EnableRecurringFollowUp);
+        Assert.False(request.EnableRecurringFollowUp ?? false);
         Assert.Null(result.RecurringTemplateId);
         Assert.Null(result.RecurringPeriodLabel);
     }
@@ -200,18 +200,19 @@ public class TransactionRecurringWorkflowTests
     }
 
     [Fact]
-    public async Task CreateAsync_recurring_enabled_missing_StartDate_fails_validation_with_remapped_key()
+    public async Task CreateAsync_recurring_enabled_ignores_missing_RecurringStartDate_and_anchors_on_IncomingDate()
     {
-        var (service, _) = await CreateServiceAsync(nameof(CreateAsync_recurring_enabled_missing_StartDate_fails_validation_with_remapped_key));
+        var (service, db) = await CreateServiceAsync(nameof(CreateAsync_recurring_enabled_ignores_missing_RecurringStartDate_and_anchors_on_IncomingDate));
         var request = BuildBaseRequest(10);
         request.EnableRecurringFollowUp = true;
         request.RecurringRecurrenceType = "Monthly";
         request.RecurringStartDate = null;
         request.RecurringDueDaysAfterPeriodEnd = 10;
 
-        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.CreateAsync(request, userId: 1));
+        var result = await service.CreateAsync(request, userId: 1);
 
-        Assert.True(ex.FieldErrors.ContainsKey(nameof(CreateTransactionRequest.RecurringStartDate)));
+        var template = await db.RecurringTransactionTemplates.FindAsync(result.RecurringTemplateId!.Value);
+        Assert.Equal(request.IncomingDate.Date, template!.StartDate);
     }
 
     [Fact]
@@ -221,7 +222,7 @@ public class TransactionRecurringWorkflowTests
         var request = BuildBaseRequest(10);
         request.EnableRecurringFollowUp = true;
         request.RecurringRecurrenceType = "Monthly";
-        request.IncomingDate = new DateTime(2026, 7, 10, 0, 0, 0, DateTimeKind.Utc);
+        request.IncomingDate = new DateTime(2020, 1, 10, 0, 0, 0, DateTimeKind.Utc);
         request.RecurringDueDaysAfterPeriodEnd = -1;
 
         var result = await service.CreateAsync(request, userId: 1);
@@ -229,7 +230,7 @@ public class TransactionRecurringWorkflowTests
         var template = await db.RecurringTransactionTemplates.FindAsync(result.RecurringTemplateId!.Value);
         var tx = await db.Transactions.FindAsync(result.Id);
         Assert.Equal(request.IncomingDate, template!.StartDate);
-        Assert.Equal(new DateTime(2026, 8, 10, 0, 0, 0, DateTimeKind.Utc), tx!.ResponseDueDate);
+        Assert.Equal(new DateTime(2020, 2, 10, 0, 0, 0, DateTimeKind.Utc), tx!.ResponseDueDate);
     }
 
     [Fact]
@@ -286,7 +287,7 @@ public class TransactionRecurringWorkflowTests
     {
         var (service, db) = await CreateServiceAsync(nameof(EnableRecurringAsync_links_existing_transaction_to_new_template));
         var request = BuildBaseRequest(10);
-        request.IncomingDate = new DateTime(2026, 7, 10, 0, 0, 0, DateTimeKind.Utc);
+        request.IncomingDate = new DateTime(2020, 1, 10, 0, 0, 0, DateTimeKind.Utc);
         var created = await service.CreateAsync(request, userId: 1);
         Assert.Null(created.RecurringTemplateId);
 
@@ -304,7 +305,7 @@ public class TransactionRecurringWorkflowTests
         var template = await db.RecurringTransactionTemplates.FindAsync(result.RecurringTemplateId!.Value);
         var tx = await db.Transactions.FindAsync(result.Id);
         Assert.Equal(request.IncomingDate, template!.StartDate);
-        Assert.Equal(new DateTime(2026, 8, 10, 0, 0, 0, DateTimeKind.Utc), tx!.ResponseDueDate);
+        Assert.Equal(new DateTime(2020, 2, 10, 0, 0, 0, DateTimeKind.Utc), tx!.ResponseDueDate);
     }
 
     [Fact]
