@@ -152,11 +152,37 @@ public static class InstitutionalReportDocxExporter
             AppendParagraph(body, $"{item.IncomingNumber} — {item.Subject} — {item.ReasonLabel} — {item.RequiredAction}");
     }
 
+    private const int DepartmentTimeSeriesTopDepartments = 10;
+
     private static void AppendTimeTrendsSection(Body body, InstitutionalReportModel model)
     {
         AppendHeading(body, "التحليل الزمني");
         foreach (var point in model.Analysis.TimeSeries)
             AppendParagraph(body, $"{point.PeriodLabel}: وارد {point.Incoming}، مغلق {point.Closed}، متأخر {point.Overdue}");
+
+        var departmentPoints = model.Analysis.DepartmentTimeSeries;
+        if (departmentPoints.Count == 0)
+            return;
+
+        var topDepartmentKeys = departmentPoints
+            .GroupBy(p => (p.DepartmentId, p.DepartmentName))
+            .Select(g => new
+            {
+                g.Key,
+                OverdueCount = g.Sum(p => p.OverdueCount),
+                OpenCount = g.Sum(p => p.OpenCount),
+                IncomingCount = g.Sum(p => p.IncomingCount),
+            })
+            .OrderByDescending(x => x.OverdueCount)
+            .ThenByDescending(x => x.OpenCount)
+            .ThenByDescending(x => x.IncomingCount)
+            .Take(DepartmentTimeSeriesTopDepartments)
+            .Select(x => x.Key)
+            .ToHashSet();
+
+        AppendHeading(body, "التحليل الزمني حسب الإدارة");
+        foreach (var point in departmentPoints.Where(p => topDepartmentKeys.Contains((p.DepartmentId, p.DepartmentName))))
+            AppendParagraph(body, $"{point.PeriodLabel} — {point.DepartmentName}: وارد {point.IncomingCount}، مغلق {point.ClosedCount}، متأخر {point.OverdueCount}");
     }
 
     private static void AppendDepartmentPerformanceSection(Body body, InstitutionalReportModel model)

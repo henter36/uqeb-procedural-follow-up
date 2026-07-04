@@ -32,6 +32,9 @@ public static class InstitutionalReportXlsxExporter
         if (ShouldInclude(manifest, ReportSectionId.DepartmentPerformance))
             AddDepartmentsSheet(workbook, model);
 
+        if (ShouldInclude(manifest, ReportSectionId.TimeTrends))
+            AddDepartmentTimeSeriesSheet(workbook, model);
+
         if (ShouldInclude(manifest, ReportSectionId.ExternalPartyAnalysis))
             AddExternalPartiesSheet(workbook, model);
 
@@ -216,6 +219,38 @@ public static class InstitutionalReportXlsxExporter
             ws.Cell(row, 8).Value = party.FollowUpCount;
             ws.Cell(row, 9).Value = party.OldestPendingResponseDays;
             ws.Cell(row, 10).Value = party.TopCategories;
+            row++;
+        }
+        FinishTable(ws, row - 1, headers.Length);
+    }
+
+    /// <summary>
+    /// Unlike the HTML/PDF view (RenderDepartmentTimeSeries), this sheet exports the full,
+    /// uncapped department × period breakdown — no top-10 department limit is applied here.
+    /// </summary>
+    private static void AddDepartmentTimeSeriesSheet(XLWorkbook workbook, InstitutionalReportModel model)
+    {
+        if (model.Analysis.DepartmentTimeSeries.Count == 0)
+            return;
+
+        var ws = workbook.Worksheets.Add("Department Time Series");
+        ws.RightToLeft = true;
+        var headers = new[] { "الفترة", DepartmentHeader, "الوارد", "المغلق", "المفتوح", "المتأخر", "ضمن المهلة", "متوسط الإنجاز", "الإفادات المعلقة", "الردود الجزئية", "تغير التراكم" };
+        WriteHeaders(ws, headers);
+        var row = 2;
+        foreach (var point in model.Analysis.DepartmentTimeSeries)
+        {
+            ws.Cell(row, 1).Value = point.PeriodLabel;
+            ws.Cell(row, 2).Value = point.DepartmentName;
+            ws.Cell(row, 3).Value = point.IncomingCount;
+            ws.Cell(row, 4).Value = point.ClosedCount;
+            ws.Cell(row, 5).Value = point.OpenCount;
+            ws.Cell(row, 6).Value = point.OverdueCount;
+            ws.Cell(row, 7).Value = point.OnTimeCompletionRate;
+            ws.Cell(row, 8).Value = point.AverageCompletionDays;
+            ws.Cell(row, 9).Value = point.PendingAssignments;
+            ws.Cell(row, 10).Value = point.PartialReplies;
+            ws.Cell(row, 11).Value = point.BacklogGrowth;
             row++;
         }
         FinishTable(ws, row - 1, headers.Length);

@@ -54,6 +54,46 @@ public class InstitutionalReportXlsxExporterTests
         AssertHeaders(recommendations, [PriorityHeader, "النتيجة", "الإجراء", "المسؤول", "المدة المقترحة", "الحالة", "الدليل"]);
     }
 
+    [Fact]
+    public void Export_IncludesDepartmentTimeSeriesWorksheet_WhenTimeTrendsSectionIsRendered()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        var manifest = InstitutionalReportVisualFixtures.RenderSections(
+            model,
+            ReportSectionId.KeyPerformanceIndicators,
+            ReportSectionId.TimeTrends,
+            ReportSectionId.DepartmentPerformance);
+
+        var bytes = InstitutionalReportXlsxExporter.Export(model, manifest, new ReportExportRequestDto());
+
+        using var workbook = new XLWorkbook(new MemoryStream(bytes));
+        Assert.True(workbook.TryGetWorksheet("Department Time Series", out var departmentTimeSeries));
+        Assert.NotNull(departmentTimeSeries);
+        AssertHeaders(departmentTimeSeries, ["الفترة", DepartmentHeader, "الوارد", "المغلق", "المفتوح", "المتأخر", "ضمن المهلة", "متوسط الإنجاز", "الإفادات المعلقة", "الردود الجزئية", "تغير التراكم"]);
+        Assert.Equal("2026-06", departmentTimeSeries.Cell(2, 1).GetString());
+        Assert.Equal("الشؤون الإدارية", departmentTimeSeries.Cell(2, 2).GetString());
+
+        // Existing worksheets from the same export must not be broken by the new sheet.
+        Assert.True(workbook.TryGetWorksheet("KPIs", out var kpis));
+        Assert.NotNull(kpis);
+        Assert.Equal("إجمالي المعاملات", kpis.Cell(2, 1).GetString());
+        Assert.True(workbook.TryGetWorksheet("أداء الإدارات", out var departmentPerformance));
+        Assert.NotNull(departmentPerformance);
+    }
+
+    [Fact]
+    public void Export_OmitsDepartmentTimeSeriesWorksheet_WhenNoDataAndTimeTrendsSectionRendered()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        model.Analysis.DepartmentTimeSeries = [];
+        var manifest = InstitutionalReportVisualFixtures.RenderSections(model, ReportSectionId.TimeTrends);
+
+        var bytes = InstitutionalReportXlsxExporter.Export(model, manifest, new ReportExportRequestDto());
+
+        using var workbook = new XLWorkbook(new MemoryStream(bytes));
+        Assert.False(workbook.TryGetWorksheet("Department Time Series", out _));
+    }
+
     private static void AssertHeaders(IXLWorksheet worksheet, IReadOnlyList<string> expectedHeaders)
     {
         for (var column = 1; column <= expectedHeaders.Count; column++)

@@ -637,6 +637,55 @@ public sealed class InstitutionalReportRenderer
           <thead><tr><th>الفترة</th><th>وارد</th><th>مغلق</th><th>رصيد مفتوح</th><th>متأخر</th><th>ضمن المهلة</th><th>تغير التراكم</th></tr></thead>
           <tbody>{rows}</tbody>
         </table>
+        {RenderDepartmentTimeSeries(model)}
+        """;
+    }
+
+    private const int DepartmentTimeSeriesTopDepartments = 10;
+
+    /// <summary>
+    /// Caps the HTML/PDF view to the top departments (by Overdue, then Open, then Incoming
+    /// totals across the whole window) so the report doesn't balloon with every department ×
+    /// every period. XLSX export is not capped — see InstitutionalReportXlsxExporter.
+    /// </summary>
+    private static string RenderDepartmentTimeSeries(InstitutionalReportModel model)
+    {
+        var points = model.Analysis.DepartmentTimeSeries;
+        if (points.Count == 0)
+            return string.Empty;
+
+        var allDepartmentKeys = points.Select(p => (p.DepartmentId, p.DepartmentName)).Distinct().ToList();
+        var topDepartmentKeys = points
+            .GroupBy(p => (p.DepartmentId, p.DepartmentName))
+            .Select(g => new
+            {
+                g.Key,
+                OverdueCount = g.Sum(p => p.OverdueCount),
+                OpenCount = g.Sum(p => p.OpenCount),
+                IncomingCount = g.Sum(p => p.IncomingCount),
+            })
+            .OrderByDescending(x => x.OverdueCount)
+            .ThenByDescending(x => x.OpenCount)
+            .ThenByDescending(x => x.IncomingCount)
+            .Take(DepartmentTimeSeriesTopDepartments)
+            .Select(x => x.Key)
+            .ToHashSet();
+
+        var visibleRows = points.Where(p => topDepartmentKeys.Contains((p.DepartmentId, p.DepartmentName))).ToList();
+        var truncationNote = topDepartmentKeys.Count < allDepartmentKeys.Count
+            ? $"""<div class="partial-note">تعرض هذه القائمة أعلى {DepartmentTimeSeriesTopDepartments} إدارات حسب المتأخرات ثم المفتوحة ثم الوارد؛ تصدير XLSX يشمل كل الإدارات.</div>"""
+            : string.Empty;
+
+        var rows = string.Join(string.Empty, visibleRows.Select(p =>
+            $"<tr><td>{Esc(p.PeriodLabel)}</td><td class=\"cell--department\">{Esc(NormalizeDepartmentName(p.DepartmentName))}</td><td class=\"cell--number\">{p.IncomingCount}</td><td class=\"cell--number\">{p.ClosedCount}</td><td class=\"cell--number\">{p.OpenCount}</td><td class=\"cell--number\">{p.OverdueCount}</td><td class=\"cell--number\">{p.OnTimeCompletionRate:N1}%</td><td class=\"cell--number\">{p.AverageCompletionDays:N1}</td><td class=\"cell--number\">{p.PendingAssignments}</td></tr>"));
+
+        return $"""
+        <h2 class="section-title">التحليل الزمني حسب الإدارة</h2>
+        {truncationNote}
+        <table class="report-table">
+          <thead><tr><th>الفترة</th><th>الإدارة</th><th>الوارد</th><th>المغلق</th><th>المفتوح</th><th>المتأخر</th><th>ضمن المهلة</th><th>متوسط الإنجاز</th><th>الإفادات المعلقة</th></tr></thead>
+          <tbody>{rows}</tbody>
+        </table>
         """;
     }
 
