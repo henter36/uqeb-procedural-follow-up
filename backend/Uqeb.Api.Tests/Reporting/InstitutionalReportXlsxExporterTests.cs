@@ -37,11 +37,14 @@ public class InstitutionalReportXlsxExporterTests
         Assert.True(workbook.TryGetWorksheet("Critical Cases", out var criticalCases));
         Assert.True(workbook.TryGetWorksheet("Recommendations", out var recommendations));
         Assert.True(workbook.TryGetWorksheet("Methodology", out var methodology));
+        Assert.NotNull(methodology);
         Assert.Equal("إجمالي المعاملات", kpis!.Cell(2, 1).GetString());
         Assert.Contains("ارتفاع نسبة التأخر", findings!.Cell(2, 2).GetString());
         Assert.Equal("IN-0001", criticalCases!.Cell(2, 2).GetString());
         Assert.Contains("مراجعة المعاملات المتأخرة", recommendations!.Cell(2, 3).GetString());
-        Assert.Contains("AverageFirstActionHours", methodology!.Cell(13, 2).GetString());
+        Assert.Contains("AverageFirstActionHours", methodology.Cell(13, 2).GetString());
+        Assert.Equal("Period basis", methodology.Cell(5, 1).GetString());
+        Assert.Equal("الفترة الزمنية مبنية على تاريخ الوارد.", methodology.Cell(5, 2).GetString());
 
         AssertHeaders(findings, ["الكود", "العنوان", "الوصف", "الدليل", SeverityHeader, "النطاق"]);
         AssertHeaders(criticalCases, ["المعرف", "رقم الوارد", "الموضوع", DepartmentHeader, "الجهة", PriorityHeader, "العمر", "أيام التأخر", "السبب", "الإجراء", SeverityHeader]);

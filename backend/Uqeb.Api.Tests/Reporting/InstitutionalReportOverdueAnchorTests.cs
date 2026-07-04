@@ -256,4 +256,48 @@ public class InstitutionalReportOverdueAnchorTests
         Assert.Equal(model.TotalMatchedRows, model.Transactions.Count);
         Assert.Equal(model.TotalMatchedRows, model.Metadata.TotalMatchingTransactions);
     }
+
+    [Fact]
+    public async Task OverdueReport_ComparisonPeriod_EvaluatesOverdueStatus_AsOfItsOwnPeriodEnd()
+    {
+        // A custom comparison period is used here (rather than the default previous-equivalent
+        // period) specifically because its DateTo can be *later* than the current request's
+        // DateTo, which is the only configuration where the bug is observable: the SQL overdue
+        // pre-filter always correctly scopes rows by the comparison request's own DateTo, so a
+        // transaction with ResponseDueDate in [currentDateTo, comparisonDateTo) passes that
+        // filter — but reusing the current period's (earlier) evaluation date downstream would
+        // wrongly flip its recomputed IsOverdue flag back to false.
+        var (db, user, factory) = await SeedBaseAsync($"overdue-anchor-comparison-{Guid.NewGuid():N}");
+        var today = DateTime.UtcNow.Date;
+        var currentDateTo = today.AddDays(-30);
+        var comparisonDateTo = today.AddDays(-2);
+
+        db.Transactions.Add(BuildTransaction(
+            user, "OVERDUE-ONLY-AT-COMPARISON-END",
+            incomingDate: today.AddDays(-20),
+            status: TransactionStatus.New,
+            responseDueDate: today.AddDays(-15))); // >= currentDateTo(-30), < comparisonDateTo(-2)
+        await db.SaveChangesAsync();
+
+        var service = InstitutionalReportServiceTestHelpers.CreateService(factory);
+        var request = new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.OverdueTransactions,
+            SectionIds = [ReportSectionId.TransactionDetails],
+            ComparisonMode = ReportComparisonMode.Custom,
+            ComparisonDateFrom = today.AddDays(-10),
+            ComparisonDateTo = comparisonDateTo,
+            Filters = new ReportFiltersDto
+            {
+                DateFrom = today.AddDays(-40),
+                DateTo = currentDateTo,
+            },
+        };
+
+        var model = await service.BuildReportModelAsync(request);
+
+        Assert.Equal(comparisonDateTo, model.Analysis.ComparisonTo);
+        var overdueRateKpi = model.Analysis.Kpis.Single(k => k.Key == "OverdueRate");
+        Assert.Equal(100m, overdueRateKpi.Comparison.PreviousValue);
+    }
 }

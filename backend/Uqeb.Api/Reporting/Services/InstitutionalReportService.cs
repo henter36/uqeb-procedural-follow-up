@@ -225,14 +225,21 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         }
         var metrics = InstitutionalReportMetricsCalculator.Calculate(metricSnapshots, overdueEvaluationDate);
         var comparisonRequest = InstitutionalReportAnalysisService.CreateComparisonRequest(request);
+        // CreateComparisonRequest can shift Filters.DateTo to a prior period (previous-period /
+        // year-over-year comparisons), so the comparison snapshots must be evaluated for
+        // overdue-ness against their own period end, not the current request's.
+        var comparisonOverdueEvaluationDate = comparisonRequest is null
+            ? referenceDate
+            : InstitutionalReportSnapshotQuery.ResolveOverdueEvaluationDate(
+                comparisonRequest.ReportType, comparisonRequest.Filters.DateTo);
         var comparisonSnapshots = comparisonRequest is null
             ? []
-            : await LoadSnapshotsAsync(comparisonRequest, ct, takeLimit: null, overdueEvaluationDate);
+            : await LoadSnapshotsAsync(comparisonRequest, ct, takeLimit: null, comparisonOverdueEvaluationDate);
         if (request.Filters.IncludeOverdue && comparisonSnapshots.Count > 0)
             comparisonSnapshots = comparisonSnapshots.Where(s => s.IsOverdue).ToList();
         var comparisonMetrics = comparisonRequest is null
             ? null
-            : InstitutionalReportMetricsCalculator.Calculate(comparisonSnapshots, overdueEvaluationDate);
+            : InstitutionalReportMetricsCalculator.Calculate(comparisonSnapshots, comparisonOverdueEvaluationDate);
 
         var (detailSnapshots, exportedDetailRows) = await ResolveDetailRowsAsync(
             request, options, totalMatched, metricSnapshots, overdueEvaluationDate, ct);

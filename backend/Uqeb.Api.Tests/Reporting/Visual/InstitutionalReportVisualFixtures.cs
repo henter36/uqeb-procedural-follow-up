@@ -251,6 +251,7 @@ internal static class InstitutionalReportVisualFixtures
             ReportVersion = "2026.06.2",
             GeneratedAtUtc = FixedUtc,
             DataPeriod = "2026-01-01 إلى 2026-06-15",
+            PeriodBasis = "الفترة الزمنية مبنية على تاريخ الوارد.",
             ComparisonPeriod = "2025-07-19 إلى 2025-12-31",
             Filters = "بدون فلاتر إضافية",
             RowLimits = "DetailLimit=500",
