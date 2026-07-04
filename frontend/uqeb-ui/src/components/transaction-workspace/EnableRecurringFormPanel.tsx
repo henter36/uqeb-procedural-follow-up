@@ -4,6 +4,7 @@ import { transactionsApi } from '../../api/services';
 import { getApiErrorMessage, getFieldErrors } from '../../utils/apiHelpers';
 import { Alert } from '../ui';
 import { formatHijri } from '../../utils/dateUtils';
+import { calculateRecurringPeriodEndDate } from '../../utils/recurringPeriod';
 
 const RECURRENCE_TYPE_OPTIONS = [
   { value: 'Monthly', label: 'شهري' },
@@ -24,22 +25,6 @@ type Props = Readonly<{
   onCancel: () => void;
   onSuccess: (updated: TransactionDetail) => void;
 }>;
-
-function calculateRecurringPeriodEnd(startDate: string, recurrenceType: string): Date | null {
-  if (!startDate) return null;
-  const monthsByType: Record<string, number> = {
-    Monthly: 1,
-    Quarterly: 3,
-    SemiAnnual: 6,
-    Annual: 12,
-  };
-  const months = monthsByType[recurrenceType];
-  if (!months) return null;
-
-  const date = new Date(`${startDate.split('T')[0]}T00:00:00`);
-  date.setMonth(date.getMonth() + months);
-  return date;
-}
 
 export default function EnableRecurringFormPanel({ transactionId, incomingDate, onDirtyChange, onCancel, onSuccess }: Props) {
   const [form, setForm] = useState<FormState>({
@@ -62,7 +47,7 @@ export default function EnableRecurringFormPanel({ transactionId, incomingDate, 
   const update = (patch: Partial<FormState>) => setForm((prev) => ({ ...prev, ...patch }));
 
   const fieldError = (name: string) => fieldErrors[name];
-  const expectedPeriodEnd = calculateRecurringPeriodEnd(incomingDate, form.recurrenceType);
+  const expectedPeriodEnd = calculateRecurringPeriodEndDate(incomingDate, form.recurrenceType);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
