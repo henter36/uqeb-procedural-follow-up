@@ -42,4 +42,21 @@ internal static class DepartmentTimeSeriesRanking
             .Take(TopDepartments)
             .Select(x => x.Key)
             .ToHashSet();
+
+    /// <summary>Whether a period point's department is among the top-ranked departments.</summary>
+    internal static bool IsTopDepartment(
+        DepartmentTimeSeriesPointDto point,
+        HashSet<(int? DepartmentId, string DepartmentName)> topDepartmentKeys) =>
+        topDepartmentKeys.Contains((point.DepartmentId, point.DepartmentName));
+
+    /// <summary>
+    /// Department-name fallback shared by the HTML/PDF renderer and the DOCX exporter, so the
+    /// department time-series view never diverges between the two on an undefined/blank name.
+    /// </summary>
+    internal static string NormalizeDepartmentName(string? departmentName)
+    {
+        var normalized = (departmentName ?? string.Empty).Trim();
+        var isUndefined = normalized.Length == 0 || normalized is "—" or "-" or "غير محددة" or "غير محدد";
+        return isUndefined ? "غير محدد" : normalized;
+    }
 }

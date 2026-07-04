@@ -154,6 +154,73 @@ public class InstitutionalReportExportParityTests
     }
 
     [Fact]
+    public void Docx_DepartmentTimeSeries_NormalizesUndefinedDepartmentName_SameAsHtml()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        model.Analysis.DepartmentTimeSeries =
+        [
+            new DepartmentTimeSeriesPointDto
+            {
+                DepartmentId = null,
+                DepartmentName = "  ",
+                PeriodStart = new DateTime(2026, 6, 1),
+                PeriodLabel = "2026-06",
+                IncomingCount = 3,
+                OverdueCount = 1,
+            },
+        ];
+        var manifest = InstitutionalReportVisualFixtures.RenderSections(model, ReportSectionId.TimeTrends);
+        var html = manifest.Pages.Single().HtmlContent;
+        var docxBytes = InstitutionalReportDocxExporter.Export(model, manifest, new ReportExportRequestDto());
+
+        using var zip = new System.IO.Compression.ZipArchive(new MemoryStream(docxBytes));
+        var entry = zip.GetEntry("word/document.xml");
+        Assert.NotNull(entry);
+        using var reader = new System.IO.StreamReader(entry!.Open());
+        var docxXml = reader.ReadToEnd();
+
+        Assert.Contains("غير محدد", html);
+        Assert.Contains("غير محدد", docxXml);
+    }
+
+    [Fact]
+    public void Docx_DepartmentTimeSeries_AddsTopDepartmentsTruncationNote_SameAsHtml_WhenOverCap()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        model.Analysis.DepartmentTimeSeries = Enumerable.Range(1, 12)
+            .Select(i => new DepartmentTimeSeriesPointDto
+            {
+                DepartmentId = i,
+                DepartmentName = $"إدارة {i}",
+                PeriodStart = new DateTime(2026, 6, 1),
+                PeriodLabel = "2026-06",
+                IncomingCount = 12 - i,
+                OverdueCount = 12 - i,
+            })
+            .ToList();
+        var manifest = InstitutionalReportVisualFixtures.RenderSections(model, ReportSectionId.TimeTrends);
+        var html = manifest.Pages.Single().HtmlContent;
+        var docxBytes = InstitutionalReportDocxExporter.Export(model, manifest, new ReportExportRequestDto());
+
+        using var zip = new System.IO.Compression.ZipArchive(new MemoryStream(docxBytes));
+        var entry = zip.GetEntry("word/document.xml");
+        Assert.NotNull(entry);
+        using var reader = new System.IO.StreamReader(entry!.Open());
+        var docxXml = reader.ReadToEnd();
+
+        const string truncationNote = "تعرض هذه القائمة أعلى 10 إدارات حسب المتأخرات ثم المفتوحة ثم الوارد";
+        Assert.Contains(truncationNote, html);
+        Assert.Contains(truncationNote, docxXml);
+        // The 11th- and 12th-ranked departments (by Overdue) must be excluded from both.
+        Assert.DoesNotContain("إدارة 11", html);
+        Assert.DoesNotContain("إدارة 11", docxXml);
+        Assert.DoesNotContain("إدارة 12", html);
+        Assert.DoesNotContain("إدارة 12", docxXml);
+        Assert.Contains("إدارة 1", html);
+        Assert.Contains("إدارة 1", docxXml);
+    }
+
+    [Fact]
     public void Docx_MethodologySection_ContainsAverageResponseDays_ProxyNote()
     {
         var model = InstitutionalReportVisualFixtures.CreateBaseModel();

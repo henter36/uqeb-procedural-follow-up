@@ -163,12 +163,22 @@ public static class InstitutionalReportDocxExporter
         if (departmentPoints.Count == 0)
             return;
 
-        var topDepartmentKeys = DepartmentTimeSeriesRanking.TopDepartmentKeys(
-            DepartmentTimeSeriesRanking.RankDepartments(departmentPoints));
+        var departmentGroups = DepartmentTimeSeriesRanking.RankDepartments(departmentPoints);
+        var topDepartmentKeys = DepartmentTimeSeriesRanking.TopDepartmentKeys(departmentGroups);
 
         AppendHeading(body, "التحليل الزمني حسب الإدارة");
-        foreach (var point in departmentPoints.Where(p => topDepartmentKeys.Contains((p.DepartmentId, p.DepartmentName))))
-            AppendParagraph(body, $"{point.PeriodLabel} — {point.DepartmentName}: وارد {point.IncomingCount}، مغلق {point.ClosedCount}، متأخر {point.OverdueCount}");
+        if (topDepartmentKeys.Count < departmentGroups.Count)
+        {
+            AppendParagraph(
+                body,
+                $"تعرض هذه القائمة أعلى {DepartmentTimeSeriesRanking.TopDepartments} إدارات حسب المتأخرات ثم المفتوحة ثم الوارد؛ تصدير XLSX يشمل كل الإدارات.",
+                bold: true);
+        }
+        foreach (var point in departmentPoints.Where(p => DepartmentTimeSeriesRanking.IsTopDepartment(p, topDepartmentKeys)))
+        {
+            var departmentName = DepartmentTimeSeriesRanking.NormalizeDepartmentName(point.DepartmentName);
+            AppendParagraph(body, $"{point.PeriodLabel} — {departmentName}: وارد {point.IncomingCount}، مغلق {point.ClosedCount}، متأخر {point.OverdueCount}");
+        }
     }
 
     private static void AppendDepartmentPerformanceSection(Body body, InstitutionalReportModel model)

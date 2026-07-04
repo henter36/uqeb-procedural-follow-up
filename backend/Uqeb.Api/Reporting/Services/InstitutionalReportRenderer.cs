@@ -655,13 +655,13 @@ public sealed class InstitutionalReportRenderer
         var departmentGroups = DepartmentTimeSeriesRanking.RankDepartments(points);
         var topDepartmentKeys = DepartmentTimeSeriesRanking.TopDepartmentKeys(departmentGroups);
 
-        var visibleRows = points.Where(p => topDepartmentKeys.Contains((p.DepartmentId, p.DepartmentName))).ToList();
+        var visibleRows = points.Where(p => DepartmentTimeSeriesRanking.IsTopDepartment(p, topDepartmentKeys)).ToList();
         var truncationNote = topDepartmentKeys.Count < departmentGroups.Count
             ? $"""<div class="partial-note">تعرض هذه القائمة أعلى {DepartmentTimeSeriesRanking.TopDepartments} إدارات حسب المتأخرات ثم المفتوحة ثم الوارد؛ تصدير XLSX يشمل كل الإدارات.</div>"""
             : string.Empty;
 
         var rows = string.Join(string.Empty, visibleRows.Select(p =>
-            $"<tr><td>{Esc(p.PeriodLabel)}</td><td class=\"cell--department\">{Esc(NormalizeDepartmentName(p.DepartmentName))}</td><td class=\"cell--number\">{p.IncomingCount}</td><td class=\"cell--number\">{p.ClosedCount}</td><td class=\"cell--number\">{p.OpenCount}</td><td class=\"cell--number\">{p.OverdueCount}</td><td class=\"cell--number\">{p.OnTimeCompletionRate:N1}%</td><td class=\"cell--number\">{p.AverageCompletionDays:N1}</td><td class=\"cell--number\">{p.PendingAssignments}</td></tr>"));
+            $"<tr><td>{Esc(p.PeriodLabel)}</td><td class=\"cell--department\">{Esc(DepartmentTimeSeriesRanking.NormalizeDepartmentName(p.DepartmentName))}</td><td class=\"cell--number\">{p.IncomingCount}</td><td class=\"cell--number\">{p.ClosedCount}</td><td class=\"cell--number\">{p.OpenCount}</td><td class=\"cell--number\">{p.OverdueCount}</td><td class=\"cell--number\">{p.OnTimeCompletionRate:N1}%</td><td class=\"cell--number\">{p.AverageCompletionDays:N1}</td><td class=\"cell--number\">{p.PendingAssignments}</td></tr>"));
 
         return $"""
         <h2 class="section-title">التحليل الزمني حسب الإدارة</h2>
