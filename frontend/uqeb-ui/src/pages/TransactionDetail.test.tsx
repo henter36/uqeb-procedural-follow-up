@@ -936,7 +936,7 @@ describe('TransactionDetailPage card interaction flows', () => {
     expect(screen.queryByTestId('attachment-form-panel')).not.toBeInTheDocument();
   });
 
-  it('prefills assignment letter number from transaction outgoing number', async () => {
+  it('never prefills a new assignment letter number from the transaction outgoing number or any prior assignment', async () => {
     const user = userEvent.setup();
     vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
       data: {
@@ -945,7 +945,19 @@ describe('TransactionDetailPage card interaction flows', () => {
           ...baseTx,
           outgoingNumber: 'OUT-88',
         },
-        assignments: [],
+        assignments: [
+          {
+            id: 1,
+            departmentId: 1,
+            departmentName: 'إدارة أ',
+            letterNumber: 'LET-001',
+            assignedDate: '2026-01-01',
+            requiresReply: true,
+            replyStatus: 'Pending',
+            status: 'Active',
+            isOverdue: false,
+          },
+        ],
       },
     } as never);
 
@@ -955,7 +967,7 @@ describe('TransactionDetailPage card interaction flows', () => {
 
     await user.click(within(card).getByRole('button', { name: '+ إضافة احالة' }));
 
-    expect(screen.getByLabelText('رقم الخطاب')).toHaveValue('OUT-88');
+    expect(screen.getByLabelText('رقم الخطاب')).toHaveValue('');
   });
 
   it('saves assignment from card form and refreshes data', async () => {

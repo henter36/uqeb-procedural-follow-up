@@ -115,19 +115,40 @@ describe('AssignmentFormPanel dirty state', () => {
     expect(services.transactionsApi.addAssignment).not.toHaveBeenCalled();
   });
 
-  it('prefills letter number from transaction outgoing number', () => {
+  it('always starts with an empty letter number, never inheriting a prior referral number', () => {
     render(
       <AssignmentFormPanel
         transactionId={1}
         departments={departments}
         existingDepartmentIds={[]}
-        defaultLetterNumber="OUT-55"
         onDirtyChange={onDirtyChange}
         onSuccess={onSuccess}
         onCancel={onCancel}
       />,
     );
 
-    expect(screen.getByLabelText('رقم الخطاب')).toHaveValue('OUT-55');
+    expect(screen.getByLabelText('رقم الخطاب')).toHaveValue('');
+  });
+
+  it('does not submit a letter number the user never entered', async () => {
+    const user = userEvent.setup();
+    render(
+      <AssignmentFormPanel
+        transactionId={1}
+        departments={departments}
+        existingDepartmentIds={[]}
+        onDirtyChange={onDirtyChange}
+        onSuccess={onSuccess}
+        onCancel={onCancel}
+      />,
+    );
+
+    await user.selectOptions(screen.getByLabelText('الإدارة *'), '1');
+    await user.type(screen.getByLabelText('تاريخ الإحالة *'), '10/06/1447');
+    await user.click(screen.getByRole('button', { name: 'حفظ الاحالة' }));
+
+    await waitFor(() => expect(services.transactionsApi.addAssignment).toHaveBeenCalled());
+    const payload = vi.mocked(services.transactionsApi.addAssignment).mock.calls[0][1];
+    expect(payload.letterNumber).toBeNull();
   });
 });
