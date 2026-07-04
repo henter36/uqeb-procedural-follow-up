@@ -988,7 +988,6 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                 transactionId={+id}
                 departments={departments}
                 existingDepartmentIds={existingDepartmentIds}
-                defaultLetterNumber={tx.outgoingNumber}
                 onDirtyChange={setActionDirty}
                 onCancel={closeAction}
                 onSuccess={handleAssignmentSuccess}
