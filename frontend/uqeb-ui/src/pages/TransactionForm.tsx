@@ -15,6 +15,7 @@ import HijriDateInput from '../components/HijriDateInput';
 import SearchableSelect, { type SelectOption } from '../components/SearchableSelect';
 import { PageHeader, FormSection, Alert, LoadingInline } from '../components/ui';
 import { FUTURE_EVENT_DATE_MESSAGE, isFutureLocalDate } from '../utils/localDate';
+import { calculateRecurringPeriodEndDate } from '../utils/recurringPeriod';
 
 interface Props { mode: 'create' | 'edit' }
 
@@ -196,22 +197,6 @@ function isMissingOutgoingDepartments(form: TransactionFormState, hasPartialOutg
 
 function isOutgoingBeforeIncoming(form: TransactionFormState): boolean {
   return Boolean(form.incomingDate && form.outgoingDate && form.outgoingDate < form.incomingDate);
-}
-
-function calculateRecurringPeriodEnd(startDate: string, recurrenceType: string): Date | null {
-  if (!startDate) return null;
-  const monthsByType: Record<string, number> = {
-    Monthly: 1,
-    Quarterly: 3,
-    SemiAnnual: 6,
-    Annual: 12,
-  };
-  const months = monthsByType[recurrenceType];
-  if (!months) return null;
-
-  const date = new Date(`${startDate}T00:00:00`);
-  date.setMonth(date.getMonth() + months);
-  return date;
 }
 
 function isMissingRecurringDepartments(form: TransactionFormState): boolean {
@@ -447,7 +432,7 @@ function RecurringFollowUpSection({
   fieldErrorId: (name: string) => string;
   formGroupClass: (name: string, extra?: string) => string;
 }>) {
-  const expectedPeriodEnd = calculateRecurringPeriodEnd(form.incomingDate, form.recurringRecurrenceType);
+  const expectedPeriodEnd = calculateRecurringPeriodEndDate(form.incomingDate, form.recurringRecurrenceType);
 
   return (
     <FormSection title="إعدادات المتابعة الدورية">

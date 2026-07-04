@@ -45,6 +45,25 @@ function addUtcMonthsClamped(date: Date, months: number): Date {
   return new Date(Date.UTC(targetYear, normalizedMonthIndex, day));
 }
 
+const MONTHS_BY_RECURRENCE_TYPE: Record<string, number> = {
+  Monthly: 1,
+  Quarterly: 3,
+  SemiAnnual: 6,
+  Annual: 12,
+};
+
+export function calculateRecurringPeriodEndDate(startDate: string, recurrenceType: string): Date | null {
+  if (!startDate) return null;
+
+  const months = MONTHS_BY_RECURRENCE_TYPE[recurrenceType];
+  if (!months) return null;
+
+  const anchorDate = new Date(`${startDate.split('T')[0]}T00:00:00Z`);
+  if (Number.isNaN(anchorDate.getTime())) return null;
+
+  return addUtcMonthsClamped(anchorDate, months);
+}
+
 export function buildMonthlyPeriodKey(monthInputValue: string): string {
   return monthInputValue;
 }

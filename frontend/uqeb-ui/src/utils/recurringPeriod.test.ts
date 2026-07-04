@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildMonthlyPeriodKey, buildQuarterlyPeriodKey, buildSemiAnnualPeriodKey, buildAnnualPeriodKey,
-  getPeriodLabel, getExpectedDueDate,
+  getPeriodLabel, getExpectedDueDate, calculateRecurringPeriodEndDate,
 } from './recurringPeriod';
 
 describe('recurringPeriod', () => {
@@ -34,5 +34,19 @@ describe('recurringPeriod', () => {
   it('returns null when the period key does not match the recurrence type', () => {
     expect(getExpectedDueDate('SemiAnnual', 'not-a-period', '2026-07-10')).toBeNull();
     expect(getExpectedDueDate('Annual', 'not-a-period', '2026-07-10')).toBeNull();
+  });
+
+  it('clamps the first period end to the last valid day of the target month', () => {
+    const toIsoDate = (date: Date | null) => date?.toISOString().split('T')[0];
+
+    expect(toIsoDate(calculateRecurringPeriodEndDate('2026-01-31', 'Monthly'))).toBe('2026-02-28');
+    expect(toIsoDate(calculateRecurringPeriodEndDate('2026-01-31', 'Quarterly'))).toBe('2026-04-30');
+    expect(toIsoDate(calculateRecurringPeriodEndDate('2026-08-31', 'SemiAnnual'))).toBe('2027-02-28');
+    expect(toIsoDate(calculateRecurringPeriodEndDate('2024-02-29', 'Annual'))).toBe('2025-02-28');
+  });
+
+  it('returns null for an empty start date or unknown recurrence type', () => {
+    expect(calculateRecurringPeriodEndDate('', 'Monthly')).toBeNull();
+    expect(calculateRecurringPeriodEndDate('2026-01-31', 'Unknown')).toBeNull();
   });
 });
