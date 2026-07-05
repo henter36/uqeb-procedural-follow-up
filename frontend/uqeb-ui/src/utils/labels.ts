@@ -31,6 +31,13 @@ export const replyStatusLabels: Record<string, string> = {
   Overdue: 'متأخر',
 };
 
+export const involvementCategoryLabels: Record<string, string> = {
+  OwnerOnly: 'مالكة فقط',
+  ResponsibleOrReferredOnly: 'مسؤولة/محالة فقط',
+  ResponseOnly: 'إفادة/رد فقط',
+  Both: 'مالكة ومسؤولة/محالة',
+};
+
 export const auditActionLabels: Record<string, string> = {
   Create: 'إنشاء',
   Update: 'تحديث',

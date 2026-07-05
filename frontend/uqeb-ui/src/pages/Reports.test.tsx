@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import ReportsPage from './Reports';
 import * as services from '../api/services';
-import type { ReportSectionCounts, RecurringObligationsSummary } from '../api/types';
+import type { ReportSectionCounts, RecurringObligationsSummary, DepartmentObligationSnapshot } from '../api/types';
 
 const emptyPage = {
   items: [],
@@ -48,6 +48,13 @@ const emptyRecurringSummary: RecurringObligationsSummary = {
   groups: [],
 };
 
+const emptyDeptSnapshot: DepartmentObligationSnapshot = {
+  totalDepartmentsInScope: 0,
+  totalDistinctObligations: 0,
+  multiDepartmentObligationsCount: 0,
+  departments: [],
+};
+
 vi.mock('../api/services', () => ({
   reportsApi: {
     pageSummary: vi.fn(),
@@ -69,6 +76,8 @@ vi.mock('../api/services', () => ({
     recurringObligationsSummary: vi.fn(),
     recurringObligationsDetails: vi.fn(),
     exportRecurringObligationsExcel: vi.fn(),
+    departmentObligationSnapshot: vi.fn(),
+    exportDepartmentObligationSnapshotExcel: vi.fn(),
   },
   categoriesApi: { getAll: vi.fn() },
   departmentsApi: { getAll: vi.fn() },
@@ -92,6 +101,7 @@ describe('ReportsPage auto loading', () => {
     vi.mocked(services.reportsApi.departmentSummary).mockResolvedValue(mockAxiosResponse([]));
     vi.mocked(services.reportsApi.recurringObligationsSummary).mockResolvedValue(mockAxiosResponse(emptyRecurringSummary));
     vi.mocked(services.reportsApi.recurringObligationsDetails).mockResolvedValue(mockAxiosResponse(emptyPage));
+    vi.mocked(services.reportsApi.departmentObligationSnapshot).mockResolvedValue(mockAxiosResponse(emptyDeptSnapshot));
   });
 
   afterEach(() => {
@@ -178,5 +188,59 @@ describe('ReportsPage auto loading', () => {
 
     expect(await screen.findByText('التزام اختبار')).toBeInTheDocument();
     expect(screen.getByText('تقرير الالتزامات الدورية')).toBeInTheDocument();
+  });
+
+  it('loads the department obligation snapshot on mount and separates owner from responsible counts', async () => {
+    vi.mocked(services.reportsApi.departmentObligationSnapshot).mockResolvedValue(mockAxiosResponse({
+      totalDepartmentsInScope: 2,
+      totalDistinctObligations: 3,
+      multiDepartmentObligationsCount: 1,
+      departments: [
+        {
+          departmentId: 10,
+          departmentName: 'الإدارة أ',
+          ownedCount: 2,
+          responsibleCount: 0,
+          referredCount: 0,
+          openActionCount: 0,
+          pendingActionCount: 0,
+          completedActionCount: 0,
+          submittedResponseCount: 0,
+          approvedResponseCount: 0,
+          overdueCount: 0,
+          dueSoonCount: 0,
+          attributionMismatchCount: 0,
+          involvementCategory: 'OwnerOnly',
+        },
+        {
+          departmentId: 20,
+          departmentName: 'الإدارة ب',
+          ownedCount: 0,
+          responsibleCount: 2,
+          referredCount: 1,
+          openActionCount: 1,
+          pendingActionCount: 1,
+          completedActionCount: 1,
+          submittedResponseCount: 1,
+          approvedResponseCount: 1,
+          overdueCount: 1,
+          dueSoonCount: 0,
+          attributionMismatchCount: 0,
+          involvementCategory: 'ResponsibleOrReferredOnly',
+        },
+      ],
+    }));
+
+    renderReports('/reports');
+
+    await waitFor(() => {
+      expect(services.reportsApi.departmentObligationSnapshot).toHaveBeenCalled();
+    });
+
+    expect(await screen.findByText('لقطة التزامات الإدارات')).toBeInTheDocument();
+    expect(screen.getByText('الإدارة أ')).toBeInTheDocument();
+    expect(screen.getByText('الإدارة ب')).toBeInTheDocument();
+    expect(screen.getByText('مالكة فقط')).toBeInTheDocument();
+    expect(screen.getByText('مسؤولة/محالة فقط')).toBeInTheDocument();
   });
 });
