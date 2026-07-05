@@ -281,6 +281,31 @@ export interface RecurringObligationReportRow {
   generatedTransactionsCount: number;
 }
 
+export interface DepartmentObligationSnapshotRow {
+  departmentId: number;
+  departmentName: string;
+  ownedCount: number;
+  responsibleCount: number;
+  referredCount: number;
+  openActionCount: number;
+  pendingActionCount: number;
+  completedActionCount: number;
+  submittedResponseCount: number;
+  approvedResponseCount: number;
+  overdueCount: number;
+  dueSoonCount: number;
+  averageDaysOpenAction?: number;
+  attributionMismatchCount: number;
+  involvementCategory: string;
+}
+
+export interface DepartmentObligationSnapshot {
+  totalDepartmentsInScope: number;
+  totalDistinctObligations: number;
+  multiDepartmentObligationsCount: number;
+  departments: DepartmentObligationSnapshotRow[];
+}
+
 export interface ReportTransactionRow {
   id: number;
   internalTrackingNumber: string;

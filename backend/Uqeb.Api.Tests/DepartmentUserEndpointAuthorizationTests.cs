@@ -62,6 +62,8 @@ public class DepartmentUserEndpointAuthorizationTests : IClassFixture<Department
     [InlineData("/api/reports/recurring-obligations/summary")]
     [InlineData("/api/reports/recurring-obligations/details")]
     [InlineData("/api/reports/recurring-obligations/export-excel")]
+    [InlineData("/api/reports/department-obligation-snapshot")]
+    [InlineData("/api/reports/department-obligation-snapshot/export-excel")]
     public async Task DepartmentUser_PrivilegedReadEndpoints_ReturnForbidden(string url)
     {
         using var client = CreateDepartmentUserClient();
@@ -121,6 +123,41 @@ public class DepartmentUserEndpointAuthorizationTests : IClassFixture<Department
             TestJwtHelper.CreateToken("Reader", userId: 3));
 
         var response = await client.GetAsync("/api/reports/recurring-obligations/summary");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    // Department obligation snapshot lives under the same ReportsController policy as
+    // every other /api/reports endpoint (Policies.CanEditTransactions): DepartmentUser
+    // must not see institution-wide cross-department attribution, so it is excluded
+    // entirely rather than being given a narrowed/scoped view of this snapshot.
+    [Theory]
+    [InlineData("Admin")]
+    [InlineData("Supervisor")]
+    [InlineData("DataEntry")]
+    public async Task NonDepartmentUserRoles_CanReachDepartmentObligationSnapshot(string role)
+    {
+        using var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            TestJwtHelper.CreateToken(role, userId: 3));
+
+        var summaryResponse = await client.GetAsync("/api/reports/department-obligation-snapshot");
+        var exportResponse = await client.GetAsync("/api/reports/department-obligation-snapshot/export-excel");
+
+        Assert.Equal(HttpStatusCode.OK, summaryResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, exportResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Reader_CannotReachDepartmentObligationSnapshot()
+    {
+        using var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            TestJwtHelper.CreateToken("Reader", userId: 3));
+
+        var response = await client.GetAsync("/api/reports/department-obligation-snapshot");
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }

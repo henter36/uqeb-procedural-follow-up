@@ -156,6 +156,18 @@ public class ReportsController : ControllerBase
             $"recurring-obligations-{DateTime.UtcNow:yyyyMMdd}.xlsx");
     }
 
+    [HttpGet("department-obligation-snapshot")]
+    public async Task<IActionResult> DepartmentObligationSnapshot([FromQuery] DepartmentObligationSnapshotFilterRequest filter) =>
+        Ok(await _reports.GetDepartmentObligationSnapshotAsync(filter));
+
+    [HttpGet("department-obligation-snapshot/export-excel")]
+    public async Task<IActionResult> ExportDepartmentObligationSnapshotExcel([FromQuery] DepartmentObligationSnapshotFilterRequest filter)
+    {
+        var bytes = await _reports.ExportDepartmentObligationSnapshotExcelAsync(filter);
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            $"department-obligation-snapshot-{DateTime.UtcNow:yyyyMMdd}.xlsx");
+    }
+
     [HttpGet("export/{reportType}")]
     public async Task<IActionResult> Export(string reportType, [FromQuery] ReportFilterRequest filter, [FromQuery] bool currentPageOnly = false, [FromQuery] int page = 1, [FromQuery] int pageSize = 5)
     {

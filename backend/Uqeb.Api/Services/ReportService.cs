@@ -50,6 +50,8 @@ public interface IReportService
     Task<RecurringObligationsSummaryDto> GetRecurringObligationsSummaryAsync(RecurringObligationsReportFilterRequest? filter = null);
     Task<PagedResult<RecurringObligationReportRowDto>> GetRecurringObligationsDetailsAsync(RecurringObligationsReportPagedFilterRequest filter);
     Task<byte[]> ExportRecurringObligationsExcelAsync(RecurringObligationsReportFilterRequest? filter = null);
+    Task<DepartmentObligationSnapshotDto> GetDepartmentObligationSnapshotAsync(DepartmentObligationSnapshotFilterRequest? filter = null);
+    Task<byte[]> ExportDepartmentObligationSnapshotExcelAsync(DepartmentObligationSnapshotFilterRequest? filter = null);
 }
 
 public class ReportService : IReportService
@@ -1015,6 +1017,275 @@ public class ReportService : IReportService
             "recurrencetype" => sample.RecurrenceTypeLabel,
             _ => key
         };
+
+    public async Task<DepartmentObligationSnapshotDto> GetDepartmentObligationSnapshotAsync(DepartmentObligationSnapshotFilterRequest? filter = null)
+    {
+        filter ??= new DepartmentObligationSnapshotFilterRequest();
+        return await BuildDepartmentObligationSnapshotAsync(filter, DateTime.UtcNow);
+    }
+
+    public async Task<byte[]> ExportDepartmentObligationSnapshotExcelAsync(DepartmentObligationSnapshotFilterRequest? filter = null)
+    {
+        filter ??= new DepartmentObligationSnapshotFilterRequest();
+        var snapshot = await BuildDepartmentObligationSnapshotAsync(filter, DateTime.UtcNow);
+
+        using var workbook = new XLWorkbook();
+        var ws = workbook.Worksheets.Add("لقطة التزامات الإدارات");
+        WriteDepartmentObligationSnapshotExcelHeaders(ws);
+
+        var row = 2;
+        foreach (var r in snapshot.Departments.OrderByDescending(r => r.OwnedCount + r.ResponsibleCount + r.ReferredCount))
+        {
+            ws.Cell(row, 1).Value = r.DepartmentId;
+            ws.Cell(row, 2).Value = r.DepartmentName;
+            ws.Cell(row, 3).Value = r.OwnedCount;
+            ws.Cell(row, 4).Value = r.ResponsibleCount;
+            ws.Cell(row, 5).Value = r.ReferredCount;
+            ws.Cell(row, 6).Value = r.OpenActionCount;
+            ws.Cell(row, 7).Value = r.PendingActionCount;
+            ws.Cell(row, 8).Value = r.CompletedActionCount;
+            ws.Cell(row, 9).Value = r.SubmittedResponseCount;
+            ws.Cell(row, 10).Value = r.ApprovedResponseCount;
+            ws.Cell(row, 11).Value = r.OverdueCount;
+            ws.Cell(row, 12).Value = r.DueSoonCount;
+            ws.Cell(row, 13).Value = r.AverageDaysOpenAction.HasValue ? r.AverageDaysOpenAction.Value : "-";
+            ws.Cell(row, 14).Value = r.AttributionMismatchCount;
+            ws.Cell(row, 15).Value = DepartmentObligationSnapshotLabels.InvolvementCategory(r.InvolvementCategory);
+            row++;
+        }
+
+        ws.RightToLeft = true;
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static void WriteDepartmentObligationSnapshotExcelHeaders(IXLWorksheet ws)
+    {
+        ws.Cell(1, 1).Value = "معرف الإدارة";
+        ws.Cell(1, 2).Value = "الإدارة";
+        ws.Cell(1, 3).Value = "المملوكة";
+        ws.Cell(1, 4).Value = "المسؤولة عنها";
+        ws.Cell(1, 5).Value = "المحالة إليها";
+        ws.Cell(1, 6).Value = "إجراء مفتوح";
+        ws.Cell(1, 7).Value = "بانتظار الإجراء";
+        ws.Cell(1, 8).Value = "إجراء مكتمل";
+        ws.Cell(1, 9).Value = "إفادات مقدَّمة";
+        ws.Cell(1, 10).Value = "إفادات معتمدة";
+        ws.Cell(1, 11).Value = "متأخرة";
+        ws.Cell(1, 12).Value = "قريبة الاستحقاق";
+        ws.Cell(1, 13).Value = "متوسط أيام الفتح";
+        ws.Cell(1, 14).Value = "تعارض في التوثيق";
+        ws.Cell(1, 15).Value = "نوع المشاركة";
+    }
+
+    private sealed record DeptTxPair(int DepartmentId, int TransactionId);
+
+    private sealed class AssignmentSnapshotRow
+    {
+        public int DepartmentId { get; init; }
+        public int TransactionId { get; init; }
+        public AssignmentStatus Status { get; init; }
+        public bool RequiresReply { get; init; }
+        public ReplyStatus ReplyStatus { get; init; }
+        public DateTime? DueDate { get; init; }
+        public DateTime AssignedDate { get; init; }
+    }
+
+    private sealed class DepartmentResponseSnapshotRow
+    {
+        public int DepartmentId { get; init; }
+        public int TransactionId { get; init; }
+        public DepartmentResponseStatus Status { get; init; }
+    }
+
+    private async Task<DepartmentObligationSnapshotDto> BuildDepartmentObligationSnapshotAsync(
+        DepartmentObligationSnapshotFilterRequest filter, DateTime now)
+    {
+        var txQuery = _db.Transactions.AsNoTracking().AsQueryable();
+        if (filter.DateFrom.HasValue) txQuery = txQuery.Where(t => t.IncomingDate >= filter.DateFrom);
+        if (filter.DateTo.HasValue) txQuery = txQuery.Where(t => t.IncomingDate <= filter.DateTo);
+
+        var ownedRows = await txQuery
+            .Where(t => t.IncomingFromDepartmentId != null
+                && (!filter.DepartmentId.HasValue || t.IncomingFromDepartmentId == filter.DepartmentId))
+            .Select(t => new DeptTxPair(t.IncomingFromDepartmentId!.Value, t.Id))
+            .ToListAsync();
+
+        var referredRows = await _db.TransactionOutgoingDepartments.AsNoTracking()
+            .Where(o => (!filter.DateFrom.HasValue || o.Transaction.IncomingDate >= filter.DateFrom)
+                && (!filter.DateTo.HasValue || o.Transaction.IncomingDate <= filter.DateTo)
+                && (!filter.DepartmentId.HasValue || o.DepartmentId == filter.DepartmentId))
+            .Select(o => new DeptTxPair(o.DepartmentId, o.TransactionId))
+            .Distinct()
+            .ToListAsync();
+
+        var assignmentRows = await _db.Assignments.AsNoTracking()
+            .Where(a => (!filter.DateFrom.HasValue || a.Transaction.IncomingDate >= filter.DateFrom)
+                && (!filter.DateTo.HasValue || a.Transaction.IncomingDate <= filter.DateTo)
+                && (!filter.DepartmentId.HasValue || a.DepartmentId == filter.DepartmentId))
+            .Select(a => new AssignmentSnapshotRow
+            {
+                DepartmentId = a.DepartmentId,
+                TransactionId = a.TransactionId,
+                Status = a.Status,
+                RequiresReply = a.RequiresReply,
+                ReplyStatus = a.ReplyStatus,
+                DueDate = a.DueDate,
+                AssignedDate = a.AssignedDate
+            })
+            .ToListAsync();
+
+        var responseRows = await _db.DepartmentResponses.AsNoTracking()
+            .Where(r => (!filter.DateFrom.HasValue || r.Transaction.IncomingDate >= filter.DateFrom)
+                && (!filter.DateTo.HasValue || r.Transaction.IncomingDate <= filter.DateTo)
+                && (!filter.DepartmentId.HasValue || r.DepartmentId == filter.DepartmentId))
+            .Select(r => new DepartmentResponseSnapshotRow
+            {
+                DepartmentId = r.DepartmentId,
+                TransactionId = r.TransactionId,
+                Status = r.Status
+            })
+            .ToListAsync();
+
+        var departmentIds = ownedRows.Select(r => r.DepartmentId)
+            .Concat(assignmentRows.Select(r => r.DepartmentId))
+            .Concat(referredRows.Select(r => r.DepartmentId))
+            .Concat(responseRows.Select(r => r.DepartmentId))
+            .Distinct()
+            .ToList();
+
+        var departmentNames = departmentIds.Count == 0
+            ? new Dictionary<int, string>()
+            : await _db.Departments.AsNoTracking()
+                .Where(d => departmentIds.Contains(d.Id))
+                .ToDictionaryAsync(d => d.Id, d => d.Name);
+
+        var departmentRows = departmentIds
+            .Select(deptId => BuildDepartmentObligationSnapshotRow(
+                deptId,
+                departmentNames.GetValueOrDefault(deptId, deptId.ToString()),
+                ownedRows, assignmentRows, referredRows, responseRows,
+                filter.DueSoonWithinDays, now))
+            .OrderBy(r => r.DepartmentName)
+            .ToList();
+
+        var allPairs = ownedRows
+            .Concat(assignmentRows.Select(a => new DeptTxPair(a.DepartmentId, a.TransactionId)))
+            .Concat(referredRows)
+            .Concat(responseRows.Select(r => new DeptTxPair(r.DepartmentId, r.TransactionId)))
+            .Distinct()
+            .ToList();
+
+        var multiDepartmentObligationsCount = allPairs
+            .GroupBy(p => p.TransactionId)
+            .Count(g => g.Select(p => p.DepartmentId).Distinct().Count() > 1);
+
+        return new DepartmentObligationSnapshotDto
+        {
+            TotalDepartmentsInScope = departmentRows.Count,
+            TotalDistinctObligations = allPairs.Select(p => p.TransactionId).Distinct().Count(),
+            MultiDepartmentObligationsCount = multiDepartmentObligationsCount,
+            Departments = departmentRows
+        };
+    }
+
+    private static DepartmentObligationSnapshotRowDto BuildDepartmentObligationSnapshotRow(
+        int departmentId,
+        string departmentName,
+        List<DeptTxPair> ownedRows,
+        List<AssignmentSnapshotRow> assignmentRows,
+        List<DeptTxPair> referredRows,
+        List<DepartmentResponseSnapshotRow> responseRows,
+        int dueSoonWithinDays,
+        DateTime now)
+    {
+        var ownedTxIds = ownedRows.Where(r => r.DepartmentId == departmentId).Select(r => r.TransactionId).Distinct().ToList();
+        var assignmentsForDept = assignmentRows.Where(r => r.DepartmentId == departmentId).ToList();
+        var responsibleTxIds = assignmentsForDept.Select(a => a.TransactionId).Distinct().ToList();
+        var referredTxIds = referredRows.Where(r => r.DepartmentId == departmentId).Select(r => r.TransactionId).Distinct().ToList();
+        var responsesForDept = responseRows.Where(r => r.DepartmentId == departmentId).ToList();
+
+        var openActionTxIds = assignmentsForDept
+            .Where(a => a.Status == AssignmentStatus.Active)
+            .Select(a => a.TransactionId).Distinct().ToList();
+
+        var pendingActionAssignments = assignmentsForDept
+            .Where(a => a.Status == AssignmentStatus.Active && a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied)
+            .ToList();
+        var pendingActionTxIds = pendingActionAssignments.Select(a => a.TransactionId).Distinct().ToList();
+
+        var completedActionTxIds = assignmentsForDept
+            .Where(a => a.Status == AssignmentStatus.Completed || a.ReplyStatus == ReplyStatus.Replied)
+            .Select(a => a.TransactionId).Distinct().ToList();
+
+        var overdueTxIds = assignmentsForDept
+            .Where(a => TransactionTemporalCalculator.IsAssignmentOverdue(a.ReplyStatus, a.RequiresReply, a.Status, a.DueDate, now))
+            .Select(a => a.TransactionId).Distinct().ToList();
+
+        var dueSoonTxIds = pendingActionAssignments
+            .Where(a => a.DueDate.HasValue
+                && a.DueDate.Value.Date >= now.Date
+                && (a.DueDate.Value.Date - now.Date).Days <= dueSoonWithinDays)
+            .Select(a => a.TransactionId).Distinct().ToList();
+
+        var submittedResponseTxIds = responsesForDept.Select(r => r.TransactionId).Distinct().ToList();
+        var approvedResponseTxIds = responsesForDept
+            .Where(r => r.Status == DepartmentResponseStatus.Approved)
+            .Select(r => r.TransactionId).Distinct().ToHashSet();
+
+        // Attribution mismatch: restricted to assignments that actually require a reply.
+        // Flags obligations where the thin Assignment-level "Replied" flag and the richer
+        // DepartmentResponse approval workflow disagree, since the two are not kept in
+        // sync automatically anywhere in the current data model.
+        var repliedTxIds = assignmentsForDept
+            .Where(a => a.RequiresReply && a.ReplyStatus == ReplyStatus.Replied)
+            .Select(a => a.TransactionId).ToHashSet();
+        var mismatchCount = assignmentsForDept
+            .Where(a => a.RequiresReply)
+            .Select(a => a.TransactionId)
+            .Distinct()
+            .Count(txId => repliedTxIds.Contains(txId) != approvedResponseTxIds.Contains(txId));
+
+        // One AssignedDate per obligation (earliest, if duplicate Assignment rows exist for the
+        // same transaction+department), so a duplicated row never double-weights the average.
+        var pendingActionAssignedDatesByTransaction = pendingActionAssignments
+            .GroupBy(a => a.TransactionId)
+            .Select(g => g.Min(a => a.AssignedDate))
+            .ToList();
+        double? averageDaysOpenAction = pendingActionAssignedDatesByTransaction.Count > 0
+            ? Math.Round(pendingActionAssignedDatesByTransaction.Average(assignedDate => Math.Max(0, (now.Date - assignedDate.Date).Days)), 1)
+            : null;
+
+        var hasOwner = ownedTxIds.Count > 0;
+        var hasResponsibleOrReferred = responsibleTxIds.Count > 0 || referredTxIds.Count > 0;
+        var involvementCategory = (hasOwner, hasResponsibleOrReferred) switch
+        {
+            (true, false) => "OwnerOnly",
+            (false, true) => "ResponsibleOrReferredOnly",
+            (true, true) => "Both",
+            _ => "None"
+        };
+
+        return new DepartmentObligationSnapshotRowDto
+        {
+            DepartmentId = departmentId,
+            DepartmentName = departmentName,
+            OwnedCount = ownedTxIds.Count,
+            ResponsibleCount = responsibleTxIds.Count,
+            ReferredCount = referredTxIds.Count,
+            OpenActionCount = openActionTxIds.Count,
+            PendingActionCount = pendingActionTxIds.Count,
+            CompletedActionCount = completedActionTxIds.Count,
+            SubmittedResponseCount = submittedResponseTxIds.Count,
+            ApprovedResponseCount = approvedResponseTxIds.Count,
+            OverdueCount = overdueTxIds.Count,
+            DueSoonCount = dueSoonTxIds.Count,
+            AverageDaysOpenAction = averageDaysOpenAction,
+            AttributionMismatchCount = mismatchCount,
+            InvolvementCategory = involvementCategory
+        };
+    }
 
     private static ReportPagedFilterRequest ToPagedFilter(ReportFilterRequest? filter) => new()
     {

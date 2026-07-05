@@ -5,11 +5,12 @@ import { reportsApi, categoriesApi, departmentsApi } from '../api/services';
 import type {
   ReportTransactionRow, Category, Department, DepartmentSummaryReport,
   OutgoingDepartmentReport, ReportSectionCounts, PagedResult,
-  RecurringObligationsSummary, RecurringObligationReportRow,
+  RecurringObligationsSummary, RecurringObligationReportRow, DepartmentObligationSnapshot,
 } from '../api/types';
 import {
   statusLabels, statusBadgeClass, priorityLabels,
   recurrenceTypeLabels, recurringTemplateStatusLabels, recurringScheduleStatusLabels,
+  involvementCategoryLabels,
 } from '../utils/labels';
 import DateDisplay from '../components/DateDisplay';
 import DepartmentBadges from '../components/DepartmentBadges';
@@ -265,6 +266,71 @@ export default function ReportsPage() {
       setRecurringExportError('تعذر تصدير تقرير الالتزامات الدورية. حاول مرة أخرى.');
     } finally {
       setRecurringExporting(false);
+    }
+  };
+
+  const [deptSnapshotFilters, setDeptSnapshotFilters] = useState({ dateFrom: '', dateTo: '', departmentId: '' });
+  const [deptSnapshot, setDeptSnapshot] = useState<DepartmentObligationSnapshot | null>(null);
+  const [deptSnapshotLoading, setDeptSnapshotLoading] = useState(false);
+  const [deptSnapshotError, setDeptSnapshotError] = useState<string | null>(null);
+  const [deptSnapshotExporting, setDeptSnapshotExporting] = useState(false);
+  const [deptSnapshotExportError, setDeptSnapshotExportError] = useState<string | null>(null);
+  const deptSnapshotAbortRef = useRef<AbortController | null>(null);
+
+  const deptSnapshotFilterParams = useCallback((): Record<string, unknown> => {
+    const f = deptSnapshotFilters;
+    const p: Record<string, unknown> = {};
+    if (f.dateFrom) p.dateFrom = f.dateFrom;
+    if (f.dateTo) p.dateTo = f.dateTo;
+    if (f.departmentId) p.departmentId = +f.departmentId;
+    return p;
+  }, [deptSnapshotFilters]);
+
+  const loadDeptSnapshot = useCallback(async () => {
+    deptSnapshotAbortRef.current?.abort();
+    const controller = new AbortController();
+    deptSnapshotAbortRef.current = controller;
+    setDeptSnapshotLoading(true);
+    setDeptSnapshotError(null);
+    try {
+      const res = await reportsApi.departmentObligationSnapshot(deptSnapshotFilterParams(), { signal: controller.signal });
+      if (controller.signal.aborted) return;
+      setDeptSnapshot(res.data);
+    } catch (err) {
+      if (controller.signal.aborted || (isAxiosError(err) && err.code === 'ERR_CANCELED')) return;
+      setDeptSnapshot(null);
+      setDeptSnapshotError('تعذر تحميل لقطة التزامات الإدارات');
+    } finally {
+      if (!controller.signal.aborted) setDeptSnapshotLoading(false);
+    }
+  }, [deptSnapshotFilterParams]);
+
+  useEffect(() => {
+    void Promise.resolve().then(() => loadDeptSnapshot());
+    return () => {
+      deptSnapshotAbortRef.current?.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const applyDeptSnapshotFilters = () => loadDeptSnapshot();
+
+  const resetDeptSnapshotFilters = () => {
+    setDeptSnapshotFilters({ dateFrom: '', dateTo: '', departmentId: '' });
+    loadDeptSnapshot();
+  };
+
+  const exportDeptSnapshotExcel = async () => {
+    if (deptSnapshotExporting) return;
+    setDeptSnapshotExportError(null);
+    setDeptSnapshotExporting(true);
+    try {
+      const res = await reportsApi.exportDepartmentObligationSnapshotExcel(deptSnapshotFilterParams());
+      downloadBlob(res.data, 'department-obligation-snapshot.xlsx');
+    } catch {
+      setDeptSnapshotExportError('تعذر تصدير لقطة التزامات الإدارات. حاول مرة أخرى.');
+    } finally {
+      setDeptSnapshotExporting(false);
     }
   };
 
@@ -980,6 +1046,105 @@ export default function ReportsPage() {
           </select>
           <button disabled={!recurringHasPreviousPage || recurringLoading} onClick={() => changeRecurringPage(recurringPage - 1)}>السابق</button>
           <button disabled={!recurringHasNextPage || recurringLoading} onClick={() => changeRecurringPage(recurringPage + 1)}>التالي</button>
+        </div>
+      </div>
+
+      <div className="card mt-4">
+        <div className="card-header">
+          <h3 className="card-title">لقطة التزامات الإدارات</h3>
+          <div className="btn-group">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={loadDeptSnapshot}
+              disabled={deptSnapshotLoading}
+            >
+              تحديث لقطة التزامات الإدارات
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={exportDeptSnapshotExcel}
+              disabled={deptSnapshotLoading || deptSnapshotExporting}
+            >
+              تصدير لقطة التزامات الإدارات Excel
+            </button>
+          </div>
+        </div>
+
+        <p className="text-muted mb-2">
+          يفصل هذا الجدول بين إدارة المعاملة (المالكة) وبين الإدارات المسؤولة/المحالة إليها، حتى لا يُحمَّل الأداء على الإدارة المالكة وحدها عند وجود تأخير من إدارة أخرى.
+        </p>
+
+        <div className="filter-form mb-2">
+          <label htmlFor="dept-snapshot-date-from">من تاريخ</label>
+          <input id="dept-snapshot-date-from" type="date" value={deptSnapshotFilters.dateFrom} onChange={(e) => setDeptSnapshotFilters({ ...deptSnapshotFilters, dateFrom: e.target.value })} />
+          <label htmlFor="dept-snapshot-date-to">إلى تاريخ</label>
+          <input id="dept-snapshot-date-to" type="date" value={deptSnapshotFilters.dateTo} onChange={(e) => setDeptSnapshotFilters({ ...deptSnapshotFilters, dateTo: e.target.value })} />
+          <select value={deptSnapshotFilters.departmentId} onChange={(e) => setDeptSnapshotFilters({ ...deptSnapshotFilters, departmentId: e.target.value })}>
+            <option value="">كل الإدارات</option>
+            {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+          <button type="button" className="btn btn-outline" onClick={applyDeptSnapshotFilters}>تطبيق</button>
+          <button type="button" className="btn btn-outline" onClick={resetDeptSnapshotFilters}>إعادة تعيين فلاتر لقطة الإدارات</button>
+        </div>
+
+        {deptSnapshotExportError && <div className="alert alert-error">{deptSnapshotExportError}</div>}
+        {deptSnapshotError && <div className="alert alert-error">{deptSnapshotError}</div>}
+
+        {deptSnapshot && (
+          <div className="dashboard-grid mb-3">
+            <div className="card"><strong>عدد الإدارات المشمولة</strong><div>{deptSnapshot.totalDepartmentsInScope}</div></div>
+            <div className="card"><strong>إجمالي المعاملات المشمولة</strong><div>{deptSnapshot.totalDistinctObligations}</div></div>
+            <div className="card"><strong>معاملات متعددة الإدارات</strong><div>{deptSnapshot.multiDepartmentObligationsCount}</div></div>
+          </div>
+        )}
+
+        <div style={{ overflowX: 'auto' }}>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>الإدارة</th>
+                <th>مملوكة</th>
+                <th>مسؤولة عنها</th>
+                <th>محالة إليها</th>
+                <th>إجراء مفتوح</th>
+                <th>بانتظار الإجراء</th>
+                <th>إجراء مكتمل</th>
+                <th>إفادات مقدَّمة</th>
+                <th>إفادات معتمدة</th>
+                <th>متأخرة</th>
+                <th>قريبة الاستحقاق</th>
+                <th>متوسط أيام الفتح</th>
+                <th>تعارض في التوثيق</th>
+                <th>نوع المشاركة</th>
+              </tr>
+            </thead>
+            <tbody>
+              {deptSnapshotLoading && <TableSkeleton rows={5} columns={14} />}
+              {!deptSnapshotLoading && deptSnapshot?.departments.map((d) => (
+                <tr key={d.departmentId}>
+                  <td>{d.departmentName}</td>
+                  <td>{d.ownedCount}</td>
+                  <td>{d.responsibleCount}</td>
+                  <td>{d.referredCount}</td>
+                  <td>{d.openActionCount}</td>
+                  <td>{d.pendingActionCount}</td>
+                  <td>{d.completedActionCount}</td>
+                  <td>{d.submittedResponseCount}</td>
+                  <td>{d.approvedResponseCount}</td>
+                  <td>{d.overdueCount}</td>
+                  <td>{d.dueSoonCount}</td>
+                  <td>{d.averageDaysOpenAction ?? '—'}</td>
+                  <td>{d.attributionMismatchCount}</td>
+                  <td>{involvementCategoryLabels[d.involvementCategory] || d.involvementCategory}</td>
+                </tr>
+              ))}
+              {!deptSnapshotLoading && deptSnapshot && deptSnapshot.departments.length === 0 && !deptSnapshotError && (
+                <tr><td colSpan={14} className="text-center">لا توجد بيانات مطابقة للفلاتر المحددة.</td></tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
