@@ -158,18 +158,18 @@ Describe 'verify-uqeb-api-service.ps1 exit codes' {
         }
 
         $missingLogPath = Join-Path ([System.IO.Path]::GetTempPath()) ("uqeb-verify-test-" + [Guid]::NewGuid().ToString('N') + ".log")
-        & $script:VerifyScript -ExpectedBinaryPath $script:FakeBinaryPath -ApiPort 5000 -LogPath $missingLogPath *> $null
+        $output = & $script:VerifyScript -ExpectedBinaryPath $script:FakeBinaryPath -ApiPort 5000 -LogPath $missingLogPath 2>&1 | Out-String
 
-        $LASTEXITCODE | Should -Be 1
+        $LASTEXITCODE | Should -Be 1 -Because $output
     }
 
     It 'exits zero when every check passes' {
         Mock Invoke-WebRequest { return [pscustomobject]@{ StatusCode = 200 } }
 
         $missingLogPath = Join-Path ([System.IO.Path]::GetTempPath()) ("uqeb-verify-test-" + [Guid]::NewGuid().ToString('N') + ".log")
-        & $script:VerifyScript -ExpectedBinaryPath $script:FakeBinaryPath -ApiPort 5000 -LogPath $missingLogPath *> $null
+        $output = & $script:VerifyScript -ExpectedBinaryPath $script:FakeBinaryPath -ApiPort 5000 -LogPath $missingLogPath 2>&1 | Out-String
 
-        $LASTEXITCODE | Should -Be 0
+        $LASTEXITCODE | Should -Be 0 -Because $output
     }
 
     It 'treats a differently-cased/slashed process path as matching the expected binary path' {
@@ -177,9 +177,9 @@ Describe 'verify-uqeb-api-service.ps1 exit codes' {
         Mock Get-Process { [pscustomobject]@{ Path = $script:FakeBinaryPath.ToUpperInvariant() } }
 
         $missingLogPath = Join-Path ([System.IO.Path]::GetTempPath()) ("uqeb-verify-test-" + [Guid]::NewGuid().ToString('N') + ".log")
-        & $script:VerifyScript -ExpectedBinaryPath $script:FakeBinaryPath -ApiPort 5000 -LogPath $missingLogPath *> $null
+        $output = & $script:VerifyScript -ExpectedBinaryPath $script:FakeBinaryPath -ApiPort 5000 -LogPath $missingLogPath 2>&1 | Out-String
 
-        $LASTEXITCODE | Should -Be 0
+        $LASTEXITCODE | Should -Be 0 -Because $output
     }
 }
 
@@ -198,6 +198,7 @@ Describe 'install-uqeb-api-service.ps1 idempotency' {
         Mock New-ItemProperty { }
         Mock sc.exe { $global:LASTEXITCODE = 0; return 'ok' }
         Mock Get-Service { New-FakeServiceObject -Status 'Running' }
+        Mock New-Service { New-FakeServiceObject -Status 'Running' }
         Mock Stop-Service { }
         Mock Start-Service { }
         Mock Get-NetFirewallRule { return $null }
@@ -205,12 +206,12 @@ Describe 'install-uqeb-api-service.ps1 idempotency' {
     }
 
     It 'reconfigures an existing service instead of calling New-Service (idempotent)' {
-        & $script:InstallScript `
+        $output = & $script:InstallScript `
             -BinaryPath $script:InstallFakeBinaryPath `
             -SkipHealthCheck `
-            -SkipLogRotationTask *> $null
+            -SkipLogRotationTask 2>&1 | Out-String
 
-        $LASTEXITCODE | Should -Be 0
+        $LASTEXITCODE | Should -Be 0 -Because $output
         Should -Invoke New-Service -Times 0 -Exactly
         # sc.exe config + sc.exe description (reconfiguration) + sc.exe failure (recovery policy, always set).
         Should -Invoke sc.exe -Times 3 -Exactly
