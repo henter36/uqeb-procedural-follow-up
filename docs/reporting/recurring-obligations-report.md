@@ -222,7 +222,7 @@ larger PR.
 
 Backend (run from `backend/`):
 
-```
+```bash
 dotnet restore Uqeb.sln
 dotnet build Uqeb.sln -c Release
 dotnet test Uqeb.Api.Tests/Uqeb.Api.Tests.csproj -c Release
@@ -235,7 +235,7 @@ Result: build succeeded with 0 warnings/0 errors; full test suite
 
 Frontend (run from `frontend/uqeb-ui/`):
 
-```
+```bash
 npm ci
 npm run lint
 npm run lint:css
