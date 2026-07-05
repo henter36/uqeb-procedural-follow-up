@@ -22,6 +22,13 @@ using Uqeb.Api.Services.Health;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// No-op unless the process is actually started by the Windows Service Control Manager
+// (detected via WindowsServiceHelpers.IsWindowsService()), in which case it sets the
+// content root to AppContext.BaseDirectory (services start with an unreliable working
+// directory) and switches the host lifetime to WindowsServiceLifetime. dotnet run and
+// interactive console execution are unaffected.
+builder.Host.UseWindowsService(options => options.ServiceName = "UqebApi");
+
 builder.Configuration.AddJsonFile("build-info.json", optional: true, reloadOnChange: false);
 
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));
