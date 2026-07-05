@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
   Pester tests for the deployment/windows Windows Service scripts.
@@ -85,19 +85,42 @@ Describe 'Get-UqebHealthHost resolution' {
 }
 
 Describe 'update-uqeb-api-service.ps1 robocopy arguments' {
-    It 'copies the deployed application files with /E and does not mirror/purge with /MIR' {
-        $content = Get-Content -LiteralPath $script:UpdateScript -Raw
-
-        $content | Should -Match "'/E'"
-        $content | Should -Not -Match "'/MIR'"
+    BeforeAll {
+        $script:RobocopyFakeSourcePath = Join-Path ([System.IO.Path]::GetTempPath()) ("uqeb-robocopy-source-" + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:RobocopyFakeSourcePath -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:RobocopyFakeSourcePath 'Uqeb.Api.dll') -Value 'stub' -Force
     }
 
-    It 'still excludes the three environment-specific appsettings files' {
-        $content = Get-Content -LiteralPath $script:UpdateScript -Raw
+    AfterAll {
+        Remove-Item -LiteralPath $script:RobocopyFakeSourcePath -Recurse -Force -ErrorAction SilentlyContinue
+    }
 
-        $content | Should -Match "'appsettings\.json'"
-        $content | Should -Match "'appsettings\.Development\.json'"
-        $content | Should -Match "'appsettings\.Production\.json'"
+    BeforeEach {
+        Mock Get-Service { New-FakeServiceObject -Status 'Running' }
+        Mock Stop-Service { }
+        Mock Start-Service { }
+        Mock Test-Path { return $true }
+        Mock New-Item { }
+        Mock robocopy.exe { $global:LASTEXITCODE = 0; return 'ok' }
+        Mock Copy-Item { }
+        Mock Invoke-WebRequest { return [pscustomobject]@{ StatusCode = 200 } }
+    }
+
+    It 'passes /E and not /MIR to the actual robocopy.exe invocation' {
+        $output = & $script:UpdateScript `
+            -SourcePath $script:RobocopyFakeSourcePath `
+            -HealthCheckTimeoutSec 5 2>&1 | Out-String
+
+        $LASTEXITCODE | Should -Be 0 -Because $output
+
+        Should -Invoke robocopy.exe -ParameterFilter {
+            $args -contains '/E' -and
+            -not ($args -contains '/MIR') -and
+            $args -contains '/XF' -and
+            $args -contains 'appsettings.json' -and
+            $args -contains 'appsettings.Development.json' -and
+            $args -contains 'appsettings.Production.json'
+        } -Times 2 -Exactly
     }
 }
 
