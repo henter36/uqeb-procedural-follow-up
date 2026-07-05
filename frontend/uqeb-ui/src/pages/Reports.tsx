@@ -98,13 +98,25 @@ function parseReportTab(value: string | null): ReportTab {
   return tabConfig.some((t) => t.key === value) ? (value as ReportTab) : 'open';
 }
 
-function TableSkeleton({ rows = 5, columns = 8 }: { rows?: number; columns?: number }) {
+type TableSkeletonProps = Readonly<{
+  rows?: number;
+  columns?: number;
+}>;
+
+function createSkeletonKeys(prefix: string, count: number) {
+  return Array.from({ length: count }, (_, index) => `${prefix}-${index + 1}`);
+}
+
+function TableSkeleton({ rows = 5, columns = 8 }: TableSkeletonProps) {
+  const rowKeys = createSkeletonKeys('skeleton-row', rows);
+  const columnKeys = createSkeletonKeys('skeleton-column', columns);
+
   return (
     <>
-      {Array.from({ length: rows }).map((_, i) => (
-        <tr key={i} className="skeleton-row">
-          {Array.from({ length: columns }).map((_, j) => (
-            <td key={j}><div className="skeleton-bar w-60" /></td>
+      {rowKeys.map((rowKey) => (
+        <tr key={rowKey} className="skeleton-row">
+          {columnKeys.map((columnKey) => (
+            <td key={columnKey}><div className="skeleton-bar w-60" /></td>
           ))}
         </tr>
       ))}
