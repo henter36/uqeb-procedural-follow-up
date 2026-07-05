@@ -27,12 +27,19 @@ public static class RecurringObligationScheduleClassifier
     public static (string ScheduleStatus, int DaysRemaining) Classify(DateTime dueDate, DateTime now, int dueSoonWithinDays)
     {
         var remainingDays = (dueDate.Date - now.Date).Days;
-        var status = remainingDays < 0
-            ? RecurringObligationScheduleStatus.Overdue
-            : remainingDays <= dueSoonWithinDays
-                ? RecurringObligationScheduleStatus.DueSoon
-                : RecurringObligationScheduleStatus.Upcoming;
+        var status = DetermineStatus(remainingDays, dueSoonWithinDays);
         return (status, remainingDays);
+    }
+
+    private static string DetermineStatus(int remainingDays, int dueSoonWithinDays)
+    {
+        if (remainingDays < 0)
+            return RecurringObligationScheduleStatus.Overdue;
+
+        if (remainingDays <= dueSoonWithinDays)
+            return RecurringObligationScheduleStatus.DueSoon;
+
+        return RecurringObligationScheduleStatus.Upcoming;
     }
 }
 
@@ -71,4 +78,7 @@ public static class RecurringObligationLabels
         Models.Enums.Priority.VeryUrgent => "عاجل جداً",
         _ => priority.ToString()
     };
+
+    public static string Priority(string priority) =>
+        Enum.TryParse<Priority>(priority, true, out var p) ? Priority(p) : priority;
 }

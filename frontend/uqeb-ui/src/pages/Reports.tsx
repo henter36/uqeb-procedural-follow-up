@@ -87,6 +87,12 @@ function buildFetchKey(tabKey: ReportTab, page: number, pageSize: number, filter
   return `${tabKey}|${page}|${pageSize}|${JSON.stringify(filters)}`;
 }
 
+function recurringScheduleStatusBadgeClass(scheduleStatus: string): string {
+  if (scheduleStatus === 'Overdue') return 'badge-red';
+  if (scheduleStatus === 'DueSoon') return 'badge-orange';
+  return 'badge-blue';
+}
+
 function parseReportTab(value: string | null): ReportTab {
   if (!value) return 'open';
   return tabConfig.some((t) => t.key === value) ? (value as ReportTab) : 'open';
@@ -224,6 +230,9 @@ export default function ReportsPage() {
 
   useEffect(() => {
     void Promise.resolve().then(() => loadRecurringObligations(1, recurringPageSize));
+    return () => {
+      recurringAbortRef.current?.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -845,10 +854,10 @@ export default function ReportsPage() {
         </div>
 
         <div className="filter-form mb-2">
-          <label>من تاريخ</label>
-          <input type="date" value={recurringFilters.dateFrom} onChange={(e) => setRecurringFilters({ ...recurringFilters, dateFrom: e.target.value })} />
-          <label>إلى تاريخ</label>
-          <input type="date" value={recurringFilters.dateTo} onChange={(e) => setRecurringFilters({ ...recurringFilters, dateTo: e.target.value })} />
+          <label htmlFor="recurring-obligations-date-from">من تاريخ</label>
+          <input id="recurring-obligations-date-from" type="date" value={recurringFilters.dateFrom} onChange={(e) => setRecurringFilters({ ...recurringFilters, dateFrom: e.target.value })} />
+          <label htmlFor="recurring-obligations-date-to">إلى تاريخ</label>
+          <input id="recurring-obligations-date-to" type="date" value={recurringFilters.dateTo} onChange={(e) => setRecurringFilters({ ...recurringFilters, dateTo: e.target.value })} />
           <select value={recurringFilters.departmentId} onChange={(e) => setRecurringFilters({ ...recurringFilters, departmentId: e.target.value })}>
             <option value="">كل الإدارات</option>
             {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
@@ -938,7 +947,7 @@ export default function ReportsPage() {
                   <span className="badge">{recurringTemplateStatusLabels[r.status] || r.status}</span>
                 </td>
                 <td>
-                  <span className={`badge ${r.scheduleStatus === 'Overdue' ? 'badge-red' : r.scheduleStatus === 'DueSoon' ? 'badge-orange' : 'badge-blue'}`}>
+                  <span className={`badge ${recurringScheduleStatusBadgeClass(r.scheduleStatus)}`}>
                     {recurringScheduleStatusLabels[r.scheduleStatus] || r.scheduleStatus}
                   </span>
                 </td>

@@ -55,6 +55,7 @@ public interface IReportService
 public class ReportService : IReportService
 {
     private const int ExportBatchSize = 1000;
+    private const string DateFormat = "yyyy-MM-dd";
 
     private readonly AppDbContext _db;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
@@ -284,7 +285,7 @@ public class ReportService : IReportService
         {
             ws.Cell(row, 1).Value = t.InternalTrackingNumber;
             ws.Cell(row, 2).Value = t.IncomingNumber;
-            ws.Cell(row, 3).Value = t.IncomingDate.ToString("yyyy-MM-dd");
+            ws.Cell(row, 3).Value = t.IncomingDate.ToString(DateFormat);
             ws.Cell(row, 4).Value = t.Subject;
             ws.Cell(row, 5).Value = t.OutgoingDepartmentsDisplayNames.Count > 0
                 ? string.Join("، ", t.OutgoingDepartmentsDisplayNames) : "-";
@@ -770,13 +771,13 @@ public class ReportService : IReportService
             ws.Cell(row, 3).Value = r.OwningDepartmentName ?? "-";
             ws.Cell(row, 4).Value = r.ResponsibleDepartmentNames.Count > 0 ? string.Join("، ", r.ResponsibleDepartmentNames) : "-";
             ws.Cell(row, 5).Value = r.RecurrenceTypeLabel;
-            ws.Cell(row, 6).Value = r.StartDate.ToString("yyyy-MM-dd");
-            ws.Cell(row, 7).Value = r.NextDueDate.HasValue ? r.NextDueDate.Value.ToString("yyyy-MM-dd") : "-";
-            ws.Cell(row, 8).Value = r.LastCompletionDate.HasValue ? r.LastCompletionDate.Value.ToString("yyyy-MM-dd") : "-";
+            ws.Cell(row, 6).Value = r.StartDate.ToString(DateFormat);
+            ws.Cell(row, 7).Value = r.NextDueDate.HasValue ? r.NextDueDate.Value.ToString(DateFormat) : "-";
+            ws.Cell(row, 8).Value = r.LastCompletionDate.HasValue ? r.LastCompletionDate.Value.ToString(DateFormat) : "-";
             ws.Cell(row, 9).Value = RecurringObligationLabels.Status(r.Status);
             ws.Cell(row, 10).Value = RecurringObligationLabels.ScheduleStatus(r.ScheduleStatus);
             ws.Cell(row, 11).Value = r.DaysRemaining.HasValue ? r.DaysRemaining.Value : "-";
-            ws.Cell(row, 12).Value = r.Priority;
+            ws.Cell(row, 12).Value = RecurringObligationLabels.Priority(r.Priority);
             row++;
         }
 

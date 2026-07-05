@@ -333,7 +333,9 @@ public class RecurringObligationsReportServiceTests
         Assert.Equal("العنوان", ws.Cell(1, 2).GetString());
         Assert.Equal("تاريخ الاستحقاق القادم", ws.Cell(1, 7).GetString());
 
-        var lastUsedRow = ws.LastRowUsed()!.RowNumber();
+        var lastRow = ws.LastRowUsed();
+        Assert.NotNull(lastRow);
+        var lastUsedRow = lastRow.RowNumber();
         Assert.Equal(6, lastUsedRow); // header + 5 templates
     }
 
