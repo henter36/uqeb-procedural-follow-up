@@ -1,13 +1,16 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Uqeb.Api.Authorization;
 using Uqeb.Api.DTOs.Reports;
 using Uqeb.Api.Services;
 
 namespace Uqeb.Api.Controllers;
 
+// Institution-wide operational aggregates. DepartmentUser is excluded — see
+// Policies.ViewOperationalDashboard for why — so it never sees cross-department counts here.
 [ApiController]
 [Route("api/dashboard")]
-[Authorize]
+[Authorize(Policy = Policies.ViewOperationalDashboard)]
 public class DashboardController : ControllerBase
 {
     private readonly IReportService _reports;

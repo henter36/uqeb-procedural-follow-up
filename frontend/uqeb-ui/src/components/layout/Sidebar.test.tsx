@@ -130,6 +130,7 @@ describe('Sidebar', () => {
     renderSidebar();
 
     expect(screen.getByRole('link', { name: 'معاملات إدارتي' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'لوحة المتابعة' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'المعاملات' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'التقارير' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'الاحالات والردود' })).not.toBeInTheDocument();

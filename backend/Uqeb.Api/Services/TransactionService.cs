@@ -33,6 +33,7 @@ public interface ITransactionService
     Task<TransactionDetailDto?> AdminEditTransactionDatesAsync(int transactionId, AdminEditTransactionDatesRequest request, int userId);
     Task<PagedResult<AuditLogDto>> GetAuditLogAsync(int transactionId, int page, int pageSize, ICurrentUserService currentUser);
     Task<TransactionDetailDto?> EnableRecurringAsync(int id, EnableRecurringForTransactionRequest request, int userId);
+    Task<bool> CanAccessTransactionAsync(int transactionId, ICurrentUserService currentUser);
 }
 
 public class TransactionService : ITransactionService
@@ -2189,12 +2190,12 @@ public class TransactionService : ITransactionService
             _ => t.IncomingFrom
         };
 
-    private async Task<bool> CanAccessTransactionAsync(int transactionId, ICurrentUserService user)
+    public async Task<bool> CanAccessTransactionAsync(int transactionId, ICurrentUserService currentUser)
     {
-        if (user.Role != UserRole.DepartmentUser)
+        if (currentUser.Role != UserRole.DepartmentUser)
             return await _db.Transactions.AsNoTracking().AnyAsync(t => t.Id == transactionId);
 
-        var deptId = RequireDepartmentUserDepartmentId(user);
+        var deptId = RequireDepartmentUserDepartmentId(currentUser);
 
         return await _db.Transactions.AsNoTracking()
             .AnyAsync(t => t.Id == transactionId &&

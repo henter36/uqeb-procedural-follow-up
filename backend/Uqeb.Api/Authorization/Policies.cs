@@ -7,6 +7,7 @@ public static class Policies
     public const string CanEditTransactions = "CanEditTransactions";
     public const string CanCloseTransactions = "CanCloseTransactions";
     public const string CanManageUsers = "CanManageUsers";
+    public const string ViewOperationalDashboard = "ViewOperationalDashboard";
 
     public const string ManageLetterTemplates = "ManageLetterTemplates";
     public const string CreateFollowUpPrintJob = "CreateFollowUpPrintJob";

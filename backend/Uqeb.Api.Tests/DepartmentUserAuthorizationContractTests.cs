@@ -64,6 +64,7 @@ public class DepartmentUserAuthorizationContractTests
     [InlineData(Policies.CreateFollowUpPrintJob)]
     [InlineData(Policies.ViewFollowUpPrintJobs)]
     [InlineData(Policies.ReviewDepartmentResponse)]
+    [InlineData(Policies.ViewOperationalDashboard)]
     public void PrivilegedPolicies_DoNotAllowDepartmentUser(string policyName)
     {
         var roles = GetPolicyRoles(policyName);
@@ -77,6 +78,17 @@ public class DepartmentUserAuthorizationContractTests
         var roles = GetPolicyRoles(Policies.SubmitDepartmentResponse);
 
         Assert.Contains(UserRole.DepartmentUser.ToString(), roles);
+    }
+
+    [Fact]
+    public void ViewOperationalDashboard_AllowsReader()
+    {
+        // Reader is a global read-only role (unlike DepartmentUser it carries no department
+        // scope anywhere else in the system), so it must still see institution-wide dashboard
+        // aggregates even though DepartmentUser is excluded.
+        var roles = GetPolicyRoles(Policies.ViewOperationalDashboard);
+
+        Assert.Contains(UserRole.Reader.ToString(), roles);
     }
 
     private static string GetMethodPolicy(System.Reflection.MethodInfo method) =>
