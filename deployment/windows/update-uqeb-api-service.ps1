@@ -119,7 +119,7 @@ function Invoke-UqebRobocopy {
 
     # /MIR (mirror = /E + /PURGE) rather than /E: Destination here is always an
     # application-files-only directory (the live app dir, its pre-update backup,
-    # or a rollback restore target) — never a directory that also holds logs or
+    # or a rollback restore target) - never a directory that also holds logs or
     # data. Mirroring deletes stale files left over from a previous, different
     # build (e.g. a removed DLL) that /E alone would leave behind, which is what
     # causes dirty deployments and dirty rollbacks. appsettings*.json stay
@@ -149,7 +149,7 @@ try {
     Write-Step "Pre-update health check (informational)"
     $preHealthy = Test-UqebHealthEndpoints -Port $ApiPort -TimeoutSec 5
     if (-not $preHealthy) {
-        Write-Info "Service is not currently healthy — proceeding anyway, since this update may be the fix."
+        Write-Info "Service is not currently healthy - proceeding anyway, since this update may be the fix."
     }
 
     $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
@@ -195,7 +195,7 @@ try {
     }
     finally {
         if (-not $updateSucceeded) {
-            Write-Step "Update failed health check — rolling back to backup"
+            Write-Step "Update failed health check - rolling back to backup"
             try {
                 Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
                 (Get-Service -Name $ServiceName).WaitForStatus('Stopped', (New-TimeSpan -Seconds 30))

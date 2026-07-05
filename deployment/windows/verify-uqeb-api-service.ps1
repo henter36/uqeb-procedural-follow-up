@@ -111,7 +111,7 @@ if ($service -and $service.Status -eq 'Running') {
         else {
             # Both sides are already-absolute paths (a running process's .Path,
             # and -ExpectedBinaryPath), so GetFullPath here only normalizes
-            # slash direction/redundant separators/case-of-drive-letter — it
+            # slash direction/redundant separators/case-of-drive-letter - it
             # does not depend on the current working directory.
             $normalizedActual = [System.IO.Path]::GetFullPath($actualPath).TrimEnd('\')
             $normalizedExpected = [System.IO.Path]::GetFullPath($ExpectedBinaryPath).TrimEnd('\')
@@ -145,7 +145,7 @@ catch {
     Add-CheckResult -Name "PortListening" -Status 'FAIL' -Detail "Could not query port $ApiPort`: $($_.Exception.Message)"
 }
 
-# 5. health/live — resolved against the actual bind address, not a hardcoded
+# 5. health/live - resolved against the actual bind address, not a hardcoded
 # "localhost": if the service is bound to one specific IP (not a wildcard),
 # Kestrel does not also listen on loopback, so "localhost" would false-negative
 # an otherwise-healthy service.
@@ -158,7 +158,7 @@ else {
     Add-CheckResult -Name "HealthLive" -Status 'FAIL' -Detail "$localLiveUri did not return 200."
 }
 
-# 6. health/ready — same resolved host as check 5.
+# 6. health/ready - same resolved host as check 5.
 $localReadyUri = "http://${healthHost}:$ApiPort/health/ready"
 if (Test-UrlReturns200 -Uri $localReadyUri -TimeoutSec $HealthTimeoutSec) {
     Add-CheckResult -Name "HealthReady" -Status 'PASS' -Detail "$localReadyUri returned 200."

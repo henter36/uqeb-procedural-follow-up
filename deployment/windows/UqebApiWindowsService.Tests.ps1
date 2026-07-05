@@ -137,9 +137,18 @@ Describe 'verify-uqeb-api-service.ps1 exit codes' {
         $script:FakeBinaryPath = Join-Path ([System.IO.Path]::GetTempPath()) 'Uqeb.Api.exe'
         Set-Content -LiteralPath $script:FakeBinaryPath -Value 'stub' -Force
 
+        # Capture into a plain (non $script:-scoped) local variable before defining
+        # the mock: this Mock body executes later, from inside
+        # verify-uqeb-api-service.ps1's own script scope (which has its own
+        # Set-StrictMode -Version Latest), where "$script:FakeBinaryPath" resolves
+        # against THAT script's scope, not this test file's, and is unset there.
+        # An unqualified variable is captured by the scriptblock's closure instead,
+        # which works regardless of which script later invokes the mock.
+        $fakeBinaryPathForMock = $script:FakeBinaryPath
+
         Mock Get-Service { New-FakeServiceObject -Status 'Running' }
         Mock Get-CimInstance { [pscustomobject]@{ ProcessId = 4242 } }
-        Mock Get-Process { [pscustomobject]@{ Path = $script:FakeBinaryPath } }
+        Mock Get-Process { [pscustomobject]@{ Path = $fakeBinaryPathForMock } }
         Mock Get-NetTCPConnection { [pscustomobject]@{ LocalPort = 5000; State = 'Listen' } }
     }
 
@@ -174,7 +183,8 @@ Describe 'verify-uqeb-api-service.ps1 exit codes' {
 
     It 'treats a differently-cased/slashed process path as matching the expected binary path' {
         Mock Invoke-WebRequest { return [pscustomobject]@{ StatusCode = 200 } }
-        Mock Get-Process { [pscustomobject]@{ Path = $script:FakeBinaryPath.ToUpperInvariant() } }
+        $upperCasedBinaryPath = $script:FakeBinaryPath.ToUpperInvariant()
+        Mock Get-Process { [pscustomobject]@{ Path = $upperCasedBinaryPath } }
 
         $missingLogPath = Join-Path ([System.IO.Path]::GetTempPath()) ("uqeb-verify-test-" + [Guid]::NewGuid().ToString('N') + ".log")
         $output = & $script:VerifyScript -ExpectedBinaryPath $script:FakeBinaryPath -ApiPort 5000 -LogPath $missingLogPath 2>&1 | Out-String

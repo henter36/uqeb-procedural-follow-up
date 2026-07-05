@@ -48,7 +48,7 @@ Set-StrictMode -Version Latest
 # resolves correctly instead of producing an empty parent directory from
 # Split-Path -Parent. [System.IO.Path]::GetFullPath resolves against .NET's
 # Environment.CurrentDirectory, which Set-Location/cd does NOT keep in sync
-# with PowerShell's own $PWD — so it silently resolves against the wrong
+# with PowerShell's own $PWD - so it silently resolves against the wrong
 # directory whenever this script is run after cd'ing somewhere first (a very
 # real interactive-operator scenario). GetUnresolvedProviderPathFromPSPath
 # resolves against PowerShell's actual current location instead, and (unlike

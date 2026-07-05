@@ -24,7 +24,7 @@ function Write-Info {
 # is actually bound to. Binding to a wildcard address (0.0.0.0, *, +, or no
 # address at all) still answers on the loopback interface, so "localhost" is
 # correct there. Binding to one specific IP (e.g. 10.0.177.17) means Kestrel
-# is NOT listening on loopback, so the probe must target that IP directly —
+# is NOT listening on loopback, so the probe must target that IP directly -
 # hardcoding "localhost" in that case would produce a false-negative health
 # check against an otherwise-healthy service.
 function Get-UqebHealthHost {
