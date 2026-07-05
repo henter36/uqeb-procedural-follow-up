@@ -41,8 +41,8 @@ public class TransactionAttachmentAuthorizationTests : IClassFixture<Transaction
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var attachments = await response.Content.ReadFromJsonAsync<List<AttachmentListItem>>();
         Assert.NotNull(attachments);
-        Assert.Single(attachments!);
-        Assert.Equal("report.pdf", attachments![0].OriginalFileName);
+        var attachment = Assert.Single(attachments);
+        Assert.Equal("report.pdf", attachment.OriginalFileName);
     }
 
     [Fact]
@@ -127,6 +127,32 @@ public sealed class TransactionAttachmentAuthorizationFactory : WebApplicationFa
             {
                 ["FileStorage:Path"] = _storagePath,
             });
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+
+        if (!disposing)
+        {
+            return;
+        }
+
+        try
+        {
+            if (Directory.Exists(_storagePath))
+            {
+                Directory.Delete(_storagePath, recursive: true);
+            }
+        }
+        catch (IOException)
+        {
+            // Best-effort test cleanup only.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Best-effort test cleanup only.
+        }
+    }
 
     internal void EnsureSeeded()
     {
