@@ -42,32 +42,43 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-function Write-Info { param([string]$Message) Write-Host ("[info] " + $Message) }
+. (Join-Path $PSScriptRoot "UqebServiceCommon.ps1")
 
-if (-not (Test-Path -LiteralPath $LogPath)) {
-    Write-Info "$LogPath does not exist; nothing to rotate."
+# Normalize first so a relative path or a bare filename (e.g. "api-runtime.log")
+# resolves correctly instead of producing an empty parent directory from
+# Split-Path -Parent. [System.IO.Path]::GetFullPath resolves against .NET's
+# Environment.CurrentDirectory, which Set-Location/cd does NOT keep in sync
+# with PowerShell's own $PWD — so it silently resolves against the wrong
+# directory whenever this script is run after cd'ing somewhere first (a very
+# real interactive-operator scenario). GetUnresolvedProviderPathFromPSPath
+# resolves against PowerShell's actual current location instead, and (unlike
+# Resolve-Path) works for paths that don't exist yet.
+$resolvedLogPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($LogPath)
+
+if (-not (Test-Path -LiteralPath $resolvedLogPath)) {
+    Write-Info "$resolvedLogPath does not exist; nothing to rotate."
     exit 0
 }
 
-$logDirectory = Split-Path -Parent $LogPath
-$logBaseName = Split-Path -Leaf $LogPath
+$logDirectory = Split-Path -Parent $resolvedLogPath
+$logBaseName = Split-Path -Leaf $resolvedLogPath
 
-$sizeMB = [math]::Round((Get-Item -LiteralPath $LogPath).Length / 1MB, 1)
+$sizeMB = [math]::Round((Get-Item -LiteralPath $resolvedLogPath).Length / 1MB, 1)
 if ($sizeMB -gt $MaxSizeMB) {
     $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
     $archivePath = Join-Path $logDirectory "$logBaseName.$timestamp.old"
 
     try {
-        Rename-Item -LiteralPath $LogPath -NewName (Split-Path -Leaf $archivePath) -Force
-        New-Item -ItemType File -Path $LogPath -Force | Out-Null
-        Write-Info "Rotated $LogPath ($sizeMB MB) to $archivePath."
+        Move-Item -LiteralPath $resolvedLogPath -Destination $archivePath -Force
+        New-Item -ItemType File -Path $resolvedLogPath -Force | Out-Null
+        Write-Info "Rotated $resolvedLogPath ($sizeMB MB) to $archivePath."
     }
     catch {
         Write-Info "Could not rotate (file may be locked by an active writer): $($_.Exception.Message)"
     }
 }
 else {
-    Write-Info "$LogPath is $sizeMB MB (limit $MaxSizeMB MB); no rotation needed."
+    Write-Info "$resolvedLogPath is $sizeMB MB (limit $MaxSizeMB MB); no rotation needed."
 }
 
 $cutoff = (Get-Date).AddDays(-$RetentionDays)

@@ -56,8 +56,7 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-function Write-Step { param([string]$Message) Write-Host ""; Write-Host ("==> " + $Message) -ForegroundColor Cyan }
-function Write-Info { param([string]$Message) Write-Host ("[info] " + $Message) }
+. (Join-Path $PSScriptRoot "UqebServiceCommon.ps1")
 
 function Test-IsAdministrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -118,7 +117,14 @@ function Invoke-UqebRobocopy {
         New-Item -ItemType Directory -Path $Destination -Force | Out-Null
     }
 
-    $arguments = @($Source, $Destination, '/E', '/R:2', '/W:2', '/XF', 'appsettings.json', 'appsettings.Development.json', 'appsettings.Production.json')
+    # /MIR (mirror = /E + /PURGE) rather than /E: Destination here is always an
+    # application-files-only directory (the live app dir, its pre-update backup,
+    # or a rollback restore target) — never a directory that also holds logs or
+    # data. Mirroring deletes stale files left over from a previous, different
+    # build (e.g. a removed DLL) that /E alone would leave behind, which is what
+    # causes dirty deployments and dirty rollbacks. appsettings*.json stay
+    # excluded via /XF, which also protects them from /MIR's purge pass.
+    $arguments = @($Source, $Destination, '/MIR', '/R:2', '/W:2', '/XF', 'appsettings.json', 'appsettings.Development.json', 'appsettings.Production.json')
     & robocopy.exe @arguments | Out-Null
     if ($LASTEXITCODE -ge 8) {
         throw "robocopy failed from '$Source' to '$Destination' with exit code $LASTEXITCODE."

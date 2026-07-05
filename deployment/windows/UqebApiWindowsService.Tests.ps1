@@ -13,6 +13,7 @@ BeforeAll {
     $script:RemoveScript = Join-Path $PSScriptRoot 'remove-uqeb-api-service.ps1'
     $script:VerifyScript = Join-Path $PSScriptRoot 'verify-uqeb-api-service.ps1'
     $script:RotateScript = Join-Path $PSScriptRoot 'rotate-uqeb-api-log.ps1'
+    $script:CommonScript = Join-Path $PSScriptRoot 'UqebServiceCommon.ps1'
 
     function New-FakeServiceObject {
         param([string]$Status = 'Running')
@@ -52,6 +53,83 @@ Describe 'PowerShell script parse checks' {
         [void][System.Management.Automation.Language.Parser]::ParseFile($script:RotateScript, [ref]$null, [ref]$errors)
         $errors | Should -BeNullOrEmpty
     }
+
+    It 'parses UqebServiceCommon.ps1' {
+        $errors = $null
+        [void][System.Management.Automation.Language.Parser]::ParseFile($script:CommonScript, [ref]$null, [ref]$errors)
+        $errors | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Get-UqebHealthHost resolution' {
+    BeforeAll {
+        . $script:CommonScript
+    }
+
+    It 'resolves 0.0.0.0 to localhost' {
+        Get-UqebHealthHost -ApiBindAddress '0.0.0.0' | Should -Be 'localhost'
+    }
+
+    It 'resolves an empty/omitted bind address to localhost' {
+        Get-UqebHealthHost -ApiBindAddress '' | Should -Be 'localhost'
+    }
+
+    It 'resolves the wildcard aliases * and + to localhost' {
+        Get-UqebHealthHost -ApiBindAddress '*' | Should -Be 'localhost'
+        Get-UqebHealthHost -ApiBindAddress '+' | Should -Be 'localhost'
+    }
+
+    It 'resolves a specific bind IP to itself' {
+        Get-UqebHealthHost -ApiBindAddress '10.0.177.17' | Should -Be '10.0.177.17'
+    }
+}
+
+Describe 'update-uqeb-api-service.ps1 robocopy arguments' {
+    It 'mirrors the deployed application files with /MIR instead of /E' {
+        $content = Get-Content -LiteralPath $script:UpdateScript -Raw
+
+        $content | Should -Match '/MIR'
+        $content | Should -Not -Match "'/E'"
+    }
+
+    It 'still excludes the three environment-specific appsettings files' {
+        $content = Get-Content -LiteralPath $script:UpdateScript -Raw
+
+        $content | Should -Match "'appsettings\.json'"
+        $content | Should -Match "'appsettings\.Development\.json'"
+        $content | Should -Match "'appsettings\.Production\.json'"
+    }
+}
+
+Describe 'rotate-uqeb-api-log.ps1 relative path handling' {
+    BeforeEach {
+        $script:RotateTestRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("uqeb-rotate-test-" + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:RotateTestRoot -Force | Out-Null
+        $script:RotateTestLog = Join-Path $script:RotateTestRoot 'api-runtime.log'
+        # 2 MB of content so a -MaxSizeMB 1 threshold triggers rotation.
+        [System.IO.File]::WriteAllBytes($script:RotateTestLog, (New-Object byte[] (2 * 1MB)))
+    }
+
+    AfterEach {
+        Pop-Location -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $script:RotateTestRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'rotates a log passed as a bare relative filename from the current directory' {
+        Push-Location $script:RotateTestRoot
+        & $script:RotateScript -LogPath 'api-runtime.log' -MaxSizeMB 1 -RetentionDays 14 *> $null
+        Pop-Location
+
+        (Get-Item -LiteralPath $script:RotateTestLog).Length | Should -Be 0
+        @(Get-ChildItem -LiteralPath $script:RotateTestRoot -Filter 'api-runtime.log.*.old').Count | Should -Be 1
+    }
+
+    It 'rotates a log passed as an absolute path' {
+        & $script:RotateScript -LogPath $script:RotateTestLog -MaxSizeMB 1 -RetentionDays 14 *> $null
+
+        (Get-Item -LiteralPath $script:RotateTestLog).Length | Should -Be 0
+        @(Get-ChildItem -LiteralPath $script:RotateTestRoot -Filter 'api-runtime.log.*.old').Count | Should -Be 1
+    }
 }
 
 Describe 'verify-uqeb-api-service.ps1 exit codes' {
@@ -87,6 +165,16 @@ Describe 'verify-uqeb-api-service.ps1 exit codes' {
 
     It 'exits zero when every check passes' {
         Mock Invoke-WebRequest { return [pscustomobject]@{ StatusCode = 200 } }
+
+        $missingLogPath = Join-Path ([System.IO.Path]::GetTempPath()) ("uqeb-verify-test-" + [Guid]::NewGuid().ToString('N') + ".log")
+        & $script:VerifyScript -ExpectedBinaryPath $script:FakeBinaryPath -ApiPort 5000 -LogPath $missingLogPath *> $null
+
+        $LASTEXITCODE | Should -Be 0
+    }
+
+    It 'treats a differently-cased/slashed process path as matching the expected binary path' {
+        Mock Invoke-WebRequest { return [pscustomobject]@{ StatusCode = 200 } }
+        Mock Get-Process { [pscustomobject]@{ Path = $script:FakeBinaryPath.ToUpperInvariant() } }
 
         $missingLogPath = Join-Path ([System.IO.Path]::GetTempPath()) ("uqeb-verify-test-" + [Guid]::NewGuid().ToString('N') + ".log")
         & $script:VerifyScript -ExpectedBinaryPath $script:FakeBinaryPath -ApiPort 5000 -LogPath $missingLogPath *> $null

@@ -80,9 +80,7 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-function Write-Step { param([string]$Message) Write-Host ""; Write-Host ("==> " + $Message) -ForegroundColor Cyan }
-function Write-Info { param([string]$Message) Write-Host ("[info] " + $Message) }
-function Write-Warn2 { param([string]$Message) Write-Warning $Message }
+. (Join-Path $PSScriptRoot "UqebServiceCommon.ps1")
 
 function Test-IsAdministrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -210,8 +208,9 @@ try {
     Write-Info "Service status: $($service.Status)"
 
     if (-not $SkipHealthCheck) {
-        Write-Step "Waiting for health/live to return 200"
-        $healthUri = "http://localhost:$ApiPort/health/live"
+        $healthHost = Get-UqebHealthHost -ApiBindAddress $ApiBindAddress
+        $healthUri = "http://${healthHost}:$ApiPort/health/live"
+        Write-Step "Waiting for $healthUri to return 200"
         $deadline = (Get-Date).AddSeconds($HealthCheckTimeoutSec)
         $healthy = $false
         do {
@@ -223,6 +222,11 @@ try {
                 }
             }
             catch {
+                # Connection refused/timeout while the service is still coming up;
+                # fall through to the shared sleep below and retry.
+            }
+
+            if (-not $healthy) {
                 Start-Sleep -Seconds 2
             }
         } while ((Get-Date) -lt $deadline)

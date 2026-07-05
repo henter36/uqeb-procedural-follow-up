@@ -16,8 +16,14 @@
   Port the API should be listening on. Default: 5000.
 
 .PARAMETER ApiBindAddress
-  Optional public/network IP to additionally probe (e.g. 10.0.177.17). If it
-  is not reachable, that check is reported as SKIP rather than FAIL.
+  The address the service is actually configured to bind to (same meaning as
+  install-uqeb-api-service.ps1's -ApiBindAddress). Used to resolve the correct
+  host for the primary health/live and health/ready checks: empty/0.0.0.0/*/+
+  resolve to "localhost"; a specific IP (e.g. 10.0.177.17) is probed directly,
+  since a service bound to one specific IP does not also listen on loopback.
+  When set to a specific IP, it is also probed as an additional
+  reachability check (HealthLive_NetworkIp), reported as SKIP rather than
+  FAIL if that address isn't reachable from this host.
 
 .PARAMETER LogPath
   Legacy runtime log file to check for size/recent errors, if it still exists.
@@ -45,6 +51,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+
+. (Join-Path $PSScriptRoot "UqebServiceCommon.ps1")
 
 $script:results = New-Object System.Collections.Generic.List[pscustomobject]
 
@@ -97,11 +105,22 @@ if ($service -and $service.Status -eq 'Running') {
         $processId = $wmiService.ProcessId
         $process = Get-Process -Id $processId -ErrorAction Stop
         $actualPath = $process.Path
-        if ($actualPath -and ($actualPath.TrimEnd('\') -ieq $ExpectedBinaryPath.TrimEnd('\'))) {
-            Add-CheckResult -Name "ProcessPathMatches" -Status 'PASS' -Detail "PID $processId -> $actualPath"
+        if (-not $actualPath) {
+            Add-CheckResult -Name "ProcessPathMatches" -Status 'FAIL' -Detail "Process (PID $processId) has no accessible Path."
         }
         else {
-            Add-CheckResult -Name "ProcessPathMatches" -Status 'FAIL' -Detail "Expected '$ExpectedBinaryPath' but process path is '$actualPath' (PID $processId)."
+            # Both sides are already-absolute paths (a running process's .Path,
+            # and -ExpectedBinaryPath), so GetFullPath here only normalizes
+            # slash direction/redundant separators/case-of-drive-letter — it
+            # does not depend on the current working directory.
+            $normalizedActual = [System.IO.Path]::GetFullPath($actualPath).TrimEnd('\')
+            $normalizedExpected = [System.IO.Path]::GetFullPath($ExpectedBinaryPath).TrimEnd('\')
+            if ($normalizedActual -ieq $normalizedExpected) {
+                Add-CheckResult -Name "ProcessPathMatches" -Status 'PASS' -Detail "PID $processId -> $actualPath"
+            }
+            else {
+                Add-CheckResult -Name "ProcessPathMatches" -Status 'FAIL' -Detail "Expected '$ExpectedBinaryPath' but process path is '$actualPath' (PID $processId)."
+            }
         }
     }
     catch {
@@ -126,22 +145,26 @@ catch {
     Add-CheckResult -Name "PortListening" -Status 'FAIL' -Detail "Could not query port $ApiPort`: $($_.Exception.Message)"
 }
 
-# 5. health/live on localhost
-$localLiveUri = "http://localhost:$ApiPort/health/live"
+# 5. health/live — resolved against the actual bind address, not a hardcoded
+# "localhost": if the service is bound to one specific IP (not a wildcard),
+# Kestrel does not also listen on loopback, so "localhost" would false-negative
+# an otherwise-healthy service.
+$healthHost = Get-UqebHealthHost -ApiBindAddress $ApiBindAddress
+$localLiveUri = "http://${healthHost}:$ApiPort/health/live"
 if (Test-UrlReturns200 -Uri $localLiveUri -TimeoutSec $HealthTimeoutSec) {
-    Add-CheckResult -Name "HealthLive_Localhost" -Status 'PASS' -Detail "$localLiveUri returned 200."
+    Add-CheckResult -Name "HealthLive" -Status 'PASS' -Detail "$localLiveUri returned 200."
 }
 else {
-    Add-CheckResult -Name "HealthLive_Localhost" -Status 'FAIL' -Detail "$localLiveUri did not return 200."
+    Add-CheckResult -Name "HealthLive" -Status 'FAIL' -Detail "$localLiveUri did not return 200."
 }
 
-# 6. health/ready on localhost
-$localReadyUri = "http://localhost:$ApiPort/health/ready"
+# 6. health/ready — same resolved host as check 5.
+$localReadyUri = "http://${healthHost}:$ApiPort/health/ready"
 if (Test-UrlReturns200 -Uri $localReadyUri -TimeoutSec $HealthTimeoutSec) {
-    Add-CheckResult -Name "HealthReady_Localhost" -Status 'PASS' -Detail "$localReadyUri returned 200."
+    Add-CheckResult -Name "HealthReady" -Status 'PASS' -Detail "$localReadyUri returned 200."
 }
 else {
-    Add-CheckResult -Name "HealthReady_Localhost" -Status 'FAIL' -Detail "$localReadyUri did not return 200."
+    Add-CheckResult -Name "HealthReady" -Status 'FAIL' -Detail "$localReadyUri did not return 200."
 }
 
 # 7. health/live on public/network IP (optional, skip if unreachable)

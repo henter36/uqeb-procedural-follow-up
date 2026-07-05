@@ -35,8 +35,7 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-function Write-Step { param([string]$Message) Write-Host ""; Write-Host ("==> " + $Message) -ForegroundColor Cyan }
-function Write-Info { param([string]$Message) Write-Host ("[info] " + $Message) }
+. (Join-Path $PSScriptRoot "UqebServiceCommon.ps1")
 
 function Test-IsAdministrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()

@@ -174,8 +174,10 @@ deployment file-layout convention (`C:\Uqeb\current\api`,
 
 Prints one `[PASS|FAIL|SKIP] CheckName - detail` line per check:
 `ServiceExists`, `ServiceRunning`, `ProcessPathMatches`, `PortListening`,
-`HealthLive_Localhost`, `HealthReady_Localhost`, `HealthLive_NetworkIp`
-(SKIP if `-ApiBindAddress` omitted or unreachable), `RecentLogErrors`,
+`HealthLive`, `HealthReady` (both resolved against `-ApiBindAddress` — hit
+`localhost` for a wildcard bind, or the specific IP directly if the service is
+bound to one), `HealthLive_NetworkIp` (an additional reachability check,
+SKIP if `-ApiBindAddress` is omitted/wildcard/unreachable), `RecentLogErrors`,
 `LogFileSize`. Ends with `OVERALL: PASS` (exit 0) or `OVERALL: FAIL` (exit 1)
 naming how many checks failed.
 
