@@ -4,7 +4,9 @@ on:
   pull_request:
     paths:
       - 'scripts/**'
+      - 'deployment/windows/**'
       - 'backend/Uqeb.Api/Uqeb.Api.csproj'
+      - 'backend/Uqeb.Api/appsettings.Production.json'
       - 'backend/Uqeb.Api/Controllers/HealthController.cs'
       - 'backend/Uqeb.Api/Services/Health/**'
       - 'backend/Uqeb.Api/Reporting/Operations/ReportingChromiumProbe.cs'
@@ -13,7 +15,9 @@ on:
     branches: [main]
     paths:
       - 'scripts/**'
+      - 'deployment/windows/**'
       - 'backend/Uqeb.Api/Uqeb.Api.csproj'
+      - 'backend/Uqeb.Api/appsettings.Production.json'
       - 'backend/Uqeb.Api/Controllers/HealthController.cs'
       - 'backend/Uqeb.Api/Services/Health/**'
       - 'backend/Uqeb.Api/Reporting/Operations/ReportingChromiumProbe.cs'
@@ -40,7 +44,7 @@ jobs:
         shell: pwsh
         run: |
           Import-Module Pester -MinimumVersion 5.0.0 -ErrorAction Stop
-          Invoke-Pester -Path .\scripts\tests\MigrationResultNormalization.Tests.ps1, .\scripts\tests\AtomicDirectorySwap.Tests.ps1, .\scripts\tests\PlaywrightSmokeTest.Tests.ps1, .\scripts\tests\PlaywrightDeployment.Tests.ps1, .\scripts\tests\PowerShellEncoding.Tests.ps1, .\scripts\tests\ExpandArchiveSafely.Tests.ps1, .\scripts\tests\InstalledArtifactProof.Tests.ps1, .\scripts\deployment-package.Tests.ps1, .\scripts\verify-deployment-health.Tests.ps1 -Output Detailed
+          Invoke-Pester -Path .\scripts\tests\MigrationResultNormalization.Tests.ps1, .\scripts\tests\AtomicDirectorySwap.Tests.ps1, .\scripts\tests\PlaywrightSmokeTest.Tests.ps1, .\scripts\tests\PlaywrightDeployment.Tests.ps1, .\scripts\tests\PowerShellEncoding.Tests.ps1, .\scripts\tests\ExpandArchiveSafely.Tests.ps1, .\scripts\tests\InstalledArtifactProof.Tests.ps1, .\scripts\deployment-package.Tests.ps1, .\scripts\verify-deployment-health.Tests.ps1, .\deployment\windows\UqebApiWindowsService.Tests.ps1 -Output Detailed
 
   production-package-structure:
     runs-on: windows-latest
