@@ -224,6 +224,7 @@ try {
             catch {
                 # Connection refused/timeout while the service is still coming up;
                 # fall through to the shared sleep below and retry.
+                Write-Verbose "Ignoring non-critical failure while installing Uqeb API service: $($_.Exception.Message)"
             }
 
             if (-not $healthy) {
