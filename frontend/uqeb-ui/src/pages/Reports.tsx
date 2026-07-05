@@ -277,8 +277,7 @@ export default function ReportsPage() {
   const [deptSnapshotExportError, setDeptSnapshotExportError] = useState<string | null>(null);
   const deptSnapshotAbortRef = useRef<AbortController | null>(null);
 
-  const deptSnapshotFilterParams = useCallback((): Record<string, unknown> => {
-    const f = deptSnapshotFilters;
+  const deptSnapshotFilterParams = useCallback((f: typeof deptSnapshotFilters = deptSnapshotFilters): Record<string, unknown> => {
     const p: Record<string, unknown> = {};
     if (f.dateFrom) p.dateFrom = f.dateFrom;
     if (f.dateTo) p.dateTo = f.dateTo;
@@ -286,14 +285,14 @@ export default function ReportsPage() {
     return p;
   }, [deptSnapshotFilters]);
 
-  const loadDeptSnapshot = useCallback(async () => {
+  const loadDeptSnapshot = useCallback(async (overrideFilters?: typeof deptSnapshotFilters) => {
     deptSnapshotAbortRef.current?.abort();
     const controller = new AbortController();
     deptSnapshotAbortRef.current = controller;
     setDeptSnapshotLoading(true);
     setDeptSnapshotError(null);
     try {
-      const res = await reportsApi.departmentObligationSnapshot(deptSnapshotFilterParams(), { signal: controller.signal });
+      const res = await reportsApi.departmentObligationSnapshot(deptSnapshotFilterParams(overrideFilters), { signal: controller.signal });
       if (controller.signal.aborted) return;
       setDeptSnapshot(res.data);
     } catch (err) {
@@ -316,8 +315,9 @@ export default function ReportsPage() {
   const applyDeptSnapshotFilters = () => loadDeptSnapshot();
 
   const resetDeptSnapshotFilters = () => {
-    setDeptSnapshotFilters({ dateFrom: '', dateTo: '', departmentId: '' });
-    loadDeptSnapshot();
+    const emptyFilters = { dateFrom: '', dateTo: '', departmentId: '' };
+    setDeptSnapshotFilters(emptyFilters);
+    loadDeptSnapshot(emptyFilters);
   };
 
   const exportDeptSnapshotExcel = async () => {
@@ -1056,7 +1056,7 @@ export default function ReportsPage() {
             <button
               type="button"
               className="btn btn-secondary"
-              onClick={loadDeptSnapshot}
+              onClick={() => loadDeptSnapshot()}
               disabled={deptSnapshotLoading}
             >
               تحديث لقطة التزامات الإدارات
@@ -1140,7 +1140,7 @@ export default function ReportsPage() {
                   <td>{involvementCategoryLabels[d.involvementCategory] || d.involvementCategory}</td>
                 </tr>
               ))}
-              {!deptSnapshotLoading && deptSnapshot && deptSnapshot.departments.length === 0 && !deptSnapshotError && (
+              {!deptSnapshotLoading && deptSnapshot?.departments.length === 0 && !deptSnapshotError && (
                 <tr><td colSpan={14} className="text-center">لا توجد بيانات مطابقة للفلاتر المحددة.</td></tr>
               )}
             </tbody>

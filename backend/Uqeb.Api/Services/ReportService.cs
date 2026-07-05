@@ -1099,6 +1099,24 @@ public class ReportService : IReportService
         public DepartmentResponseStatus Status { get; init; }
     }
 
+    private sealed class DepartmentObligationSnapshotContext
+    {
+        public required ILookup<int, DeptTxPair> OwnedLookup { get; init; }
+        public required ILookup<int, AssignmentSnapshotRow> AssignmentLookup { get; init; }
+        public required ILookup<int, DeptTxPair> ReferredLookup { get; init; }
+        public required ILookup<int, DepartmentResponseSnapshotRow> ResponseLookup { get; init; }
+        public required int DueSoonWithinDays { get; init; }
+        public required DateTime Now { get; init; }
+    }
+
+    private readonly record struct AssignmentActionBuckets(
+        List<int> OpenActionTxIds,
+        List<int> PendingActionTxIds,
+        List<int> CompletedActionTxIds,
+        List<int> OverdueTxIds,
+        List<int> DueSoonTxIds,
+        List<AssignmentSnapshotRow> PendingActionAssignments);
+
     private async Task<DepartmentObligationSnapshotDto> BuildDepartmentObligationSnapshotAsync(
         DepartmentObligationSnapshotFilterRequest filter, DateTime now)
     {
@@ -1112,41 +1130,9 @@ public class ReportService : IReportService
             .Select(t => new DeptTxPair(t.IncomingFromDepartmentId!.Value, t.Id))
             .ToListAsync();
 
-        var referredRows = await _db.TransactionOutgoingDepartments.AsNoTracking()
-            .Where(o => (!filter.DateFrom.HasValue || o.Transaction.IncomingDate >= filter.DateFrom)
-                && (!filter.DateTo.HasValue || o.Transaction.IncomingDate <= filter.DateTo)
-                && (!filter.DepartmentId.HasValue || o.DepartmentId == filter.DepartmentId))
-            .Select(o => new DeptTxPair(o.DepartmentId, o.TransactionId))
-            .Distinct()
-            .ToListAsync();
-
-        var assignmentRows = await _db.Assignments.AsNoTracking()
-            .Where(a => (!filter.DateFrom.HasValue || a.Transaction.IncomingDate >= filter.DateFrom)
-                && (!filter.DateTo.HasValue || a.Transaction.IncomingDate <= filter.DateTo)
-                && (!filter.DepartmentId.HasValue || a.DepartmentId == filter.DepartmentId))
-            .Select(a => new AssignmentSnapshotRow
-            {
-                DepartmentId = a.DepartmentId,
-                TransactionId = a.TransactionId,
-                Status = a.Status,
-                RequiresReply = a.RequiresReply,
-                ReplyStatus = a.ReplyStatus,
-                DueDate = a.DueDate,
-                AssignedDate = a.AssignedDate
-            })
-            .ToListAsync();
-
-        var responseRows = await _db.DepartmentResponses.AsNoTracking()
-            .Where(r => (!filter.DateFrom.HasValue || r.Transaction.IncomingDate >= filter.DateFrom)
-                && (!filter.DateTo.HasValue || r.Transaction.IncomingDate <= filter.DateTo)
-                && (!filter.DepartmentId.HasValue || r.DepartmentId == filter.DepartmentId))
-            .Select(r => new DepartmentResponseSnapshotRow
-            {
-                DepartmentId = r.DepartmentId,
-                TransactionId = r.TransactionId,
-                Status = r.Status
-            })
-            .ToListAsync();
+        var referredRows = await LoadDepartmentObligationSnapshotReferredRowsAsync(filter);
+        var assignmentRows = await LoadDepartmentObligationSnapshotAssignmentRowsAsync(filter);
+        var responseRows = await LoadDepartmentObligationSnapshotResponseRowsAsync(filter);
 
         var departmentIds = ownedRows.Select(r => r.DepartmentId)
             .Concat(assignmentRows.Select(r => r.DepartmentId))
@@ -1161,12 +1147,19 @@ public class ReportService : IReportService
                 .Where(d => departmentIds.Contains(d.Id))
                 .ToDictionaryAsync(d => d.Id, d => d.Name);
 
+        var context = new DepartmentObligationSnapshotContext
+        {
+            OwnedLookup = ownedRows.ToLookup(r => r.DepartmentId),
+            AssignmentLookup = assignmentRows.ToLookup(r => r.DepartmentId),
+            ReferredLookup = referredRows.ToLookup(r => r.DepartmentId),
+            ResponseLookup = responseRows.ToLookup(r => r.DepartmentId),
+            DueSoonWithinDays = filter.DueSoonWithinDays,
+            Now = now
+        };
+
         var departmentRows = departmentIds
             .Select(deptId => BuildDepartmentObligationSnapshotRow(
-                deptId,
-                departmentNames.GetValueOrDefault(deptId, deptId.ToString()),
-                ownedRows, assignmentRows, referredRows, responseRows,
-                filter.DueSoonWithinDays, now))
+                deptId, departmentNames.GetValueOrDefault(deptId, deptId.ToString()), context))
             .OrderBy(r => r.DepartmentName)
             .ToList();
 
@@ -1190,22 +1183,94 @@ public class ReportService : IReportService
         };
     }
 
-    private static DepartmentObligationSnapshotRowDto BuildDepartmentObligationSnapshotRow(
-        int departmentId,
-        string departmentName,
-        List<DeptTxPair> ownedRows,
-        List<AssignmentSnapshotRow> assignmentRows,
-        List<DeptTxPair> referredRows,
-        List<DepartmentResponseSnapshotRow> responseRows,
-        int dueSoonWithinDays,
-        DateTime now)
-    {
-        var ownedTxIds = ownedRows.Where(r => r.DepartmentId == departmentId).Select(r => r.TransactionId).Distinct().ToList();
-        var assignmentsForDept = assignmentRows.Where(r => r.DepartmentId == departmentId).ToList();
-        var responsibleTxIds = assignmentsForDept.Select(a => a.TransactionId).Distinct().ToList();
-        var referredTxIds = referredRows.Where(r => r.DepartmentId == departmentId).Select(r => r.TransactionId).Distinct().ToList();
-        var responsesForDept = responseRows.Where(r => r.DepartmentId == departmentId).ToList();
+    private async Task<List<DeptTxPair>> LoadDepartmentObligationSnapshotReferredRowsAsync(
+        DepartmentObligationSnapshotFilterRequest filter) =>
+        await _db.TransactionOutgoingDepartments.AsNoTracking()
+            .Where(o => (!filter.DateFrom.HasValue || o.Transaction.IncomingDate >= filter.DateFrom)
+                && (!filter.DateTo.HasValue || o.Transaction.IncomingDate <= filter.DateTo)
+                && (!filter.DepartmentId.HasValue || o.DepartmentId == filter.DepartmentId))
+            .Select(o => new DeptTxPair(o.DepartmentId, o.TransactionId))
+            .Distinct()
+            .ToListAsync();
 
+    private async Task<List<AssignmentSnapshotRow>> LoadDepartmentObligationSnapshotAssignmentRowsAsync(
+        DepartmentObligationSnapshotFilterRequest filter) =>
+        await _db.Assignments.AsNoTracking()
+            .Where(a => (!filter.DateFrom.HasValue || a.Transaction.IncomingDate >= filter.DateFrom)
+                && (!filter.DateTo.HasValue || a.Transaction.IncomingDate <= filter.DateTo)
+                && (!filter.DepartmentId.HasValue || a.DepartmentId == filter.DepartmentId))
+            .Select(a => new AssignmentSnapshotRow
+            {
+                DepartmentId = a.DepartmentId,
+                TransactionId = a.TransactionId,
+                Status = a.Status,
+                RequiresReply = a.RequiresReply,
+                ReplyStatus = a.ReplyStatus,
+                DueDate = a.DueDate,
+                AssignedDate = a.AssignedDate
+            })
+            .ToListAsync();
+
+    private async Task<List<DepartmentResponseSnapshotRow>> LoadDepartmentObligationSnapshotResponseRowsAsync(
+        DepartmentObligationSnapshotFilterRequest filter) =>
+        await _db.DepartmentResponses.AsNoTracking()
+            .Where(r => (!filter.DateFrom.HasValue || r.Transaction.IncomingDate >= filter.DateFrom)
+                && (!filter.DateTo.HasValue || r.Transaction.IncomingDate <= filter.DateTo)
+                && (!filter.DepartmentId.HasValue || r.DepartmentId == filter.DepartmentId))
+            .Select(r => new DepartmentResponseSnapshotRow
+            {
+                DepartmentId = r.DepartmentId,
+                TransactionId = r.TransactionId,
+                Status = r.Status
+            })
+            .ToListAsync();
+
+    private static DepartmentObligationSnapshotRowDto BuildDepartmentObligationSnapshotRow(
+        int departmentId, string departmentName, DepartmentObligationSnapshotContext context)
+    {
+        var ownedTxIds = context.OwnedLookup[departmentId].Select(r => r.TransactionId).Distinct().ToList();
+        var assignmentsForDept = context.AssignmentLookup[departmentId].ToList();
+        var responsibleTxIds = assignmentsForDept.Select(a => a.TransactionId).Distinct().ToList();
+        var referredTxIds = context.ReferredLookup[departmentId].Select(r => r.TransactionId).Distinct().ToList();
+        var responsesForDept = context.ResponseLookup[departmentId].ToList();
+
+        var buckets = ComputeAssignmentActionBuckets(assignmentsForDept, context.DueSoonWithinDays, context.Now);
+
+        var submittedResponseTxIds = responsesForDept.Select(r => r.TransactionId).Distinct().ToList();
+        var approvedResponseTxIds = responsesForDept
+            .Where(r => r.Status == DepartmentResponseStatus.Approved)
+            .Select(r => r.TransactionId).Distinct().ToHashSet();
+
+        var mismatchCount = ComputeAttributionMismatchCount(assignmentsForDept, approvedResponseTxIds);
+        var averageDaysOpenAction = ComputeAverageDaysOpenAction(buckets.PendingActionAssignments, context.Now);
+
+        var hasOwner = ownedTxIds.Count > 0;
+        var hasResponsibleOrReferred = responsibleTxIds.Count > 0 || referredTxIds.Count > 0;
+        var involvementCategory = DetermineInvolvementCategory(hasOwner, hasResponsibleOrReferred);
+
+        return new DepartmentObligationSnapshotRowDto
+        {
+            DepartmentId = departmentId,
+            DepartmentName = departmentName,
+            OwnedCount = ownedTxIds.Count,
+            ResponsibleCount = responsibleTxIds.Count,
+            ReferredCount = referredTxIds.Count,
+            OpenActionCount = buckets.OpenActionTxIds.Count,
+            PendingActionCount = buckets.PendingActionTxIds.Count,
+            CompletedActionCount = buckets.CompletedActionTxIds.Count,
+            SubmittedResponseCount = submittedResponseTxIds.Count,
+            ApprovedResponseCount = approvedResponseTxIds.Count,
+            OverdueCount = buckets.OverdueTxIds.Count,
+            DueSoonCount = buckets.DueSoonTxIds.Count,
+            AverageDaysOpenAction = averageDaysOpenAction,
+            AttributionMismatchCount = mismatchCount,
+            InvolvementCategory = involvementCategory
+        };
+    }
+
+    private static AssignmentActionBuckets ComputeAssignmentActionBuckets(
+        List<AssignmentSnapshotRow> assignmentsForDept, int dueSoonWithinDays, DateTime now)
+    {
         var openActionTxIds = assignmentsForDept
             .Where(a => a.Status == AssignmentStatus.Active)
             .Select(a => a.TransactionId).Distinct().ToList();
@@ -1229,63 +1294,49 @@ public class ReportService : IReportService
                 && (a.DueDate.Value.Date - now.Date).Days <= dueSoonWithinDays)
             .Select(a => a.TransactionId).Distinct().ToList();
 
-        var submittedResponseTxIds = responsesForDept.Select(r => r.TransactionId).Distinct().ToList();
-        var approvedResponseTxIds = responsesForDept
-            .Where(r => r.Status == DepartmentResponseStatus.Approved)
-            .Select(r => r.TransactionId).Distinct().ToHashSet();
+        return new AssignmentActionBuckets(openActionTxIds, pendingActionTxIds, completedActionTxIds, overdueTxIds, dueSoonTxIds, pendingActionAssignments);
+    }
 
-        // Attribution mismatch: restricted to assignments that actually require a reply.
-        // Flags obligations where the thin Assignment-level "Replied" flag and the richer
-        // DepartmentResponse approval workflow disagree, since the two are not kept in
-        // sync automatically anywhere in the current data model.
+    // Attribution mismatch: restricted to assignments that actually require a reply.
+    // Flags obligations where the thin Assignment-level "Replied" flag and the richer
+    // DepartmentResponse approval workflow disagree, since the two are not kept in
+    // sync automatically anywhere in the current data model.
+    private static int ComputeAttributionMismatchCount(
+        List<AssignmentSnapshotRow> assignmentsForDept, HashSet<int> approvedResponseTxIds)
+    {
         var repliedTxIds = assignmentsForDept
             .Where(a => a.RequiresReply && a.ReplyStatus == ReplyStatus.Replied)
             .Select(a => a.TransactionId).ToHashSet();
-        var mismatchCount = assignmentsForDept
+
+        return assignmentsForDept
             .Where(a => a.RequiresReply)
             .Select(a => a.TransactionId)
             .Distinct()
             .Count(txId => repliedTxIds.Contains(txId) != approvedResponseTxIds.Contains(txId));
+    }
 
-        // One AssignedDate per obligation (earliest, if duplicate Assignment rows exist for the
-        // same transaction+department), so a duplicated row never double-weights the average.
-        var pendingActionAssignedDatesByTransaction = pendingActionAssignments
+    // One AssignedDate per obligation (earliest, if duplicate Assignment rows exist for the
+    // same transaction+department), so a duplicated row never double-weights the average.
+    private static double? ComputeAverageDaysOpenAction(List<AssignmentSnapshotRow> pendingActionAssignments, DateTime now)
+    {
+        if (pendingActionAssignments.Count == 0) return null;
+
+        var earliestAssignedDatesByTransaction = pendingActionAssignments
             .GroupBy(a => a.TransactionId)
             .Select(g => g.Min(a => a.AssignedDate))
             .ToList();
-        double? averageDaysOpenAction = pendingActionAssignedDatesByTransaction.Count > 0
-            ? Math.Round(pendingActionAssignedDatesByTransaction.Average(assignedDate => Math.Max(0, (now.Date - assignedDate.Date).Days)), 1)
-            : null;
 
-        var hasOwner = ownedTxIds.Count > 0;
-        var hasResponsibleOrReferred = responsibleTxIds.Count > 0 || referredTxIds.Count > 0;
-        var involvementCategory = (hasOwner, hasResponsibleOrReferred) switch
+        return Math.Round(earliestAssignedDatesByTransaction.Average(assignedDate => Math.Max(0, (now.Date - assignedDate.Date).Days)), 1);
+    }
+
+    private static string DetermineInvolvementCategory(bool hasOwner, bool hasResponsibleOrReferred) =>
+        (hasOwner, hasResponsibleOrReferred) switch
         {
             (true, false) => "OwnerOnly",
             (false, true) => "ResponsibleOrReferredOnly",
             (true, true) => "Both",
             _ => "None"
         };
-
-        return new DepartmentObligationSnapshotRowDto
-        {
-            DepartmentId = departmentId,
-            DepartmentName = departmentName,
-            OwnedCount = ownedTxIds.Count,
-            ResponsibleCount = responsibleTxIds.Count,
-            ReferredCount = referredTxIds.Count,
-            OpenActionCount = openActionTxIds.Count,
-            PendingActionCount = pendingActionTxIds.Count,
-            CompletedActionCount = completedActionTxIds.Count,
-            SubmittedResponseCount = submittedResponseTxIds.Count,
-            ApprovedResponseCount = approvedResponseTxIds.Count,
-            OverdueCount = overdueTxIds.Count,
-            DueSoonCount = dueSoonTxIds.Count,
-            AverageDaysOpenAction = averageDaysOpenAction,
-            AttributionMismatchCount = mismatchCount,
-            InvolvementCategory = involvementCategory
-        };
-    }
 
     private static ReportPagedFilterRequest ToPagedFilter(ReportFilterRequest? filter) => new()
     {

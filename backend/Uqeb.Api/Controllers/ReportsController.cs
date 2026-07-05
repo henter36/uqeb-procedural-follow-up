@@ -14,6 +14,8 @@ namespace Uqeb.Api.Controllers;
 [Authorize(Policy = Policies.CanEditTransactions)]
 public class ReportsController : ControllerBase
 {
+    private const string ExcelContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
     private readonly IReportService _reports;
     private readonly IMemoryCacheCoordinator _cache;
     private readonly ICacheInvalidationService _cacheInvalidation;
@@ -116,7 +118,7 @@ public class ReportsController : ControllerBase
     public async Task<IActionResult> ExportDepartmentIncomingClosedExcel([FromQuery] ReportFilterRequest filter)
     {
         var bytes = await _reports.ExportDepartmentIncomingClosedExcelAsync(filter);
-        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        return File(bytes, ExcelContentType,
             $"department-incoming-closed-{DateTime.UtcNow:yyyyMMdd}.xlsx");
     }
 
@@ -152,7 +154,7 @@ public class ReportsController : ControllerBase
     public async Task<IActionResult> ExportRecurringObligationsExcel([FromQuery] RecurringObligationsReportFilterRequest filter)
     {
         var bytes = await _reports.ExportRecurringObligationsExcelAsync(filter);
-        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        return File(bytes, ExcelContentType,
             $"recurring-obligations-{DateTime.UtcNow:yyyyMMdd}.xlsx");
     }
 
@@ -164,7 +166,7 @@ public class ReportsController : ControllerBase
     public async Task<IActionResult> ExportDepartmentObligationSnapshotExcel([FromQuery] DepartmentObligationSnapshotFilterRequest filter)
     {
         var bytes = await _reports.ExportDepartmentObligationSnapshotExcelAsync(filter);
-        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        return File(bytes, ExcelContentType,
             $"department-obligation-snapshot-{DateTime.UtcNow:yyyyMMdd}.xlsx");
     }
 
@@ -193,7 +195,7 @@ public class ReportsController : ControllerBase
             HttpContext.RequestAborted);
         return File(
             bytes,
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ExcelContentType,
             LegacyReportExportHelper.BuildExcelFileName(reportType));
     }
 
