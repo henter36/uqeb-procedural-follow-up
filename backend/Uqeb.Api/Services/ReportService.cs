@@ -1163,12 +1163,20 @@ public class ReportService : IReportService
             .OrderBy(r => r.DepartmentName)
             .ToList();
 
-        var allPairs = ownedRows
-            .Concat(assignmentRows.Select(a => new DeptTxPair(a.DepartmentId, a.TransactionId)))
-            .Concat(referredRows)
-            .Concat(responseRows.Select(r => new DeptTxPair(r.DepartmentId, r.TransactionId)))
-            .Distinct()
-            .ToList();
+        var allPairs = filter.DepartmentId.HasValue
+            ? await LoadDepartmentObligationSnapshotAggregatePairsAsync(
+                ownedRows.Select(r => r.TransactionId)
+                    .Concat(assignmentRows.Select(r => r.TransactionId))
+                    .Concat(referredRows.Select(r => r.TransactionId))
+                    .Concat(responseRows.Select(r => r.TransactionId))
+                    .Distinct()
+                    .ToList())
+            : ownedRows
+                .Concat(assignmentRows.Select(a => new DeptTxPair(a.DepartmentId, a.TransactionId)))
+                .Concat(referredRows)
+                .Concat(responseRows.Select(r => new DeptTxPair(r.DepartmentId, r.TransactionId)))
+                .Distinct()
+                .ToList();
 
         var multiDepartmentObligationsCount = allPairs
             .GroupBy(p => p.TransactionId)
@@ -1181,6 +1189,43 @@ public class ReportService : IReportService
             MultiDepartmentObligationsCount = multiDepartmentObligationsCount,
             Departments = departmentRows
         };
+    }
+
+    // When a DepartmentId filter is active, the loaded rows above are already restricted to that
+    // department, so aggregate totals must instead pull ALL department links (any department) for
+    // the transactions the selected department is involved in - otherwise cross-department links
+    // are silently dropped and MultiDepartmentObligationsCount collapses toward zero.
+    private async Task<List<DeptTxPair>> LoadDepartmentObligationSnapshotAggregatePairsAsync(
+        List<int> inScopeTransactionIds)
+    {
+        if (inScopeTransactionIds.Count == 0) return [];
+
+        var ownedPairs = await _db.Transactions.AsNoTracking()
+            .Where(t => t.IncomingFromDepartmentId != null && inScopeTransactionIds.Contains(t.Id))
+            .Select(t => new DeptTxPair(t.IncomingFromDepartmentId!.Value, t.Id))
+            .ToListAsync();
+
+        var referredPairs = await _db.TransactionOutgoingDepartments.AsNoTracking()
+            .Where(o => inScopeTransactionIds.Contains(o.TransactionId))
+            .Select(o => new DeptTxPair(o.DepartmentId, o.TransactionId))
+            .ToListAsync();
+
+        var assignmentPairs = await _db.Assignments.AsNoTracking()
+            .Where(a => inScopeTransactionIds.Contains(a.TransactionId))
+            .Select(a => new DeptTxPair(a.DepartmentId, a.TransactionId))
+            .ToListAsync();
+
+        var responsePairs = await _db.DepartmentResponses.AsNoTracking()
+            .Where(r => inScopeTransactionIds.Contains(r.TransactionId))
+            .Select(r => new DeptTxPair(r.DepartmentId, r.TransactionId))
+            .ToListAsync();
+
+        return ownedPairs
+            .Concat(referredPairs)
+            .Concat(assignmentPairs)
+            .Concat(responsePairs)
+            .Distinct()
+            .ToList();
     }
 
     private async Task<List<DeptTxPair>> LoadDepartmentObligationSnapshotReferredRowsAsync(

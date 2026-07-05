@@ -281,6 +281,29 @@ public class DepartmentObligationSnapshotServiceTests
     }
 
     [Fact]
+    public async Task Snapshot_department_filter_preserves_cross_department_totals()
+    {
+        var options = CreateOptions(nameof(Snapshot_department_filter_preserves_cross_department_totals));
+        await SeedAsync(options);
+        var service = CreateService(options);
+
+        var snapshot = await service.GetDepartmentObligationSnapshotAsync(new DepartmentObligationSnapshotFilterRequest { DepartmentId = 20 });
+
+        // Departments collection stays scoped to only the selected department.
+        Assert.Equal(1, snapshot.TotalDepartmentsInScope);
+        Assert.Equal(20, snapshot.Departments.Single().DepartmentId);
+
+        // Department 20 (B) is involved (referred/assigned/responded) in T1, T2, T3, T6.
+        Assert.Equal(4, snapshot.TotalDistinctObligations);
+
+        // T1/T2/T3 are owned by department 10 (A) and touched by 20 (B) elsewhere -> cross-department,
+        // must count as multi-department even though the returned row set is filtered to B alone.
+        // T6 has no owner and is touched by 20 (B) only, via two different roles (Assignment and
+        // DepartmentResponse) -> a single department in multiple roles, must NOT count as multi-department.
+        Assert.Equal(3, snapshot.MultiDepartmentObligationsCount);
+    }
+
+    [Fact]
     public async Task Snapshot_returns_empty_result_when_there_is_no_data()
     {
         var options = CreateOptions(nameof(Snapshot_returns_empty_result_when_there_is_no_data));
