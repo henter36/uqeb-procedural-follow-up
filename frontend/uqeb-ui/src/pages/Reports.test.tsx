@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import ReportsPage from './Reports';
 import * as services from '../api/services';
-import type { ReportSectionCounts } from '../api/types';
+import type { ReportSectionCounts, RecurringObligationsSummary } from '../api/types';
 
 const emptyPage = {
   items: [],
@@ -37,6 +37,17 @@ const emptySummary: ReportSectionCounts = {
   waitingReply: 0,
 };
 
+const emptyRecurringSummary: RecurringObligationsSummary = {
+  total: 0,
+  active: 0,
+  upcoming: 0,
+  dueSoon: 0,
+  overdue: 0,
+  suspended: 0,
+  terminated: 0,
+  groups: [],
+};
+
 vi.mock('../api/services', () => ({
   reportsApi: {
     pageSummary: vi.fn(),
@@ -55,6 +66,9 @@ vi.mock('../api/services', () => ({
     exportDepartmentIncomingClosedExcel: vi.fn(),
     exportDepartmentIncomingClosedPdf: vi.fn(),
     monthly: vi.fn(),
+    recurringObligationsSummary: vi.fn(),
+    recurringObligationsDetails: vi.fn(),
+    exportRecurringObligationsExcel: vi.fn(),
   },
   categoriesApi: { getAll: vi.fn() },
   departmentsApi: { getAll: vi.fn() },
@@ -76,6 +90,8 @@ describe('ReportsPage auto loading', () => {
     vi.mocked(services.reportsApi.byIncomingParty).mockResolvedValue(mockAxiosResponse([]));
     vi.mocked(services.reportsApi.byOutgoingDepartment).mockResolvedValue(mockAxiosResponse([]));
     vi.mocked(services.reportsApi.departmentSummary).mockResolvedValue(mockAxiosResponse([]));
+    vi.mocked(services.reportsApi.recurringObligationsSummary).mockResolvedValue(mockAxiosResponse(emptyRecurringSummary));
+    vi.mocked(services.reportsApi.recurringObligationsDetails).mockResolvedValue(mockAxiosResponse(emptyPage));
   });
 
   afterEach(() => {
@@ -124,5 +140,43 @@ describe('ReportsPage auto loading', () => {
     await user.click(screen.getByRole('button', { name: 'إعادة تعيين الفلاتر' }));
 
     expect(screen.getByPlaceholderText(/بحث/)).toHaveValue('');
+  });
+
+  it('loads the recurring obligations summary and details on mount', async () => {
+    vi.mocked(services.reportsApi.recurringObligationsSummary).mockResolvedValue(mockAxiosResponse({
+      ...emptyRecurringSummary,
+      total: 4,
+      active: 3,
+      overdue: 1,
+    }));
+    vi.mocked(services.reportsApi.recurringObligationsDetails).mockResolvedValue(mockAxiosResponse({
+      ...emptyPage,
+      items: [{
+        templateId: 1,
+        title: 'التزام اختبار',
+        owningDepartmentName: 'إدارة أ',
+        responsibleDepartmentNames: [],
+        recurrenceType: 'Monthly',
+        recurrenceTypeLabel: 'شهري',
+        startDate: '2026-01-01',
+        nextDueDate: '2026-08-01',
+        status: 'Active',
+        scheduleStatus: 'Overdue',
+        daysRemaining: -5,
+        priority: 'Normal',
+        generatedTransactionsCount: 2,
+      }],
+      totalCount: 1,
+    }));
+
+    renderReports('/reports');
+
+    await waitFor(() => {
+      expect(services.reportsApi.recurringObligationsSummary).toHaveBeenCalled();
+      expect(services.reportsApi.recurringObligationsDetails).toHaveBeenCalled();
+    });
+
+    expect(await screen.findByText('التزام اختبار')).toBeInTheDocument();
+    expect(screen.getByText('تقرير الالتزامات الدورية')).toBeInTheDocument();
   });
 });

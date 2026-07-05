@@ -134,6 +134,28 @@ public class ReportsController : ControllerBase
         return Ok(await _reports.GetMonthlyAsync(year));
     }
 
+    [HttpGet("recurring-obligations/summary")]
+    public async Task<IActionResult> RecurringObligationsSummary([FromQuery] RecurringObligationsReportFilterRequest filter) =>
+        Ok(await _reports.GetRecurringObligationsSummaryAsync(filter));
+
+    [HttpGet("recurring-obligations/details")]
+    public async Task<IActionResult> RecurringObligationsDetails([FromQuery] RecurringObligationsReportPagedFilterRequest filter)
+    {
+        if (!ReportPageSize.IsAllowed(filter.PageSize))
+            return BadRequest(new { message = "حجم الصفحة يجب أن يكون 5 أو 10 أو 50" });
+        filter.PageSize = ReportPageSize.Normalize(filter.PageSize);
+        filter.Page = Math.Max(1, filter.Page);
+        return Ok(await _reports.GetRecurringObligationsDetailsAsync(filter));
+    }
+
+    [HttpGet("recurring-obligations/export-excel")]
+    public async Task<IActionResult> ExportRecurringObligationsExcel([FromQuery] RecurringObligationsReportFilterRequest filter)
+    {
+        var bytes = await _reports.ExportRecurringObligationsExcelAsync(filter);
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            $"recurring-obligations-{DateTime.UtcNow:yyyyMMdd}.xlsx");
+    }
+
     [HttpGet("export/{reportType}")]
     public async Task<IActionResult> Export(string reportType, [FromQuery] ReportFilterRequest filter, [FromQuery] bool currentPageOnly = false, [FromQuery] int page = 1, [FromQuery] int pageSize = 5)
     {

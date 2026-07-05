@@ -244,6 +244,43 @@ export interface ReportSectionCounts {
   open: number;
 }
 
+export interface RecurringObligationsGroupCount {
+  groupKey: string;
+  groupLabel: string;
+  count: number;
+}
+
+export interface RecurringObligationsSummary {
+  total: number;
+  active: number;
+  upcoming: number;
+  dueSoon: number;
+  overdue: number;
+  suspended: number;
+  terminated: number;
+  groups: RecurringObligationsGroupCount[];
+}
+
+export interface RecurringObligationReportRow {
+  templateId: number;
+  title: string;
+  owningDepartmentName?: string;
+  responsibleDepartmentNames: string[];
+  recurrenceType: string;
+  recurrenceTypeLabel: string;
+  startDate: string;
+  nextPeriodKey?: string;
+  nextPeriodLabel?: string;
+  nextDueDate?: string;
+  nextDueDateHijri?: string;
+  lastCompletionDate?: string;
+  status: string;
+  scheduleStatus: string;
+  daysRemaining?: number;
+  priority: string;
+  generatedTransactionsCount: number;
+}
+
 export interface ReportTransactionRow {
   id: number;
   internalTrackingNumber: string;

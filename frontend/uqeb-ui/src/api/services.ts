@@ -13,6 +13,7 @@ import type {
   DepartmentResponseDto, DepartmentResponseSummaryDto, DepartmentResponseAttachmentDto, DepartmentTransactionResponseItemDto,
   DepartmentResponseStatsDto, SystemVersionInfo,
   RecurringTemplateListItem, RecurringTemplateDetail, GenerateRecurringTransactionResponse, RecurringTemplateTransactionItem,
+  RecurringObligationsSummary, RecurringObligationReportRow,
 } from './types';
 import type {
   InstitutionalReportManifest,
@@ -143,6 +144,12 @@ export const reportsApi = {
     api.get<PagedResult<ReportTransactionRow>>('/reports/waiting-reply/details', { params, ...config }),
   openDetails: (params?: Record<string, unknown>, config?: { signal?: AbortSignal }) =>
     api.get<PagedResult<ReportTransactionRow>>('/reports/open/details', { params, ...config }),
+  recurringObligationsSummary: (params?: Record<string, unknown>, config?: { signal?: AbortSignal }) =>
+    api.get<RecurringObligationsSummary>('/reports/recurring-obligations/summary', { params, ...config }),
+  recurringObligationsDetails: (params?: Record<string, unknown>, config?: { signal?: AbortSignal }) =>
+    api.get<PagedResult<RecurringObligationReportRow>>('/reports/recurring-obligations/details', { params, ...config }),
+  exportRecurringObligationsExcel: (params?: Record<string, unknown>) =>
+    api.get('/reports/recurring-obligations/export-excel', { params, responseType: 'blob' }),
 };
 
 export const categoriesApi = {
