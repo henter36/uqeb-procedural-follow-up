@@ -5,8 +5,12 @@ import { reportsApi, categoriesApi, departmentsApi } from '../api/services';
 import type {
   ReportTransactionRow, Category, Department, DepartmentSummaryReport,
   OutgoingDepartmentReport, ReportSectionCounts, PagedResult,
+  RecurringObligationsSummary, RecurringObligationReportRow,
 } from '../api/types';
-import { statusLabels, statusBadgeClass } from '../utils/labels';
+import {
+  statusLabels, statusBadgeClass, priorityLabels,
+  recurrenceTypeLabels, recurringTemplateStatusLabels, recurringScheduleStatusLabels,
+} from '../utils/labels';
 import DateDisplay from '../components/DateDisplay';
 import DepartmentBadges from '../components/DepartmentBadges';
 import { PageHeader } from '../components/ui';
@@ -156,6 +160,97 @@ export default function ReportsPage() {
   const analyticsRequestIdRef = useRef(0);
   const [exportError, setExportError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+
+  const [recurringFilters, setRecurringFilters] = useState({
+    dateFrom: '', dateTo: '', departmentId: '', status: '', recurrenceType: '', priority: '', groupBy: '',
+  });
+  const [recurringSummary, setRecurringSummary] = useState<RecurringObligationsSummary | null>(null);
+  const [recurringRows, setRecurringRows] = useState<RecurringObligationReportRow[]>([]);
+  const [recurringPage, setRecurringPage] = useState(1);
+  const [recurringPageSize, setRecurringPageSize] = useState(5);
+  const [recurringTotalCount, setRecurringTotalCount] = useState(0);
+  const [recurringTotalPages, setRecurringTotalPages] = useState(0);
+  const [recurringHasNextPage, setRecurringHasNextPage] = useState(false);
+  const [recurringHasPreviousPage, setRecurringHasPreviousPage] = useState(false);
+  const [recurringLoading, setRecurringLoading] = useState(false);
+  const [recurringError, setRecurringError] = useState<string | null>(null);
+  const [recurringExporting, setRecurringExporting] = useState(false);
+  const [recurringExportError, setRecurringExportError] = useState<string | null>(null);
+  const recurringAbortRef = useRef<AbortController | null>(null);
+
+  const recurringFilterParams = useCallback((): Record<string, unknown> => {
+    const f = recurringFilters;
+    const p: Record<string, unknown> = {};
+    if (f.dateFrom) p.dateFrom = f.dateFrom;
+    if (f.dateTo) p.dateTo = f.dateTo;
+    if (f.departmentId) p.departmentId = +f.departmentId;
+    if (f.status) p.status = f.status;
+    if (f.recurrenceType) p.recurrenceType = f.recurrenceType;
+    if (f.priority) p.priority = f.priority;
+    if (f.groupBy) p.groupBy = f.groupBy;
+    return p;
+  }, [recurringFilters]);
+
+  const loadRecurringObligations = useCallback(async (page: number, pageSize: number) => {
+    recurringAbortRef.current?.abort();
+    const controller = new AbortController();
+    recurringAbortRef.current = controller;
+    setRecurringLoading(true);
+    setRecurringError(null);
+    try {
+      const params = recurringFilterParams();
+      const [summaryRes, detailsRes] = await Promise.all([
+        reportsApi.recurringObligationsSummary(params, { signal: controller.signal }),
+        reportsApi.recurringObligationsDetails({ ...params, page, pageSize }, { signal: controller.signal }),
+      ]);
+      if (controller.signal.aborted) return;
+      setRecurringSummary(summaryRes.data);
+      setRecurringRows(detailsRes.data.items);
+      setRecurringPage(detailsRes.data.page);
+      setRecurringPageSize(detailsRes.data.pageSize);
+      setRecurringTotalCount(detailsRes.data.totalCount);
+      setRecurringTotalPages(detailsRes.data.totalPages);
+      setRecurringHasNextPage(detailsRes.data.hasNextPage);
+      setRecurringHasPreviousPage(detailsRes.data.hasPreviousPage);
+    } catch (err) {
+      if (controller.signal.aborted || (isAxiosError(err) && err.code === 'ERR_CANCELED')) return;
+      setRecurringSummary(null);
+      setRecurringRows([]);
+      setRecurringError('تعذر تحميل تقرير الالتزامات الدورية');
+    } finally {
+      if (!controller.signal.aborted) setRecurringLoading(false);
+    }
+  }, [recurringFilterParams]);
+
+  useEffect(() => {
+    void Promise.resolve().then(() => loadRecurringObligations(1, recurringPageSize));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const applyRecurringFilters = () => loadRecurringObligations(1, recurringPageSize);
+
+  const resetRecurringFilters = () => {
+    setRecurringFilters({ dateFrom: '', dateTo: '', departmentId: '', status: '', recurrenceType: '', priority: '', groupBy: '' });
+    loadRecurringObligations(1, recurringPageSize);
+  };
+
+  const changeRecurringPage = (page: number) => loadRecurringObligations(page, recurringPageSize);
+
+  const changeRecurringPageSize = (pageSize: number) => loadRecurringObligations(1, pageSize);
+
+  const exportRecurringExcel = async () => {
+    if (recurringExporting) return;
+    setRecurringExportError(null);
+    setRecurringExporting(true);
+    try {
+      const res = await reportsApi.exportRecurringObligationsExcel(recurringFilterParams());
+      downloadBlob(res.data, 'recurring-obligations.xlsx');
+    } catch {
+      setRecurringExportError('تعذر تصدير تقرير الالتزامات الدورية. حاول مرة أخرى.');
+    } finally {
+      setRecurringExporting(false);
+    }
+  };
 
   useEffect(() => {
     if (searchParams.get('tab')) return;
@@ -724,6 +819,152 @@ export default function ReportsPage() {
             </tbody>
           </table>
         )}
+      </div>
+
+      <div className="card mt-4">
+        <div className="card-header">
+          <h3 className="card-title">تقرير الالتزامات الدورية</h3>
+          <div className="btn-group">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={applyRecurringFilters}
+              disabled={recurringLoading}
+            >
+              تحديث تقرير الالتزامات الدورية
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={exportRecurringExcel}
+              disabled={recurringLoading || recurringExporting}
+            >
+              تصدير الالتزامات الدورية Excel
+            </button>
+          </div>
+        </div>
+
+        <div className="filter-form mb-2">
+          <label>من تاريخ</label>
+          <input type="date" value={recurringFilters.dateFrom} onChange={(e) => setRecurringFilters({ ...recurringFilters, dateFrom: e.target.value })} />
+          <label>إلى تاريخ</label>
+          <input type="date" value={recurringFilters.dateTo} onChange={(e) => setRecurringFilters({ ...recurringFilters, dateTo: e.target.value })} />
+          <select value={recurringFilters.departmentId} onChange={(e) => setRecurringFilters({ ...recurringFilters, departmentId: e.target.value })}>
+            <option value="">كل الإدارات</option>
+            {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+          <select value={recurringFilters.status} onChange={(e) => setRecurringFilters({ ...recurringFilters, status: e.target.value })}>
+            <option value="">كل الحالات</option>
+            <option value="Active">نشط</option>
+            <option value="Paused">موقوف</option>
+            <option value="Terminated">منتهٍ</option>
+          </select>
+          <select value={recurringFilters.recurrenceType} onChange={(e) => setRecurringFilters({ ...recurringFilters, recurrenceType: e.target.value })}>
+            <option value="">كل أنواع التكرار</option>
+            <option value="Monthly">شهري</option>
+            <option value="Quarterly">ربع سنوي</option>
+            <option value="SemiAnnual">نصف سنوي</option>
+            <option value="Annual">سنوي</option>
+          </select>
+          <select value={recurringFilters.priority} onChange={(e) => setRecurringFilters({ ...recurringFilters, priority: e.target.value })}>
+            <option value="">كل الأولويات</option>
+            <option value="Normal">عادي</option>
+            <option value="Urgent">عاجل</option>
+            <option value="VeryUrgent">عاجل جداً</option>
+          </select>
+          <select value={recurringFilters.groupBy} onChange={(e) => setRecurringFilters({ ...recurringFilters, groupBy: e.target.value })}>
+            <option value="">بدون تجميع</option>
+            <option value="department">تجميع حسب الإدارة</option>
+            <option value="status">تجميع حسب الحالة</option>
+            <option value="recurrenceType">تجميع حسب نوع التكرار</option>
+          </select>
+          <button type="button" className="btn btn-outline" onClick={resetRecurringFilters}>إعادة تعيين فلاتر الالتزامات الدورية</button>
+        </div>
+
+        {recurringExportError && <div className="alert alert-error">{recurringExportError}</div>}
+        {recurringError && <div className="alert alert-error">{recurringError}</div>}
+
+        {recurringSummary && (
+          <div className="dashboard-grid mb-3">
+            <div className="card"><strong>الإجمالي</strong><div>{recurringSummary.total}</div></div>
+            <div className="card"><strong>نشط</strong><div>{recurringSummary.active}</div></div>
+            <div className="card"><strong>قادم</strong><div>{recurringSummary.upcoming}</div></div>
+            <div className="card"><strong>قريب الاستحقاق</strong><div>{recurringSummary.dueSoon}</div></div>
+            <div className="card"><strong>متأخر</strong><div>{recurringSummary.overdue}</div></div>
+            <div className="card"><strong>موقوف</strong><div>{recurringSummary.suspended}</div></div>
+            <div className="card"><strong>منتهٍ</strong><div>{recurringSummary.terminated}</div></div>
+          </div>
+        )}
+
+        {recurringSummary && recurringSummary.groups.length > 0 && (
+          <table className="data-table mb-3">
+            <thead><tr><th>المجموعة</th><th>العدد</th></tr></thead>
+            <tbody>
+              {recurringSummary.groups.map((g) => (
+                <tr key={g.groupKey}><td>{g.groupLabel}</td><td>{g.count}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>العنوان</th>
+              <th>الإدارة المالكة</th>
+              <th>الإدارات المسؤولة</th>
+              <th>نوع التكرار</th>
+              <th>تاريخ البدء</th>
+              <th>الاستحقاق القادم</th>
+              <th>آخر إتمام</th>
+              <th>الحالة</th>
+              <th>حالة الجدولة</th>
+              <th>الأيام المتبقية/المتأخرة</th>
+              <th>الأولوية</th>
+            </tr>
+          </thead>
+          <tbody>
+            {recurringLoading && <TableSkeleton rows={recurringPageSize} />}
+            {!recurringLoading && recurringRows.map((r) => (
+              <tr key={r.templateId} className={r.scheduleStatus === 'Overdue' ? 'row-overdue' : ''}>
+                <td>{r.title}</td>
+                <td>{r.owningDepartmentName || '-'}</td>
+                <td><DepartmentBadges names={r.responsibleDepartmentNames} /></td>
+                <td>{recurrenceTypeLabels[r.recurrenceType] || r.recurrenceType}</td>
+                <td><DateDisplay date={r.startDate} /></td>
+                <td>{r.nextDueDate ? <DateDisplay date={r.nextDueDate} /> : '—'}</td>
+                <td>{r.lastCompletionDate ? <DateDisplay date={r.lastCompletionDate} /> : '—'}</td>
+                <td>
+                  <span className="badge">{recurringTemplateStatusLabels[r.status] || r.status}</span>
+                </td>
+                <td>
+                  <span className={`badge ${r.scheduleStatus === 'Overdue' ? 'badge-red' : r.scheduleStatus === 'DueSoon' ? 'badge-orange' : 'badge-blue'}`}>
+                    {recurringScheduleStatusLabels[r.scheduleStatus] || r.scheduleStatus}
+                  </span>
+                </td>
+                <td>{r.daysRemaining ?? '—'}</td>
+                <td>{priorityLabels[r.priority] || r.priority}</td>
+              </tr>
+            ))}
+            {!recurringLoading && recurringRows.length === 0 && !recurringError && (
+              <tr><td colSpan={11} className="text-center">لا توجد التزامات دورية مطابقة للفلاتر المحددة.</td></tr>
+            )}
+          </tbody>
+        </table>
+
+        <div className="pagination">
+          <span>إجمالي النتائج: {recurringTotalCount}</span>
+          <span>صفحة {recurringPage} من {recurringTotalPages || 1}</span>
+          <select
+            value={recurringPageSize}
+            onChange={(e) => changeRecurringPageSize(+e.target.value)}
+            aria-label="عدد النتائج في الصفحة"
+          >
+            {PAGE_SIZE_OPTIONS.map((n) => <option key={n} value={n}>{n} / صفحة</option>)}
+          </select>
+          <button disabled={!recurringHasPreviousPage || recurringLoading} onClick={() => changeRecurringPage(recurringPage - 1)}>السابق</button>
+          <button disabled={!recurringHasNextPage || recurringLoading} onClick={() => changeRecurringPage(recurringPage + 1)}>التالي</button>
+        </div>
       </div>
     </div>
   );

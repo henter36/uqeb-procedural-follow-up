@@ -46,6 +46,26 @@ export const auditActionLabels: Record<string, string> = {
   CloseAttemptFailed: 'محاولة إغلاق فاشلة',
 };
 
+export const recurrenceTypeLabels: Record<string, string> = {
+  Monthly: 'شهري',
+  Quarterly: 'ربع سنوي',
+  SemiAnnual: 'نصف سنوي',
+  Annual: 'سنوي',
+};
+
+export const recurringTemplateStatusLabels: Record<string, string> = {
+  Active: 'نشط',
+  Paused: 'موقوف',
+  Terminated: 'منتهٍ',
+};
+
+export const recurringScheduleStatusLabels: Record<string, string> = {
+  Upcoming: 'قادم',
+  DueSoon: 'قريب الاستحقاق',
+  Overdue: 'متأخر',
+  NotApplicable: 'غير منطبق',
+};
+
 export const roleLabels: Record<string, string> = {
   Admin: 'مدير',
   Supervisor: 'مشرف',

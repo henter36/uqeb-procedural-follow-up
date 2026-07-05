@@ -47,6 +47,9 @@ public interface IReportService
     Task<PagedResult<ReportTransactionRowDto>> GetOpenDetailsAsync(ReportPagedFilterRequest filter);
     Task<byte[]> ExportReportDetailsExcelAsync(string reportType, ReportPagedFilterRequest filter, bool currentPageOnly, CancellationToken cancellationToken = default);
     Task<ReportSectionCountsDto> GetPageSummaryAsync(ReportFilterRequest? filter = null);
+    Task<RecurringObligationsSummaryDto> GetRecurringObligationsSummaryAsync(RecurringObligationsReportFilterRequest? filter = null);
+    Task<PagedResult<RecurringObligationReportRowDto>> GetRecurringObligationsDetailsAsync(RecurringObligationsReportPagedFilterRequest filter);
+    Task<byte[]> ExportRecurringObligationsExcelAsync(RecurringObligationsReportFilterRequest? filter = null);
 }
 
 public class ReportService : IReportService
@@ -703,6 +706,314 @@ public class ReportService : IReportService
             OutgoingCount = outgoing.FirstOrDefault(o => o.Month == m)?.Count ?? 0
         }).ToList();
     }
+
+    public async Task<RecurringObligationsSummaryDto> GetRecurringObligationsSummaryAsync(RecurringObligationsReportFilterRequest? filter = null)
+    {
+        filter ??= new RecurringObligationsReportFilterRequest();
+        var rows = await BuildRecurringObligationRowsAsync(filter, DateTime.UtcNow);
+
+        return new RecurringObligationsSummaryDto
+        {
+            Total = rows.Count,
+            Active = rows.Count(r => r.Status == nameof(RecurringTemplateStatus.Active)),
+            Upcoming = rows.Count(r => r.ScheduleStatus == RecurringObligationScheduleStatus.Upcoming),
+            DueSoon = rows.Count(r => r.ScheduleStatus == RecurringObligationScheduleStatus.DueSoon),
+            Overdue = rows.Count(r => r.ScheduleStatus == RecurringObligationScheduleStatus.Overdue),
+            Suspended = rows.Count(r => r.Status == nameof(RecurringTemplateStatus.Paused)),
+            Terminated = rows.Count(r => r.Status == nameof(RecurringTemplateStatus.Terminated)),
+            Groups = BuildRecurringObligationGroups(rows, filter.GroupBy)
+        };
+    }
+
+    public async Task<PagedResult<RecurringObligationReportRowDto>> GetRecurringObligationsDetailsAsync(RecurringObligationsReportPagedFilterRequest filter)
+    {
+        var rows = await BuildRecurringObligationRowsAsync(filter, DateTime.UtcNow);
+
+        var page = Math.Max(1, filter.Page);
+        var pageSize = ReportPageSize.Normalize(filter.PageSize);
+        var totalCount = rows.Count;
+        var totalPages = totalCount == 0 ? 0 : (int)Math.Ceiling(totalCount / (double)pageSize);
+
+        var items = rows
+            .OrderBy(r => r.NextDueDate ?? DateTime.MaxValue)
+            .ThenBy(r => r.TemplateId)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToList();
+
+        return new PagedResult<RecurringObligationReportRowDto>
+        {
+            Items = items,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize,
+            TotalPages = totalPages,
+            HasNextPage = page < totalPages,
+            HasPreviousPage = page > 1
+        };
+    }
+
+    public async Task<byte[]> ExportRecurringObligationsExcelAsync(RecurringObligationsReportFilterRequest? filter = null)
+    {
+        filter ??= new RecurringObligationsReportFilterRequest();
+        var rows = await BuildRecurringObligationRowsAsync(filter, DateTime.UtcNow);
+
+        using var workbook = new XLWorkbook();
+        var ws = workbook.Worksheets.Add("الالتزامات الدورية");
+        WriteRecurringObligationsExcelHeaders(ws);
+
+        var row = 2;
+        foreach (var r in rows.OrderBy(r => r.NextDueDate ?? DateTime.MaxValue).ThenBy(r => r.TemplateId))
+        {
+            ws.Cell(row, 1).Value = r.TemplateId;
+            ws.Cell(row, 2).Value = r.Title;
+            ws.Cell(row, 3).Value = r.OwningDepartmentName ?? "-";
+            ws.Cell(row, 4).Value = r.ResponsibleDepartmentNames.Count > 0 ? string.Join("، ", r.ResponsibleDepartmentNames) : "-";
+            ws.Cell(row, 5).Value = r.RecurrenceTypeLabel;
+            ws.Cell(row, 6).Value = r.StartDate.ToString("yyyy-MM-dd");
+            ws.Cell(row, 7).Value = r.NextDueDate.HasValue ? r.NextDueDate.Value.ToString("yyyy-MM-dd") : "-";
+            ws.Cell(row, 8).Value = r.LastCompletionDate.HasValue ? r.LastCompletionDate.Value.ToString("yyyy-MM-dd") : "-";
+            ws.Cell(row, 9).Value = RecurringObligationLabels.Status(r.Status);
+            ws.Cell(row, 10).Value = RecurringObligationLabels.ScheduleStatus(r.ScheduleStatus);
+            ws.Cell(row, 11).Value = r.DaysRemaining.HasValue ? r.DaysRemaining.Value : "-";
+            ws.Cell(row, 12).Value = r.Priority;
+            row++;
+        }
+
+        ws.RightToLeft = true;
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static void WriteRecurringObligationsExcelHeaders(IXLWorksheet ws)
+    {
+        ws.Cell(1, 1).Value = "المعرف";
+        ws.Cell(1, 2).Value = "العنوان";
+        ws.Cell(1, 3).Value = "الإدارة المالكة";
+        ws.Cell(1, 4).Value = "الإدارات المسؤولة";
+        ws.Cell(1, 5).Value = "نوع التكرار";
+        ws.Cell(1, 6).Value = "تاريخ البدء";
+        ws.Cell(1, 7).Value = "تاريخ الاستحقاق القادم";
+        ws.Cell(1, 8).Value = "آخر إتمام";
+        ws.Cell(1, 9).Value = "الحالة";
+        ws.Cell(1, 10).Value = "حالة الجدولة";
+        ws.Cell(1, 11).Value = "الأيام المتبقية/المتأخرة";
+        ws.Cell(1, 12).Value = "الأولوية";
+    }
+
+    private async Task<List<RecurringObligationReportRowDto>> BuildRecurringObligationRowsAsync(
+        RecurringObligationsReportFilterRequest filter, DateTime now)
+    {
+        var query = ApplyRecurringObligationsSqlFilter(
+            _db.RecurringTransactionTemplates
+                .AsNoTracking()
+                .Include(t => t.Departments).ThenInclude(d => d.Department)
+                .Include(t => t.IncomingFromDepartment),
+            filter);
+
+        var templates = await query.ToListAsync();
+        var templateIds = templates.Select(t => t.Id).ToList();
+
+        var lastCompletionByTemplate = await LoadRecurringObligationLastCompletionDatesAsync(templateIds);
+        var generatedCountByTemplate = await LoadRecurringObligationGeneratedCountsAsync(templateIds);
+
+        var rows = templates
+            .Select(t => MapToRecurringObligationRow(
+                t,
+                now,
+                filter.DueSoonWithinDays,
+                lastCompletionByTemplate.GetValueOrDefault(t.Id),
+                generatedCountByTemplate.GetValueOrDefault(t.Id)))
+            .ToList();
+
+        return ApplyRecurringObligationsComputedFilters(rows, filter);
+    }
+
+    private static IQueryable<Models.Entities.RecurringTransactionTemplate> ApplyRecurringObligationsSqlFilter(
+        IQueryable<Models.Entities.RecurringTransactionTemplate> query,
+        RecurringObligationsReportFilterRequest filter)
+    {
+        if (!string.IsNullOrWhiteSpace(filter.Status) &&
+            Enum.TryParse<RecurringTemplateStatus>(filter.Status, true, out var status))
+            query = query.Where(t => t.Status == status);
+
+        if (!string.IsNullOrWhiteSpace(filter.RecurrenceType) &&
+            Enum.TryParse<RecurrenceType>(filter.RecurrenceType, true, out var recurrenceType))
+            query = query.Where(t => t.RecurrenceType == recurrenceType);
+
+        if (!string.IsNullOrWhiteSpace(filter.Priority) &&
+            Enum.TryParse<Priority>(filter.Priority, true, out var priority))
+            query = query.Where(t => t.Priority == priority);
+
+        if (filter.DepartmentId.HasValue)
+            query = query.Where(t =>
+                t.Departments.Any(d => d.DepartmentId == filter.DepartmentId) ||
+                t.IncomingFromDepartmentId == filter.DepartmentId);
+
+        if (!string.IsNullOrWhiteSpace(filter.Search))
+        {
+            var term = filter.Search.Trim();
+            query = query.Where(t => t.Title.Contains(term) || t.SubjectTemplate.Contains(term));
+        }
+
+        return query;
+    }
+
+    private async Task<Dictionary<int, DateTime?>> LoadRecurringObligationLastCompletionDatesAsync(List<int> templateIds)
+    {
+        if (templateIds.Count == 0) return new Dictionary<int, DateTime?>();
+
+        return await _db.Transactions
+            .AsNoTracking()
+            .Where(t => t.RecurringTemplateId != null && templateIds.Contains(t.RecurringTemplateId!.Value)
+                && (t.ResponseCompletedDate != null || t.ClosedAt != null))
+            .GroupBy(t => t.RecurringTemplateId!.Value)
+            .Select(g => new
+            {
+                TemplateId = g.Key,
+                LastDate = g.Max(t => t.ResponseCompletedDate ?? t.ClosedAt)
+            })
+            .ToDictionaryAsync(x => x.TemplateId, x => x.LastDate);
+    }
+
+    private async Task<Dictionary<int, int>> LoadRecurringObligationGeneratedCountsAsync(List<int> templateIds)
+    {
+        if (templateIds.Count == 0) return new Dictionary<int, int>();
+
+        return await _db.Transactions
+            .AsNoTracking()
+            .Where(t => t.RecurringTemplateId != null && templateIds.Contains(t.RecurringTemplateId!.Value))
+            .GroupBy(t => t.RecurringTemplateId!.Value)
+            .Select(g => new { TemplateId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.TemplateId, x => x.Count);
+    }
+
+    /// <summary>
+    /// Computes NextDueDate/ScheduleStatus/DaysRemaining directly from
+    /// RecurringPeriodCalculator (the same calculator RecurringTransactionTemplateService
+    /// uses for the admin templates list) rather than re-deriving period math. Active
+    /// templates get a full Upcoming/DueSoon/Overdue classification; Paused templates
+    /// still show an informational next-due date (what it would be if resumed today)
+    /// but are never classified as Overdue/DueSoon while paused; Terminated templates
+    /// show no next due date at all since they will never generate another period.
+    /// All comparisons are performed on DateTime.Date (UTC) only, never DateTime with a
+    /// time-of-day component, so results cannot shift by time zone or time-of-day.
+    /// </summary>
+    private static RecurringObligationReportRowDto MapToRecurringObligationRow(
+        Models.Entities.RecurringTransactionTemplate t,
+        DateTime now,
+        int dueSoonWithinDays,
+        DateTime? lastCompletionDate,
+        int generatedCount)
+    {
+        string? nextPeriodKey = null;
+        string? nextPeriodLabel = null;
+        DateTime? nextDueDate = null;
+        string? nextDueDateHijri = null;
+        int? daysRemaining = null;
+        var scheduleStatus = RecurringObligationScheduleStatus.NotApplicable;
+
+        if (t.Status != RecurringTemplateStatus.Terminated)
+        {
+            nextPeriodKey = RecurringPeriodCalculator.GetNextPeriodKey(t.RecurrenceType, t.StartDate, t.LastGeneratedPeriodKey);
+            var period = RecurringPeriodCalculator.Compute(t.RecurrenceType, nextPeriodKey, t.StartDate);
+            nextPeriodLabel = period.PeriodLabel;
+            nextDueDate = period.DueDate;
+            nextDueDateHijri = FormatHijriDate(period.DueDate);
+
+            if (t.Status == RecurringTemplateStatus.Active)
+            {
+                (scheduleStatus, var remainingDays) = RecurringObligationScheduleClassifier.Classify(period.DueDate, now, dueSoonWithinDays);
+                daysRemaining = remainingDays;
+            }
+        }
+
+        return new RecurringObligationReportRowDto
+        {
+            TemplateId = t.Id,
+            Title = t.Title,
+            OwningDepartmentName = t.IncomingSourceType == IncomingSourceType.Internal ? t.IncomingFromDepartment?.Name : null,
+            ResponsibleDepartmentNames = t.Departments
+                .OrderBy(d => d.SortOrder)
+                .Select(d => d.Department.Name)
+                .ToList(),
+            RecurrenceType = t.RecurrenceType.ToString(),
+            RecurrenceTypeLabel = RecurringObligationLabels.RecurrenceType(t.RecurrenceType),
+            StartDate = t.StartDate,
+            NextPeriodKey = nextPeriodKey,
+            NextPeriodLabel = nextPeriodLabel,
+            NextDueDate = nextDueDate,
+            NextDueDateHijri = nextDueDateHijri,
+            LastCompletionDate = lastCompletionDate,
+            Status = t.Status.ToString(),
+            ScheduleStatus = scheduleStatus,
+            DaysRemaining = daysRemaining,
+            Priority = t.Priority.ToString(),
+            GeneratedTransactionsCount = generatedCount
+        };
+    }
+
+    /// <summary>
+    /// DateFrom/DateTo/ScheduleStatus filter on the computed NextDueDate/ScheduleStatus,
+    /// which RecurringPeriodCalculator produces in-memory (not translatable to SQL), so
+    /// they are applied after BuildRecurringObligationRowsAsync materializes+maps rows.
+    /// A row with no NextDueDate (Terminated templates) never matches a date-range filter.
+    /// </summary>
+    private static List<RecurringObligationReportRowDto> ApplyRecurringObligationsComputedFilters(
+        List<RecurringObligationReportRowDto> rows, RecurringObligationsReportFilterRequest filter)
+    {
+        IEnumerable<RecurringObligationReportRowDto> result = rows;
+
+        if (filter.DateFrom.HasValue)
+            result = result.Where(r => r.NextDueDate.HasValue && r.NextDueDate.Value.Date >= filter.DateFrom.Value.Date);
+
+        if (filter.DateTo.HasValue)
+            result = result.Where(r => r.NextDueDate.HasValue && r.NextDueDate.Value.Date <= filter.DateTo.Value.Date);
+
+        if (!string.IsNullOrWhiteSpace(filter.ScheduleStatus))
+            result = result.Where(r => string.Equals(r.ScheduleStatus, filter.ScheduleStatus, StringComparison.OrdinalIgnoreCase));
+
+        return result.ToList();
+    }
+
+    /// <summary>
+    /// Grouping is by owning department (single, from IncomingFromDepartment), not by
+    /// each responsible department, because a template can have multiple responsible
+    /// departments (RecurringTransactionTemplateDepartment) and fanning out counts per
+    /// responsible department would double-count a single obligation across groups.
+    /// </summary>
+    private static List<RecurringObligationsGroupCountDto> BuildRecurringObligationGroups(
+        List<RecurringObligationReportRowDto> rows, string? groupBy)
+    {
+        if (string.IsNullOrWhiteSpace(groupBy)) return new List<RecurringObligationsGroupCountDto>();
+
+        IEnumerable<IGrouping<string, RecurringObligationReportRowDto>> groups = groupBy.ToLowerInvariant() switch
+        {
+            "department" => rows.GroupBy(r => r.OwningDepartmentName ?? "غير محدد / خارجي"),
+            "status" => rows.GroupBy(r => r.Status),
+            "recurrencetype" => rows.GroupBy(r => r.RecurrenceType),
+            _ => Enumerable.Empty<IGrouping<string, RecurringObligationReportRowDto>>()
+        };
+
+        return groups
+            .Select(g => new RecurringObligationsGroupCountDto
+            {
+                GroupKey = g.Key,
+                GroupLabel = ResolveRecurringObligationGroupLabel(groupBy, g.Key, g.First()),
+                Count = g.Count()
+            })
+            .OrderByDescending(g => g.Count)
+            .ToList();
+    }
+
+    private static string ResolveRecurringObligationGroupLabel(string groupBy, string key, RecurringObligationReportRowDto sample) =>
+        groupBy.ToLowerInvariant() switch
+        {
+            "status" => RecurringObligationLabels.Status(key),
+            "recurrencetype" => sample.RecurrenceTypeLabel,
+            _ => key
+        };
 
     private static ReportPagedFilterRequest ToPagedFilter(ReportFilterRequest? filter) => new()
     {

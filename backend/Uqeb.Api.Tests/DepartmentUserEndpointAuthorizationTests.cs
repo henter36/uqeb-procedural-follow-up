@@ -59,6 +59,9 @@ public class DepartmentUserEndpointAuthorizationTests : IClassFixture<Department
     [InlineData("/api/recurring-transaction-templates")]
     [InlineData("/api/recurring-transaction-templates/1")]
     [InlineData("/api/recurring-transaction-templates/1/transactions")]
+    [InlineData("/api/reports/recurring-obligations/summary")]
+    [InlineData("/api/reports/recurring-obligations/details")]
+    [InlineData("/api/reports/recurring-obligations/export-excel")]
     public async Task DepartmentUser_PrivilegedReadEndpoints_ReturnForbidden(string url)
     {
         using var client = CreateDepartmentUserClient();
@@ -83,6 +86,43 @@ public class DepartmentUserEndpointAuthorizationTests : IClassFixture<Department
         var response = await client.GetAsync("/api/dashboard/summary");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    // Recurring-obligations report lives under ReportsController, which (like every
+    // other /api/reports endpoint) is gated by Policies.CanEditTransactions:
+    // Admin/Supervisor/DataEntry only. Reader is deliberately excluded here too (it is
+    // NOT in CanEditTransactions), unlike the dashboard's ViewOperationalDashboard policy.
+    [Theory]
+    [InlineData("Admin")]
+    [InlineData("Supervisor")]
+    [InlineData("DataEntry")]
+    public async Task NonDepartmentUserRoles_CanReachRecurringObligationsReport(string role)
+    {
+        using var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            TestJwtHelper.CreateToken(role, userId: 3));
+
+        var summaryResponse = await client.GetAsync("/api/reports/recurring-obligations/summary");
+        var detailsResponse = await client.GetAsync("/api/reports/recurring-obligations/details");
+        var exportResponse = await client.GetAsync("/api/reports/recurring-obligations/export-excel");
+
+        Assert.Equal(HttpStatusCode.OK, summaryResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, detailsResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, exportResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Reader_CannotReachRecurringObligationsReport()
+    {
+        using var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            TestJwtHelper.CreateToken("Reader", userId: 3));
+
+        var response = await client.GetAsync("/api/reports/recurring-obligations/summary");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     private HttpClient CreateDepartmentUserClient()
