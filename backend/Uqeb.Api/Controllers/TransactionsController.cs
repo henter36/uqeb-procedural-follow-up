@@ -378,10 +378,17 @@ public class TransactionsController : ControllerBase
     [HttpGet("{id}/attachments")]
     public async Task<IActionResult> GetAttachments(int id)
     {
-        if (!await _transactions.CanAccessTransactionAsync(id, _currentUser))
-            return NotFound();
+        try
+        {
+            if (!await _transactions.CanAccessTransactionAsync(id, _currentUser))
+                return NotFound();
 
-        return Ok(await _attachments.GetByTransactionAsync(id));
+            return Ok(await _attachments.GetByTransactionAsync(id));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
     }
 
     [HttpPost("{id}/attachments")]
@@ -405,12 +412,21 @@ public class TransactionsController : ControllerBase
     [HttpGet("{id}/attachments/{attachmentId}/download")]
     public async Task<IActionResult> DownloadAttachment(int id, int attachmentId)
     {
-        if (!await _transactions.CanAccessTransactionAsync(id, _currentUser))
-            return NotFound();
+        try
+        {
+            if (!await _transactions.CanAccessTransactionAsync(id, _currentUser))
+                return NotFound();
 
-        var result = await _attachments.DownloadAsync(id, attachmentId);
-        if (result == null) return NotFound();
-        return File(result.Value.Content, result.Value.ContentType, result.Value.FileName);
+            var result = await _attachments.DownloadAsync(id, attachmentId);
+            if (result == null)
+                return NotFound();
+
+            return File(result.Value.Content, result.Value.ContentType, result.Value.FileName);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
     }
 
     [HttpGet("{id}/audit-log")]
