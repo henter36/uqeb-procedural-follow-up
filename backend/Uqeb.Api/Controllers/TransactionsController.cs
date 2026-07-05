@@ -378,6 +378,9 @@ public class TransactionsController : ControllerBase
     [HttpGet("{id}/attachments")]
     public async Task<IActionResult> GetAttachments(int id)
     {
+        if (!await _transactions.CanAccessTransactionAsync(id, _currentUser))
+            return NotFound();
+
         return Ok(await _attachments.GetByTransactionAsync(id));
     }
 
@@ -402,6 +405,9 @@ public class TransactionsController : ControllerBase
     [HttpGet("{id}/attachments/{attachmentId}/download")]
     public async Task<IActionResult> DownloadAttachment(int id, int attachmentId)
     {
+        if (!await _transactions.CanAccessTransactionAsync(id, _currentUser))
+            return NotFound();
+
         var result = await _attachments.DownloadAsync(id, attachmentId);
         if (result == null) return NotFound();
         return File(result.Value.Content, result.Value.ContentType, result.Value.FileName);

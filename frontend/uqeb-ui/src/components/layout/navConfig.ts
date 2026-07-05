@@ -29,7 +29,7 @@ export function buildNavSections(institutionalReportsEnabled = isInstitutionalRe
     {
       label: 'الرئيسية',
       items: [
-        { path: '/', label: 'لوحة المتابعة', icon: IconDashboard },
+        { path: '/', label: 'لوحة المتابعة', icon: IconDashboard, hideForDepartmentUser: true },
         { path: '/transactions', label: 'المعاملات', icon: IconTransactions, matchPrefix: true, hideForDepartmentUser: true },
         { path: '/reports', label: 'التقارير', icon: IconReports, hideForDepartmentUser: true },
         ...(institutionalReportsEnabled

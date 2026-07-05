@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { reportsApi } from '../api/services';
 import type { DashboardSummary, StatusDistribution, TransactionListItem } from '../api/types';
 import { useAuth } from '../context/useAuth';
@@ -131,7 +131,7 @@ function ActionRequiredTable({ rows }: Readonly<{ rows: TransactionListItem[] }>
 }
 
 export default function DashboardPage() {
-  const { canOperateFollowUpPrint } = useAuth();
+  const { canOperateFollowUpPrint, isDepartmentUser } = useAuth();
   const { pendingTotal } = usePendingPrintSummary(canOperateFollowUpPrint);
   const [data, setData] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -139,6 +139,11 @@ export default function DashboardPage() {
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    // This dashboard aggregates institution-wide counts across every department; the backend
+    // rejects it for DepartmentUser (Policies.ViewOperationalDashboard), so skip the call and
+    // send them to their own department-scoped landing page instead — see the render below.
+    if (isDepartmentUser) return undefined;
+
     const controller = new AbortController();
     let active = true;
 
@@ -161,7 +166,11 @@ export default function DashboardPage() {
       active = false;
       controller.abort();
     };
-  }, [reloadKey]);
+  }, [reloadKey, isDepartmentUser]);
+
+  if (isDepartmentUser) {
+    return <Navigate to="/department-responses" replace />;
+  }
 
   if (loading) {
     return (

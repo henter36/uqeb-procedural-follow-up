@@ -45,6 +45,12 @@ public class DepartmentUserEndpointAuthorizationTests : IClassFixture<Department
 
     [Theory]
     [InlineData("/api/reports/dashboard")]
+    [InlineData("/api/dashboard/summary")]
+    [InlineData("/api/dashboard/action-required")]
+    [InlineData("/api/dashboard/top-overdue-departments")]
+    [InlineData("/api/dashboard/top-incoming-parties")]
+    [InlineData("/api/dashboard/category-distribution")]
+    [InlineData("/api/dashboard/status-distribution")]
     [InlineData("/api/follow-up-print/eligible")]
     [InlineData("/api/follow-up-print/jobs")]
     [InlineData("/api/follow-up-print/pending")]
@@ -60,6 +66,23 @@ public class DepartmentUserEndpointAuthorizationTests : IClassFixture<Department
         var response = await client.GetAsync(url);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("Admin")]
+    [InlineData("Supervisor")]
+    [InlineData("DataEntry")]
+    [InlineData("Reader")]
+    public async Task NonDepartmentUserRoles_CanStillReachDashboardEndpoints(string role)
+    {
+        using var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            TestJwtHelper.CreateToken(role, userId: 3));
+
+        var response = await client.GetAsync("/api/dashboard/summary");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     private HttpClient CreateDepartmentUserClient()

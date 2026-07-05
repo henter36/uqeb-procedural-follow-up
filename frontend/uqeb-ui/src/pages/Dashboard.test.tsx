@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import DashboardPage from './Dashboard';
 import * as services from '../api/services';
 
@@ -22,8 +22,10 @@ vi.mock('../hooks/usePendingPrintSummary', () => ({
   usePendingPrintSummary: () => ({ pendingTotal: 0, refresh: vi.fn() }),
 }));
 
+const mockUseAuth = vi.fn(() => ({ canClose: false, canOperateFollowUpPrint: false, isDepartmentUser: false }));
+
 vi.mock('../context/useAuth', () => ({
-  useAuth: () => ({ canClose: false, canOperateFollowUpPrint: false }),
+  useAuth: () => mockUseAuth(),
 }));
 
 const emptyDashboard = {
@@ -46,6 +48,7 @@ describe('DashboardPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(services.reportsApi.dashboard).mockResolvedValue({ data: emptyDashboard } as never);
+    mockUseAuth.mockReturnValue({ canClose: false, canOperateFollowUpPrint: false, isDepartmentUser: false });
   });
 
   afterEach(() => {
@@ -95,5 +98,24 @@ describe('DashboardPage', () => {
 
     expect(screen.queryAllByText('لا توجد معاملات تحتاج إجراء')).toHaveLength(1);
     expect(screen.queryByRole('row', { name: /لا توجد/ })).not.toBeInTheDocument();
+  });
+
+  it('redirects a DepartmentUser to their own department page instead of fetching institution-wide counts', async () => {
+    mockUseAuth.mockReturnValue({ canClose: false, canOperateFollowUpPrint: false, isDepartmentUser: true });
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<DashboardPage />} />
+          <Route path="/department-responses" element={<div>معاملات إدارتي</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('معاملات إدارتي')).toBeInTheDocument();
+    });
+
+    expect(services.reportsApi.dashboard).not.toHaveBeenCalled();
   });
 });
