@@ -85,11 +85,11 @@ Describe 'Get-UqebHealthHost resolution' {
 }
 
 Describe 'update-uqeb-api-service.ps1 robocopy arguments' {
-    It 'mirrors the deployed application files with /MIR instead of /E' {
+    It 'copies the deployed application files with /E and does not mirror/purge with /MIR' {
         $content = Get-Content -LiteralPath $script:UpdateScript -Raw
 
-        $content | Should -Match '/MIR'
-        $content | Should -Not -Match "'/E'"
+        $content | Should -Match "'/E'"
+        $content | Should -Not -Match "'/MIR'"
     }
 
     It 'still excludes the three environment-specific appsettings files' {
@@ -98,6 +98,44 @@ Describe 'update-uqeb-api-service.ps1 robocopy arguments' {
         $content | Should -Match "'appsettings\.json'"
         $content | Should -Match "'appsettings\.Development\.json'"
         $content | Should -Match "'appsettings\.Production\.json'"
+    }
+}
+
+Describe 'update-uqeb-api-service.ps1 health host resolution' {
+    BeforeAll {
+        $script:UpdateFakeSourcePath = Join-Path ([System.IO.Path]::GetTempPath()) ("uqeb-update-source-" + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:UpdateFakeSourcePath -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:UpdateFakeSourcePath 'Uqeb.Api.dll') -Value 'stub' -Force
+    }
+
+    AfterAll {
+        Remove-Item -LiteralPath $script:UpdateFakeSourcePath -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    BeforeEach {
+        Mock Get-Service { New-FakeServiceObject -Status 'Running' }
+        Mock Stop-Service { }
+        Mock Start-Service { }
+        Mock Test-Path { return $true }
+        Mock New-Item { }
+        Mock robocopy.exe { $global:LASTEXITCODE = 0; return 'ok' }
+        Mock Copy-Item { }
+        Mock Invoke-WebRequest { return [pscustomobject]@{ StatusCode = 200 } }
+    }
+
+    It 'probes the configured bind IP instead of localhost when ApiBindAddress is a specific IP' {
+        $output = & $script:UpdateScript -SourcePath $script:UpdateFakeSourcePath -ApiBindAddress '10.0.177.17' -HealthCheckTimeoutSec 5 2>&1 | Out-String
+
+        $LASTEXITCODE | Should -Be 0 -Because $output
+        Should -Invoke Invoke-WebRequest -ParameterFilter { $Uri -like 'http://10.0.177.17:*' }
+        Should -Not -Invoke Invoke-WebRequest -ParameterFilter { $Uri -like 'http://localhost:*' }
+    }
+
+    It 'probes localhost when ApiBindAddress is the wildcard default' {
+        $output = & $script:UpdateScript -SourcePath $script:UpdateFakeSourcePath -ApiBindAddress '0.0.0.0' -HealthCheckTimeoutSec 5 2>&1 | Out-String
+
+        $LASTEXITCODE | Should -Be 0 -Because $output
+        Should -Invoke Invoke-WebRequest -ParameterFilter { $Uri -like 'http://localhost:*' }
     }
 }
 

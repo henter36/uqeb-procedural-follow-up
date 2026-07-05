@@ -69,8 +69,20 @@ to the production host on their own.
 | `verify-uqeb-api-service.ps1` | Read-only health/state audit with a PASS/FAIL line per check and a clear overall verdict. |
 | `rotate-uqeb-api-log.ps1` | Rotates/retains the legacy `api-runtime.log`. |
 
-All scripts require an elevated (Administrator) PowerShell session and use
-`sc.exe`/native cmdlets, so they are Windows PowerShell 5.1 compatible.
+All scripts use `sc.exe`/native cmdlets, so they are Windows PowerShell 5.1
+compatible. Administrator requirements differ per script:
+- `install-uqeb-api-service.ps1`, `update-uqeb-api-service.ps1`, and
+  `remove-uqeb-api-service.ps1` explicitly check for an elevated session and
+  refuse to run without one (they create/modify/delete the service, its
+  registry `Environment` value, and the firewall rule).
+- `verify-uqeb-api-service.ps1` and `rotate-uqeb-api-log.ps1` do not enforce
+  Administrator in code and can be run by a non-elevated user for most
+  purposes (e.g. checking health, rotating a log the caller already owns).
+  Some individual checks or paths may still need higher privileges depending
+  on the environment (e.g. reading another user's process path, or a log
+  directory ACL'd to Administrators only) — those simply fail or report
+  FAIL/an access-denied error for that specific check rather than the whole
+  script refusing to start.
 
 ## Install
 
@@ -138,18 +150,26 @@ Start-ScheduledTask -TaskName UqebApi
 .\update-uqeb-api-service.ps1 -SourcePath C:\Uqeb\publish\api
 ```
 
-- Probes `health/live` and `health/ready` first (informational only — logged,
-  not blocking).
+- Probes `health/live` and `health/ready` first, resolved against
+  `-ApiBindAddress` (default `0.0.0.0` → `localhost`; pass the real bind IP,
+  e.g. `10.0.177.17`, if the service is bound to one specific address rather
+  than a wildcard) — informational only, logged, not blocking.
 - Stops the service.
 - Backs up the current `C:\Uqeb\current\api` to
   `C:\Uqeb\backup\current-api-before-<timestamp>`.
-- Copies `-SourcePath` into `C:\Uqeb\current\api` via `robocopy`, excluding
-  `appsettings*.json` (same exclusion the existing
-  `scripts\install-production-package.ps1` / `Copy-ApplicationPayload`
+- Copies `-SourcePath` into `C:\Uqeb\current\api` via `robocopy /E` — a
+  non-destructive copy that adds/overwrites files but never deletes anything
+  from the destination — excluding `appsettings*.json` (same exclusion the
+  existing `scripts\install-production-package.ps1` / `Copy-ApplicationPayload`
   pattern uses), then re-applies the standing production config from
-  `C:\Uqeb\config\appsettings.Production.json`.
-- Starts the service and polls `health/live` + `health/ready` for up to 60
-  seconds (`-HealthCheckTimeoutSec`).
+  `C:\Uqeb\config\appsettings.Production.json`. This deliberately does **not**
+  use `robocopy /MIR`: `/MIR` also purges any destination file not present in
+  the source, and `C:\Uqeb\current\api` is a live, shared directory — a
+  blanket mirror/purge there is a destructive, unreviewed deletion. If stale
+  files ever need cleaning up, that should be an explicit, reviewed step, not
+  something this script does automatically on every update.
+- Starts the service and polls `health/live` + `health/ready` (same resolved
+  host as the pre-update check) for up to 60 seconds (`-HealthCheckTimeoutSec`).
 - **On failure**: automatically stops the service, restores the backup,
   restarts, and re-checks health — then exits non-zero either way, with the
   manual rollback command printed for reference:

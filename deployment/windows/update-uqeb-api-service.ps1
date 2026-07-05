@@ -12,11 +12,11 @@
   2. Stops the service.
   3. Backs up the current C:\Uqeb\current\api contents to a timestamped folder
      under -BackupRoot.
-  4. Copies -SourcePath into -TargetPath via robocopy, excluding
-     appsettings*.json (mirrors the existing production deployment convention
-     in scripts\install-production-package.ps1 / scripts\deployment\Common.ps1
-     Copy-ApplicationPayload), then re-applies the standing production config
-     from -ConfigPath.
+  4. Copies -SourcePath into -TargetPath via robocopy /E (non-destructive;
+     does not purge files), excluding appsettings*.json (same exclusion
+     pattern used by scripts\install-production-package.ps1 /
+     scripts\deployment\Common.ps1 Copy-ApplicationPayload), then re-applies
+     the standing production config from -ConfigPath.
   5. Starts the service.
   6. Polls health/live and health/ready. On failure: stops the service,
      restores the backup, restarts, and exits non-zero with a clear error.
@@ -36,6 +36,13 @@
 .PARAMETER BackupRoot
   Where the pre-update backup is stored. Default: C:\Uqeb\backup.
 
+.PARAMETER ApiBindAddress
+  The address the service is actually configured to bind to (same meaning as
+  install-uqeb-api-service.ps1's -ApiBindAddress). Used to resolve the correct
+  host for the health checks below: empty/0.0.0.0/*/+ resolve to "localhost";
+  a specific IP is probed directly, since a service bound to one specific IP
+  does not also listen on loopback.
+
 .EXAMPLE
   .\update-uqeb-api-service.ps1 -SourcePath C:\Uqeb\publish\api
 #>
@@ -49,6 +56,7 @@ param(
     [string]$ConfigPath = "C:\Uqeb\config\appsettings.Production.json",
     [string]$BackupRoot = "C:\Uqeb\backup",
     [int]$ApiPort = 5000,
+    [string]$ApiBindAddress = "0.0.0.0",
     [ValidateRange(5, 300)]
     [int]$HealthCheckTimeoutSec = 60
 )
@@ -67,14 +75,16 @@ function Test-IsAdministrator {
 function Test-UqebHealthEndpoints {
     param(
         [int]$Port,
+        [string]$ApiBindAddress,
         [int]$TimeoutSec,
         [switch]$Quiet
     )
 
+    $healthHost = Get-UqebHealthHost -ApiBindAddress $ApiBindAddress
     $paths = @('/health/live', '/health/ready')
     $allOk = $true
     foreach ($path in $paths) {
-        $uri = "http://localhost:$Port$path"
+        $uri = "http://${healthHost}:$Port$path"
         try {
             $response = Invoke-WebRequest -Uri $uri -UseBasicParsing -TimeoutSec $TimeoutSec
             $ok = $response.StatusCode -eq 200
@@ -93,12 +103,13 @@ function Test-UqebHealthEndpoints {
 function Wait-UqebHealthy {
     param(
         [int]$Port,
+        [string]$ApiBindAddress,
         [int]$TimeoutSec
     )
 
     $deadline = (Get-Date).AddSeconds($TimeoutSec)
     do {
-        if (Test-UqebHealthEndpoints -Port $Port -TimeoutSec 5 -Quiet) {
+        if (Test-UqebHealthEndpoints -Port $Port -ApiBindAddress $ApiBindAddress -TimeoutSec 5 -Quiet) {
             return $true
         }
         Start-Sleep -Seconds 2
@@ -117,14 +128,16 @@ function Invoke-UqebRobocopy {
         New-Item -ItemType Directory -Path $Destination -Force | Out-Null
     }
 
-    # /MIR (mirror = /E + /PURGE) rather than /E: Destination here is always an
-    # application-files-only directory (the live app dir, its pre-update backup,
-    # or a rollback restore target) - never a directory that also holds logs or
-    # data. Mirroring deletes stale files left over from a previous, different
-    # build (e.g. a removed DLL) that /E alone would leave behind, which is what
-    # causes dirty deployments and dirty rollbacks. appsettings*.json stay
-    # excluded via /XF, which also protects them from /MIR's purge pass.
-    $arguments = @($Source, $Destination, '/MIR', '/R:2', '/W:2', '/XF', 'appsettings.json', 'appsettings.Development.json', 'appsettings.Production.json')
+    # /E (copy all subdirectories, including empty ones) rather than /MIR: /MIR
+    # also purges (deletes) any destination file/folder not present in the
+    # source, and Destination here is the live C:\Uqeb\current\api directory,
+    # its pre-update backup, or a rollback restore target - a mirror/purge on
+    # that directory is a destructive, unreviewed deletion of whatever else may
+    # be there. If stale-file cleanup is ever needed, it should be an explicit,
+    # reviewed cleanup step, not a blanket mirror/purge. appsettings*.json stay
+    # excluded via /XF either way, so the standing production config is never
+    # overwritten by the new build's copy.
+    $arguments = @($Source, $Destination, '/E', '/R:2', '/W:2', '/XF', 'appsettings.json', 'appsettings.Development.json', 'appsettings.Production.json')
     & robocopy.exe @arguments | Out-Null
     if ($LASTEXITCODE -ge 8) {
         throw "robocopy failed from '$Source' to '$Destination' with exit code $LASTEXITCODE."
@@ -147,7 +160,7 @@ try {
     }
 
     Write-Step "Pre-update health check (informational)"
-    $preHealthy = Test-UqebHealthEndpoints -Port $ApiPort -TimeoutSec 5
+    $preHealthy = Test-UqebHealthEndpoints -Port $ApiPort -ApiBindAddress $ApiBindAddress -TimeoutSec 5
     if (-not $preHealthy) {
         Write-Info "Service is not currently healthy - proceeding anyway, since this update may be the fix."
     }
@@ -186,11 +199,11 @@ try {
         (Get-Service -Name $ServiceName).WaitForStatus('Running', (New-TimeSpan -Seconds 30))
 
         Write-Step "Waiting for health/live and health/ready"
-        if (-not (Wait-UqebHealthy -Port $ApiPort -TimeoutSec $HealthCheckTimeoutSec)) {
+        if (-not (Wait-UqebHealthy -Port $ApiPort -ApiBindAddress $ApiBindAddress -TimeoutSec $HealthCheckTimeoutSec)) {
             throw "Service did not become healthy within $HealthCheckTimeoutSec seconds after update."
         }
 
-        Test-UqebHealthEndpoints -Port $ApiPort -TimeoutSec 5 | Out-Null
+        Test-UqebHealthEndpoints -Port $ApiPort -ApiBindAddress $ApiBindAddress -TimeoutSec 5 | Out-Null
         $updateSucceeded = $true
     }
     finally {
@@ -207,7 +220,7 @@ try {
                     }
                     Start-Service -Name $ServiceName
                     (Get-Service -Name $ServiceName).WaitForStatus('Running', (New-TimeSpan -Seconds 30))
-                    $rolledBack = Wait-UqebHealthy -Port $ApiPort -TimeoutSec $HealthCheckTimeoutSec
+                    $rolledBack = Wait-UqebHealthy -Port $ApiPort -ApiBindAddress $ApiBindAddress -TimeoutSec $HealthCheckTimeoutSec
                     if ($rolledBack) {
                         Write-Info "Rollback restored a healthy service from $backupPath."
                     }
