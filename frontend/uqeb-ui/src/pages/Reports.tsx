@@ -98,19 +98,14 @@ function parseReportTab(value: string | null): ReportTab {
   return tabConfig.some((t) => t.key === value) ? (value as ReportTab) : 'open';
 }
 
-function TableSkeleton({ rows = 5 }: { rows?: number }) {
+function TableSkeleton({ rows = 5, columns = 8 }: { rows?: number; columns?: number }) {
   return (
     <>
       {Array.from({ length: rows }).map((_, i) => (
         <tr key={i} className="skeleton-row">
-          <td><div className="skeleton-bar w-40" /></td>
-          <td><div className="skeleton-bar w-80" /></td>
-          <td><div className="skeleton-bar w-60" /></td>
-          <td><div className="skeleton-bar w-40" /></td>
-          <td><div className="skeleton-bar w-60" /></td>
-          <td><div className="skeleton-bar w-40" /></td>
-          <td><div className="skeleton-bar w-40" /></td>
-          <td><div className="skeleton-bar w-40" /></td>
+          {Array.from({ length: columns }).map((_, j) => (
+            <td key={j}><div className="skeleton-bar w-60" /></td>
+          ))}
         </tr>
       ))}
     </>
@@ -184,8 +179,7 @@ export default function ReportsPage() {
   const [recurringExportError, setRecurringExportError] = useState<string | null>(null);
   const recurringAbortRef = useRef<AbortController | null>(null);
 
-  const recurringFilterParams = useCallback((): Record<string, unknown> => {
-    const f = recurringFilters;
+  const recurringFilterParams = useCallback((f: typeof recurringFilters = recurringFilters): Record<string, unknown> => {
     const p: Record<string, unknown> = {};
     if (f.dateFrom) p.dateFrom = f.dateFrom;
     if (f.dateTo) p.dateTo = f.dateTo;
@@ -197,14 +191,14 @@ export default function ReportsPage() {
     return p;
   }, [recurringFilters]);
 
-  const loadRecurringObligations = useCallback(async (page: number, pageSize: number) => {
+  const loadRecurringObligations = useCallback(async (page: number, pageSize: number, overrideFilters?: typeof recurringFilters) => {
     recurringAbortRef.current?.abort();
     const controller = new AbortController();
     recurringAbortRef.current = controller;
     setRecurringLoading(true);
     setRecurringError(null);
     try {
-      const params = recurringFilterParams();
+      const params = recurringFilterParams(overrideFilters);
       const [summaryRes, detailsRes] = await Promise.all([
         reportsApi.recurringObligationsSummary(params, { signal: controller.signal }),
         reportsApi.recurringObligationsDetails({ ...params, page, pageSize }, { signal: controller.signal }),
@@ -239,8 +233,9 @@ export default function ReportsPage() {
   const applyRecurringFilters = () => loadRecurringObligations(1, recurringPageSize);
 
   const resetRecurringFilters = () => {
-    setRecurringFilters({ dateFrom: '', dateTo: '', departmentId: '', status: '', recurrenceType: '', priority: '', groupBy: '' });
-    loadRecurringObligations(1, recurringPageSize);
+    const emptyFilters = { dateFrom: '', dateTo: '', departmentId: '', status: '', recurrenceType: '', priority: '', groupBy: '' };
+    setRecurringFilters(emptyFilters);
+    loadRecurringObligations(1, recurringPageSize, emptyFilters);
   };
 
   const changeRecurringPage = (page: number) => loadRecurringObligations(page, recurringPageSize);
@@ -933,7 +928,7 @@ export default function ReportsPage() {
             </tr>
           </thead>
           <tbody>
-            {recurringLoading && <TableSkeleton rows={recurringPageSize} />}
+            {recurringLoading && <TableSkeleton rows={recurringPageSize} columns={11} />}
             {!recurringLoading && recurringRows.map((r) => (
               <tr key={r.templateId} className={r.scheduleStatus === 'Overdue' ? 'row-overdue' : ''}>
                 <td>{r.title}</td>
