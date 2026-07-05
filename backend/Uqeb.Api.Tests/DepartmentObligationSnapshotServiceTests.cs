@@ -304,6 +304,58 @@ public class DepartmentObligationSnapshotServiceTests
     }
 
     [Fact]
+    public async Task Snapshot_classifies_department_with_only_a_response_as_response_only()
+    {
+        var options = CreateOptions(nameof(Snapshot_classifies_department_with_only_a_response_as_response_only));
+        var now = DateTime.UtcNow;
+        using (var db = new AppDbContext(options))
+        {
+            db.Users.Add(new User { Id = 1, Username = "admin", PasswordHash = "h", FullName = "Admin", Role = UserRole.Admin, IsActive = true });
+            db.Departments.Add(new Department { Id = 99, Name = "إدارة الرد", NameNormalized = "إدارة الرد", IsActive = true });
+            db.Categories.Add(new Category { Id = 1, Name = "معاملات", NameNormalized = "معاملات", IsActive = true });
+            await db.SaveChangesAsync();
+
+            db.Transactions.Add(new Transaction
+            {
+                Id = 200,
+                InternalTrackingNumber = "UQEB-2026-00200",
+                IncomingNumber = "IN-0200",
+                IncomingDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                Subject = "معاملة اختبار",
+                IncomingSourceType = IncomingSourceType.External,
+                IncomingFrom = "جهة خارجية",
+                IncomingFromDepartmentId = null,
+                CategoryId = 1,
+                Priority = Priority.Normal,
+                ResponseType = ResponseType.None,
+                Status = TransactionStatus.InProgress,
+                CreatedById = 1,
+                CreatedAt = now,
+            });
+            await db.SaveChangesAsync();
+
+            // Department 99 is never the owner, never assigned, never referred-to on T200 -
+            // its only involvement is a submitted DepartmentResponse.
+            db.DepartmentResponses.Add(new DepartmentResponse
+            {
+                TransactionId = 200, DepartmentId = 99, Status = DepartmentResponseStatus.SubmittedForReview,
+                ResponseText = "إفادة", SubmittedByUserId = 1, SubmittedAt = now,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var service = CreateService(options);
+        var snapshot = await service.GetDepartmentObligationSnapshotAsync();
+
+        var deptX = snapshot.Departments.Single(d => d.DepartmentId == 99);
+        Assert.True(deptX.SubmittedResponseCount > 0);
+        Assert.Equal(0, deptX.OwnedCount);
+        Assert.Equal(0, deptX.ResponsibleCount);
+        Assert.Equal(0, deptX.ReferredCount);
+        Assert.Equal("ResponseOnly", deptX.InvolvementCategory);
+    }
+
+    [Fact]
     public async Task Snapshot_returns_empty_result_when_there_is_no_data()
     {
         var options = CreateOptions(nameof(Snapshot_returns_empty_result_when_there_is_no_data));

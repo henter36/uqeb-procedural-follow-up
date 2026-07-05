@@ -99,7 +99,7 @@ Each row of `departments[]` in the response:
 | `dueSoonCount` | Distinct transactions in `pendingActionCount` whose `DueDate` is between today and `dueSoonWithinDays` (default 7) from today, and not already overdue |
 | `averageDaysOpenAction` | Average age in days (`today - AssignedDate`) of this department's currently-pending obligations; `null` if there are none |
 | `attributionMismatchCount` | Distinct transactions, among those requiring a reply from this department, where the `Assignment.ReplyStatus == Replied` flag and an `Approved` `DepartmentResponse` **disagree** (one exists without the other) — see "Known limitations" |
-| `involvementCategory` | `"OwnerOnly"` \| `"ResponsibleOrReferredOnly"` \| `"Both"` — directly answers "is this department involved only as owner vs. only as responsible/referred party" |
+| `involvementCategory` | `"OwnerOnly"` \| `"ResponsibleOrReferredOnly"` \| `"ResponseOnly"` \| `"Both"` \| `"None"` — directly answers "is this department involved only as owner vs. only as responsible/referred party vs. only via a submitted response". `"ResponseOnly"` covers a department with `DepartmentResponse` rows but no ownership/assignment/referral; `"Both"` covers owner plus any other involvement (responsible/referred and/or response) |
 
 Top-level response fields:
 

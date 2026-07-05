@@ -34,6 +34,7 @@ export const replyStatusLabels: Record<string, string> = {
 export const involvementCategoryLabels: Record<string, string> = {
   OwnerOnly: 'مالكة فقط',
   ResponsibleOrReferredOnly: 'مسؤولة/محالة فقط',
+  ResponseOnly: 'إفادة/رد فقط',
   Both: 'مالكة ومسؤولة/محالة',
 };
 

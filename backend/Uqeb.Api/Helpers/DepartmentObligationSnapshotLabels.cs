@@ -6,6 +6,7 @@ public static class DepartmentObligationSnapshotLabels
     {
         "OwnerOnly" => "مالكة فقط",
         "ResponsibleOrReferredOnly" => "مسؤولة/محالة فقط",
+        "ResponseOnly" => "إفادة/رد فقط",
         "Both" => "مالكة ومسؤولة/محالة",
         _ => involvementCategory
     };

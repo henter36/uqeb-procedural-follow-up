@@ -1291,7 +1291,8 @@ public class ReportService : IReportService
 
         var hasOwner = ownedTxIds.Count > 0;
         var hasResponsibleOrReferred = responsibleTxIds.Count > 0 || referredTxIds.Count > 0;
-        var involvementCategory = DetermineInvolvementCategory(hasOwner, hasResponsibleOrReferred);
+        var hasResponse = submittedResponseTxIds.Count > 0;
+        var involvementCategory = DetermineInvolvementCategory(hasOwner, hasResponsibleOrReferred, hasResponse);
 
         return new DepartmentObligationSnapshotRowDto
         {
@@ -1374,12 +1375,13 @@ public class ReportService : IReportService
         return Math.Round(earliestAssignedDatesByTransaction.Average(assignedDate => Math.Max(0, (now.Date - assignedDate.Date).Days)), 1);
     }
 
-    private static string DetermineInvolvementCategory(bool hasOwner, bool hasResponsibleOrReferred) =>
-        (hasOwner, hasResponsibleOrReferred) switch
+    private static string DetermineInvolvementCategory(bool hasOwner, bool hasResponsibleOrReferred, bool hasResponse) =>
+        (hasOwner, hasResponsibleOrReferred, hasResponse) switch
         {
-            (true, false) => "OwnerOnly",
-            (false, true) => "ResponsibleOrReferredOnly",
-            (true, true) => "Both",
+            (true, false, false) => "OwnerOnly",
+            (true, _, _) => "Both",
+            (false, true, _) => "ResponsibleOrReferredOnly",
+            (false, false, true) => "ResponseOnly",
             _ => "None"
         };
 
