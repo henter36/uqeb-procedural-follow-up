@@ -1,4 +1,5 @@
 using Uqeb.Api.Helpers;
+using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Reporting.Configuration;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
@@ -10,6 +11,9 @@ internal static class InstitutionalReportRequestValidator
     internal static void ValidateBuildRequest(ReportBuildRequestDto? request, ReportingOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(request);
+
+        if (!Enum.IsDefined(request.ReportType))
+            throw InvalidEnum("reportType", "نوع التقرير غير صالح.");
 
         if (request.SectionIds is null || request.SectionIds.Count == 0)
         {
@@ -28,8 +32,60 @@ internal static class InstitutionalReportRequestValidator
         }
 
         NormalizeFilterLists(request.Filters);
+        ValidateDepartmentTransactionsRequiresDepartments(request.ReportType, request.Filters);
+        ValidatePriorityAndStatusValues(request.Filters);
         ValidateFilterDateRange(request.Filters);
+        ValidateDetailSortBy(request.DetailSortBy);
         ValidateAnalyticalOptions(request, options?.Analysis);
+    }
+
+    internal static void ValidateDepartmentTransactionsRequiresDepartments(
+        InstitutionalReportType reportType, ReportFiltersDto? filters, string fieldKey = "filters.departmentIds")
+    {
+        if (reportType != InstitutionalReportType.DepartmentTransactions)
+            return;
+
+        if (filters?.DepartmentIds is null || filters.DepartmentIds.Count == 0)
+        {
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                [fieldKey] = "يجب تحديد إدارة واحدة على الأقل لتقرير معاملات إدارة.",
+            });
+        }
+    }
+
+    internal static void ValidateDetailSortBy(ReportDetailSortBy? detailSortBy)
+    {
+        if (detailSortBy.HasValue && !Enum.IsDefined(detailSortBy.Value))
+            throw InvalidEnum("detailSortBy", "ترتيب التفاصيل غير صالح.");
+    }
+
+    private static void ValidatePriorityAndStatusValues(ReportFiltersDto? filters)
+    {
+        if (filters is null)
+            return;
+
+        foreach (var value in filters.Priorities ?? [])
+        {
+            if (!Enum.TryParse<Priority>(value, ignoreCase: true, out var priority) || !Enum.IsDefined(priority))
+            {
+                throw new FieldValidationException(new Dictionary<string, string>
+                {
+                    ["filters.priorities"] = $"قيمة أولوية غير صالحة: {value}",
+                });
+            }
+        }
+
+        foreach (var value in filters.Statuses ?? [])
+        {
+            if (!Enum.TryParse<TransactionStatus>(value, ignoreCase: true, out var status) || !Enum.IsDefined(status))
+            {
+                throw new FieldValidationException(new Dictionary<string, string>
+                {
+                    ["filters.statuses"] = $"قيمة حالة غير صالحة: {value}",
+                });
+            }
+        }
     }
 
     internal static List<ReportSectionId> ResolveSections(ReportBuildRequestDto request)

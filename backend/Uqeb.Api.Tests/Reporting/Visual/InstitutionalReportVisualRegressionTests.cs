@@ -341,6 +341,7 @@ public class InstitutionalReportStylesTests
         Assert.Contains("@page report-extra-wide-landscape", css);
         Assert.Contains(".report-table--departments", css);
         Assert.Contains(".report-table--transactions", css);
+        Assert.Contains(".report-table--department-transactions", css);
         Assert.DoesNotContain("word-break: break-all", css);
         Assert.DoesNotContain("overflow-wrap: anywhere", css);
     }

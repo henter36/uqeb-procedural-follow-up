@@ -205,6 +205,107 @@ public class InstitutionalReportOverflowTests
         Assert.False(result.Manifest.DetailRowsTruncated);
     }
 
+    [Fact]
+    public async Task ExportAsync_DepartmentTransactions_FullDetailsXlsx_ExportsAllRowsDespiteOverflow()
+    {
+        var dbFactory = await CreateDepartmentSeededFactoryAsync(transactionCount: 5, departmentId: 20);
+        var service = InstitutionalReportServiceTestHelpers.CreateService(dbFactory, SmallDetailLimits);
+
+        var request = new ReportExportRequestDto
+        {
+            ExportFormat = ExportFormat.Xlsx,
+            ExportMode = ExportMode.FullReport,
+            DetailOverflowAction = DetailOverflowAction.FullDetailsXlsx,
+            BuildRequest = new ReportBuildRequestDto
+            {
+                ReportType = InstitutionalReportType.DepartmentTransactions,
+                SectionIds = [ReportSectionId.Cover, ReportSectionId.TransactionDetails, ReportSectionId.ReportMetadata],
+                Filters = new ReportFiltersDto { DepartmentIds = [20] },
+            },
+        };
+
+        var result = await service.ExportAsync(request);
+
+        Assert.Equal(5, result.Manifest.TotalMatchedRows);
+        Assert.Equal(5, result.Manifest.ExportedDetailRows);
+    }
+
+    [Fact]
+    public async Task ExportAsync_DepartmentTransactions_ThrowsValidationProblem_WhenOverflowWithoutAction()
+    {
+        var dbFactory = await CreateDepartmentSeededFactoryAsync(transactionCount: 5, departmentId: 20);
+        var service = InstitutionalReportServiceTestHelpers.CreateService(dbFactory, SmallDetailLimits);
+
+        var request = new ReportExportRequestDto
+        {
+            ExportFormat = ExportFormat.Pdf,
+            ExportMode = ExportMode.FullReport,
+            DetailOverflowAction = DetailOverflowAction.None,
+            BuildRequest = new ReportBuildRequestDto
+            {
+                ReportType = InstitutionalReportType.DepartmentTransactions,
+                SectionIds = [ReportSectionId.Cover, ReportSectionId.TransactionDetails, ReportSectionId.ReportMetadata],
+                Filters = new ReportFiltersDto { DepartmentIds = [20] },
+            },
+        };
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.ExportAsync(request));
+        Assert.Contains("detailOverflowAction", ex.FieldErrors.Keys);
+    }
+
+    private static async Task<IDbContextFactory<AppDbContext>> CreateDepartmentSeededFactoryAsync(
+        int transactionCount, int departmentId)
+    {
+        var dbName = $"overflow-dept-{Guid.NewGuid():N}";
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase(dbName).Options;
+        var dbFactory = new TestDbContextFactory(options);
+
+        await using var db = dbFactory.CreateDbContext();
+        var user = new User
+        {
+            Username = "overflow-dept-test",
+            PasswordHash = "hash",
+            FullName = "Overflow Department Test",
+            Role = UserRole.Admin,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow,
+        };
+        db.Users.Add(user);
+        db.Departments.Add(new Department { Id = departmentId, Name = "إدارة الفيض", NameNormalized = "إدارة الفيض", IsActive = true });
+        await db.SaveChangesAsync();
+
+        var today = DateTime.UtcNow.Date;
+        for (var i = 1; i <= transactionCount; i++)
+        {
+            var transaction = new Transaction
+            {
+                InternalTrackingNumber = $"DEPT-{i:D4}",
+                IncomingNumber = $"IN-{i:D4}",
+                IncomingDate = today.AddDays(-i),
+                Subject = $"معاملة إدارة {i}",
+                IncomingFrom = "جهة",
+                Status = TransactionStatus.New,
+                Priority = Priority.Normal,
+                CreatedById = user.Id,
+                CreatedAt = DateTime.UtcNow,
+            };
+            db.Transactions.Add(transaction);
+            db.Assignments.Add(new Assignment
+            {
+                Transaction = transaction,
+                DepartmentId = departmentId,
+                Status = AssignmentStatus.Active,
+                RequiresReply = true,
+                ReplyStatus = ReplyStatus.Pending,
+                AssignedDate = today,
+                CreatedById = user.Id,
+            });
+        }
+
+        await db.SaveChangesAsync();
+        return dbFactory;
+    }
+
     private static ReportExportRequestDto CreateExportRequest(DetailOverflowAction overflowAction) => new()
     {
         ExportFormat = overflowAction == DetailOverflowAction.FullDetailsXlsx

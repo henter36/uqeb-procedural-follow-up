@@ -56,7 +56,7 @@ public class InstitutionalReportDocxExporterTests
         using var zip = new System.IO.Compression.ZipArchive(new MemoryStream(bytes));
         var entry = zip.GetEntry("word/document.xml");
         Assert.NotNull(entry);
-        using var reader = new StreamReader(entry!.Open());
+        using var reader = new StreamReader(entry.Open());
         var xml = reader.ReadToEnd();
         Assert.Contains("IN-0501", xml);
         Assert.Contains("معاملة 501", xml);
@@ -108,7 +108,7 @@ public class InstitutionalReportDocxExporterTests
         using var document = WordprocessingDocument.Open(stream, false);
         var body = document.MainDocumentPart?.Document.Body;
         Assert.NotNull(body);
-        Assert.NotEmpty(body!.Elements<Paragraph>());
+        Assert.NotEmpty(body.Elements<Paragraph>());
     }
 
     [Fact]
@@ -128,12 +128,76 @@ public class InstitutionalReportDocxExporterTests
         using var zip = new System.IO.Compression.ZipArchive(new MemoryStream(bytes));
         var entry = zip.GetEntry("word/document.xml");
         Assert.NotNull(entry);
-        using var reader = new StreamReader(entry!.Open());
+        using var reader = new StreamReader(entry.Open());
         var xml = reader.ReadToEnd();
         Assert.Contains("مؤشرات الأداء الرئيسية", xml);
         Assert.Contains("ارتفاع نسبة التأخر", xml);
         Assert.Contains("معاملة حرجة متأخرة", xml);
         Assert.Contains("مراجعة المعاملات المتأخرة حسب الإدارات الأعلى أثرًا", xml);
         Assert.Contains("AverageFirstActionHours", xml);
+    }
+
+    [Fact]
+    public void Export_DepartmentTransactions_RendersTableWithMatchedDepartmentsAndRelationColumn()
+    {
+        var model = new InstitutionalReportModel
+        {
+            Metadata = new ReportMetadataDto
+            {
+                ReportNumber = "REP-2026-000601",
+                Title = "تقرير معاملات إدارة",
+                ReportTypeName = "تقرير معاملات إدارة",
+                ReportType = InstitutionalReportType.DepartmentTransactions,
+                IssueDate = DateTime.UtcNow.Date,
+                PeriodFrom = DateTime.UtcNow.Date,
+                PeriodTo = DateTime.UtcNow.Date,
+            },
+            Transactions =
+            [
+                new TransactionDetailRowDto
+                {
+                    Sequence = 1,
+                    IncomingNumber = "IN-0001",
+                    IncomingDate = DateTime.UtcNow.Date,
+                    Subject = "معاملة الإدارة",
+                    Status = "قيد المعالجة",
+                    Priority = "عاجل",
+                    MatchedDepartments =
+                    [
+                        new TransactionDetailDepartmentRelationDto { DepartmentId = 20, DepartmentName = "الإدارة ب", Relation = "إحالة وصادر لها" },
+                    ],
+                },
+            ],
+        };
+
+        var manifest = new RenderedReportManifestDto
+        {
+            Pages =
+            [
+                new RenderedReportPageDto
+                {
+                    SectionId = ReportSectionId.TransactionDetails,
+                    SectionName = "المعاملات التفصيلية",
+                    OriginalPageNumber = 1,
+                    RenderedPageNumber = 1,
+                },
+            ],
+        };
+
+        var bytes = InstitutionalReportDocxExporter.Export(model, manifest, new ReportExportRequestDto());
+
+        using var stream = new MemoryStream(bytes);
+        using var document = WordprocessingDocument.Open(stream, false);
+        var body = document.MainDocumentPart?.Document.Body;
+        Assert.NotNull(body);
+        var table = Assert.Single(body.Elements<Table>());
+        var rows = table.Elements<TableRow>().ToList();
+        Assert.Equal(2, rows.Count); // header + 1 data row
+        var dataRowText = string.Concat(rows[1].Descendants<Text>().Select(t => t.Text));
+        Assert.Contains("IN-0001", dataRowText);
+        Assert.Contains("معاملة الإدارة", dataRowText);
+        Assert.Contains("الإدارة ب", dataRowText);
+        Assert.Contains("إحالة وصادر لها", dataRowText);
+        Assert.Contains("عاجل", dataRowText);
     }
 }

@@ -1,3 +1,4 @@
+using System.Globalization;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
@@ -94,7 +95,10 @@ public static class InstitutionalReportDocxExporter
                 AppendActionPlanSection(body, model);
                 break;
             case ReportSectionId.TransactionDetails:
-                AppendTransactionDetailsSection(body, model);
+                if (model.Metadata.ReportType == InstitutionalReportType.DepartmentTransactions)
+                    AppendDepartmentTransactionDetailsSection(body, model);
+                else
+                    AppendTransactionDetailsSection(body, model);
                 break;
             case ReportSectionId.Appendices:
                 AppendAppendicesSection(body, model);
@@ -245,6 +249,78 @@ public static class InstitutionalReportDocxExporter
         AppendHeading(body, "المعاملات التفصيلية");
         foreach (var tx in model.Transactions)
             AppendParagraph(body, $"{tx.Sequence}. {tx.IncomingNumber} — {tx.Subject}");
+    }
+
+    /// <summary>
+    /// DepartmentTransactions only: a real table (not plain paragraphs) matching the PDF/HTML column
+    /// set including the department-relation column, so DOCX is not less precise than PDF for this
+    /// report type. The other 5 report types keep using AppendTransactionDetailsSection unchanged.
+    /// </summary>
+    private static void AppendDepartmentTransactionDetailsSection(Body body, InstitutionalReportModel model)
+    {
+        AppendHeading(body, "المعاملات التفصيلية — تقرير معاملات إدارة");
+        if (model.GroupDetailsByDepartmentEffective)
+            AppendParagraph(body, "التفاصيل مجمّعة حسب الإدارة (غير تراكمي): قد تظهر المعاملة المشتركة تحت أكثر من إدارة.", bold: true);
+
+        var table = new Table();
+        var tableBorders = new TableBorders(
+            new TopBorder { Val = BorderValues.Single, Size = 4 },
+            new BottomBorder { Val = BorderValues.Single, Size = 4 },
+            new LeftBorder { Val = BorderValues.Single, Size = 4 },
+            new RightBorder { Val = BorderValues.Single, Size = 4 },
+            new InsideHorizontalBorder { Val = BorderValues.Single, Size = 4 },
+            new InsideVerticalBorder { Val = BorderValues.Single, Size = 4 });
+        var tableProperties = new TableProperties();
+        tableProperties.AppendChild(tableBorders);
+        table.AppendChild(tableProperties);
+
+        table.AppendChild(CreateTableRow(
+            ["#", "رقم الوارد", "تاريخ الوارد", "الموضوع", "الجهة الوارد منها", "الإدارة/الإدارات المطابقة", "الحالة", "الأولوية", "المهلة", "آخر إجراء"],
+            bold: true));
+
+        foreach (var r in model.Transactions)
+        {
+            var matched = string.Join("; ", r.MatchedDepartments.Select(m => $"{m.DepartmentName} ({m.Relation})"));
+            table.AppendChild(CreateTableRow(
+            [
+                r.Sequence.ToString(),
+                r.IncomingNumber,
+                r.IncomingDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                r.Subject,
+                r.IncomingParty,
+                matched,
+                r.Status,
+                r.Priority,
+                r.DueDate ?? "—",
+                r.LastActionDate ?? "—",
+            ]));
+        }
+
+        body.AppendChild(table);
+    }
+
+    private static TableRow CreateTableRow(IReadOnlyList<string> cells, bool bold = false)
+    {
+        var row = new TableRow();
+        foreach (var cellText in cells)
+            row.AppendChild(CreateTableCell(cellText, bold));
+        return row;
+    }
+
+    private static TableCell CreateTableCell(string text, bool bold = false)
+    {
+        var cell = new TableCell();
+        var paragraph = CreateParagraph();
+        var run = CreateRun();
+        var runProperties = new RunProperties();
+        runProperties.AppendChild(new RightToLeftText());
+        if (bold)
+            runProperties.AppendChild(new Bold());
+        run.AppendChild(runProperties);
+        run.AppendChild(new Text(text) { Space = SpaceProcessingModeValues.Preserve });
+        paragraph.AppendChild(run);
+        cell.AppendChild(paragraph);
+        return cell;
     }
 
     private static void AppendAppendicesSection(Body body, InstitutionalReportModel model)

@@ -128,6 +128,80 @@ public class InstitutionalReportAnalysisServiceTests
         Assert.Equal("لا توجد مقارنة", result.Methodology.ComparisonPeriod);
     }
 
+    [Fact]
+    public void CreateComparisonRequest_NotRequested_ReturnsNullReasonAndNullRequest()
+    {
+        var request = new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            IncludeComparison = false,
+            Filters = new ReportFiltersDto { DateFrom = new DateTime(2026, 1, 1), DateTo = new DateTime(2026, 1, 31) },
+        };
+
+        var comparisonRequest = InstitutionalReportAnalysisService.CreateComparisonRequest(request, out var reason);
+
+        Assert.Null(comparisonRequest);
+        Assert.Null(reason);
+    }
+
+    [Fact]
+    public void CreateComparisonRequest_ModeNone_ReturnsNullReasonAndNullRequest()
+    {
+        var request = new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            IncludeComparison = true,
+            ComparisonMode = ReportComparisonMode.None,
+            Filters = new ReportFiltersDto { DateFrom = new DateTime(2026, 1, 1), DateTo = new DateTime(2026, 1, 31) },
+        };
+
+        var comparisonRequest = InstitutionalReportAnalysisService.CreateComparisonRequest(request, out var reason);
+
+        Assert.Null(comparisonRequest);
+        Assert.Null(reason);
+    }
+
+    [Fact]
+    public void CreateComparisonRequest_RequestedButPeriodIncomplete_ReturnsNonNullReason()
+    {
+        var request = new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            IncludeComparison = true,
+            ComparisonMode = ReportComparisonMode.PreviousEquivalentPeriod,
+            Filters = new ReportFiltersDto { DateFrom = new DateTime(2026, 1, 1), DateTo = null },
+        };
+
+        var comparisonRequest = InstitutionalReportAnalysisService.CreateComparisonRequest(request, out var reason);
+
+        Assert.Null(comparisonRequest);
+        Assert.NotNull(reason);
+    }
+
+    [Fact]
+    public void CreateComparisonRequest_ValidPeriod_ReturnsRequestWithNullReasonAndCopiesDepartmentIds()
+    {
+        var request = new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.DepartmentTransactions,
+            IncludeComparison = true,
+            ComparisonMode = ReportComparisonMode.PreviousEquivalentPeriod,
+            Filters = new ReportFiltersDto
+            {
+                DateFrom = new DateTime(2026, 1, 15),
+                DateTo = new DateTime(2026, 1, 31),
+                DepartmentIds = [10, 20],
+            },
+        };
+
+        var comparisonRequest = InstitutionalReportAnalysisService.CreateComparisonRequest(request, out var reason);
+
+        Assert.Null(reason);
+        Assert.NotNull(comparisonRequest);
+        Assert.Equal(InstitutionalReportType.DepartmentTransactions, comparisonRequest.ReportType);
+        Assert.Equal([10, 20], comparisonRequest.Filters.DepartmentIds);
+    }
+
     private static List<TransactionReportSnapshot> CreateCurrentSnapshots() =>
     [
         Snapshot(1, TransactionStatus.New, Priority.Urgent, isOpen: true, isClosed: false, isOverdue: true, elapsedDays: 30, department: "الشؤون الإدارية", pendingReplies: 1, dueDate: ReferenceDate.AddDays(-10)),

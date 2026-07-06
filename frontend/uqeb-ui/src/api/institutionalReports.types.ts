@@ -35,7 +35,9 @@ export type InstitutionalReportManifest = {
   analysis?: unknown;
 };
 
-export type InstitutionalReportType = 1 | 2 | 3 | 4 | 5;
+export type InstitutionalReportType = 1 | 2 | 3 | 4 | 5 | 6;
+
+export type ReportDetailSortBy = 0 | 1 | 2 | 3 | 4 | 5;
 
 export type ReportSectionId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21;
 
@@ -61,11 +63,7 @@ export type ReportFilters = {
   categoryIds: number[];
   priorities: string[];
   statuses: string[];
-  includeJointDepartmentTransactions: boolean;
   includeOverdue: boolean;
-  includeDetails: boolean;
-  includeRisks: boolean;
-  includeRecommendations: boolean;
   search?: string | null;
 };
 
@@ -94,6 +92,8 @@ export type ReportBuildRequest = {
   maxCriticalCases?: number;
   maxFindings?: number;
   maxRecommendations?: number;
+  detailSortBy?: ReportDetailSortBy;
+  groupDetailsByDepartment?: boolean;
   filters: ReportFilters;
 };
 
@@ -124,6 +124,8 @@ export type ReportTemplate = {
   pageNumberingMode: PageNumberingMode;
   includePartialCover: boolean;
   includePartialManifest: boolean;
+  detailSortBy?: ReportDetailSortBy;
+  groupDetailsByDepartment?: boolean;
 };
 
 export type SaveReportTemplateRequest = {
@@ -135,4 +137,6 @@ export type SaveReportTemplateRequest = {
   pageNumberingMode: PageNumberingMode;
   includePartialCover: boolean;
   includePartialManifest: boolean;
+  detailSortBy?: ReportDetailSortBy;
+  groupDetailsByDepartment?: boolean;
 };

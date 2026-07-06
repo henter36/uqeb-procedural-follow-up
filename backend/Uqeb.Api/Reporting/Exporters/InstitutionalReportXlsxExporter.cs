@@ -10,6 +10,7 @@ public static class InstitutionalReportXlsxExporter
     private const string DepartmentHeader = "الإدارة";
     private const string PriorityHeader = "الأولوية";
     private const string OnTimeHeader = "ضمن المهلة";
+    private const string PartyHeader = "الجهة";
 
     public static byte[] Export(
         InstitutionalReportModel model,
@@ -57,8 +58,7 @@ public static class InstitutionalReportXlsxExporter
         if (ShouldInclude(manifest, ReportSectionId.RecommendationsAndActionPlan))
             AddActionPlanSheet(workbook, model);
 
-        if (ShouldInclude(manifest, ReportSectionId.TransactionDetails))
-            AddTransactionsSheet(workbook, model);
+        AddTransactionDetailsSheetIfRequested(workbook, model, manifest);
 
         if (ShouldInclude(manifest, ReportSectionId.MethodologyAndDefinitions))
             AddMethodologySheet(workbook, model);
@@ -136,7 +136,7 @@ public static class InstitutionalReportXlsxExporter
     {
         var ws = workbook.Worksheets.Add("Critical Cases");
         ws.RightToLeft = true;
-        var headers = new[] { "المعرف", "رقم الوارد", "الموضوع", DepartmentHeader, "الجهة", PriorityHeader, "العمر", "أيام التأخر", "السبب", "الإجراء", SeverityHeader };
+        var headers = new[] { "المعرف", "رقم الوارد", "الموضوع", DepartmentHeader, PartyHeader, PriorityHeader, "العمر", "أيام التأخر", "السبب", "الإجراء", SeverityHeader };
         WriteHeaders(ws, headers);
         var row = 2;
         foreach (var item in model.Analysis.CriticalCases)
@@ -205,7 +205,7 @@ public static class InstitutionalReportXlsxExporter
     {
         var ws = workbook.Worksheets.Add("External Parties");
         ws.RightToLeft = true;
-        var headers = new[] { "الجهة", "وارد", "صادر", "منتظر رد", "ردود متأخرة", "متوسط الرد", "وسيط الرد", "متابعات", "أقدم انتظار", "أبرز التصنيفات" };
+        var headers = new[] { PartyHeader, "وارد", "صادر", "منتظر رد", "ردود متأخرة", "متوسط الرد", "وسيط الرد", "متابعات", "أقدم انتظار", "أبرز التصنيفات" };
         WriteHeaders(ws, headers);
         var row = 2;
         foreach (var party in model.Analysis.ExternalParties)
@@ -386,11 +386,23 @@ public static class InstitutionalReportXlsxExporter
         FinishTable(ws, row - 1, headers.Length);
     }
 
+    private static void AddTransactionDetailsSheetIfRequested(
+        XLWorkbook workbook, InstitutionalReportModel model, RenderedReportManifestDto manifest)
+    {
+        if (!ShouldInclude(manifest, ReportSectionId.TransactionDetails))
+            return;
+
+        if (model.Metadata.ReportType == InstitutionalReportType.DepartmentTransactions)
+            AddDepartmentTransactionsSheet(workbook, model);
+        else
+            AddTransactionsSheet(workbook, model);
+    }
+
     private static void AddTransactionsSheet(XLWorkbook workbook, InstitutionalReportModel model)
     {
         var ws = workbook.Worksheets.Add("المعاملات التفصيلية");
         ws.RightToLeft = true;
-        var headers = new[] { "م", "رقم المعاملة", "رقم الوارد", "تاريخ الوارد", "الموضوع", "الجهة", DepartmentHeader, "الإدارات المشتركة", PriorityHeader, "الحالة", "مرحلة المتابعة", "الأيام", "المهلة", "آخر إجراء", "حالة الرد" };
+        var headers = new[] { "م", "رقم المعاملة", "رقم الوارد", "تاريخ الوارد", "الموضوع", PartyHeader, DepartmentHeader, "الإدارات المشتركة", PriorityHeader, "الحالة", "مرحلة المتابعة", "الأيام", "المهلة", "آخر إجراء", "حالة الرد" };
         for (var i = 0; i < headers.Length; i++) ws.Cell(1, i + 1).Value = headers[i];
         var row = 2;
         foreach (var t in model.Transactions)
@@ -410,6 +422,48 @@ public static class InstitutionalReportXlsxExporter
             ws.Cell(row, 13).Value = t.DueDate ?? string.Empty;
             ws.Cell(row, 14).Value = t.LastActionDate ?? string.Empty;
             ws.Cell(row, 15).Value = t.ResponseState;
+            row++;
+        }
+        ws.Range(1, 1, row - 1, headers.Length).SetAutoFilter();
+        ws.SheetView.FreezeRows(1);
+        ws.Columns().AdjustToContents();
+    }
+
+    /// <summary>
+    /// DepartmentTransactions only: a richer column set than the PDF/HTML table, including the
+    /// matched-department/relation breakdown and full referral/outgoing department lists, per report
+    /// requirement #9. The other 5 report types keep using AddTransactionsSheet unchanged.
+    /// </summary>
+    private static void AddDepartmentTransactionsSheet(XLWorkbook workbook, InstitutionalReportModel model)
+    {
+        var ws = workbook.Worksheets.Add("المعاملات التفصيلية");
+        ws.RightToLeft = true;
+        var headers = new[]
+        {
+            "م", "رقم المعاملة (التتبع الداخلي)", "رقم الوارد", "تاريخ الوارد", "الموضوع", PartyHeader,
+            "الإدارة/الإدارات المطابقة", "نوع العلاقة", "رقم الصادر", "تاريخ الصادر",
+            "إدارات الإحالة (الكل)", "إدارات الصادر (الكل)", "الحالة", PriorityHeader, "المهلة", "آخر إجراء",
+        };
+        for (var i = 0; i < headers.Length; i++) ws.Cell(1, i + 1).Value = headers[i];
+        var row = 2;
+        foreach (var t in model.Transactions)
+        {
+            ws.Cell(row, 1).Value = t.Sequence;
+            ws.Cell(row, 2).Value = t.TrackingNumber;
+            ws.Cell(row, 3).Value = t.IncomingNumber;
+            ws.Cell(row, 4).Value = t.IncomingDate;
+            ws.Cell(row, 5).Value = t.Subject;
+            ws.Cell(row, 6).Value = t.IncomingParty;
+            ws.Cell(row, 7).Value = string.Join("؛ ", t.MatchedDepartments.Select(m => m.DepartmentName));
+            ws.Cell(row, 8).Value = string.Join("؛ ", t.MatchedDepartments.Select(m => m.Relation));
+            ws.Cell(row, 9).Value = t.OutgoingNumber ?? string.Empty;
+            ws.Cell(row, 10).Value = t.OutgoingDate ?? string.Empty;
+            ws.Cell(row, 11).Value = string.Join("؛ ", t.AllAssignmentDepartments);
+            ws.Cell(row, 12).Value = string.Join("؛ ", t.AllOutgoingDepartments);
+            ws.Cell(row, 13).Value = t.Status;
+            ws.Cell(row, 14).Value = t.Priority;
+            ws.Cell(row, 15).Value = t.DueDate ?? string.Empty;
+            ws.Cell(row, 16).Value = t.LastActionDate ?? string.Empty;
             row++;
         }
         ws.Range(1, 1, row - 1, headers.Length).SetAutoFilter();

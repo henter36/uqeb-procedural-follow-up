@@ -540,6 +540,65 @@ body {
   min-width: 52mm;
 }
 
+/* Denser table for the DepartmentTransactions report type only — smaller font, tighter cell padding,
+   so a real (non-hardcoded) row-per-page count can be computed from page geometry (see
+   InstitutionalReportRenderer.ComputeRowsPerPage). Does not affect .report-table--transactions above,
+   used unchanged by the other 5 report types. */
+.report-table--department-transactions {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+  font-size: 8.2px;
+  line-height: 1.15;
+}
+
+.report-table--department-transactions thead {
+  display: table-header-group;
+}
+
+.report-table--department-transactions tr {
+  break-inside: avoid;
+}
+
+.report-table--department-transactions th,
+.report-table--department-transactions td {
+  padding: 1.5px 4px;
+  word-break: normal;
+  overflow-wrap: break-word;
+  white-space: normal;
+}
+
+.report-table--department-transactions .cell--id,
+.report-table--department-transactions .cell--date,
+.report-table--department-transactions .cell--number {
+  white-space: nowrap;
+}
+
+.report-table--department-transactions .cell--subject {
+  min-width: 36mm;
+}
+
+.report-table--department-transactions .cell--relation {
+  font-size: 7.8px;
+  line-height: 1.15;
+}
+
+.dept-transactions-page-title {
+  color: var(--report-primary);
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0 0 4px;
+  border-right: 3px solid var(--report-warning);
+  padding-right: 8px;
+  line-height: 1.2;
+}
+
+.dept-transactions-page-subtitle {
+  font-size: 9px;
+  color: var(--report-secondary);
+  margin: 0 0 4px;
+}
+
 .report-table__total-row td {
   background: var(--report-primary);
   color: #fff;

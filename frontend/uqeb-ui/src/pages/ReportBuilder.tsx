@@ -18,6 +18,7 @@ import {
   PageNumberingMode,
   ReportComparisonMode,
   ReportContentLevel,
+  ReportDetailSortBy,
   ReportSectionId,
   ReportTimeGrouping,
 } from '../api/institutionalReports.constants';
@@ -39,6 +40,16 @@ const REPORT_TYPES = [
   { value: InstitutionalReportType.OverdueTransactions, label: 'تقرير المعاملات المتأخرة' },
   { value: InstitutionalReportType.JointDepartmentTransactions, label: 'تقرير معاملات الإدارات المشتركة' },
   { value: InstitutionalReportType.PartialResponses, label: 'تقرير الإفادات والردود الجزئية' },
+  { value: InstitutionalReportType.DepartmentTransactions, label: 'تقرير معاملات إدارة' },
+] as const;
+
+const DETAIL_SORT_OPTIONS = [
+  { value: ReportDetailSortBy.Default, label: 'افتراضي' },
+  { value: ReportDetailSortBy.IncomingDateDesc, label: 'تاريخ الوارد (الأحدث أولاً)' },
+  { value: ReportDetailSortBy.Department, label: 'الإدارة' },
+  { value: ReportDetailSortBy.Status, label: 'الحالة' },
+  { value: ReportDetailSortBy.Priority, label: 'الأولوية' },
+  { value: ReportDetailSortBy.DueDate, label: 'المهلة' },
 ] as const;
 
 const SECTIONS = [
@@ -275,6 +286,8 @@ export default function ReportBuilderPage() {
   const [maxCriticalCases, setMaxCriticalCases] = useState(10);
   const [maxFindings, setMaxFindings] = useState(5);
   const [maxRecommendations, setMaxRecommendations] = useState(10);
+  const [detailSortBy, setDetailSortBy] = useState<typeof ReportDetailSortBy[keyof typeof ReportDetailSortBy]>(ReportDetailSortBy.Default);
+  const [groupDetailsByDepartment, setGroupDetailsByDepartment] = useState(false);
   const [manifest, setManifest] = useState<InstitutionalReportManifest | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedPages, setSelectedPages] = useState<number[]>([]);
@@ -306,6 +319,7 @@ export default function ReportBuilderPage() {
   const [parties, setParties] = useState<LookupItem[]>([]);
 
   const includesTransactionDetails = sectionIds.includes(ReportSectionId.TransactionDetails);
+  const isDepartmentTransactionsReport = reportType === InstitutionalReportType.DepartmentTransactions;
 
   const activeFilterCount = getActiveFilterCount({
     search: filterSearch,
@@ -425,14 +439,12 @@ export default function ReportBuilderPage() {
     maxCriticalCases,
     maxFindings,
     maxRecommendations,
+    detailSortBy,
+    groupDetailsByDepartment: isDepartmentTransactionsReport ? groupDetailsByDepartment : false,
     filters: {
       dateFrom: dateFrom || null,
       dateTo: dateTo || null,
-      includeJointDepartmentTransactions: true,
       includeOverdue: filterOnlyOverdue,
-      includeDetails: true,
-      includeRisks: true,
-      includeRecommendations: true,
       departmentIds: filterDepartmentIds,
       partyIds: filterPartyIds,
       categoryIds: filterCategoryIds,
@@ -443,6 +455,7 @@ export default function ReportBuilderPage() {
   }), [
     reportType, title, sectionIds, contentLevel, comparisonMode, timeGrouping,
     includeComparison, maxCriticalCases, maxFindings, maxRecommendations,
+    detailSortBy, groupDetailsByDepartment, isDepartmentTransactionsReport,
     dateFrom, dateTo, filterDepartmentIds, filterCategoryIds, filterPartyIds,
     filterPriorities, filterStatuses, filterOnlyOverdue, filterSearch,
   ]);
@@ -501,6 +514,8 @@ export default function ReportBuilderPage() {
     setPageNumberingMode(template.pageNumberingMode);
     setIncludePartialCover(template.includePartialCover);
     setIncludePartialManifest(template.includePartialManifest);
+    setDetailSortBy(template.detailSortBy ?? ReportDetailSortBy.Default);
+    setGroupDetailsByDepartment(Boolean(template.groupDetailsByDepartment));
   }, [
     invalidatePreview,
     setExportFormat,
@@ -546,6 +561,8 @@ export default function ReportBuilderPage() {
         pageNumberingMode,
         includePartialCover,
         includePartialManifest,
+        detailSortBy: payload.detailSortBy,
+        groupDetailsByDepartment: payload.groupDetailsByDepartment,
       });
       setTemplates((prev) => [...prev.filter((item) => item.id !== data.id), data].sort((a, b) => a.name.localeCompare(b.name)));
       setSelectedTemplateId(String(data.id));
@@ -569,6 +586,12 @@ export default function ReportBuilderPage() {
   const loadPreview = async () => {
     if (!isAdmin)
       return;
+
+    if (isDepartmentTransactionsReport && filterDepartmentIds.length === 0) {
+      setManifest(null);
+      setError('يجب تحديد إدارة واحدة على الأقل لتقرير معاملات إدارة.');
+      return;
+    }
 
     previewAbortRef.current?.abort();
     const controller = new AbortController();
@@ -751,10 +774,27 @@ export default function ReportBuilderPage() {
           <select
             id="report-type"
             value={reportType}
-            onChange={(e) => { invalidatePreview(); setReportType(Number(e.target.value) as typeof reportType); }}
+            onChange={(e) => {
+              invalidatePreview();
+              const nextType = Number(e.target.value) as typeof reportType;
+              setReportType(nextType);
+              if (nextType !== InstitutionalReportType.DepartmentTransactions) setGroupDetailsByDepartment(false);
+            }}
           >
             {REPORT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
+
+          {reportType === InstitutionalReportType.OverdueTransactions && (
+            <p className="rb-filter-hint">
+              في تقرير المتأخرات، يتم تقييم التأخر حتى تاريخ نهاية الفترة، وقد تشمل النتائج معاملات بدأت قبل تاريخ البداية إذا كانت لا تزال متأخرة ضمن تاريخ التقييم.
+            </p>
+          )}
+
+          {isDepartmentTransactionsReport && filterDepartmentIds.length === 0 && (
+            <p className="rb-filter-hint text-danger">
+              يجب تحديد إدارة واحدة على الأقل لتقرير معاملات إدارة.
+            </p>
+          )}
 
           <label htmlFor="report-title">عنوان التقرير</label>
           <input id="report-title" value={title} onChange={(e) => { invalidatePreview(); setTitle(e.target.value); }} />
@@ -854,6 +894,27 @@ export default function ReportBuilderPage() {
             <option value={ReportComparisonMode.None}>بدون مقارنة</option>
           </select>
 
+          <label htmlFor="detail-sort-by">ترتيب التفاصيل</label>
+          <select
+            id="detail-sort-by"
+            value={detailSortBy}
+            onChange={(e) => { invalidatePreview(); setDetailSortBy(Number(e.target.value) as typeof detailSortBy); }}
+          >
+            {DETAIL_SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+
+          {isDepartmentTransactionsReport && (
+            <label htmlFor="group-details-by-department" className="rb-checkbox-label">
+              <input
+                id="group-details-by-department"
+                type="checkbox"
+                checked={groupDetailsByDepartment}
+                onChange={(e) => { invalidatePreview(); setGroupDetailsByDepartment(e.target.checked); }}
+              />
+              <span>تجميع التفاصيل حسب الإدارة (قد يكرر المعاملة المشتركة تحت أكثر من إدارة — غير تراكمي)</span>
+            </label>
+          )}
+
           {/* 3 ── الفلاتر */}
           <div className="rb-filter-header">
             <h3 className="report-builder-section-title rb-filter-title">
@@ -883,11 +944,15 @@ export default function ReportBuilderPage() {
           {departments.length > 0 && (
             <>
               <label htmlFor="filter-departments">
-                الإدارات
+                الإدارات المحالة/الصادر لها
+                {isDepartmentTransactionsReport && <span className="text-danger"> *</span>}
                 {filterDepartmentIds.length > 0 && (
                   <span className="rb-filter-count">{filterDepartmentIds.length} محدد</span>
                 )}
               </label>
+              <p className="rb-filter-hint">
+                يطابق هذا الفلتر الإدارات المرتبطة بالمعاملة عبر الإحالات أو الإدارات الصادر لها، ولا يعني الجهة الوارد منها.
+              </p>
               <select
                 id="filter-departments"
                 multiple
