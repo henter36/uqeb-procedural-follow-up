@@ -88,6 +88,32 @@ public class InstitutionalReportMetricsCalculatorTests
     }
 
     [Fact]
+    public void OpenTransactionWithLateCompletedResponseCountsAsCompletedLateNotOpenOverdue()
+    {
+        var today = DateTime.UtcNow.Date;
+        var snapshots = new[]
+        {
+            new TransactionReportSnapshot
+            {
+                TransactionId = 1,
+                IncomingDate = today.AddDays(-30),
+                Status = TransactionStatus.ReadyForResponse,
+                IsOpen = true,
+                RequiresResponse = true,
+                ResponseDueDate = today.AddDays(-10),
+                ResponseCompleted = true,
+                ResponseCompletedDate = today.AddDays(-5),
+            },
+        };
+        var result = InstitutionalReportMetricsCalculator.Calculate(snapshots, today);
+
+        Assert.Equal(1, result.OverdueCount);
+        Assert.Equal(0, result.OpenOverdueCount);
+        Assert.Equal(1, result.CompletedLateCount);
+        Assert.Equal(result.OverdueCount, result.OpenOverdueCount + result.CompletedLateCount);
+    }
+
+    [Fact]
     public void PartialAndJointDoNotDoubleTotal()
     {
         var snapshots = new[]

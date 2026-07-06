@@ -319,8 +319,13 @@ public class TransactionService : ITransactionService
                      ((t.ResponseCompleted || t.Status == TransactionStatus.Closed) &&
                       ((t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date) ||
                        (!t.ClosedAt.HasValue && t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date))))) ||
-                t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
-                    && a.Status == AssignmentStatus.Active && a.DueDate.HasValue && a.DueDate.Value.Date < today));
+                t.Assignments.Any(a => a.RequiresReply && a.DueDate.HasValue &&
+                    ((a.ReplyStatus != ReplyStatus.Replied
+                      && a.Status == AssignmentStatus.Active
+                      && a.DueDate.Value.Date < today) ||
+                     (a.ReplyStatus == ReplyStatus.Replied
+                      && a.ReplyDate.HasValue
+                      && a.ReplyDate.Value.Date > a.DueDate.Value.Date))));
         return query;
     }
 
@@ -333,8 +338,13 @@ public class TransactionService : ITransactionService
                 Transaction = t,
                 HasPendingAssignment = t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
                     && a.Status == AssignmentStatus.Active),
-                HasOverdueAssignment = t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
-                    && a.Status == AssignmentStatus.Active && a.DueDate.HasValue && a.DueDate.Value.Date < today),
+                HasOverdueAssignment = t.Assignments.Any(a => a.RequiresReply && a.DueDate.HasValue &&
+                    ((a.ReplyStatus != ReplyStatus.Replied
+                      && a.Status == AssignmentStatus.Active
+                      && a.DueDate.Value.Date < today) ||
+                     (a.ReplyStatus == ReplyStatus.Replied
+                      && a.ReplyDate.HasValue
+                      && a.ReplyDate.Value.Date > a.DueDate.Value.Date))),
                 IsResponseOverdue = t.RequiresResponse && t.ResponseDueDate.HasValue
                     && ((!t.ResponseCompleted && t.Status != TransactionStatus.Closed && t.ResponseDueDate.Value.Date < today) ||
                         ((t.ResponseCompleted || t.Status == TransactionStatus.Closed) &&
@@ -1593,10 +1603,10 @@ public class TransactionService : ITransactionService
             throw new InvalidOperationException(FutureEventDateMessage);
         if (assignedDate.Date < assignment.Transaction.IncomingDate.Date)
             throw new InvalidOperationException("تاريخ الإحالة لا يمكن أن يسبق تاريخ الوارد.");
-        if (replyDueDays.HasValue && replyDueDays.Value < 0)
-            throw new InvalidOperationException("عدد أيام الرد لا يمكن أن يكون سالبًا.");
         if (dueDate.HasValue && dueDate.Value.Date < assignedDate.Date)
             throw new InvalidOperationException("تاريخ استحقاق الإدارة لا يمكن أن يسبق تاريخ الإحالة.");
+        if (replyDueDays.HasValue && replyDueDays.Value < 0)
+            throw new InvalidOperationException("عدد أيام الرد لا يمكن أن يكون سالبًا.");
     }
 
     private static void ApplyAdminEditAssignmentChanges(
@@ -1659,12 +1669,12 @@ public class TransactionService : ITransactionService
     {
         if (IsFutureEventDate(incomingDate) || (closedAt.HasValue && IsFutureEventDate(closedAt.Value)))
             throw new InvalidOperationException(FutureEventDateMessage);
-        if (responseDueDays.HasValue && responseDueDays.Value < 0)
-            throw new InvalidOperationException("عدد أيام الرد لا يمكن أن يكون سالبًا.");
         if (responseDueDate.HasValue && responseDueDate.Value.Date < incomingDate.Date)
             throw new InvalidOperationException("تاريخ استحقاق المعاملة لا يمكن أن يسبق تاريخ الوارد.");
         if (closedAt.HasValue && closedAt.Value.Date < incomingDate.Date)
             throw new InvalidOperationException("تاريخ إغلاق المعاملة لا يمكن أن يسبق تاريخ الوارد.");
+        if (responseDueDays.HasValue && responseDueDays.Value < 0)
+            throw new InvalidOperationException("عدد أيام الرد لا يمكن أن يكون سالبًا.");
     }
 
     private async Task EnsureIncomingDateDoesNotFollowExistingTimelineAsync(

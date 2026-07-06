@@ -226,6 +226,7 @@ public class DepartmentResponseServiceTests
                 DepartmentId = dept.Id,
                 ResponseText = "نص الإفادة",
                 Status = DepartmentResponseStatus.SubmittedForReview,
+                SubmittedByUserId = user.Id,
                 SubmittedAt = DateTime.UtcNow.AddDays(-1),
                 CreatedAt = DateTime.UtcNow.AddDays(-1)
             };
@@ -248,7 +249,11 @@ public class DepartmentResponseServiceTests
         var transaction = await approveDb.Transactions.SingleAsync(t => t.Id == txId);
         Assert.Equal(AssignmentStatus.Completed, assignment.Status);
         Assert.Equal(ReplyStatus.Replied, assignment.ReplyStatus);
-        Assert.Equal(TransactionStatus.ResponseCompleted, transaction.Status);
+        // Approving a department's internal reply is distinct from completing the
+        // transaction's own formal response (CompleteResponseAsync); once every
+        // required reply is in, WorkflowHelper.UpdateTransactionStatusFromAssignments
+        // moves a RequiresResponse transaction to ReadyForResponse, not ResponseCompleted.
+        Assert.Equal(TransactionStatus.ReadyForResponse, transaction.Status);
     }
 
     [Fact]
@@ -877,11 +882,15 @@ public class DepartmentResponseServiceTests
 
         var stats = await service.GetMyStatsAsync(submitter);
 
-        Assert.Equal(1, stats.TotalAssigned);
+        // GetMyStatsAsync is deliberately scoped to active assignments only (commit
+        // 48249bd, PR #68): once ApproveAsync completes the assignment, the
+        // transaction drops out of MyStats entirely — see
+        // GetMyStats_IgnoresResponsesForInactiveAssignments for the authoritative spec.
+        Assert.Equal(0, stats.TotalAssigned);
         Assert.Equal(0, stats.PendingResponse);
         Assert.Equal(0, stats.Draft);
         Assert.Equal(0, stats.SubmittedForReview);
-        Assert.Equal(1, stats.Approved);
+        Assert.Equal(0, stats.Approved);
     }
 
     [Fact]

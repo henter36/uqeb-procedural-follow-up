@@ -22,7 +22,11 @@ public static class InstitutionalReportMetricsCalculator
         var archived = unique.Count(s => TransactionStatusSemantics.IsArchived(s.Status));
 
         var overdueOpen = open.Count(s => IsOpenOverdue(s, today));
-        var completedLate = closed.Count(IsCompletedLate);
+        var completedLate = unique.Count(s =>
+            !TransactionStatusSemantics.IsCancelled(s.Status)
+            && !TransactionStatusSemantics.IsArchived(s.Status)
+            && !IsOpenOverdue(s, today)
+            && IsCompletedLate(s));
         var overdueTotal = unique.Count(s => IsOverdue(s, today));
         var joint = unique.Count(s => s.IsJointDepartment);
         var partial = open.Count(s => s.IsPartialReply);

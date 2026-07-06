@@ -20,7 +20,8 @@ internal static class InstitutionalReportOverdueQuery
                 t.Status == TransactionStatus.Overdue
                 || (t.ResponseDueDate.HasValue
                     && t.ResponseDueDate.Value.Date < todayDate
-                    && !t.ResponseCompleted)
+                    && !t.ResponseCompleted
+                    && t.Status != TransactionStatus.Closed)
                 || (t.ResponseDueDate.HasValue
                     && (t.ResponseCompleted || t.Status == TransactionStatus.Closed)
                     && ((t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date) ||

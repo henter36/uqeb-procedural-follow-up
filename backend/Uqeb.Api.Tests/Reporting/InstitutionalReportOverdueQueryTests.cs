@@ -207,4 +207,54 @@ public class InstitutionalReportOverdueQueryTests
 
         Assert.DoesNotContain("IN-MIX", filtered);
     }
+
+    [Fact]
+    public async Task OverdueFilter_ExcludesClosedTransactionClosedOnTimeEvenWhenResponseNotMarkedCompleted()
+    {
+        var dbName = $"overdue-closed-on-time-{Guid.NewGuid():N}";
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(dbName)
+            .Options;
+
+        await using var db = new AppDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+
+        var user = new User
+        {
+            Username = "overdue-closed-on-time",
+            PasswordHash = "hash",
+            FullName = "Overdue Closed On Time",
+            Role = UserRole.Admin,
+            IsActive = true,
+        };
+        db.Users.Add(user);
+        await db.SaveChangesAsync();
+
+        var today = DateTime.UtcNow.Date;
+
+        // Closed before its due date, but ResponseCompleted was never flipped to true
+        // (e.g. an admin override). The open-overdue branch must not resurrect this as
+        // overdue just because ResponseCompleted is false and the due date has since passed.
+        db.Transactions.Add(new Transaction
+        {
+            InternalTrackingNumber = "INT-CLOSED-ON-TIME",
+            IncomingNumber = "IN-CLOSED-ON-TIME",
+            IncomingDate = today.AddDays(-30),
+            Subject = "closed on time",
+            Status = TransactionStatus.Closed,
+            RequiresResponse = true,
+            ResponseCompleted = false,
+            ResponseDueDate = today.AddDays(-5),
+            ClosedAt = today.AddDays(-10),
+            CreatedById = user.Id,
+        });
+        await db.SaveChangesAsync();
+
+        var filtered = await InstitutionalReportOverdueQuery
+            .ApplyOverdueFilter(db.Transactions.AsNoTracking(), today)
+            .Select(t => t.IncomingNumber)
+            .ToListAsync();
+
+        Assert.DoesNotContain("IN-CLOSED-ON-TIME", filtered);
+    }
 }

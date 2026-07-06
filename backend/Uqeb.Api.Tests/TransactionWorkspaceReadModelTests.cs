@@ -520,6 +520,53 @@ public class TransactionWorkspaceReadModelTests
     }
 
     [Fact]
+    public async Task SearchAsync_OverdueOnly_IncludesAssignmentRepliedAfterDueDate()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(SearchAsync_OverdueOnly_IncludesAssignmentRepliedAfterDueDate));
+        var completedLate = await SeedTransactionAsync(db, 120);
+        completedLate.RequiresResponse = false;
+        completedLate.ResponseDueDate = null;
+        var notOverdue = await SeedTransactionAsync(db, 121);
+        notOverdue.RequiresResponse = false;
+        notOverdue.ResponseDueDate = null;
+        await db.SaveChangesAsync();
+
+        db.Assignments.Add(new Assignment
+        {
+            TransactionId = completedLate.Id,
+            DepartmentId = 10,
+            AssignedDate = DateTime.UtcNow.AddDays(-10),
+            DueDate = DateTime.UtcNow.AddDays(-5),
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Replied,
+            ReplyDate = DateTime.UtcNow.AddDays(-1),
+            Status = AssignmentStatus.Completed,
+            CreatedById = 1
+        });
+        db.Assignments.Add(new Assignment
+        {
+            TransactionId = notOverdue.Id,
+            DepartmentId = 10,
+            AssignedDate = DateTime.UtcNow.AddDays(-10),
+            DueDate = DateTime.UtcNow.AddDays(-5),
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Replied,
+            ReplyDate = DateTime.UtcNow.AddDays(-6),
+            Status = AssignmentStatus.Completed,
+            CreatedById = 1
+        });
+        await db.SaveChangesAsync();
+
+        var result = await service.SearchAsync(
+            new TransactionSearchRequest { OverdueOnly = true, Page = 1, PageSize = 20 },
+            new TestCurrentUser(UserRole.Admin));
+
+        var lateItem = Assert.Single(result.Items, tx => tx.Id == completedLate.Id);
+        Assert.True(lateItem.IsOverdue);
+        Assert.DoesNotContain(result.Items, tx => tx.Id == notOverdue.Id);
+    }
+
+    [Fact]
     public async Task GetWorkspaceAsync_does_not_include_audit_logs()
     {
         var (service, db) = await CreateServiceAsync(nameof(GetWorkspaceAsync_does_not_include_audit_logs));
