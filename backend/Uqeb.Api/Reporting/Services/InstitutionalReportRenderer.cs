@@ -144,8 +144,8 @@ public sealed class InstitutionalReportRenderer
     // Denser layout metrics for the DepartmentTransactions detail table only (see .report-table--department-transactions
     // in institutional-report.css). These are the same values the CSS uses, kept as named constants (not a bare row
     // count) so the row-per-page capacity below is derived from real page geometry rather than a hardcoded literal.
-    private const decimal DepartmentTransactionsRowHeightMm = 13.5m;
-    private const decimal DepartmentTransactionsHeaderReserveMm = 28m;
+    private const decimal DepartmentTransactionsRowHeightMm = 11m;
+    private const decimal DepartmentTransactionsHeaderReserveMm = 12m;
 
     private static void AppendTransactionDetailPages(
         InstitutionalReportModel model,
@@ -163,18 +163,20 @@ public sealed class InstitutionalReportRenderer
             ? ComputeRowsPerPage(InstitutionalReportPdfProfiles.ExtraWideLandscape, DepartmentTransactionsRowHeightMm, DepartmentTransactionsHeaderReserveMm)
             : TransactionRowsPerPdfPage;
 
+        var chunkIndex = 0;
         foreach (var chunk in model.Transactions.Chunk(rowsPerPage))
         {
             var html = isDepartmentTransactions
-                ? RenderDepartmentTransactionDetails(model, chunk.ToList())
+                ? RenderDepartmentTransactionDetails(model, chunk.ToList(), isFirstPage: chunkIndex == 0)
                 : RenderTransactions(model, chunk.ToList());
             pages.Add(MakePage(ReportSectionId.TransactionDetails, "المعاملات التفصيلية", html));
+            chunkIndex++;
         }
 
         if (model.Transactions.Count == 0)
         {
             var emptyHtml = isDepartmentTransactions
-                ? RenderDepartmentTransactionDetails(model, [])
+                ? RenderDepartmentTransactionDetails(model, [], isFirstPage: true)
                 : RenderTransactions(model, []);
             pages.Add(MakePage(ReportSectionId.TransactionDetails, "المعاملات التفصيلية", emptyHtml));
         }
@@ -1010,7 +1012,8 @@ public sealed class InstitutionalReportRenderer
         """;
     }
 
-    private static string RenderDepartmentTransactionDetails(InstitutionalReportModel model, List<TransactionDetailRowDto> rows)
+    private static string RenderDepartmentTransactionDetails(
+        InstitutionalReportModel model, List<TransactionDetailRowDto> rows, bool isFirstPage)
     {
         var body = string.Join(string.Empty, rows.Select(r =>
         {
@@ -1022,17 +1025,19 @@ public sealed class InstitutionalReportRenderer
         var pageNote = rows.Count < totalResults
             ? $" — عرض {rows.Count:N0} صف في هذه الصفحة من {model.ExportedDetailRows:N0} صفًا مصدَّرًا"
             : string.Empty;
-        var truncationNote = model.DetailRowsTruncated
+        // Truncation/grouping notices only repeat on the first detail page: they add no new
+        // information on continuation pages and their vertical space is better spent on rows.
+        var truncationNote = isFirstPage && model.DetailRowsTruncated
             ? $"""<div class="partial-note">إجمالي النتائج المطابقة: {totalResults:N0} — صفوف التفاصيل في هذا الملف: {model.ExportedDetailRows:N0}</div>"""
             : string.Empty;
-        var groupingNote = model.GroupDetailsByDepartmentEffective
+        var groupingNote = isFirstPage && model.GroupDetailsByDepartmentEffective
             ? """<div class="partial-note">التفاصيل مجمّعة حسب الإدارة: قد تظهر المعاملة المشتركة تحت أكثر من إدارة — هذا التجميع غير تراكمي (لا يُجمع عدد الصفوف كإجمالي معاملات).</div>"""
             : string.Empty;
         return $"""
-        <h2 class="section-title">المعاملات التفصيلية — تقرير معاملات إدارة</h2>
+        <h2 class="dept-transactions-page-title">المعاملات التفصيلية — تقرير معاملات إدارة</h2>
         {truncationNote}
         {groupingNote}
-        <p class="section-subtitle">إجمالي النتائج: {totalResults:N0} معاملة{pageNote} — الفترة من {FormatDate(model.Metadata.PeriodFrom)} إلى {FormatDate(model.Metadata.PeriodTo)}</p>
+        <p class="dept-transactions-page-subtitle">إجمالي النتائج: {totalResults:N0} معاملة{pageNote} — الفترة من {FormatDate(model.Metadata.PeriodFrom)} إلى {FormatDate(model.Metadata.PeriodTo)}</p>
         <table class="report-table report-table--department-transactions"><thead><tr>
           <th>#</th><th>رقم الوارد</th><th>تاريخ الوارد</th><th>الموضوع</th><th>الجهة الوارد منها</th>
           <th>الإدارة/الإدارات المطابقة</th><th>الحالة</th><th>الأولوية</th><th>المهلة</th><th>آخر إجراء</th>

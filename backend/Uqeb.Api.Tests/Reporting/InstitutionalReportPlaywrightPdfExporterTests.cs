@@ -197,6 +197,44 @@ public class InstitutionalReportPlaywrightPdfExporterTests
         Assert.Equal(manifest.TotalPages, CountPdfPages(pdf));
     }
 
+    [Fact]
+    public async Task ExportAsync_DepartmentTransactions_NormalDataset_ShowsMoreThanTenRowsOnFirstDetailPage()
+    {
+        await EnsurePlaywrightAvailableAsync();
+        if (!await IsPlaywrightAvailableAsync())
+            return;
+
+        // 20 typical (non-truncated, non-grouped) transactions - the common case the density fix
+        // targets. Mirrors real-world row content: a mix of short and one deliberately long subject
+        // (from CreateTransactions), plus a matched-department/relation cell like production rows.
+        var rows = InstitutionalReportVisualFixtures.CreateTransactions(20);
+        foreach (var row in rows)
+        {
+            row.MatchedDepartments =
+            [
+                new TransactionDetailDepartmentRelationDto { DepartmentId = 20, DepartmentName = "الإدارة ب", Relation = "إحالة" },
+            ];
+        }
+
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel(totalMatched: 20, exportedRows: 20);
+        model.Metadata.ReportType = InstitutionalReportType.DepartmentTransactions;
+        model.Transactions = rows;
+
+        var manifest = InstitutionalReportVisualFixtures.RenderSections(model, ReportSectionId.TransactionDetails);
+        var html = InstitutionalReportRenderer.RenderHtmlDocument(manifest);
+
+        await using var exporter = CreateExporter();
+        var pdf = await exporter.ExportAsync(manifest, html);
+        WritePdfArtifact("department-transactions-normal.actual.pdf", pdf);
+
+        // Physical PDF page count must still match the manifest's chunk-derived page count (no
+        // silent overflow onto extra physical pages from an over-optimistic row-per-page estimate).
+        Assert.Equal(manifest.TotalPages, CountPdfPages(pdf));
+
+        var firstPageRowCount = Regex.Matches(manifest.Pages[0].HtmlContent, "class=\"cell--number\"").Count;
+        Assert.True(firstPageRowCount > 10, $"Expected more than 10 rows on the first detail page, found {firstPageRowCount}.");
+    }
+
     private static InstitutionalReportPlaywrightPdfExporter CreateExporter() =>
         new(
             new ReadyChromiumProbe(),
