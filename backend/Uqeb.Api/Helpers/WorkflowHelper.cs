@@ -29,7 +29,7 @@ public static class WorkflowHelper
 
     public static bool IsAssignmentOverdue(Assignment a, DateTime now) =>
         a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied && a.Status == AssignmentStatus.Active
-        && a.DueDate.HasValue && a.DueDate.Value < now;
+        && a.DueDate.HasValue && a.DueDate.Value.Date < now.Date;
 
     public static DateTime? ResolveResponseCompletionDate(Transaction t)
     {
@@ -55,7 +55,7 @@ public static class WorkflowHelper
 
     public static void UpdateAssignmentOverdueStatus(Assignment a, DateTime now)
     {
-        if (a.RequiresReply && a.ReplyStatus == ReplyStatus.Pending && a.DueDate < now)
+        if (a.RequiresReply && a.ReplyStatus == ReplyStatus.Pending && a.DueDate.HasValue && a.DueDate.Value.Date < now.Date)
             a.ReplyStatus = ReplyStatus.Overdue;
     }
 

@@ -10,6 +10,12 @@ vi.mock('../../api/services', () => ({
   },
 }));
 
+type MockedApiFunction = {
+  mockResolvedValue(value: unknown): MockedApiFunction;
+};
+
+const mockApi = (fn: unknown) => fn as MockedApiFunction;
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -49,7 +55,7 @@ describe('AdminEditDatesFormPanel', () => {
   };
 
   it('synchronizes due date edits into response due days and clears dirty after success', async () => {
-    vi.mocked(transactionsApi.adminEditTransactionDates).mockResolvedValue({ data: transaction } as never);
+    mockApi(transactionsApi.adminEditTransactionDates).mockResolvedValue({ data: transaction });
     const onDirtyChange = vi.fn();
     const onSuccess = vi.fn();
     const user = userEvent.setup();

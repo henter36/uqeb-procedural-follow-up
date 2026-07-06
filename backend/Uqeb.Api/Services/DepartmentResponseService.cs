@@ -334,7 +334,6 @@ public class DepartmentResponseService : IDepartmentResponseService
     public async Task<DepartmentResponseDto> UpdateAsync(int id, UpdateDepartmentResponseRequest request, ICurrentUserService currentUser)
     {
         var response = await _db.DepartmentResponses
-            .Include(r => r.Transaction).ThenInclude(t => t.Assignments)
             .FirstOrDefaultAsync(r => r.Id == id)
             ?? throw new InvalidOperationException(ResponseNotFoundMessage);
 
@@ -382,7 +381,10 @@ public class DepartmentResponseService : IDepartmentResponseService
     {
         RequireReviewer(currentUser);
 
-        var response = await _db.DepartmentResponses.FindAsync(id)
+        var response = await _db.DepartmentResponses
+            .Include(r => r.Transaction)
+                .ThenInclude(t => t.Assignments)
+            .FirstOrDefaultAsync(r => r.Id == id)
             ?? throw new InvalidOperationException(ResponseNotFoundMessage);
 
         if (response.Status != DepartmentResponseStatus.SubmittedForReview)

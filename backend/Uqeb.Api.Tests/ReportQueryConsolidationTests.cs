@@ -89,6 +89,18 @@ public class ReportQueryConsolidationTests
         return (service, db, factory);
     }
 
+    private static (ReportService Service, AppDbContext Db, CountingDbContextFactory Factory) CreateEmptyService(string dbName)
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(dbName)
+            .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
+            .Options;
+
+        var db = new AppDbContext(options);
+        var factory = new CountingDbContextFactory(options);
+        return (new ReportService(db, factory), db, factory);
+    }
+
     [Fact]
     public async Task GetPageSummaryAsync_uses_single_aggregate_query()
     {
@@ -127,5 +139,63 @@ public class ReportQueryConsolidationTests
 
         Assert.Equal(1, dashboard.WaitingForReply);
         Assert.Equal(1, dashboard.PartiallyReplied);
+    }
+
+    [Fact]
+    public async Task GetPageSummaryAsync_does_not_count_response_due_today_as_overdue()
+    {
+        var (service, db, _) = CreateEmptyService(nameof(GetPageSummaryAsync_does_not_count_response_due_today_as_overdue));
+        var now = DateTime.UtcNow;
+        db.Transactions.Add(new Transaction
+        {
+            InternalTrackingNumber = "UQEB-2026-DUE-TODAY",
+            IncomingNumber = "IN-DUE-TODAY",
+            IncomingDate = now.AddDays(-2),
+            Subject = "استحقاق اليوم",
+            IncomingSourceType = IncomingSourceType.External,
+            IncomingFrom = "جهة",
+            RequiresResponse = true,
+            ResponseCompleted = false,
+            ResponseDueDate = now.Date,
+            Status = TransactionStatus.WaitingForReply,
+            Priority = Priority.Normal,
+            CreatedAt = now.AddDays(-2)
+        });
+        await db.SaveChangesAsync();
+
+        var counts = await service.GetPageSummaryAsync();
+
+        Assert.Equal(0, counts.OverdueResponses);
+        Assert.Equal(0, counts.Overdue);
+    }
+
+    [Fact]
+    public async Task GetPageSummaryAsync_counts_closed_after_due_date_as_overdue()
+    {
+        var (service, db, _) = CreateEmptyService(nameof(GetPageSummaryAsync_counts_closed_after_due_date_as_overdue));
+        var dueDate = DateTime.UtcNow.Date.AddDays(-5);
+        db.Transactions.Add(new Transaction
+        {
+            InternalTrackingNumber = "UQEB-2026-CLOSED-LATE",
+            IncomingNumber = "IN-CLOSED-LATE",
+            IncomingDate = dueDate.AddDays(-10),
+            Subject = "مغلقة متأخرة",
+            IncomingSourceType = IncomingSourceType.External,
+            IncomingFrom = "جهة",
+            RequiresResponse = true,
+            ResponseCompleted = true,
+            ResponseCompletedDate = dueDate.AddDays(2),
+            ResponseDueDate = dueDate,
+            Status = TransactionStatus.Closed,
+            ClosedAt = dueDate.AddDays(2),
+            Priority = Priority.Normal,
+            CreatedAt = dueDate.AddDays(-10)
+        });
+        await db.SaveChangesAsync();
+
+        var counts = await service.GetPageSummaryAsync();
+
+        Assert.Equal(1, counts.OverdueResponses);
+        Assert.Equal(1, counts.Overdue);
     }
 }

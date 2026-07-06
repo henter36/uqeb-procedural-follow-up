@@ -10,6 +10,12 @@ vi.mock('../../api/services', () => ({
   },
 }));
 
+type MockedApiFunction = {
+  mockResolvedValue(value: unknown): MockedApiFunction;
+};
+
+const mockApi = (fn: unknown) => fn as MockedApiFunction;
+
 afterEach(() => {
   cleanup();
 });
@@ -86,7 +92,7 @@ describe('AdminEditAssignmentFormPanel', () => {
   });
 
   it('keeps reply due days and due date synchronized before submit', async () => {
-    vi.mocked(transactionsApi.adminEditAssignment).mockResolvedValue({ data: baseAssignment } as never);
+    mockApi(transactionsApi.adminEditAssignment).mockResolvedValue({ data: baseAssignment });
     const user = userEvent.setup();
     const onSuccess = vi.fn();
 

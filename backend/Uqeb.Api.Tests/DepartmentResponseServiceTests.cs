@@ -180,6 +180,78 @@ public class DepartmentResponseServiceTests
     }
 
     [Fact]
+    public async Task Approve_loads_transaction_assignments_without_relying_on_context_fixup()
+    {
+        var dbName = nameof(Approve_loads_transaction_assignments_without_relying_on_context_fixup);
+        int responseId;
+        int txId;
+        int deptId;
+        int userId;
+
+        await using (var seedDb = CreateDb(dbName))
+        {
+            var dept = new Department { Name = "إدارة الاختبار", NameNormalized = "إدارة الاختبار", Code = "TEST" };
+            var user = new User { Username = "u1", PasswordHash = "x", FullName = "المستخدم الأول", Role = UserRole.DepartmentUser };
+            seedDb.Departments.Add(dept);
+            seedDb.Users.Add(user);
+            await seedDb.SaveChangesAsync();
+
+            user.DepartmentId = dept.Id;
+            var tx = new Transaction
+            {
+                InternalTrackingNumber = "TX-REL",
+                IncomingNumber = "IN-REL",
+                IncomingDate = DateTime.UtcNow.AddDays(-3),
+                Subject = "اعتماد إفادة",
+                RequiresResponse = true,
+                Status = TransactionStatus.Assigned,
+                CreatedById = user.Id,
+            };
+            seedDb.Transactions.Add(tx);
+            await seedDb.SaveChangesAsync();
+
+            seedDb.Assignments.Add(new Assignment
+            {
+                TransactionId = tx.Id,
+                DepartmentId = dept.Id,
+                AssignedDate = DateTime.UtcNow.AddDays(-2),
+                RequiresReply = true,
+                ReplyStatus = ReplyStatus.Pending,
+                Status = AssignmentStatus.Active,
+                CreatedById = user.Id,
+            });
+            var response = new DepartmentResponse
+            {
+                TransactionId = tx.Id,
+                DepartmentId = dept.Id,
+                ResponseText = "نص الإفادة",
+                Status = DepartmentResponseStatus.SubmittedForReview,
+                SubmittedAt = DateTime.UtcNow.AddDays(-1),
+                CreatedAt = DateTime.UtcNow.AddDays(-1)
+            };
+            seedDb.DepartmentResponses.Add(response);
+            await seedDb.SaveChangesAsync();
+
+            responseId = response.Id;
+            txId = tx.Id;
+            deptId = dept.Id;
+            userId = user.Id;
+        }
+
+        await using var approveDb = CreateDb(dbName);
+        var service = BuildService(approveDb);
+        var reviewer = new FakeUser { UserId = userId, Role = UserRole.Supervisor, DepartmentId = null };
+
+        await service.ApproveAsync(responseId, reviewer);
+
+        var assignment = await approveDb.Assignments.SingleAsync(a => a.TransactionId == txId && a.DepartmentId == deptId);
+        var transaction = await approveDb.Transactions.SingleAsync(t => t.Id == txId);
+        Assert.Equal(AssignmentStatus.Completed, assignment.Status);
+        Assert.Equal(ReplyStatus.Replied, assignment.ReplyStatus);
+        Assert.Equal(TransactionStatus.ResponseCompleted, transaction.Status);
+    }
+
+    [Fact]
     public async Task ReturnForCorrection_RequiresNote()
     {
         var (db, txId, deptId, userId) = await SeedAsync(nameof(ReturnForCorrection_RequiresNote));

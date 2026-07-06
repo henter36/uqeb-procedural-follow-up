@@ -300,7 +300,8 @@ public class AssignmentResponseDatesTests
             userId: 1);
 
         Assert.NotNull(updated);
-        Assert.Equal(new DateTime(2026, 1, 8), updated.ResponseDueDate!.Value.Date);
+        Assert.NotNull(updated.ResponseDueDate);
+        Assert.Equal(new DateTime(2026, 1, 8), updated.ResponseDueDate.Value.Date);
         Assert.Equal(5, updated.ResponseDueDays);
     }
 
@@ -323,7 +324,8 @@ public class AssignmentResponseDatesTests
             userId: 1);
 
         Assert.NotNull(updated);
-        Assert.Equal(new DateTime(2026, 1, 10), updated.ResponseDueDate!.Value.Date);
+        Assert.NotNull(updated.ResponseDueDate);
+        Assert.Equal(new DateTime(2026, 1, 10), updated.ResponseDueDate.Value.Date);
         Assert.Equal(9, updated.ResponseDueDays);
     }
 
