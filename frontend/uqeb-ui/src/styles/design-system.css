@@ -529,34 +529,6 @@
   line-height: var(--line-height-tight);
 }
 
-
-.transaction-context-bar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-top: calc(-1 * var(--space-1));
-  margin-bottom: var(--space-3);
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-  line-height: 1.6;
-  min-width: 0;
-}
-
-.transaction-context-number {
-  color: var(--color-text);
-  font-weight: 800;
-  direction: ltr;
-  unicode-bidi: plaintext;
-  flex: 0 0 auto;
-}
-
-.transaction-context-subject {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .page-header-actions {
   display: flex;
   gap: var(--space-2);
@@ -2310,6 +2282,26 @@
   color: var(--color-primary);
 }
 
+.current-action-status-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.current-action-status-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.current-action-status-departments {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
 .transaction-sections-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2321,10 +2313,6 @@
   flex-direction: column;
   gap: var(--space-3);
   min-width: 0;
-}
-
-.transaction-section-card-full {
-  grid-column: 1 / -1;
 }
 
 .section-card-header {

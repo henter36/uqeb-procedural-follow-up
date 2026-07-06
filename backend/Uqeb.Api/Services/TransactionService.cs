@@ -24,6 +24,7 @@ public interface ITransactionService
     Task<bool> ArchiveAsync(int id, int userId, UserRole role);
     Task<bool> CloseAsync(int id, int userId, UserRole role);
     Task<TransactionDetailDto?> CompleteResponseAsync(int id, CompleteResponseRequest request, ICurrentUserService currentUser);
+    Task<TransactionDetailDto?> EditResponseAsync(int id, CompleteResponseRequest request, ICurrentUserService currentUser);
     Task<List<FollowUpDepartmentOptionDto>?> GetFollowUpDepartmentsAsync(int transactionId, ICurrentUserService currentUser);
     Task<FollowUpDto> AddFollowUpAsync(int transactionId, CreateFollowUpRequest request, int userId);
     Task<FollowUpDto?> ReplyFollowUpAsync(int transactionId, int followUpId, ReplyFollowUpRequest request, int userId);
@@ -598,10 +599,6 @@ public class TransactionService : ITransactionService
                 on a.CreatedById equals u.Id
                 into createdByGroup
             from u in createdByGroup.DefaultIfEmpty()
-            join dr in _db.DepartmentResponses.AsNoTracking()
-                on new { a.TransactionId, a.DepartmentId } equals new { dr.TransactionId, dr.DepartmentId }
-                into drGroup
-            from dr in drGroup.DefaultIfEmpty()
             orderby a.AssignedDate descending
             select new
             {
@@ -620,16 +617,24 @@ public class TransactionService : ITransactionService
                 a.Status,
                 CreatedByName = u != null ? u.FullName : "",
                 a.CreatedAt,
-                DepartmentResponseId = (int?)dr.Id,
-                ResponseDate = dr.SubmittedAt
+                // The assignment's own ReplyDate is the authoritative completion date
+                // (set once ApproveAsync clamps/records it); DepartmentResponse rows can be
+                // drafts, rejected, or resubmitted, so joining on them directly for the date
+                // both used the wrong field and risked duplicate/non-deterministic rows.
+                DepartmentResponseId = _db.DepartmentResponses
+                    .Where(dr => dr.TransactionId == a.TransactionId && dr.DepartmentId == a.DepartmentId)
+                    .OrderByDescending(dr => dr.Status == DepartmentResponseStatus.Approved)
+                    .ThenByDescending(dr => dr.Id)
+                    .Select(dr => (int?)dr.Id)
+                    .FirstOrDefault()
             }
         ).ToListAsync();
 
         return rows.Select(r =>
         {
             int? completionDays = null;
-            if (r.ResponseDate.HasValue && incomingDate.HasValue)
-                completionDays = Math.Max(0, (r.ResponseDate.Value.Date - incomingDate.Value.Date).Days);
+            if (r.ReplyDate.HasValue && incomingDate.HasValue)
+                completionDays = Math.Max(0, (r.ReplyDate.Value.Date - incomingDate.Value.Date).Days);
 
             return new AssignmentDto
             {
@@ -649,7 +654,7 @@ public class TransactionService : ITransactionService
                 IsOverdue = TransactionTemporalCalculator.IsAssignmentOverdue(
                     r.ReplyStatus, r.RequiresReply, r.Status, r.DueDate, now),
                 DepartmentResponseId = r.DepartmentResponseId,
-                ResponseDate = r.ResponseDate,
+                ResponseDate = r.ReplyDate,
                 DepartmentCompletionDays = completionDays,
                 CanAdminEdit = isAdmin,
                 CreatedByName = r.CreatedByName,
@@ -1182,6 +1187,76 @@ public class TransactionService : ITransactionService
             t.UpdatedById = userId;
             t.UpdatedAt = DateTime.UtcNow;
             _audit.TrackLog(userId, AuditAction.CompleteResponse, TransactionEntityName, id, id, null,
+                JsonSerializer.Serialize(new
+                {
+                    responseDate = t.ResponseCompletedDate,
+                    responseSummary = t.ResponseSummary,
+                    outgoingNumber = t.OutgoingNumber,
+                    outgoingDate = t.OutgoingDate
+                }));
+            return Task.CompletedTask;
+        });
+
+        return await GetByIdAsync(id, currentUser);
+    }
+
+    public async Task<TransactionDetailDto?> EditResponseAsync(int id, CompleteResponseRequest request, ICurrentUserService currentUser)
+    {
+        if (currentUser.Role != UserRole.Admin && currentUser.Role != UserRole.Supervisor)
+            throw new UnauthorizedAccessException("لا تملك صلاحية تعديل الإفادة");
+
+        var userId = currentUser.UserId;
+        var t = await _db.Transactions.FirstOrDefaultAsync(x => x.Id == id);
+        if (t == null) return null;
+
+        if (t.Status == TransactionStatus.Cancelled || t.Status == TransactionStatus.Archived)
+            throw new InvalidOperationException("لا يمكن تعديل إفادة معاملة ملغاة أو مؤرشفة");
+
+        if (!t.ResponseCompleted)
+            throw new InvalidOperationException("لم يتم تسجيل الإفادة بعد، لا يمكن تعديلها.");
+
+        if (request.ResponseDate == default)
+            throw new InvalidOperationException("تاريخ الإفادة مطلوب");
+        if (IsFutureEventDate(request.ResponseDate))
+            throw new InvalidOperationException(FutureEventDateMessage);
+        if (request.ResponseDate.Date < t.IncomingDate.Date)
+            throw new InvalidOperationException("تاريخ الإفادة لا يمكن أن يسبق تاريخ الوارد.");
+
+        if (string.IsNullOrWhiteSpace(request.ResponseSummary))
+            throw new InvalidOperationException("ملخص الإفادة مطلوب");
+
+        var requiresOutgoing = t.ResponseType is ResponseType.External or ResponseType.Both;
+        if (requiresOutgoing)
+        {
+            if (string.IsNullOrWhiteSpace(request.OutgoingNumber))
+                throw new InvalidOperationException("رقم الصادر مطلوب لنوع الإفادة المحدد");
+            if (!request.OutgoingDate.HasValue)
+                throw new InvalidOperationException("تاريخ الصادر مطلوب لنوع الإفادة المحدد");
+            if (IsFutureEventDate(request.OutgoingDate.Value))
+                throw new InvalidOperationException(FutureEventDateMessage);
+            if (request.OutgoingDate.Value.Date < t.IncomingDate.Date)
+                throw new InvalidOperationException("تاريخ الصادر لا يمكن أن يسبق تاريخ الوارد.");
+        }
+
+        var oldValue = JsonSerializer.Serialize(new
+        {
+            responseDate = t.ResponseCompletedDate,
+            responseSummary = t.ResponseSummary,
+            outgoingNumber = t.OutgoingNumber,
+            outgoingDate = t.OutgoingDate
+        });
+
+        await CommitWorkflowMutationAsync(() =>
+        {
+            t.ResponseCompletedDate = request.ResponseDate.Date;
+            t.ResponseSummary = request.ResponseSummary.Trim();
+            if (!string.IsNullOrWhiteSpace(request.OutgoingNumber))
+                t.OutgoingNumber = request.OutgoingNumber.Trim();
+            if (request.OutgoingDate.HasValue)
+                t.OutgoingDate = request.OutgoingDate.Value.Date;
+            t.UpdatedById = userId;
+            t.UpdatedAt = DateTime.UtcNow;
+            _audit.TrackLog(userId, AuditAction.EditResponse, TransactionEntityName, id, id, oldValue,
                 JsonSerializer.Serialize(new
                 {
                     responseDate = t.ResponseCompletedDate,

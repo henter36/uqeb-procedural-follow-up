@@ -125,31 +125,37 @@ public class AssignmentResponseDatesTests
     }
 
     [Fact]
-    public async Task GetAssignmentsAsync_calculates_DepartmentCompletionDays_from_SubmittedAt()
+    public async Task GetAssignmentsAsync_calculates_DepartmentCompletionDays_from_assignment_ReplyDate()
     {
-        var (service, db) = await CreateServiceAsync(nameof(GetAssignmentsAsync_calculates_DepartmentCompletionDays_from_SubmittedAt));
+        // Regression test: completion date/days must come from the assignment's own
+        // (approved) ReplyDate, not from a DepartmentResponse.SubmittedAt draft/pending
+        // timestamp — a response can be submitted for review long before it's approved.
+        var (service, db) = await CreateServiceAsync(nameof(GetAssignmentsAsync_calculates_DepartmentCompletionDays_from_assignment_ReplyDate));
         var incomingDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         await SeedTransactionAsync(db, 1, incomingDate);
 
+        var replyDate = new DateTime(2026, 1, 11, 0, 0, 0, DateTimeKind.Utc);
         db.Assignments.Add(new Assignment
         {
             TransactionId = 1,
             DepartmentId = 10,
             AssignedDate = incomingDate,
             RequiresReply = true,
-            ReplyStatus = ReplyStatus.Pending,
-            Status = AssignmentStatus.Active,
+            ReplyStatus = ReplyStatus.Replied,
+            ReplyDate = replyDate,
+            Status = AssignmentStatus.Completed,
             CreatedById = 1,
             CreatedAt = incomingDate
         });
 
-        var submittedAt = new DateTime(2026, 1, 11, 0, 0, 0, DateTimeKind.Utc);
+        // A much later SubmittedAt on the backing response must NOT leak into ResponseDate.
+        var submittedAt = new DateTime(2026, 1, 20, 0, 0, 0, DateTimeKind.Utc);
         db.DepartmentResponses.Add(new DepartmentResponse
         {
             TransactionId = 1,
             DepartmentId = 10,
             ResponseText = "إفادة المالية",
-            Status = DepartmentResponseStatus.SubmittedForReview,
+            Status = DepartmentResponseStatus.Approved,
             SubmittedByUserId = 1,
             SubmittedAt = submittedAt,
             CreatedAt = submittedAt
@@ -160,7 +166,7 @@ public class AssignmentResponseDatesTests
 
         Assert.NotNull(result);
         Assert.Single(result);
-        Assert.Equal(submittedAt, result[0].ResponseDate);
+        Assert.Equal(replyDate, result[0].ResponseDate);
         Assert.Equal(10, result[0].DepartmentCompletionDays);
     }
 
@@ -192,9 +198,11 @@ public class AssignmentResponseDatesTests
     }
 
     [Fact]
-    public async Task GetAssignmentsAsync_CompletionDays_is_independent_per_department()
+    public async Task GetAssignmentsAsync_DepartmentCompletionDays_is_null_while_response_only_submitted_not_approved()
     {
-        var (service, db) = await CreateServiceAsync(nameof(GetAssignmentsAsync_CompletionDays_is_independent_per_department));
+        // A department can submit a response for review without it being approved yet;
+        // the assignment must still read as "not completed" until ApproveAsync runs.
+        var (service, db) = await CreateServiceAsync(nameof(GetAssignmentsAsync_DepartmentCompletionDays_is_null_while_response_only_submitted_not_approved));
         var incomingDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         await SeedTransactionAsync(db, 1, incomingDate);
 
@@ -209,18 +217,6 @@ public class AssignmentResponseDatesTests
             CreatedById = 1,
             CreatedAt = incomingDate
         });
-        db.Assignments.Add(new Assignment
-        {
-            TransactionId = 1,
-            DepartmentId = 20,
-            AssignedDate = incomingDate,
-            RequiresReply = true,
-            ReplyStatus = ReplyStatus.Pending,
-            Status = AssignmentStatus.Active,
-            CreatedById = 1,
-            CreatedAt = incomingDate
-        });
-
         db.DepartmentResponses.Add(new DepartmentResponse
         {
             TransactionId = 1,
@@ -231,14 +227,100 @@ public class AssignmentResponseDatesTests
             SubmittedAt = new DateTime(2026, 1, 6, 0, 0, 0, DateTimeKind.Utc),
             CreatedAt = incomingDate
         });
-        db.DepartmentResponses.Add(new DepartmentResponse
+        await db.SaveChangesAsync();
+
+        var result = await service.GetAssignmentsAsync(1, new TestCurrentUser(UserRole.Admin));
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal("Pending", result[0].ReplyStatus);
+        Assert.Null(result[0].ResponseDate);
+        Assert.Null(result[0].DepartmentCompletionDays);
+        // The pending response's id should still be surfaced so it remains reachable/editable.
+        Assert.NotNull(result[0].DepartmentResponseId);
+    }
+
+    [Fact]
+    public async Task GetAssignmentsAsync_DepartmentResponseId_prefers_approved_response_when_multiple_exist()
+    {
+        // A department can be returned-for-correction/rejected and resubmit; the approved
+        // response (the one that actually drove completion) must win deterministically.
+        var (service, db) = await CreateServiceAsync(nameof(GetAssignmentsAsync_DepartmentResponseId_prefers_approved_response_when_multiple_exist));
+        var incomingDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        await SeedTransactionAsync(db, 1, incomingDate);
+
+        db.Assignments.Add(new Assignment
+        {
+            TransactionId = 1,
+            DepartmentId = 10,
+            AssignedDate = incomingDate,
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Replied,
+            ReplyDate = new DateTime(2026, 1, 10, 0, 0, 0, DateTimeKind.Utc),
+            Status = AssignmentStatus.Completed,
+            CreatedById = 1,
+            CreatedAt = incomingDate
+        });
+        var rejected = new DepartmentResponse
+        {
+            TransactionId = 1,
+            DepartmentId = 10,
+            ResponseText = "مسودة أولى",
+            Status = DepartmentResponseStatus.Rejected,
+            SubmittedByUserId = 1,
+            SubmittedAt = new DateTime(2026, 1, 3, 0, 0, 0, DateTimeKind.Utc),
+            CreatedAt = incomingDate
+        };
+        var approved = new DepartmentResponse
+        {
+            TransactionId = 1,
+            DepartmentId = 10,
+            ResponseText = "الإفادة المعتمدة",
+            Status = DepartmentResponseStatus.Approved,
+            SubmittedByUserId = 1,
+            SubmittedAt = new DateTime(2026, 1, 10, 0, 0, 0, DateTimeKind.Utc),
+            CreatedAt = incomingDate
+        };
+        db.DepartmentResponses.Add(rejected);
+        db.DepartmentResponses.Add(approved);
+        await db.SaveChangesAsync();
+
+        var result = await service.GetAssignmentsAsync(1, new TestCurrentUser(UserRole.Admin));
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(approved.Id, result[0].DepartmentResponseId);
+    }
+
+    [Fact]
+    public async Task GetAssignmentsAsync_CompletionDays_is_independent_per_department()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(GetAssignmentsAsync_CompletionDays_is_independent_per_department));
+        var incomingDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        await SeedTransactionAsync(db, 1, incomingDate);
+
+        db.Assignments.Add(new Assignment
+        {
+            TransactionId = 1,
+            DepartmentId = 10,
+            AssignedDate = incomingDate,
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Replied,
+            ReplyDate = new DateTime(2026, 1, 6, 0, 0, 0, DateTimeKind.Utc),
+            Status = AssignmentStatus.Completed,
+            CreatedById = 1,
+            CreatedAt = incomingDate
+        });
+        db.Assignments.Add(new Assignment
         {
             TransactionId = 1,
             DepartmentId = 20,
-            ResponseText = "إفادة الموارد",
-            Status = DepartmentResponseStatus.SubmittedForReview,
-            SubmittedByUserId = 1,
-            SubmittedAt = new DateTime(2026, 1, 16, 0, 0, 0, DateTimeKind.Utc),
+            AssignedDate = incomingDate,
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Replied,
+            ReplyDate = new DateTime(2026, 1, 16, 0, 0, 0, DateTimeKind.Utc),
+            Status = AssignmentStatus.Completed,
+            CreatedById = 1,
             CreatedAt = incomingDate
         });
         await db.SaveChangesAsync();

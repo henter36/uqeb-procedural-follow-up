@@ -202,6 +202,30 @@ public class TransactionsController : ControllerBase
         }
     }
 
+    [HttpPut("{id:int}/response")]
+    [Authorize(Policy = "SupervisorOrAdmin")]
+    public async Task<IActionResult> EditResponse(int id, [FromBody] CompleteResponseRequest request)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
+
+        try
+        {
+            var result = await _transactions.EditResponseAsync(id, request, _currentUser);
+            return result == null
+                ? NotFound(new { message = "المعاملة غير موجودة" })
+                : Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Forbid(ex.Message);
+        }
+    }
+
     [HttpPost("{id}/close")]
     [Authorize(Policy = "CanCloseTransactions")]
     public async Task<IActionResult> Close(int id)

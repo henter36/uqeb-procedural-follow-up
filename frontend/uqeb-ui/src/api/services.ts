@@ -51,6 +51,8 @@ export const transactionsApi = {
     api.post<TransactionDetail>(`/transactions/${id}/enable-recurring`, data),
   completeResponse: (id: number, data: Record<string, unknown>) =>
     api.post<TransactionDetail>(`/transactions/${id}/complete-response`, data),
+  editResponse: (id: number, data: Record<string, unknown>) =>
+    api.put<TransactionDetail>(`/transactions/${id}/response`, data),
   cancel: (id: number) => api.post(`/transactions/${id}/cancel`),
   archive: (id: number) => api.post(`/transactions/${id}/archive`),
   getFollowUpDepartments: (id: number) =>
