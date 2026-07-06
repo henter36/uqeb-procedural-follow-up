@@ -352,7 +352,89 @@ public class InstitutionalReportDepartmentTransactionsTests
 
         var t5Rows = model.Transactions.Where(r => r.TransactionId == 5).ToList();
         Assert.Equal(2, t5Rows.Count);
-        Assert.Equal(["الإدارة ب", "الإدارة ج"], t5Rows.Select(r => r.DepartmentGroupDepartmentName!).OrderBy(n => n).ToArray());
+        var t5GroupNames = t5Rows.Select(r =>
+        {
+            Assert.NotNull(r.DepartmentGroupDepartmentName);
+            return r.DepartmentGroupDepartmentName;
+        }).OrderBy(n => n).ToArray();
+        Assert.Equal(["الإدارة ب", "الإدارة ج"], t5GroupNames);
+    }
+
+    [Fact]
+    public async Task BuildReportModelAsync_GroupByDepartment_MakesDetailSortByEffectiveReflectFinalDepartmentOrder()
+    {
+        var options = CreateOptions($"deptx-{Guid.NewGuid():N}");
+        await SeedAsync(options);
+        var service = InstitutionalReportServiceTestHelpers.CreateService(new TestDbContextFactory(options));
+
+        var request = DepartmentTransactionsRequest([20, 30], new DateTime(2026, 1, 1), new DateTime(2026, 1, 31));
+        request.DetailSortBy = ReportDetailSortBy.DueDate;
+        request.GroupDetailsByDepartment = true;
+        var model = await service.BuildReportModelAsync(request);
+
+        // Grouping re-sorts rows by department regardless of the requested DueDate sort, so the
+        // reported effective sort must reflect that final order, not the originally requested one.
+        Assert.True(model.GroupDetailsByDepartmentEffective);
+        Assert.Equal(ReportDetailSortBy.Department, model.DetailSortByEffective);
+    }
+
+    [Fact]
+    public async Task RenderTransactionDetailsManifest_DepartmentTransactions_PreservesGroupingSortAndComparisonMetadata()
+    {
+        var options = CreateOptions($"deptx-{Guid.NewGuid():N}");
+        await SeedAsync(options);
+        var service = InstitutionalReportServiceTestHelpers.CreateService(new TestDbContextFactory(options));
+
+        var request = DepartmentTransactionsRequest([20, 30], new DateTime(2026, 1, 1), new DateTime(2026, 1, 31));
+        request.GroupDetailsByDepartment = true;
+        var model = await service.BuildReportModelAsync(request);
+
+        var renderer = new InstitutionalReportRenderer();
+        var manifest = renderer.RenderTransactionDetailsManifest(model, model.Transactions, "part1");
+
+        // A SplitPdf ZIP part must not silently drop the parent report's grouping/sort/comparison
+        // metadata - otherwise the part's own "بيانات التقرير والفلاتر"/methodology section would
+        // wrongly claim e.g. "التجميع = لا" while the rows are actually grouped by department.
+        var page = Assert.Single(manifest.Pages);
+        Assert.Contains("التفاصيل مجمّعة حسب الإدارة", page.HtmlContent);
+    }
+
+    [Fact]
+    public async Task BuildReportModelAsync_NonDepartmentTransactions_LeavesAuditDepartmentListsEmpty()
+    {
+        var options = CreateOptions($"deptx-{Guid.NewGuid():N}");
+        await SeedAsync(options);
+        var service = InstitutionalReportServiceTestHelpers.CreateService(new TestDbContextFactory(options));
+
+        var request = new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [ReportSectionId.TransactionDetails],
+            Filters = new ReportFiltersDto { DateFrom = new DateTime(2026, 1, 1), DateTo = new DateTime(2026, 1, 31) },
+        };
+        var model = await service.BuildReportModelAsync(request);
+
+        Assert.NotEmpty(model.Transactions);
+        Assert.All(model.Transactions, r =>
+        {
+            Assert.Empty(r.AllAssignmentDepartments);
+            Assert.Empty(r.AllOutgoingDepartments);
+        });
+    }
+
+    [Fact]
+    public async Task BuildReportModelAsync_DepartmentTransactions_StillPopulatesAuditDepartmentLists()
+    {
+        var options = CreateOptions($"deptx-{Guid.NewGuid():N}");
+        await SeedAsync(options);
+        var service = InstitutionalReportServiceTestHelpers.CreateService(new TestDbContextFactory(options));
+
+        var request = DepartmentTransactionsRequest([20], new DateTime(2026, 1, 1), new DateTime(2026, 1, 31));
+        var model = await service.BuildReportModelAsync(request);
+
+        var row3 = model.Transactions.Single(r => r.TransactionId == 3);
+        Assert.NotEmpty(row3.AllAssignmentDepartments);
+        Assert.NotEmpty(row3.AllOutgoingDepartments);
     }
 
     [Fact]

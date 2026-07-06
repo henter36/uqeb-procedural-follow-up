@@ -255,6 +255,10 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         // LoadSnapshotsAsync's DB-level order) or the metricSnapshots-driven aggregates above.
         var (sortedDetailSnapshots, effectiveSort) = ApplyDetailSort(detailSnapshots, request);
         var (detailRows, groupedByDepartment) = BuildTransactionDetails(sortedDetailSnapshots, request);
+        // Grouping re-sorts rows by department regardless of the requested/default sort (see
+        // BuildTransactionDetails), so the reported effective sort must reflect that final order -
+        // otherwise exported metadata would claim e.g. "DueDate" while rows are actually grouped by department.
+        var finalEffectiveSort = groupedByDepartment ? ReportDetailSortBy.Department : effectiveSort;
 
         var detailRowsTruncated = options.DetailRowsTruncated || totalMatched > exportedDetailRows || options.DetailPartsCount > 1;
         string reportNumber;
@@ -302,7 +306,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             RiskCounters = BuildRiskCounters(metrics.Snapshots, referenceDate, _reportingOptions.Analysis),
             Transactions = detailRows,
             IntegrityWarnings = ValidateIntegrity(metrics),
-            DetailSortByEffective = effectiveSort,
+            DetailSortByEffective = finalEffectiveSort,
             GroupDetailsByDepartmentEffective = groupedByDepartment,
             DetailRowsAreAdditive = !groupedByDepartment,
             ComparisonUnavailableReason = comparisonUnavailableReason,
@@ -741,7 +745,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         if (!groupByDepartment)
         {
             var rows = snapshots.Select((s, index) =>
-                BuildDetailRow(s, index + 1, ComputeMatchedDepartments(s, selectedDepartmentIds))).ToList();
+                BuildDetailRow(s, index + 1, ComputeMatchedDepartments(s, selectedDepartmentIds), includeAuditDepartmentLists: true)).ToList();
             return (rows, false);
         }
 
@@ -763,7 +767,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
 
         var groupedRows = orderedExpanded.Select((e, index) =>
         {
-            var row = BuildDetailRow(e.Snapshot, index + 1, ComputeMatchedDepartments(e.Snapshot, selectedDepartmentIds));
+            var row = BuildDetailRow(e.Snapshot, index + 1, ComputeMatchedDepartments(e.Snapshot, selectedDepartmentIds), includeAuditDepartmentLists: true);
             row.DepartmentGroupDepartmentId = e.Match.DepartmentId;
             row.DepartmentGroupDepartmentName = e.Match.DepartmentName;
             return row;
@@ -773,7 +777,10 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
     }
 
     private static TransactionDetailRowDto BuildDetailRow(
-        TransactionReportSnapshot s, int sequence, List<TransactionDetailDepartmentRelationDto> matchedDepartments) => new()
+        TransactionReportSnapshot s,
+        int sequence,
+        List<TransactionDetailDepartmentRelationDto> matchedDepartments,
+        bool includeAuditDepartmentLists = false) => new()
     {
         Sequence = sequence,
         TransactionId = s.TransactionId,
@@ -794,8 +801,8 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         OutgoingNumber = s.OutgoingNumber,
         OutgoingDate = s.OutgoingDate?.ToString(IsoDateFormat, CultureInfo.InvariantCulture),
         MatchedDepartments = matchedDepartments,
-        AllAssignmentDepartments = (s.AssignmentDepartmentNames ?? []).ToList(),
-        AllOutgoingDepartments = (s.OutgoingDepartmentNames ?? []).ToList(),
+        AllAssignmentDepartments = includeAuditDepartmentLists ? (s.AssignmentDepartmentNames ?? []).ToList() : [],
+        AllOutgoingDepartments = includeAuditDepartmentLists ? (s.OutgoingDepartmentNames ?? []).ToList() : [],
     };
 
     /// <summary>

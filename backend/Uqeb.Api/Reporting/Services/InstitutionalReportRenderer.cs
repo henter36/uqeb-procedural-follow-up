@@ -279,6 +279,11 @@ public sealed class InstitutionalReportRenderer
             },
             Filters = model.Filters,
             Transactions = rows.ToList(),
+            DetailSortByEffective = model.DetailSortByEffective,
+            GroupDetailsByDepartmentEffective = model.GroupDetailsByDepartmentEffective,
+            DetailRowsAreAdditive = model.DetailRowsAreAdditive,
+            ComparisonUnavailableReason = model.ComparisonUnavailableReason,
+            Analysis = model.Analysis,
         };
 
         return RenderManifest(scoped, [ReportSectionId.TransactionDetails]);

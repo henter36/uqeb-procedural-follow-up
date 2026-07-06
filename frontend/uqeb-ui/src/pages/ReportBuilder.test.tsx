@@ -23,7 +23,7 @@ import {
   ReportTimeGrouping,
 } from '../api/institutionalReports.constants';
 import * as services from '../api/services';
-import type { ReportTemplate } from '../api/services';
+import type { InstitutionalReportManifest, ReportTemplate } from '../api/services';
 import type { LookupItem } from '../api/types';
 
 function mockAxiosResponse<T>(data: T): AxiosResponse<T> {
@@ -89,6 +89,14 @@ const mockManifest = {
     { originalPageNumber: 2, sectionName: 'الملخص', htmlContent: '<p>صفحة 2</p>' },
   ],
 };
+
+// mockManifest intentionally omits some InstitutionalReportPage fields (renderedPageNumber,
+// sectionId, pageTitle, isSelectable) that this suite's assertions never need - this single,
+// well-named helper isolates the resulting type bypass to one place instead of an inline
+// `as never` at every preview-mock call site.
+function mockPreviewResponse(): AxiosResponse<InstitutionalReportManifest> {
+  return { data: mockManifest } as never;
+}
 
 describe('buildReportExportPageSelection', () => {
   it('sends page range only when range mode is active', () => {
@@ -816,7 +824,7 @@ describe('ReportBuilderPage export dialog', () => {
     vi.mocked(services.departmentsApi.lookup).mockResolvedValueOnce(
       mockLookupItems([{ id: 20, name: 'الإدارة ب' }, { id: 30, name: 'الإدارة ج' }]),
     );
-    vi.mocked(services.institutionalReportsApi.preview).mockResolvedValue({ data: mockManifest } as never);
+    vi.mocked(services.institutionalReportsApi.preview).mockResolvedValue(mockPreviewResponse());
     const user = userEvent.setup();
     render(<ReportBuilderPage />);
 
@@ -837,7 +845,7 @@ describe('ReportBuilderPage export dialog', () => {
     vi.mocked(services.departmentsApi.lookup).mockResolvedValueOnce(
       mockLookupItems([{ id: 20, name: 'الإدارة ب' }, { id: 30, name: 'الإدارة ج' }]),
     );
-    vi.mocked(services.institutionalReportsApi.preview).mockResolvedValue({ data: mockManifest } as never);
+    vi.mocked(services.institutionalReportsApi.preview).mockResolvedValue(mockPreviewResponse());
     const user = userEvent.setup();
     render(<ReportBuilderPage />);
 
@@ -869,7 +877,7 @@ describe('ReportBuilderPage export dialog', () => {
       groupDetailsByDepartment: true,
     };
     vi.mocked(services.institutionalReportsApi.getTemplates).mockResolvedValueOnce(mockAxiosResponse([template]));
-    vi.mocked(services.institutionalReportsApi.preview).mockResolvedValue({ data: mockManifest } as never);
+    vi.mocked(services.institutionalReportsApi.preview).mockResolvedValue(mockPreviewResponse());
 
     const user = userEvent.setup();
     render(<ReportBuilderPage />);

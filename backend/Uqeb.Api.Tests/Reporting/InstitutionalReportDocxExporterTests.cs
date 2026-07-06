@@ -56,7 +56,7 @@ public class InstitutionalReportDocxExporterTests
         using var zip = new System.IO.Compression.ZipArchive(new MemoryStream(bytes));
         var entry = zip.GetEntry("word/document.xml");
         Assert.NotNull(entry);
-        using var reader = new StreamReader(entry!.Open());
+        using var reader = new StreamReader(entry.Open());
         var xml = reader.ReadToEnd();
         Assert.Contains("IN-0501", xml);
         Assert.Contains("معاملة 501", xml);
@@ -108,7 +108,7 @@ public class InstitutionalReportDocxExporterTests
         using var document = WordprocessingDocument.Open(stream, false);
         var body = document.MainDocumentPart?.Document.Body;
         Assert.NotNull(body);
-        Assert.NotEmpty(body!.Elements<Paragraph>());
+        Assert.NotEmpty(body.Elements<Paragraph>());
     }
 
     [Fact]
@@ -128,7 +128,7 @@ public class InstitutionalReportDocxExporterTests
         using var zip = new System.IO.Compression.ZipArchive(new MemoryStream(bytes));
         var entry = zip.GetEntry("word/document.xml");
         Assert.NotNull(entry);
-        using var reader = new StreamReader(entry!.Open());
+        using var reader = new StreamReader(entry.Open());
         var xml = reader.ReadToEnd();
         Assert.Contains("مؤشرات الأداء الرئيسية", xml);
         Assert.Contains("ارتفاع نسبة التأخر", xml);
@@ -190,7 +190,7 @@ public class InstitutionalReportDocxExporterTests
         using var document = WordprocessingDocument.Open(stream, false);
         var body = document.MainDocumentPart?.Document.Body;
         Assert.NotNull(body);
-        var table = Assert.Single(body!.Elements<Table>());
+        var table = Assert.Single(body.Elements<Table>());
         var rows = table.Elements<TableRow>().ToList();
         Assert.Equal(2, rows.Count); // header + 1 data row
         var dataRowText = string.Concat(rows[1].Descendants<Text>().Select(t => t.Text));

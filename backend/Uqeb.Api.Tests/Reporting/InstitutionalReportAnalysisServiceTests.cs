@@ -198,7 +198,7 @@ public class InstitutionalReportAnalysisServiceTests
 
         Assert.Null(reason);
         Assert.NotNull(comparisonRequest);
-        Assert.Equal(InstitutionalReportType.DepartmentTransactions, comparisonRequest!.ReportType);
+        Assert.Equal(InstitutionalReportType.DepartmentTransactions, comparisonRequest.ReportType);
         Assert.Equal([10, 20], comparisonRequest.Filters.DepartmentIds);
     }
 
