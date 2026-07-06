@@ -59,7 +59,7 @@ export default function AdminEditTransactionResponseFormPanel({
       setError('ملخص الإفادة مطلوب');
       return;
     }
-    if (isFutureLocalDate(form.responseDate) || isFutureLocalDate(form.outgoingDate)) {
+    if (isFutureLocalDate(form.responseDate) || (requiresOutgoing && isFutureLocalDate(form.outgoingDate))) {
       setError(FUTURE_EVENT_DATE_MESSAGE);
       return;
     }

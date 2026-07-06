@@ -1632,6 +1632,54 @@ describe('TransactionDetailPage current status and response workflow', () => {
     expect(within(responseCard).getByText('تمت الإفادة')).toBeInTheDocument();
     expect(within(responseCard).queryByRole('button', { name: 'تعديل الإفادة المسجلة' })).not.toBeInTheDocument();
   });
+
+  it.each(['Closed', 'Cancelled', 'Archived'])(
+    'hides the تمت الإفادة edit affordance for %s transactions',
+    async (status) => {
+      mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+        data: {
+          ...defaultWorkspace,
+          transaction: {
+            ...baseTx,
+            status,
+            requiresResponse: true,
+            responseType: 'Internal',
+            responseCompleted: true,
+            responseCompletedDate: '2026-01-10',
+            responseSummary: 'ملخص',
+          },
+        },
+      });
+
+      renderDetail();
+      await waitForDetailsReady();
+
+      const responseCard = getResponseCard();
+      expect(within(responseCard).getByText('تمت الإفادة')).toBeInTheDocument();
+      expect(within(responseCard).queryByRole('button', { name: 'تعديل الإفادة المسجلة' })).not.toBeInTheDocument();
+    },
+  );
+
+  it('renders pending department names safely when the field is null or undefined', async () => {
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: {
+        ...defaultWorkspace,
+        transaction: {
+          ...baseTx,
+          requiresResponse: true,
+          responseType: 'Internal',
+          pendingDepartmentNames: null,
+        },
+      },
+    });
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    const statusCard = getCurrentStatusCard();
+    expect(within(statusCard).queryByText(/الإدارات المتبقية/)).not.toBeInTheDocument();
+    expect(within(statusCard).getByText('جاهزة لتسجيل الإفادة')).toBeInTheDocument();
+  });
 });
 
 describe('TransactionDetailPage operational workspace', () => {

@@ -1151,38 +1151,15 @@ public class TransactionService : ITransactionService
             throw new InvalidOperationException($"لا يمكن تسجيل الإفادة قبل اكتمال رد جميع الإدارات: {names}");
         }
 
-        if (request.ResponseDate == default)
-            throw new InvalidOperationException("تاريخ الإفادة مطلوب");
-        if (IsFutureEventDate(request.ResponseDate))
-            throw new InvalidOperationException(FutureEventDateMessage);
-        if (request.ResponseDate.Date < t.IncomingDate.Date)
-            throw new InvalidOperationException("تاريخ الإفادة لا يمكن أن يسبق تاريخ الوارد.");
-
-        if (string.IsNullOrWhiteSpace(request.ResponseSummary))
-            throw new InvalidOperationException("ملخص الإفادة مطلوب");
-
         var requiresOutgoing = t.ResponseType is ResponseType.External or ResponseType.Both;
-        if (requiresOutgoing)
-        {
-            if (string.IsNullOrWhiteSpace(request.OutgoingNumber))
-                throw new InvalidOperationException("رقم الصادر مطلوب لنوع الإفادة المحدد");
-            if (!request.OutgoingDate.HasValue)
-                throw new InvalidOperationException("تاريخ الصادر مطلوب لنوع الإفادة المحدد");
-            if (IsFutureEventDate(request.OutgoingDate.Value))
-                throw new InvalidOperationException(FutureEventDateMessage);
-            if (request.OutgoingDate.Value.Date < t.IncomingDate.Date)
-                throw new InvalidOperationException("تاريخ الصادر لا يمكن أن يسبق تاريخ الوارد.");
-        }
+        ValidateResponseFields(t, request, requiresOutgoing);
 
         await CommitWorkflowMutationAsync(() =>
         {
             t.ResponseCompleted = true;
             t.ResponseCompletedDate = request.ResponseDate.Date;
             t.ResponseSummary = request.ResponseSummary.Trim();
-            if (!string.IsNullOrWhiteSpace(request.OutgoingNumber))
-                t.OutgoingNumber = request.OutgoingNumber.Trim();
-            if (request.OutgoingDate.HasValue)
-                t.OutgoingDate = request.OutgoingDate.Value.Date;
+            ApplyOutgoingFields(t, request, requiresOutgoing);
             t.Status = TransactionStatus.ResponseCompleted;
             t.UpdatedById = userId;
             t.UpdatedAt = DateTime.UtcNow;
@@ -1209,34 +1186,14 @@ public class TransactionService : ITransactionService
         var t = await _db.Transactions.FirstOrDefaultAsync(x => x.Id == id);
         if (t == null) return null;
 
-        if (t.Status == TransactionStatus.Cancelled || t.Status == TransactionStatus.Archived)
-            throw new InvalidOperationException("لا يمكن تعديل إفادة معاملة ملغاة أو مؤرشفة");
+        if (t.Status == TransactionStatus.Closed || t.Status == TransactionStatus.Cancelled || t.Status == TransactionStatus.Archived)
+            throw new InvalidOperationException("لا يمكن تعديل إفادة معاملة مغلقة أو ملغاة أو مؤرشفة");
 
         if (!t.ResponseCompleted)
             throw new InvalidOperationException("لم يتم تسجيل الإفادة بعد، لا يمكن تعديلها.");
 
-        if (request.ResponseDate == default)
-            throw new InvalidOperationException("تاريخ الإفادة مطلوب");
-        if (IsFutureEventDate(request.ResponseDate))
-            throw new InvalidOperationException(FutureEventDateMessage);
-        if (request.ResponseDate.Date < t.IncomingDate.Date)
-            throw new InvalidOperationException("تاريخ الإفادة لا يمكن أن يسبق تاريخ الوارد.");
-
-        if (string.IsNullOrWhiteSpace(request.ResponseSummary))
-            throw new InvalidOperationException("ملخص الإفادة مطلوب");
-
         var requiresOutgoing = t.ResponseType is ResponseType.External or ResponseType.Both;
-        if (requiresOutgoing)
-        {
-            if (string.IsNullOrWhiteSpace(request.OutgoingNumber))
-                throw new InvalidOperationException("رقم الصادر مطلوب لنوع الإفادة المحدد");
-            if (!request.OutgoingDate.HasValue)
-                throw new InvalidOperationException("تاريخ الصادر مطلوب لنوع الإفادة المحدد");
-            if (IsFutureEventDate(request.OutgoingDate.Value))
-                throw new InvalidOperationException(FutureEventDateMessage);
-            if (request.OutgoingDate.Value.Date < t.IncomingDate.Date)
-                throw new InvalidOperationException("تاريخ الصادر لا يمكن أن يسبق تاريخ الوارد.");
-        }
+        ValidateResponseFields(t, request, requiresOutgoing);
 
         var oldValue = JsonSerializer.Serialize(new
         {
@@ -1250,10 +1207,7 @@ public class TransactionService : ITransactionService
         {
             t.ResponseCompletedDate = request.ResponseDate.Date;
             t.ResponseSummary = request.ResponseSummary.Trim();
-            if (!string.IsNullOrWhiteSpace(request.OutgoingNumber))
-                t.OutgoingNumber = request.OutgoingNumber.Trim();
-            if (request.OutgoingDate.HasValue)
-                t.OutgoingDate = request.OutgoingDate.Value.Date;
+            ApplyOutgoingFields(t, request, requiresOutgoing);
             t.UpdatedById = userId;
             t.UpdatedAt = DateTime.UtcNow;
             _audit.TrackLog(userId, AuditAction.EditResponse, TransactionEntityName, id, id, oldValue,
@@ -1268,6 +1222,36 @@ public class TransactionService : ITransactionService
         });
 
         return await GetByIdAsync(id, currentUser);
+    }
+
+    private static void ValidateResponseFields(Transaction t, CompleteResponseRequest request, bool requiresOutgoing)
+    {
+        if (request.ResponseDate == default)
+            throw new InvalidOperationException("تاريخ الإفادة مطلوب");
+        if (IsFutureEventDate(request.ResponseDate))
+            throw new InvalidOperationException(FutureEventDateMessage);
+        if (request.ResponseDate.Date < t.IncomingDate.Date)
+            throw new InvalidOperationException("تاريخ الإفادة لا يمكن أن يسبق تاريخ الوارد.");
+
+        if (string.IsNullOrWhiteSpace(request.ResponseSummary))
+            throw new InvalidOperationException("ملخص الإفادة مطلوب");
+
+        if (!requiresOutgoing) return;
+
+        if (string.IsNullOrWhiteSpace(request.OutgoingNumber))
+            throw new InvalidOperationException("رقم الصادر مطلوب لنوع الإفادة المحدد");
+        if (!request.OutgoingDate.HasValue)
+            throw new InvalidOperationException("تاريخ الصادر مطلوب لنوع الإفادة المحدد");
+        if (IsFutureEventDate(request.OutgoingDate.Value))
+            throw new InvalidOperationException(FutureEventDateMessage);
+        if (request.OutgoingDate.Value.Date < t.IncomingDate.Date)
+            throw new InvalidOperationException("تاريخ الصادر لا يمكن أن يسبق تاريخ الوارد.");
+    }
+
+    private static void ApplyOutgoingFields(Transaction t, CompleteResponseRequest request, bool requiresOutgoing)
+    {
+        t.OutgoingNumber = requiresOutgoing ? request.OutgoingNumber!.Trim() : null;
+        t.OutgoingDate = requiresOutgoing ? request.OutgoingDate!.Value.Date : null;
     }
 
     public async Task<List<FollowUpDepartmentOptionDto>?> GetFollowUpDepartmentsAsync(int transactionId, ICurrentUserService currentUser)

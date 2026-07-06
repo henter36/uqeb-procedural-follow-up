@@ -215,4 +215,66 @@ public class TransactionResponseEditTests
 
         Assert.Null(result);
     }
+
+    [Fact]
+    public async Task EditResponseAsync_clears_outgoing_fields_when_response_type_does_not_require_outgoing()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(EditResponseAsync_clears_outgoing_fields_when_response_type_does_not_require_outgoing));
+        var t = await SeedCompletedResponseTransactionAsync(db);
+        t.ResponseType = ResponseType.Internal;
+        await db.SaveChangesAsync();
+
+        await service.EditResponseAsync(1, new CompleteResponseRequest
+        {
+            ResponseDate = new DateTime(2026, 1, 12, 0, 0, 0, DateTimeKind.Utc),
+            ResponseSummary = "إفادة داخلية لا تتطلب صادر",
+            OutgoingNumber = "ينبغي تجاهله",
+            OutgoingDate = new DateTime(2026, 1, 12, 0, 0, 0, DateTimeKind.Utc),
+        }, new TestCurrentUser(UserRole.Admin));
+
+        var updated = await db.Transactions.SingleAsync(x => x.Id == 1);
+        Assert.Null(updated.OutgoingNumber);
+        Assert.Null(updated.OutgoingDate);
+    }
+
+    [Fact]
+    public async Task EditResponseAsync_stores_trimmed_outgoing_fields_when_response_type_requires_outgoing()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(EditResponseAsync_stores_trimmed_outgoing_fields_when_response_type_requires_outgoing));
+        await SeedCompletedResponseTransactionAsync(db);
+
+        var outgoingDate = new DateTime(2026, 1, 15, 0, 0, 0, DateTimeKind.Utc);
+        await service.EditResponseAsync(1, new CompleteResponseRequest
+        {
+            ResponseDate = new DateTime(2026, 1, 15, 0, 0, 0, DateTimeKind.Utc),
+            ResponseSummary = "إفادة خارجية",
+            OutgoingNumber = "  OUT-99  ",
+            OutgoingDate = outgoingDate,
+        }, new TestCurrentUser(UserRole.Admin));
+
+        var updated = await db.Transactions.SingleAsync(x => x.Id == 1);
+        Assert.Equal("OUT-99", updated.OutgoingNumber);
+        Assert.Equal(outgoingDate, updated.OutgoingDate);
+    }
+
+    [Theory]
+    [InlineData(TransactionStatus.Closed)]
+    [InlineData(TransactionStatus.Cancelled)]
+    [InlineData(TransactionStatus.Archived)]
+    public async Task EditResponseAsync_rejects_terminal_transaction_statuses(TransactionStatus status)
+    {
+        var (service, db) = await CreateServiceAsync($"{nameof(EditResponseAsync_rejects_terminal_transaction_statuses)}_{status}");
+        var t = await SeedCompletedResponseTransactionAsync(db);
+        t.Status = status;
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.EditResponseAsync(1, new CompleteResponseRequest
+            {
+                ResponseDate = new DateTime(2026, 1, 12, 0, 0, 0, DateTimeKind.Utc),
+                ResponseSummary = "محاولة تعديل معاملة منتهية",
+                OutgoingNumber = "OUT-1",
+                OutgoingDate = new DateTime(2026, 1, 12, 0, 0, 0, DateTimeKind.Utc),
+            }, new TestCurrentUser(UserRole.Admin)));
+    }
 }

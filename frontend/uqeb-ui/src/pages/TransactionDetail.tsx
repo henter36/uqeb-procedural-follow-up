@@ -92,6 +92,66 @@ function getAssignmentReplyStatusLabel(replyStatus: string): string {
   return replyStatusLabels[replyStatus] || replyStatus;
 }
 
+type CurrentActionStatusProps = Readonly<{
+  tx: TransactionDetail;
+  isTerminal: boolean;
+  needsResponse: boolean;
+  hasPendingDepts: boolean;
+  pendingDepartmentNames: string[];
+}>;
+
+function renderCurrentActionStatus({
+  tx, isTerminal, needsResponse, hasPendingDepts, pendingDepartmentNames,
+}: CurrentActionStatusProps): ReactNode {
+  if (isTerminal) {
+    return (
+      <p className="current-action-status-line">
+        <StatusBadge status={tx.status} isOverdue={tx.isOverdue} />{' '}
+        المعاملة منتهية ولا يتطلب أي إجراء إضافي حاليًا.
+      </p>
+    );
+  }
+
+  if (!needsResponse) {
+    return (
+      <p className="current-action-status-line">
+        <span className="badge badge-blue">لا تتطلب إفادة</span>{' '}
+        هذه المعاملة لا تتطلب تسجيل إفادة.
+      </p>
+    );
+  }
+
+  if (tx.responseCompleted) {
+    return (
+      <p className="current-action-status-line">
+        <span className="badge badge-green">تمت الإفادة</span>{' '}
+        تم تسجيل إفادة هذه المعاملة{tx.responseCompletedDate && <> بتاريخ <DateDisplay date={tx.responseCompletedDate} /></>}.
+      </p>
+    );
+  }
+
+  if (hasPendingDepts) {
+    return (
+      <>
+        <p className="current-action-status-line">
+          <span className="badge badge-orange">بانتظار رد إدارات</span>{' '}
+          لا يمكن تسجيل الإفادة قبل اكتمال رد جميع الإدارات المعنية.
+        </p>
+        <p className="current-action-status-departments">
+          <strong>الإدارات المتبقية:</strong> {pendingDepartmentNames.join('، ')}
+        </p>
+      </>
+    );
+  }
+
+  return (
+    <p className="current-action-status-line">
+      <span className="badge badge-blue">جاهزة لتسجيل الإفادة</span>{' '}
+      اكتملت ردود جميع الإدارات المطلوبة، ويمكن الآن تسجيل الإفادة.
+    </p>
+  );
+}
+
 function hasDepartmentResponseAssignment(items: Assignment[], departmentId?: number | null): boolean {
   if (!departmentId) return false;
   return items.some(
@@ -518,7 +578,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     }
   };
 
-  const handleEditTransactionResponseSuccess = async (updated: import('../api/types').TransactionDetail) => {
+  const handleEditTransactionResponseSuccess = async (updated: TransactionDetail) => {
     setTx(updated);
     resetAndCloseAction();
     setMessage('تم تحديث الإفادة بنجاح.');
@@ -639,7 +699,8 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
 
   const needsResponse = tx.requiresResponse || tx.responseType !== 'None';
   const isTerminal = tx.status === 'Closed' || tx.status === 'Cancelled' || tx.status === 'Archived';
-  const hasPendingDepts = tx.pendingDepartmentNames.length > 0;
+  const pendingDepartmentNames = tx.pendingDepartmentNames ?? [];
+  const hasPendingDepts = pendingDepartmentNames.length > 0;
   const departmentResponseStatus = departmentResponseItem?.departmentResponseStatus;
   const canDepartmentUserRegisterResponse = isDepartmentUser
     && hasDepartmentResponseAssignment(assignments, user?.departmentId)
@@ -654,8 +715,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     ? departmentResponseStatusLabels[departmentResponseStatus] ?? departmentResponseStatus
     : undefined;
   const canShowClose = canClose && !isTerminal && (!needsResponse || tx.responseCompleted);
-  const canEditTransactionResponse = canClose && tx.responseCompleted
-    && tx.status !== 'Cancelled' && tx.status !== 'Archived';
+  const canEditTransactionResponse = canClose && tx.responseCompleted && !isTerminal;
   const showMutationActions = canEdit && !isDepartmentUser;
   const canReply = canEdit && !isDepartmentUser;
   const openAssignmentsCount = countOpenAssignments(assignments);
@@ -923,37 +983,9 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
       <section className="card current-action-status-card" aria-label="حالة الإجراء الحالية" data-testid="current-action-status-card">
         <div className="card-header"><h3 className="card-title">حالة الإجراء الحالية</h3></div>
         <div className="current-action-status-body">
-          {isTerminal ? (
-            <p className="current-action-status-line">
-              <StatusBadge status={tx.status} isOverdue={tx.isOverdue} />
-              المعاملة منتهية ولا يتطلب أي إجراء إضافي حاليًا.
-            </p>
-          ) : !needsResponse ? (
-            <p className="current-action-status-line">
-              <span className="badge badge-blue">لا تتطلب إفادة</span>
-              هذه المعاملة لا تتطلب تسجيل إفادة.
-            </p>
-          ) : tx.responseCompleted ? (
-            <p className="current-action-status-line">
-              <span className="badge badge-green">تمت الإفادة</span>
-              تم تسجيل إفادة هذه المعاملة{tx.responseCompletedDate && <> بتاريخ <DateDisplay date={tx.responseCompletedDate} /></>}.
-            </p>
-          ) : hasPendingDepts ? (
-            <>
-              <p className="current-action-status-line">
-                <span className="badge badge-orange">بانتظار رد إدارات</span>
-                لا يمكن تسجيل الإفادة قبل اكتمال رد جميع الإدارات المعنية.
-              </p>
-              <p className="current-action-status-departments">
-                <strong>الإدارات المتبقية:</strong> {tx.pendingDepartmentNames.join('، ')}
-              </p>
-            </>
-          ) : (
-            <p className="current-action-status-line">
-              <span className="badge badge-blue">جاهزة لتسجيل الإفادة</span>
-              اكتملت ردود جميع الإدارات المطلوبة، ويمكن الآن تسجيل الإفادة.
-            </p>
-          )}
+          {renderCurrentActionStatus({
+            tx, isTerminal, needsResponse, hasPendingDepts, pendingDepartmentNames,
+          })}
         </div>
       </section>
 
