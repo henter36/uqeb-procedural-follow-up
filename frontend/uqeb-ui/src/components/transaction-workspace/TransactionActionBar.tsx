@@ -35,39 +35,9 @@ export default function TransactionActionBar({
   return (
     <nav className="workspace-action-bar" aria-label="إجراءات المعاملة">
       {showMutationActions && (
-        <>
-          <button
-            type="button"
-            className={`btn btn-secondary btn-sm${activeAction === 'assignment' ? ' active' : ''}`}
-            onClick={() => onAction('assignment')}
-          >
-            إضافة احالة
-          </button>
-          <button
-            type="button"
-            className={`btn btn-secondary btn-sm${activeAction === 'followup' ? ' active' : ''}`}
-            onClick={() => onAction('followup')}
-          >
-            إضافة تعقيب
-          </button>
-          <button
-            type="button"
-            className={`btn btn-secondary btn-sm${activeAction === 'attachment' ? ' active' : ''}`}
-            onClick={() => onAction('attachment')}
-          >
-            إضافة مرفق
-          </button>
-          <Link to={`/transactions/${transactionId}/edit`} className="btn btn-outline btn-sm">
-            تعديل
-          </Link>
-          <button
-            type="button"
-            className={`btn btn-secondary btn-sm${activeAction === 'follow-up-letter' ? ' active' : ''}`}
-            onClick={() => onAction('follow-up-letter')}
-          >
-            خطاب تعقيب PDF
-          </button>
-        </>
+        <Link to={`/transactions/${transactionId}/edit`} className="btn btn-outline btn-sm">
+          تعديل
+        </Link>
       )}
       {canRegisterResponse && (
         <button

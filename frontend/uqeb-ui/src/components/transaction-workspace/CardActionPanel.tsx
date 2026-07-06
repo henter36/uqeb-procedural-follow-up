@@ -1,10 +1,12 @@
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 
 type CardActionPanelProps = Readonly<{
   title: string;
   onClose: () => void;
   children: ReactNode;
   testId?: string;
+  panelRef?: Ref<HTMLElement>;
+  prominent?: boolean;
 }>;
 
 export default function CardActionPanel({
@@ -12,10 +14,13 @@ export default function CardActionPanel({
   onClose,
   children,
   testId,
+  panelRef,
+  prominent = false,
 }: CardActionPanelProps) {
   return (
     <section
-      className="card-action-panel"
+      ref={panelRef}
+      className={`card-action-panel${prominent ? ' card-action-panel--prominent' : ''}`}
       aria-label={title}
       data-testid={testId}
     >
