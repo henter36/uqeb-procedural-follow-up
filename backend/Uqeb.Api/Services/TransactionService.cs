@@ -348,45 +348,25 @@ public class TransactionService : ITransactionService
                     a.RequiresReply &&
                     a.ReplyStatus != ReplyStatus.Replied &&
                     a.Status == AssignmentStatus.Active),
-                HasOpenOverdueAssignment = t.Assignments.Any(a =>
+                // Replied vs not-replied are mutually exclusive, so the open-and-pending
+                // vs completed-and-late cases branch on reply status instead of an OR.
+                HasOverdueAssignment = t.Assignments.Any(a =>
                     a.RequiresReply &&
-                    a.ReplyStatus != ReplyStatus.Replied &&
-                    a.Status == AssignmentStatus.Active &&
                     a.DueDate.HasValue &&
-                    a.DueDate.Value.Date < today),
-                HasCompletedLateAssignment = t.Assignments.Any(a =>
-                    a.RequiresReply &&
-                    a.ReplyStatus == ReplyStatus.Replied &&
-                    a.DueDate.HasValue &&
-                    a.ReplyDate.HasValue &&
-                    a.ReplyDate.Value.Date > a.DueDate.Value.Date),
-                HasOpenResponseOverdue =
+                    (a.ReplyStatus == ReplyStatus.Replied
+                        ? a.ReplyDate.HasValue && a.ReplyDate.Value.Date > a.DueDate.Value.Date
+                        : a.Status == AssignmentStatus.Active && a.DueDate.Value.Date < today)),
+                // Completed-or-closed vs still open are mutually exclusive, and within the
+                // completed branch, having a ClosedAt vs not is also mutually exclusive, so
+                // both branch on those conditions instead of combining via OR.
+                IsResponseOverdue =
                     t.RequiresResponse &&
                     t.ResponseDueDate.HasValue &&
-                    !t.ResponseCompleted &&
-                    t.Status != TransactionStatus.Closed &&
-                    t.ResponseDueDate.Value.Date < today,
-                HasCompletedLateResponse =
-                    t.RequiresResponse &&
-                    t.ResponseDueDate.HasValue &&
-                    (t.ResponseCompleted || t.Status == TransactionStatus.Closed) &&
-                    (
-                        (t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date) ||
-                        (!t.ClosedAt.HasValue && t.ResponseCompletedDate.HasValue &&
-                         t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date)
-                    )
-            })
-            .Select(x => new
-            {
-                x.Transaction,
-                x.IncomingFromPartyName,
-                x.IncomingFromDepartmentName,
-                x.CategoryName,
-                x.CreatedByName,
-                x.RecurrenceType,
-                x.HasPendingAssignment,
-                HasOverdueAssignment = x.HasOpenOverdueAssignment || x.HasCompletedLateAssignment,
-                IsResponseOverdue = x.HasOpenResponseOverdue || x.HasCompletedLateResponse
+                    (t.ResponseCompleted || t.Status == TransactionStatus.Closed
+                        ? (t.ClosedAt.HasValue
+                            ? t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date
+                            : t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date)
+                        : t.ResponseDueDate.Value.Date < today)
             })
             .Select(x => new TransactionSearchRow(
                 x.Transaction.Id,
