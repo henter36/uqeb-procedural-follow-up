@@ -2310,6 +2310,12 @@
   color: var(--color-primary);
 }
 
+.transaction-sections-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
 .transaction-section-card {
   display: flex;
   flex-direction: column;
@@ -2317,44 +2323,8 @@
   min-width: 0;
 }
 
-.transaction-action-status-card .action-status-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-3);
-}
-
-.action-status-item {
-  min-width: 0;
-}
-
-.action-status-label {
-  display: block;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  margin-bottom: var(--space-1);
-}
-
-.action-status-value {
-  margin: 0;
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-}
-
-.response-summary-card {
-  background: var(--color-surface-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-3);
-}
-
-.section-card-header-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-.card-action-panel--prominent {
-  border-color: var(--color-primary);
+.transaction-section-card-full {
+  grid-column: 1 / -1;
 }
 
 .section-card-header {
@@ -2467,12 +2437,12 @@
 }
 
 @media (width <= 900px) {
-  .transaction-metric-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .transaction-sections-grid {
+    grid-template-columns: 1fr;
   }
 
-  .transaction-action-status-card .action-status-grid {
-    grid-template-columns: 1fr;
+  .transaction-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -2490,8 +2460,7 @@
     align-items: stretch;
   }
 
-  .section-card-header .btn,
-  .section-card-header-actions .btn {
+  .section-card-header .btn {
     width: 100%;
   }
 

@@ -1,5 +1,5 @@
 import {
-  useCallback, useEffect, useRef, useState,
+  useCallback, useEffect, useRef, useState, type ReactNode,
 } from 'react';
 import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { isAxiosError } from 'axios';
@@ -9,30 +9,96 @@ import type {
 } from '../api/types';
 import { useAuth } from '../context/useAuth';
 import { useReferenceData } from '../hooks/useReferenceData';
-import { auditActionLabels } from '../utils/labels';
+import {
+  responseTypeLabels,
+  auditActionLabels, replyStatusLabels,
+} from '../utils/labels';
 import { getApiErrorMessage } from '../utils/apiHelpers';
 import DateDisplay from '../components/DateDisplay';
+import DepartmentBadges from '../components/DepartmentBadges';
+import { responseTimingBadgeClass, formatCompletionDays, formatDaysSince } from '../utils/responseTiming';
 import {
-  PageHeader, Alert, ActivityTimeline, LoadingInline, ErrorState,
+  PageHeader, Alert, StatusBadge, PriorityBadge, ActivityTimeline, LoadingInline, ErrorState,
 } from '../components/ui';
 import type { TimelineEvent } from '../components/ui';
-import TransactionWorkspaceHeader from '../components/transaction-workspace/TransactionWorkspaceHeader';
-import TransactionActionStatusCard from '../components/transaction-workspace/TransactionActionStatusCard';
-import TransactionReferralsSection from '../components/transaction-workspace/TransactionReferralsSection';
-import TransactionResponsesSection from '../components/transaction-workspace/TransactionResponsesSection';
-import TransactionFollowUpsSection from '../components/transaction-workspace/TransactionFollowUpsSection';
-import TransactionAttachmentsSection from '../components/transaction-workspace/TransactionAttachmentsSection';
 import TransactionActionBar from '../components/transaction-workspace/TransactionActionBar';
+import TransactionActionPanel from '../components/transaction-workspace/TransactionActionPanel';
 import CardActionPanel from '../components/transaction-workspace/CardActionPanel';
+import AssignmentFormPanel from '../components/transaction-workspace/AssignmentFormPanel';
+import FollowUpFormPanel from '../components/transaction-workspace/FollowUpFormPanel';
+import AttachmentFormPanel from '../components/transaction-workspace/AttachmentFormPanel';
+import ReplyFormPanel from '../components/transaction-workspace/ReplyFormPanel';
+import CompleteResponseFormPanel from '../components/transaction-workspace/CompleteResponseFormPanel';
+import DepartmentResponseInlinePanel from '../components/transaction-workspace/DepartmentResponseInlinePanel';
+import FollowUpLetterFormPanel from '../components/transaction-workspace/FollowUpLetterFormPanel';
+import AdminEditAssignmentFormPanel from '../components/transaction-workspace/AdminEditAssignmentFormPanel';
 import AdminEditDatesFormPanel from '../components/transaction-workspace/AdminEditDatesFormPanel';
+import AdminEditResponseFormPanel from '../components/transaction-workspace/AdminEditResponseFormPanel';
 import EnableRecurringFormPanel from '../components/transaction-workspace/EnableRecurringFormPanel';
 import { departmentResponseStatusLabels } from '../components/transaction-workspace/departmentResponseStatusLabels';
 import type { WorkspaceAction, WorkspaceActionContext } from '../components/transaction-workspace/types';
 import { parseDetailTab, type DetailTab } from './transactionDetailTabs';
 
+const GLOBAL_ACTIONS = new Set<WorkspaceAction>(['complete-response', 'follow-up-letter']);
+
+function assignmentReplyBadgeClass(replyStatus: string, isOverdue: boolean): string {
+  if (replyStatus === 'Replied') return 'badge-green';
+  if (isOverdue) return 'badge-red';
+  return 'badge-orange';
+}
+
+function responseStatusLabel(completed: boolean, completedDate?: string | null): ReactNode {
+  if (!completed) return 'لم تتم الإفادة';
+  return (
+    <>
+      تمت الإفادة
+      {completedDate && <> بتاريخ <DateDisplay date={completedDate} /></>}
+    </>
+  );
+}
+
 function isPreviewableAttachment(contentType?: string): boolean {
   if (!contentType) return false;
   return contentType.startsWith('image/') || contentType === 'application/pdf';
+}
+
+function formatDaysRemaining(days?: number | null): string {
+  if (days === undefined || days === null) return '—';
+  if (days < 0) return `متأخر ${Math.abs(days)} يوم`;
+  if (days === 0) return 'اليوم';
+  return `${days} يوم`;
+}
+
+function countOpenAssignments(items: Assignment[]): number {
+  return items.filter(
+    (item) => item.requiresReply && item.replyStatus !== 'Replied' && item.status !== 'Cancelled',
+  ).length;
+}
+
+function getCompletionDateHint(hasOfficialCompletionDate: boolean, hasEffectiveCompletionDate: boolean): string {
+  if (hasOfficialCompletionDate) return 'تاريخ الإغلاق الرسمي';
+  if (hasEffectiveCompletionDate) return 'محسوب من آخر تاريخ إغلاق إحالة مطلوبة';
+  return 'يُحسب عند إغلاق جميع الإحالات المطلوبة';
+}
+
+function getResponseTimingLabel(isResponseOverdue: boolean, hasEffectiveCompletionDate: boolean): string {
+  if (isResponseOverdue) return 'متأخرة';
+  if (hasEffectiveCompletionDate) return 'مُنجزة';
+  return 'في الوقت';
+}
+
+function renderDepartmentCompletionDays(completionDays?: number | null): ReactNode {
+  const hasCompletionDays = completionDays != null;
+  if (hasCompletionDays) {
+    return <>{completionDays} <small className="text-muted">يوم</small></>;
+  }
+
+  return <span className="text-muted">لم تُنجز الإدارة</span>;
+}
+
+function getAssignmentReplyStatusLabel(replyStatus: string): string {
+  if (replyStatus === 'Replied') return 'تمت الإفادة';
+  return replyStatusLabels[replyStatus] || replyStatus;
 }
 
 function hasDepartmentResponseAssignment(items: Assignment[], departmentId?: number | null): boolean {
@@ -41,6 +107,20 @@ function hasDepartmentResponseAssignment(items: Assignment[], departmentId?: num
     (item) => item.departmentId === departmentId && item.requiresReply && item.status !== 'Cancelled',
   );
 }
+
+const ACTION_TITLES: Record<WorkspaceAction, string> = {
+  assignment: 'إضافة احالة',
+  followup: 'إضافة تعقيب',
+  attachment: 'إضافة مرفق',
+  'reply-assignment': 'تسجيل إفادة الإدارة',
+  'reply-followup': 'تسجيل رد على التعقيب',
+  'complete-response': 'تسجيل إفادة',
+  'follow-up-letter': 'خطاب تعقيب PDF',
+  'admin-edit-assignment': 'تعديل بيانات الاحالة',
+  'admin-edit-dates': 'تصحيح التواريخ الحساسة (إداري)',
+  'admin-edit-response': 'تعديل بيانات الإفادة',
+  'enable-recurring': 'تفعيل متابعة دورية',
+};
 
 export default function TransactionDetailPage() {
   const { id } = useParams();
@@ -566,14 +646,47 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const canShowClose = canClose && !isTerminal && (!needsResponse || tx.responseCompleted);
   const showMutationActions = canEdit && !isDepartmentUser;
   const canReply = canEdit && !isDepartmentUser;
+  const openAssignmentsCount = countOpenAssignments(assignments);
   const assignmentCardAgeText = workspaceAgeDays === null || workspaceAgeDays === undefined
     ? 'عمر المعاملة: غير متاح'
     : `عمر المعاملة: ${workspaceAgeDays} يوم`;
+
+  // Derive effective close date from assignments when ClosedAt is not set
+  const requiredAssignments = assignments.filter((a) => a.requiresReply && a.status !== 'Cancelled');
+  const allRequiredHaveResponse = requiredAssignments.length > 0 && requiredAssignments.every((a) => a.responseDate != null);
+  const derivedCompletionDate: string | null = allRequiredHaveResponse
+    ? requiredAssignments.reduce<string | null>((max, a) => (!max || a.responseDate! > max ? a.responseDate! : max), null)
+    : null;
+  const effectiveCompletionDate = tx.completionDate ?? derivedCompletionDate;
+  const toUtcDateOnlyTime = (value: string) => {
+    const date = new Date(value);
+    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+  };
+
+  const effectiveCompletionDays = tx.completionDays ?? (
+    effectiveCompletionDate && tx.incomingDate
+      ? Math.max(0, Math.floor((toUtcDateOnlyTime(effectiveCompletionDate) - toUtcDateOnlyTime(tx.incomingDate)) / 86400000))
+      : null
+  );
+  const hasOfficialCompletionDate = Boolean(tx.completionDate);
+  const hasEffectiveCompletionDate = Boolean(effectiveCompletionDate);
+  const hasEffectiveCompletionDays = effectiveCompletionDays != null;
+  const completionDateHint = getCompletionDateHint(hasOfficialCompletionDate, hasEffectiveCompletionDate);
+  const completionDaysLabel = hasEffectiveCompletionDays ? 'أيام إنجاز المعاملة' : 'الأيام المفتوحة';
+  const completionDaysValue = hasEffectiveCompletionDays
+    ? formatCompletionDays(effectiveCompletionDays)
+    : formatDaysSince(tx.daysSinceIncoming, '0');
+  const completionDaysHint = hasEffectiveCompletionDays
+    ? 'محسوب تلقائيًا: تاريخ الإغلاق − تاريخ الوارد'
+    : 'محسوب تلقائيًا: اليوم − تاريخ الوارد';
+  const responseTimingLabel = getResponseTimingLabel(tx.isResponseOverdue, hasEffectiveCompletionDate);
 
   const replyAssignmentId = actionContext.replyAssignmentId;
   const replyFollowUpId = actionContext.replyFollowUpId;
   const adminEditAssignmentId = actionContext.adminEditAssignmentId;
   const adminEditResponseId = actionContext.adminEditResponseId;
+  const existingDepartmentIds = assignments.map((a) => a.departmentId);
+  const isGlobalActionOpen = activeAction !== null && GLOBAL_ACTIONS.has(activeAction);
 
   const timelineEvents: TimelineEvent[] = auditLogs.map((log) => ({
     id: log.id,
@@ -589,12 +702,31 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
 
   const detailsTabContent = (
     <div className="transaction-details-stack">
-      <TransactionWorkspaceHeader
-        tx={tx}
-        assignments={assignments}
-        attachmentsCount={attachments.length}
-        actionsSlot={(
-          <>
+      <section className="card transaction-hero-card" aria-label="معلومات المعاملة">
+        <div className="transaction-hero-top">
+          <div className="transaction-hero-title-block">
+            <div className="transaction-hero-title-row">
+              <h2 className="transaction-hero-number">{tx.incomingNumber}</h2>
+              <StatusBadge status={tx.status} isOverdue={tx.isOverdue} />
+              <PriorityBadge priority={tx.priority} />
+              {tx.isOverdue && <span className="badge badge-red">متأخرة</span>}
+              {tx.hasPendingAssignments && <span className="badge badge-orange">باقي إجراء</span>}
+              {tx.responseTimingLabel && tx.requiresResponse && (
+                <span className={`badge badge-spaced ${responseTimingBadgeClass(tx.responseTimingStatus)}`}>
+                  {tx.responseTimingLabel}
+                </span>
+              )}
+            </div>
+            <p className="transaction-hero-subject">{tx.subject}</p>
+            <div className="transaction-hero-meta">
+              <span>{tx.incomingFrom || '—'}</span>
+              <span className="transaction-hero-meta-sep">•</span>
+              <span>{tx.categoryName || '—'}</span>
+              <span className="transaction-hero-meta-sep">•</span>
+              <DepartmentBadges names={tx.outgoingDepartmentNames} />
+            </div>
+          </div>
+          <div className="transaction-hero-actions">
             <TransactionActionBar
               transactionId={id}
               canEdit={canEdit}
@@ -621,9 +753,67 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                 </button>
               </div>
             )}
-          </>
-        )}
-      >
+          </div>
+        </div>
+
+        <div className="transaction-metric-grid">
+          <div className="transaction-metric-tile">
+            <span className="transaction-metric-label">تاريخ الوارد</span>
+            <span className="transaction-metric-value"><DateDisplay date={tx.incomingDate} /></span>
+            <small className="text-muted metric-hint">بداية عمر المعاملة وأيام الإنجاز</small>
+          </div>
+          <div className="transaction-metric-tile">
+            <span className="transaction-metric-label">تاريخ استحقاق المعاملة</span>
+            <span className="transaction-metric-value">
+              {tx.responseDueDate ? <DateDisplay date={tx.responseDueDate} /> : '—'}
+            </span>
+            <small className="text-muted metric-hint">آخر تاريخ متوقع لإغلاق جميع الإحالات</small>
+          </div>
+          <div className="transaction-metric-tile">
+            <span className="transaction-metric-label">تاريخ إغلاق المعاملة</span>
+            <span className="transaction-metric-value">
+              {effectiveCompletionDate ? <DateDisplay date={effectiveCompletionDate} /> : '—'}
+            </span>
+            <small className="text-muted metric-hint">
+              {completionDateHint}
+            </small>
+          </div>
+          <div className="transaction-metric-tile">
+            <span className="transaction-metric-label">
+              {completionDaysLabel}
+            </span>
+            <span className="transaction-metric-value">
+              {completionDaysValue}
+            </span>
+            <small className="text-muted metric-hint">
+              {completionDaysHint}
+            </small>
+          </div>
+          <div className={`transaction-metric-tile${tx.isResponseOverdue ? ' metric-tile-overdue' : ''}`}>
+            <span className="transaction-metric-label">حالة التأخر</span>
+            <span className={`transaction-metric-value${tx.isResponseOverdue ? ' text-danger' : ' text-success'}`}>
+              {responseTimingLabel}
+            </span>
+            <small className="text-muted metric-hint">
+              {tx.responseDueDate
+                ? `${formatDaysRemaining(tx.daysRemainingForResponse)} حتى الاستحقاق`
+                : 'لم يُحدَّد تاريخ استحقاق'}
+            </small>
+          </div>
+          <div className="transaction-metric-tile">
+            <span className="transaction-metric-label">منذ آخر تعقيب</span>
+            <span className="transaction-metric-value">{formatDaysSince(tx.daysSinceLastFollowUp)}</span>
+          </div>
+          <div className="transaction-metric-tile">
+            <span className="transaction-metric-label">احالةات مفتوحة</span>
+            <span className="transaction-metric-value">{openAssignmentsCount}</span>
+          </div>
+          <div className="transaction-metric-tile">
+            <span className="transaction-metric-label">المرفقات</span>
+            <span className="transaction-metric-value">{attachments.length}</span>
+          </div>
+        </div>
+
         {tx.recurringTemplateId && (
           <div className="recurring-template-info-bar" data-testid="recurring-template-info">
             <span className="badge badge-blue">معاملة دورية</span>
@@ -661,7 +851,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
 
         {activeAction === 'enable-recurring' && (
           <CardActionPanel
-            title="تفعيل متابعة دورية"
+            title={ACTION_TITLES['enable-recurring']}
             onClose={closeAction}
             testId="enable-recurring-form-panel"
           >
@@ -690,7 +880,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
 
         {activeAction === 'admin-edit-dates' && (
           <CardActionPanel
-            title="تصحيح التواريخ الحساسة (إداري)"
+            title={ACTION_TITLES['admin-edit-dates']}
             onClose={closeAction}
             testId="admin-edit-dates-form-panel"
           >
@@ -710,100 +900,447 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
             <div><strong>رقم التتبع:</strong> {tx.internalTrackingNumber}</div>
             <div><strong>تاريخ الوارد:</strong> <DateDisplay date={tx.incomingDate} /></div>
             <div><strong>نوع الجهة:</strong> {tx.incomingSourceType === 'Internal' ? 'داخلية' : 'خارجية'}</div>
+            {tx.outgoingNumber && <div><strong>رقم الصادر:</strong> {tx.outgoingNumber}</div>}
+            {tx.outgoingDate && <div><strong>تاريخ الصادر:</strong> <DateDisplay date={tx.outgoingDate} /></div>}
+            {needsResponse && (
+              <>
+                <div><strong>مطلوب إفادة:</strong> نعم ({responseTypeLabels[tx.responseType] || tx.responseType})</div>
+                <div><strong>حالة الإفادة:</strong> {responseStatusLabel(tx.responseCompleted, tx.responseCompletedDate)}</div>
+                {tx.responseSummary && <div className="full-width"><strong>ملخص الإفادة:</strong> {tx.responseSummary}</div>}
+              </>
+            )}
             {tx.notes && <div className="full-width"><strong>ملاحظات:</strong> {tx.notes}</div>}
           </div>
         </details>
-      </TransactionWorkspaceHeader>
+      </section>
 
-      <TransactionActionStatusCard
-        tx={tx}
-        needsResponse={needsResponse}
-        isTerminal={isTerminal}
-        isDepartmentUser={isDepartmentUser}
-        canRegisterResponse={canRegisterResponse}
-        departmentResponseActionStatusLabel={departmentResponseActionStatusLabel}
-      />
+      {isGlobalActionOpen && activeAction && (
+        <TransactionActionPanel
+          title={activeAction === 'complete-response' ? responseActionLabel : ACTION_TITLES[activeAction]}
+          open
+          onClose={closeAction}
+          panelRef={activeAction === 'complete-response' ? responsePanelRef : undefined}
+          prominent={activeAction === 'complete-response'}
+        >
+          {activeAction === 'complete-response' && isDepartmentUser && (
+            <DepartmentResponseInlinePanel
+              transactionId={+id}
+              initialItem={departmentResponseItem}
+              onDirtyChange={setActionDirty}
+              onCancel={closeAction}
+              onMessage={(nextMessage) => {
+                setMessage(nextMessage);
+                setError('');
+              }}
+              onChanged={handleDepartmentResponseChanged}
+            />
+          )}
+          {activeAction === 'complete-response' && !isDepartmentUser && (
+            <CompleteResponseFormPanel
+              transactionId={+id}
+              responseType={tx.responseType}
+              onDirtyChange={setActionDirty}
+              onCancel={closeAction}
+              onSuccess={handleCompleteResponseSuccess}
+            />
+          )}
+          {activeAction === 'follow-up-letter' && (
+            <FollowUpLetterFormPanel
+              transactionId={+id}
+              tx={tx}
+              assignments={assignments}
+              onDirtyChange={setActionDirty}
+              onCancel={closeAction}
+              onDownloaded={() => setMessage('تم تحميل خطاب التعقيب بنجاح.')}
+            />
+          )}
+        </TransactionActionPanel>
+      )}
 
-      <TransactionReferralsSection
-        transactionId={id}
-        assignments={assignments}
-        assignmentsLoading={assignmentsLoading}
-        assignmentsError={assignmentsError}
-        onRetryLoad={loadAssignments}
-        ageText={assignmentCardAgeText}
-        departments={departments}
-        fallbackLetterNumber={tx.outgoingNumber}
-        showMutationActions={showMutationActions}
-        canReply={canReply}
-        isAdmin={isAdmin}
-        activeAction={activeAction}
-        replyAssignmentId={replyAssignmentId}
-        adminEditAssignmentId={adminEditAssignmentId}
-        adminEditResponseId={adminEditResponseId}
-        onToggleAction={toggleAction}
-        onOpenAction={openAction}
-        onCloseAction={closeAction}
-        onDirtyChange={setActionDirty}
-        onAssignmentSuccess={handleAssignmentSuccess}
-        onReplyAssignmentSuccess={handleReplyAssignmentSuccess}
-        onAdminEditAssignmentSuccess={handleAdminEditAssignmentSuccess}
-        onAdminEditResponseSuccess={handleAdminEditResponseSuccess}
-      />
+      <div className="transaction-sections-grid">
+        <section className="card transaction-section-card" aria-label="الاحالات والردود">
+          <div className="section-card-header">
+            <div className="section-card-title">
+              <span className="section-card-icon" aria-hidden>↪</span>
+              <h3>الاحالات والردود</h3>
+              <span className="section-card-count">{assignments.length} احالة</span>
+              <span className="section-card-meta">{assignmentCardAgeText}</span>
+            </div>
+            {showMutationActions && (
+              <button
+                type="button"
+                className={`btn btn-secondary btn-sm${activeAction === 'assignment' ? ' active' : ''}`}
+                aria-pressed={activeAction === 'assignment'}
+                onClick={() => toggleAction('assignment')}
+              >
+                + إضافة احالة
+              </button>
+            )}
+          </div>
 
-      <TransactionResponsesSection
-        transactionId={id}
-        tx={tx}
-        isDepartmentUser={isDepartmentUser}
-        activeAction={activeAction}
-        responseActionLabel={responseActionLabel}
-        departmentResponseItem={departmentResponseItem}
-        panelRef={responsePanelRef}
-        onDirtyChange={setActionDirty}
-        onCancel={closeAction}
-        onMessage={(nextMessage) => {
-          setMessage(nextMessage);
-          setError('');
-        }}
-        onDepartmentResponseChanged={handleDepartmentResponseChanged}
-        onCompleteResponseSuccess={handleCompleteResponseSuccess}
-      />
+          {activeAction === 'assignment' && (
+            <CardActionPanel
+              title={ACTION_TITLES.assignment}
+              onClose={closeAction}
+              testId="assignment-form-panel"
+            >
+              <AssignmentFormPanel
+                transactionId={+id}
+                departments={departments}
+                existingDepartmentIds={existingDepartmentIds}
+                onDirtyChange={setActionDirty}
+                onCancel={closeAction}
+                onSuccess={handleAssignmentSuccess}
+              />
+            </CardActionPanel>
+          )}
 
-      <TransactionFollowUpsSection
-        transactionId={id}
-        tx={tx}
-        assignments={assignments}
-        followUps={followUps}
-        followUpsLoading={followUpsLoading}
-        followUpsError={followUpsError}
-        onRetryLoad={loadFollowUps}
-        showMutationActions={showMutationActions}
-        canReply={canReply}
-        activeAction={activeAction}
-        replyFollowUpId={replyFollowUpId}
-        onToggleAction={toggleAction}
-        onOpenAction={openAction}
-        onCloseAction={closeAction}
-        onDirtyChange={setActionDirty}
-        onFollowUpSuccess={handleFollowUpSuccess}
-        onReplyFollowUpSuccess={handleReplyFollowUpSuccess}
-        onFollowUpLetterDownloaded={() => setMessage('تم تحميل خطاب التعقيب بنجاح.')}
-      />
+          {activeAction === 'reply-assignment' && replyAssignmentId && (
+            <CardActionPanel
+              title={ACTION_TITLES['reply-assignment']}
+              onClose={closeAction}
+              testId="reply-assignment-form-panel"
+            >
+              <ReplyFormPanel
+                title={ACTION_TITLES['reply-assignment']}
+                dateLabel="تاريخ إنجاز الإدارة"
+                dateHint="يمثل تاريخ الإفادة/إنجاز رد الإدارة، ويستخدم في احتساب أيام إنجاز الإدارة."
+                dateRequiredMessage="تاريخ إنجاز الإدارة مطلوب."
+                summaryLabel="ملخص الإفادة *"
+                submitLabel="حفظ الإفادة"
+                onDirtyChange={setActionDirty}
+                onCancel={closeAction}
+                onSubmit={(payload) => transactionsApi.replyAssignment(+id, replyAssignmentId, payload)}
+                onSuccess={handleReplyAssignmentSuccess}
+              />
+            </CardActionPanel>
+          )}
 
-      <TransactionAttachmentsSection
-        transactionId={id}
-        attachments={attachments}
-        attachmentsLoading={attachmentsLoading}
-        attachmentsError={attachmentsError}
-        onRetryLoad={loadAttachments}
-        showMutationActions={showMutationActions}
-        activeAction={activeAction}
-        onToggleAction={toggleAction}
-        onCloseAction={closeAction}
-        onDirtyChange={setActionDirty}
-        onAttachmentSuccess={handleAttachmentSuccess}
-        onDownload={downloadAttachment}
-        onPreview={previewAttachment}
-      />
+          {activeAction === 'admin-edit-assignment' && adminEditAssignmentId && (
+            <CardActionPanel
+              title={ACTION_TITLES['admin-edit-assignment']}
+              onClose={closeAction}
+              testId="admin-edit-assignment-form-panel"
+            >
+              <AdminEditAssignmentFormPanel
+                key={adminEditAssignmentId}
+                transactionId={+id}
+                assignmentId={adminEditAssignmentId}
+                initialAssignment={assignments.find((a) => a.id === adminEditAssignmentId)}
+                fallbackLetterNumber={tx.outgoingNumber}
+                onDirtyChange={setActionDirty}
+                onCancel={closeAction}
+                onSuccess={handleAdminEditAssignmentSuccess}
+              />
+            </CardActionPanel>
+          )}
+
+          {activeAction === 'admin-edit-response' && adminEditResponseId && (
+            <CardActionPanel
+              title={ACTION_TITLES['admin-edit-response']}
+              onClose={closeAction}
+              testId="admin-edit-response-form-panel"
+            >
+              <AdminEditResponseFormPanel
+                responseId={adminEditResponseId}
+                onDirtyChange={setActionDirty}
+                onCancel={closeAction}
+                onSuccess={handleAdminEditResponseSuccess}
+              />
+            </CardActionPanel>
+          )}
+
+          {assignmentsLoading && <LoadingInline label="جاري تحميل الاحالةات..." />}
+          {assignmentsError && (
+            <Alert variant="error">
+              {assignmentsError}
+              <button type="button" className="btn btn-sm btn-outline ms-2" onClick={loadAssignments}>
+                إعادة المحاولة
+              </button>
+            </Alert>
+          )}
+          {!assignmentsLoading && !assignmentsError && assignments.length === 0 && (
+            <div className="section-empty-state">
+              <p>لا توجد احالةات مسجلة لهذه المعاملة.</p>
+              {showMutationActions && (
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => toggleAction('assignment')}>
+                  إضافة أول احالة
+                </button>
+              )}
+            </div>
+          )}
+          {!assignmentsLoading && !assignmentsError && assignments.length > 0 && (
+            <div className="table-wrapper section-data-list">
+              <table className="data-table data-table-compact">
+                <thead>
+                  <tr>
+                    <th>الإدارة</th>
+                    <th>رقم الخطاب</th>
+                    <th>تاريخ الإحالة</th>
+                    <th>تاريخ استحقاق الإدارة</th>
+                    <th>تاريخ إنجاز الإدارة</th>
+                    <th>أيام إنجاز الإدارة</th>
+                    <th>الحالة</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {assignments.map((a) => {
+                    const replyStatusLabel = getAssignmentReplyStatusLabel(a.replyStatus);
+                    const canOpenAdminAssignmentEdit = isAdmin && a.canAdminEdit === true;
+                    const canOpenAdminResponseEdit = isAdmin && a.replyStatus === 'Replied' && Boolean(a.departmentResponseId);
+
+                    return (
+                      <tr key={a.id} className={a.isOverdue ? 'row-overdue' : ''}>
+                        <td>
+                          <div>
+                            {canOpenAdminAssignmentEdit ? (
+                              <button
+                                type="button"
+                                className="link-button assignment-department-link"
+                                aria-label={`تعديل إحالة إدارة ${a.departmentName}`}
+                                onClick={() => openAction('admin-edit-assignment', { adminEditAssignmentId: a.id })}
+                              >
+                                {a.departmentName}
+                              </button>
+                            ) : (
+                              <span>{a.departmentName}</span>
+                            )}
+                          </div>
+                          {a.requiredAction && <div className="text-muted">{a.requiredAction}</div>}
+                        </td>
+                        <td>{a.letterNumber || tx.outgoingNumber || '—'}</td>
+                        <td><DateDisplay date={a.assignedDate} /></td>
+                        <td>{a.dueDate ? <DateDisplay date={a.dueDate} /> : '—'}</td>
+                        <td>{a.responseDate ? <DateDisplay date={a.responseDate} /> : '—'}</td>
+                        <td>
+                          {renderDepartmentCompletionDays(a.departmentCompletionDays)}
+                        </td>
+                        <td>
+                          {canOpenAdminResponseEdit ? (
+                            <button
+                              type="button"
+                              className={`badge assignment-response-status-link ${assignmentReplyBadgeClass(a.replyStatus, a.isOverdue)}`}
+                              aria-label={`تعديل إفادة إدارة ${a.departmentName}`}
+                              onClick={() => openAction('admin-edit-response', { adminEditResponseId: a.departmentResponseId! })}
+                            >
+                              {replyStatusLabel}
+                            </button>
+                          ) : (
+                            <span className={`badge ${assignmentReplyBadgeClass(a.replyStatus, a.isOverdue)}`}>
+                              {replyStatusLabel}
+                            </span>
+                          )}
+                          {a.isOverdue && a.replyStatus !== 'Replied' && (
+                            <span className="badge badge-red ms-1">متأخرة</span>
+                          )}
+                        </td>
+                        <td className="assignment-actions-cell">
+                          {a.requiresReply && a.replyStatus !== 'Replied' && a.status !== 'Cancelled' && canReply && (
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-outline"
+                              onClick={() => openAction('reply-assignment', { replyAssignmentId: a.id })}
+                            >
+                              تسجيل رد
+                            </button>
+                          )}
+                          {a.replySummary && <div className="text-muted reply-summary">{a.replySummary}</div>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        <section className="card transaction-section-card" aria-label="التعقيبات والردود">
+          <div className="section-card-header">
+            <div className="section-card-title">
+              <span className="section-card-icon" aria-hidden>✉</span>
+              <h3>التعقيبات والردود</h3>
+              <span className="section-card-count">{followUps.length} تعقيب</span>
+            </div>
+            {showMutationActions && (
+              <button
+                type="button"
+                className={`btn btn-secondary btn-sm${activeAction === 'followup' ? ' active' : ''}`}
+                aria-pressed={activeAction === 'followup'}
+                onClick={() => toggleAction('followup')}
+              >
+                + إضافة تعقيب
+              </button>
+            )}
+          </div>
+
+          {activeAction === 'followup' && (
+            <CardActionPanel
+              title={ACTION_TITLES.followup}
+              onClose={closeAction}
+              testId="followup-form-panel"
+            >
+              <FollowUpFormPanel
+                transactionId={+id}
+                daysSinceLastFollowUp={tx.daysSinceLastFollowUp}
+                onDirtyChange={setActionDirty}
+                onCancel={closeAction}
+                onSuccess={handleFollowUpSuccess}
+              />
+            </CardActionPanel>
+          )}
+
+          {activeAction === 'reply-followup' && replyFollowUpId && (
+            <CardActionPanel
+              title={ACTION_TITLES['reply-followup']}
+              onClose={closeAction}
+              testId="reply-followup-form-panel"
+            >
+              <ReplyFormPanel
+                title="تسجيل رد على التعقيب"
+                onDirtyChange={setActionDirty}
+                onCancel={closeAction}
+                onSubmit={(payload) => transactionsApi.replyFollowUp(+id, replyFollowUpId, payload)}
+                onSuccess={handleReplyFollowUpSuccess}
+              />
+            </CardActionPanel>
+          )}
+
+          {followUpsLoading && <LoadingInline label="جاري تحميل التعقيبات..." />}
+          {followUpsError && (
+            <Alert variant="error">
+              {followUpsError}
+              <button type="button" className="btn btn-sm btn-outline ms-2" onClick={loadFollowUps}>
+                إعادة المحاولة
+              </button>
+            </Alert>
+          )}
+          {!followUpsLoading && !followUpsError && followUps.length === 0 && (
+            <div className="section-empty-state">
+              <p>لا توجد تعقيبات مسجلة لهذه المعاملة.</p>
+              {showMutationActions && (
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => toggleAction('followup')}>
+                  إضافة أول تعقيب
+                </button>
+              )}
+            </div>
+          )}
+          {!followUpsLoading && !followUpsError && followUps.length > 0 && (
+            <div className="table-wrapper section-data-list">
+              <table className="data-table data-table-compact">
+                <thead><tr><th>الرقم</th><th>التاريخ</th><th>مرسل إلى</th><th>الرد</th><th>إجراء</th></tr></thead>
+                <tbody>
+                  {followUps.map((f) => (
+                    <tr key={f.id}>
+                      <td>{f.followUpNumber || '—'}</td>
+                      <td><DateDisplay date={f.followUpDate} /></td>
+                      <td>{f.departments?.length > 0 ? f.departments.map((d) => d.departmentName).join('، ') : f.sentTo || '—'}</td>
+                      <td>
+                        <span className={`badge ${f.replyStatus === 'Replied' ? 'badge-green' : 'badge-orange'}`}>
+                          {replyStatusLabels[f.replyStatus] || f.replyStatus}
+                        </span>
+                      </td>
+                      <td>
+                        {f.requiresReply && f.replyStatus !== 'Replied' && canReply && (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline"
+                            onClick={() => openAction('reply-followup', { replyFollowUpId: f.id })}
+                          >
+                            تسجيل رد
+                          </button>
+                        )}
+                        {f.replySummary && <div className="text-muted reply-summary">{f.replySummary}</div>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      </div>
+
+      <section className="card transaction-section-card transaction-section-card-full" aria-label="المرفقات">
+        <div className="section-card-header">
+          <div className="section-card-title">
+            <span className="section-card-icon" aria-hidden>📎</span>
+            <h3>المرفقات</h3>
+            <span className="section-card-count">{attachments.length} مرفق</span>
+          </div>
+          {showMutationActions && (
+            <button
+              type="button"
+              className={`btn btn-secondary btn-sm${activeAction === 'attachment' ? ' active' : ''}`}
+              aria-pressed={activeAction === 'attachment'}
+              onClick={() => toggleAction('attachment')}
+            >
+              + إضافة مرفق
+            </button>
+          )}
+        </div>
+
+        {activeAction === 'attachment' && (
+          <CardActionPanel
+            title={ACTION_TITLES.attachment}
+            onClose={closeAction}
+            testId="attachment-form-panel"
+          >
+            <AttachmentFormPanel
+              transactionId={+id}
+              onDirtyChange={setActionDirty}
+              onCancel={closeAction}
+              onSuccess={handleAttachmentSuccess}
+            />
+          </CardActionPanel>
+        )}
+
+        {attachmentsLoading && <LoadingInline label="جاري تحميل المرفقات..." />}
+        {attachmentsError && (
+          <Alert variant="error">
+            {attachmentsError}
+            <button type="button" className="btn btn-sm btn-outline ms-2" onClick={loadAttachments}>
+              إعادة المحاولة
+            </button>
+          </Alert>
+        )}
+        {!attachmentsLoading && !attachmentsError && attachments.length === 0 && (
+          <div className="section-empty-state">
+            <p>لا توجد مرفقات لهذه المعاملة.</p>
+            {showMutationActions && (
+              <button type="button" className="btn btn-primary btn-sm" onClick={() => toggleAction('attachment')}>
+                إضافة أول مرفق
+              </button>
+            )}
+          </div>
+        )}
+        {!attachmentsLoading && !attachmentsError && attachments.length > 0 && (
+          <div className="attachment-list section-data-list">
+            {attachments.map((a) => (
+              <article key={a.id} className="attachment-row-card">
+                <div className="attachment-row-main">
+                  <strong>{a.originalFileName}</strong>
+                  <span className="text-muted">{(a.fileSize / 1024).toFixed(1)} KB</span>
+                </div>
+                <div className="attachment-row-meta text-muted">
+                  {a.uploadedByName} • <DateDisplay date={a.uploadedAt} />
+                </div>
+                <div className="attachment-row-actions">
+                  <button type="button" className="btn btn-sm btn-outline" onClick={() => downloadAttachment(a.id, a.originalFileName)}>
+                    تحميل
+                  </button>
+                  {isPreviewableAttachment(a.contentType) && (
+                    <button type="button" className="btn btn-sm btn-outline" onClick={() => previewAttachment(a.id, a.contentType)}>
+                      معاينة
+                    </button>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 
