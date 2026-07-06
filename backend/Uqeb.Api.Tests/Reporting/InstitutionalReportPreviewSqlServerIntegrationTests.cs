@@ -342,11 +342,7 @@ public class InstitutionalReportPreviewSqlServerIntegrationTests
         {
             DateFrom = DateTime.UtcNow.Date.AddDays(-30),
             DateTo = DateTime.UtcNow.Date,
-            IncludeJointDepartmentTransactions = true,
             IncludeOverdue = true,
-            IncludeDetails = true,
-            IncludeRisks = true,
-            IncludeRecommendations = true,
         },
     };
 

@@ -550,11 +550,7 @@ describe('ReportBuilderPage export dialog', () => {
             categoryIds: [33],
             priorities: ['Urgent'],
             statuses: ['Overdue'],
-            includeJointDepartmentTransactions: true,
             includeOverdue: true,
-            includeDetails: true,
-            includeRisks: true,
-            includeRecommendations: true,
             search: 'TPL-1',
           },
           defaultFormat: ExportFormat.Xlsx,
@@ -648,11 +644,7 @@ describe('ReportBuilderPage export dialog', () => {
           categoryIds: [],
           priorities: [],
           statuses: [],
-          includeJointDepartmentTransactions: true,
           includeOverdue: false,
-          includeDetails: true,
-          includeRisks: true,
-          includeRecommendations: true,
           search: null,
         },
         defaultFormat: ExportFormat.Pdf,
@@ -710,11 +702,7 @@ describe('ReportBuilderPage export dialog', () => {
           categoryIds: [],
           priorities: [],
           statuses: [],
-          includeJointDepartmentTransactions: true,
           includeOverdue: false,
-          includeDetails: true,
-          includeRisks: true,
-          includeRecommendations: true,
           search: null,
         },
         defaultFormat: ExportFormat.Pdf,
@@ -773,5 +761,166 @@ describe('ReportBuilderPage export dialog', () => {
     await waitFor(() => {
       expect(screen.getByText(/رقم التتبع: corr-blob-header/)).toBeInTheDocument();
     });
+  });
+
+  it('includes DepartmentTransactions in report type options', () => {
+    render(<ReportBuilderPage />);
+    const select = screen.getByLabelText('نوع التقرير');
+    const optionTexts = Array.from(select.querySelectorAll('option')).map((o) => o.textContent);
+    expect(optionTexts).toContain('تقرير معاملات إدارة');
+  });
+
+  it('blocks preview when DepartmentTransactions is selected with no departments', async () => {
+    vi.mocked(services.departmentsApi.lookup).mockResolvedValueOnce({
+      data: [{ id: 20, name: 'الإدارة ب' }],
+    } as never);
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+
+    await user.selectOptions(screen.getByLabelText('نوع التقرير'), String(InstitutionalReportType.DepartmentTransactions));
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+
+    expect(services.institutionalReportsApi.preview).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(screen.getAllByText('يجب تحديد إدارة واحدة على الأقل لتقرير معاملات إدارة.').length).toBeGreaterThan(0);
+    });
+  });
+
+  it('sends detailSortBy and groupDetailsByDepartment in the preview request', async () => {
+    vi.mocked(services.departmentsApi.lookup).mockResolvedValueOnce({
+      data: [{ id: 20, name: 'الإدارة ب' }, { id: 30, name: 'الإدارة ج' }],
+    } as never);
+    vi.mocked(services.institutionalReportsApi.preview).mockResolvedValue({ data: mockManifest } as never);
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+
+    await user.selectOptions(screen.getByLabelText('نوع التقرير'), String(InstitutionalReportType.DepartmentTransactions));
+    await waitFor(() => expect(screen.getByLabelText(/الإدارات المحالة\/الصادر لها/)).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText(/الإدارات المحالة\/الصادر لها/), ['20', '30']);
+    await user.selectOptions(screen.getByLabelText('ترتيب التفاصيل'), String(3));
+    await user.click(screen.getByRole('checkbox', { name: /تجميع التفاصيل حسب الإدارة/i }));
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+
+    await waitFor(() => expect(services.institutionalReportsApi.preview).toHaveBeenCalled());
+    const request = vi.mocked(services.institutionalReportsApi.preview).mock.calls[0][0];
+    expect(request.detailSortBy).toBe(3);
+    expect(request.groupDetailsByDepartment).toBe(true);
+  });
+
+  it('resets groupDetailsByDepartment when switching away from DepartmentTransactions', async () => {
+    vi.mocked(services.departmentsApi.lookup).mockResolvedValueOnce({
+      data: [{ id: 20, name: 'الإدارة ب' }, { id: 30, name: 'الإدارة ج' }],
+    } as never);
+    vi.mocked(services.institutionalReportsApi.preview).mockResolvedValue({ data: mockManifest } as never);
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+
+    await user.selectOptions(screen.getByLabelText('نوع التقرير'), String(InstitutionalReportType.DepartmentTransactions));
+    await waitFor(() => expect(screen.getByLabelText(/الإدارات المحالة\/الصادر لها/)).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText(/الإدارات المحالة\/الصادر لها/), ['20', '30']);
+    await user.click(screen.getByRole('checkbox', { name: /تجميع التفاصيل حسب الإدارة/i }));
+
+    await user.selectOptions(screen.getByLabelText('نوع التقرير'), String(InstitutionalReportType.ExecutiveComprehensive));
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+
+    await waitFor(() => expect(services.institutionalReportsApi.preview).toHaveBeenCalled());
+    const request = vi.mocked(services.institutionalReportsApi.preview).mock.calls[0][0];
+    expect(request.groupDetailsByDepartment).toBe(false);
+  });
+
+  it('restores detailSortBy and groupDetailsByDepartment when applying a saved template', async () => {
+    vi.mocked(services.institutionalReportsApi.getTemplates).mockResolvedValueOnce({
+      data: [
+        {
+          id: 10,
+          name: 'قالب معاملات إدارة',
+          reportType: InstitutionalReportType.DepartmentTransactions,
+          sectionIds: [ReportSectionId.Cover, ReportSectionId.TransactionDetails],
+          defaultFilters: { departmentIds: [20, 30] },
+          defaultFormat: ExportFormat.Pdf,
+          pageNumberingMode: 1,
+          includePartialCover: false,
+          includePartialManifest: false,
+          detailSortBy: 2,
+          groupDetailsByDepartment: true,
+        },
+      ],
+    } as never);
+    vi.mocked(services.institutionalReportsApi.preview).mockResolvedValue({ data: mockManifest } as never);
+
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'قالب معاملات إدارة' })).toBeInTheDocument();
+    });
+
+    await user.selectOptions(screen.getByLabelText('القالب المحفوظ'), '10');
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+
+    await waitFor(() => expect(services.institutionalReportsApi.preview).toHaveBeenCalled());
+    const request = vi.mocked(services.institutionalReportsApi.preview).mock.calls[0][0];
+    expect(request.detailSortBy).toBe(2);
+    expect(request.groupDetailsByDepartment).toBe(true);
+  });
+
+  it('includes detailSortBy and groupDetailsByDepartment in the saveTemplate payload', async () => {
+    vi.mocked(services.departmentsApi.lookup).mockResolvedValueOnce({
+      data: [{ id: 20, name: 'الإدارة ب' }, { id: 30, name: 'الإدارة ج' }],
+    } as never);
+    vi.mocked(services.institutionalReportsApi.saveTemplate).mockResolvedValueOnce({
+      data: {
+        id: 11,
+        name: 'قالب جديد',
+        reportType: InstitutionalReportType.DepartmentTransactions,
+        sectionIds: [ReportSectionId.Cover],
+        defaultFilters: { departmentIds: [20, 30] },
+        defaultFormat: ExportFormat.Pdf,
+        pageNumberingMode: 1,
+        includePartialCover: true,
+        includePartialManifest: true,
+        detailSortBy: 2,
+        groupDetailsByDepartment: true,
+      },
+    } as never);
+
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+
+    await user.selectOptions(screen.getByLabelText('نوع التقرير'), String(InstitutionalReportType.DepartmentTransactions));
+    await waitFor(() => expect(screen.getByLabelText(/الإدارات المحالة\/الصادر لها/)).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText(/الإدارات المحالة\/الصادر لها/), ['20', '30']);
+    await user.selectOptions(screen.getByLabelText('ترتيب التفاصيل'), String(2));
+    await user.click(screen.getByRole('checkbox', { name: /تجميع التفاصيل حسب الإدارة/i }));
+
+    await user.type(screen.getByLabelText('حفظ الإعدادات كقالب'), 'قالب جديد');
+    await user.click(screen.getByRole('button', { name: 'حفظ' }));
+
+    await waitFor(() => expect(services.institutionalReportsApi.saveTemplate).toHaveBeenCalled());
+    const payload = vi.mocked(services.institutionalReportsApi.saveTemplate).mock.calls[0][0];
+    expect(payload.detailSortBy).toBe(2);
+    expect(payload.groupDetailsByDepartment).toBe(true);
+  });
+
+  it('shows the relabeled departments filter with its clarifying hint text', async () => {
+    vi.mocked(services.departmentsApi.lookup).mockResolvedValueOnce({
+      data: [{ id: 20, name: 'الإدارة ب' }],
+    } as never);
+    render(<ReportBuilderPage />);
+    await waitFor(() => {
+      expect(screen.getByText(/الإدارات المحالة\/الصادر لها/)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/يطابق هذا الفلتر الإدارات المرتبطة بالمعاملة عبر الإحالات أو الإدارات الصادر لها/)).toBeInTheDocument();
+  });
+
+  it('shows the overdue DateFrom hint only when OverdueTransactions is selected', async () => {
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+
+    expect(screen.queryByText(/في تقرير المتأخرات، يتم تقييم التأخر حتى تاريخ نهاية الفترة/)).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('نوع التقرير'), String(InstitutionalReportType.OverdueTransactions));
+
+    expect(screen.getByText(/في تقرير المتأخرات، يتم تقييم التأخر حتى تاريخ نهاية الفترة/)).toBeInTheDocument();
   });
 });

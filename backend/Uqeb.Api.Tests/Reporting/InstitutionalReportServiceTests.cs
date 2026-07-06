@@ -347,10 +347,7 @@ public class InstitutionalReportServiceSideEffectTests
             ReportSectionId.CriticalCases,
             ReportSectionId.TransactionDetails
         ],
-        Filters = new ReportFiltersDto
-        {
-            IncludeDetails = true
-        }
+        Filters = new ReportFiltersDto()
     };
 
     private static async Task SeedTransactionAsync(CountingDbContextFactory factory, DateTime updatedAt)

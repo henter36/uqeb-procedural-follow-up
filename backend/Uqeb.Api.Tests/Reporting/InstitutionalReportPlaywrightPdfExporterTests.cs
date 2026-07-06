@@ -162,6 +162,41 @@ public class InstitutionalReportPlaywrightPdfExporterTests
         Assert.Equal(manifest.TotalPages, CountPdfPages(pdf));
     }
 
+    [Fact]
+    public async Task ExportAsync_DepartmentTransactions_PhysicalPageCountMatchesManifestWithComputedRowsPerPage()
+    {
+        await EnsurePlaywrightAvailableAsync();
+        if (!await IsPlaywrightAvailableAsync())
+            return;
+
+        // 60 rows comfortably spans multiple pages under the new geometry-computed row-per-page
+        // capacity (~24/page for ExtraWideLandscape), proving manifest.TotalPages (computed from the
+        // same Chunk(rowsPerPage) the physical PDF is rendered from) stays in sync with the actual
+        // rendered PDF page count for this report type specifically.
+        var rows = InstitutionalReportVisualFixtures.CreateTransactions(60);
+        foreach (var row in rows)
+        {
+            row.MatchedDepartments =
+            [
+                new TransactionDetailDepartmentRelationDto { DepartmentId = 20, DepartmentName = "الإدارة ب", Relation = "إحالة" },
+            ];
+        }
+
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel(totalMatched: 60, exportedRows: 60);
+        model.Metadata.ReportType = InstitutionalReportType.DepartmentTransactions;
+        model.Transactions = rows;
+
+        var manifest = InstitutionalReportVisualFixtures.RenderSections(model, ReportSectionId.TransactionDetails);
+        var html = InstitutionalReportRenderer.RenderHtmlDocument(manifest);
+
+        await using var exporter = CreateExporter();
+        var pdf = await exporter.ExportAsync(manifest, html);
+        WritePdfArtifact("department-transactions.actual.pdf", pdf);
+
+        Assert.True(manifest.TotalPages > 1);
+        Assert.Equal(manifest.TotalPages, CountPdfPages(pdf));
+    }
+
     private static InstitutionalReportPlaywrightPdfExporter CreateExporter() =>
         new(
             new ReadyChromiumProbe(),

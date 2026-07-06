@@ -33,11 +33,7 @@ public sealed class ReportFiltersDto
     public List<int> CategoryIds { get; set; } = [];
     public List<string> Priorities { get; set; } = [];
     public List<string> Statuses { get; set; } = [];
-    public bool IncludeJointDepartmentTransactions { get; set; } = true;
     public bool IncludeOverdue { get; set; } = false;
-    public bool IncludeDetails { get; set; } = true;
-    public bool IncludeRisks { get; set; } = true;
-    public bool IncludeRecommendations { get; set; } = true;
     public string? Search { get; set; }
 }
 
@@ -371,6 +367,37 @@ public sealed class TransactionDetailRowDto
     public string ResponseState { get; set; } = string.Empty;
     public string? OutgoingNumber { get; set; }
     public string? OutgoingDate { get; set; }
+
+    /// <summary>
+    /// Populated only for <see cref="InstitutionalReportType.DepartmentTransactions"/>: each selected
+    /// department this transaction actually matches, with how it matches (referral/outgoing/both).
+    /// Empty for every other report type.
+    /// </summary>
+    public List<TransactionDetailDepartmentRelationDto> MatchedDepartments { get; set; } = [];
+
+    /// <summary>
+    /// Set only when this row is a department-grouped duplicate (GroupDetailsByDepartment): identifies
+    /// which selected department this particular duplicate was emitted for. Null otherwise.
+    /// </summary>
+    public int? DepartmentGroupDepartmentId { get; set; }
+    public string? DepartmentGroupDepartmentName { get; set; }
+
+    /// <summary>
+    /// DepartmentTransactions XLSX export only: ALL assignment/outgoing department names for this
+    /// transaction (not just the selected/matched ones) for full auditability. Empty for every other
+    /// report type.
+    /// </summary>
+    public List<string> AllAssignmentDepartments { get; set; } = [];
+    public List<string> AllOutgoingDepartments { get; set; } = [];
+}
+
+public sealed class TransactionDetailDepartmentRelationDto
+{
+    public int DepartmentId { get; set; }
+    public string DepartmentName { get; set; } = string.Empty;
+
+    /// <summary>"إحالة" | "صادر لها" | "إحالة وصادر لها"</summary>
+    public string Relation { get; set; } = string.Empty;
 }
 
 public sealed class IntegrityWarningDto
@@ -405,6 +432,22 @@ public sealed class InstitutionalReportModel
     public int ExportedDetailRows { get; set; }
     public bool DetailRowsTruncated { get; set; }
     public int DetailPartsCount { get; set; }
+
+    /// <summary>The sort actually applied to the TransactionDetails rows (after resolving Default per report type).</summary>
+    public ReportDetailSortBy DetailSortByEffective { get; set; } = ReportDetailSortBy.Default;
+
+    /// <summary>True only when GroupDetailsByDepartment duplicated rows per matched department (DepartmentTransactions with 2+ selected departments).</summary>
+    public bool GroupDetailsByDepartmentEffective { get; set; }
+
+    /// <summary>False only when GroupDetailsByDepartmentEffective is true — a shared transaction can appear under more than one department, so counts must not be summed across department groups.</summary>
+    public bool DetailRowsAreAdditive { get; set; } = true;
+
+    /// <summary>
+    /// Non-null only when the caller requested comparison (IncludeComparison=true, mode != None) but the
+    /// current period was incomplete (missing DateFrom/DateTo for a relative mode, or an invalid custom
+    /// range) — null both when comparison wasn't requested and when it was successfully built.
+    /// </summary>
+    public string? ComparisonUnavailableReason { get; set; }
 }
 
 public sealed record RenderedReportPageDto
@@ -502,6 +545,15 @@ public sealed class ReportBuildRequestDto
     public int? MaxCriticalCases { get; set; }
     public int? MaxFindings { get; set; }
     public int? MaxRecommendations { get; set; }
+
+    /// <summary>Detail-table row order. Report-run option, not a data-scope filter — lives here, not in Filters.</summary>
+    public ReportDetailSortBy? DetailSortBy { get; set; }
+
+    /// <summary>
+    /// DepartmentTransactions only: when true and 2+ departments are selected, duplicates each matching
+    /// transaction once per matched department (grouped, non-additive). Report-run option, not a filter.
+    /// </summary>
+    public bool? GroupDetailsByDepartment { get; set; }
 }
 
 /// <summary>Export request. Boolean and enum fields default intentionally when omitted (under-posting is valid).</summary>
@@ -549,6 +601,8 @@ public sealed class ReportTemplateDto
     public PageNumberingMode PageNumberingMode { get; set; } = PageNumberingMode.Restart;
     public bool IncludePartialCover { get; set; }
     public bool IncludePartialManifest { get; set; }
+    public ReportDetailSortBy? DetailSortBy { get; set; }
+    public bool? GroupDetailsByDepartment { get; set; }
 }
 
 public sealed class SaveReportTemplateRequestDto
@@ -561,4 +615,6 @@ public sealed class SaveReportTemplateRequestDto
     public PageNumberingMode? PageNumberingMode { get; set; }
     public bool? IncludePartialCover { get; set; }
     public bool? IncludePartialManifest { get; set; }
+    public ReportDetailSortBy? DetailSortBy { get; set; }
+    public bool? GroupDetailsByDepartment { get; set; }
 }

@@ -4,6 +4,16 @@ export const InstitutionalReportType = {
   JointDepartmentTransactions: 3,
   PartialResponses: 4,
   SingleTransaction: 5,
+  DepartmentTransactions: 6,
+} as const;
+
+export const ReportDetailSortBy = {
+  Default: 0,
+  IncomingDateDesc: 1,
+  Department: 2,
+  Status: 3,
+  Priority: 4,
+  DueDate: 5,
 } as const;
 
 export const ReportSectionId = {

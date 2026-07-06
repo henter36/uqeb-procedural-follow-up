@@ -94,6 +94,62 @@ public class InstitutionalReportXlsxExporterTests
         Assert.False(workbook.TryGetWorksheet("Department Time Series", out _));
     }
 
+    [Fact]
+    public void Export_DepartmentTransactions_WritesMatchedDepartmentsRelationAndFullDepartmentColumns()
+    {
+        var model = new InstitutionalReportModel
+        {
+            Metadata = new ReportMetadataDto
+            {
+                ReportNumber = "REP-2026-000701",
+                Title = "تقرير معاملات إدارة",
+                ReportTypeName = "تقرير معاملات إدارة",
+                ReportType = InstitutionalReportType.DepartmentTransactions,
+                IssueDate = DateTime.UtcNow.Date,
+                PeriodFrom = DateTime.UtcNow.Date,
+                PeriodTo = DateTime.UtcNow.Date,
+            },
+            Transactions =
+            [
+                new TransactionDetailRowDto
+                {
+                    Sequence = 1,
+                    TrackingNumber = "UQEB-2026-00001",
+                    IncomingNumber = "IN-0001",
+                    IncomingDate = DateTime.UtcNow.Date,
+                    Subject = "معاملة الإدارة",
+                    Status = "قيد المعالجة",
+                    Priority = "عاجل",
+                    MatchedDepartments =
+                    [
+                        new TransactionDetailDepartmentRelationDto { DepartmentId = 20, DepartmentName = "الإدارة ب", Relation = "إحالة وصادر لها" },
+                    ],
+                    AllAssignmentDepartments = ["الإدارة ب", "الإدارة ج"],
+                    AllOutgoingDepartments = ["الإدارة ب"],
+                },
+            ],
+        };
+
+        var manifest = new RenderedReportManifestDto
+        {
+            Pages = [new RenderedReportPageDto { SectionId = ReportSectionId.TransactionDetails }],
+        };
+
+        var bytes = InstitutionalReportXlsxExporter.Export(model, manifest, new ReportExportRequestDto());
+
+        using var workbook = new XLWorkbook(new MemoryStream(bytes));
+        var ws = workbook.Worksheet("المعاملات التفصيلية");
+        AssertHeaders(ws, [
+            "م", "رقم المعاملة (التتبع الداخلي)", "رقم الوارد", "تاريخ الوارد", "الموضوع", "الجهة",
+            "الإدارة/الإدارات المطابقة", "نوع العلاقة", "رقم الصادر", "تاريخ الصادر",
+            "إدارات الإحالة (الكل)", "إدارات الصادر (الكل)", "الحالة", PriorityHeader, "المهلة", "آخر إجراء",
+        ]);
+        Assert.Equal("الإدارة ب", ws.Cell(2, 7).GetString());
+        Assert.Equal("إحالة وصادر لها", ws.Cell(2, 8).GetString());
+        Assert.Equal("الإدارة ب؛ الإدارة ج", ws.Cell(2, 11).GetString());
+        Assert.Equal("الإدارة ب", ws.Cell(2, 12).GetString());
+    }
+
     private static void AssertHeaders(IXLWorksheet worksheet, IReadOnlyList<string> expectedHeaders)
     {
         for (var column = 1; column <= expectedHeaders.Count; column++)

@@ -16,7 +16,9 @@ internal sealed record ResolvedSaveTemplateOptions(
     ExportFormat DefaultFormat,
     PageNumberingMode PageNumberingMode,
     bool IncludePartialCover,
-    bool IncludePartialManifest);
+    bool IncludePartialManifest,
+    ReportDetailSortBy DetailSortBy,
+    bool GroupDetailsByDepartment);
 
 internal static class InstitutionalReportExportOptionsResolver
 {
@@ -33,7 +35,9 @@ internal static class InstitutionalReportExportOptionsResolver
         request.DefaultFormat ?? ExportFormat.Pdf,
         request.PageNumberingMode ?? PageNumberingMode.Restart,
         request.IncludePartialCover ?? false,
-        request.IncludePartialManifest ?? false);
+        request.IncludePartialManifest ?? false,
+        request.DetailSortBy ?? ReportDetailSortBy.Default,
+        request.GroupDetailsByDepartment ?? false);
 
     internal static ReportExportRequestDto WithResolvedValues(ReportExportRequestDto request)
     {

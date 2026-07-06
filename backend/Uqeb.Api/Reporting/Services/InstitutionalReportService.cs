@@ -160,6 +160,9 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             });
         }
 
+        InstitutionalReportRequestValidator.ValidateDepartmentTransactionsRequiresDepartments(
+            request.ReportType.Value, request.DefaultFilters, "defaultFilters.departmentIds");
+
         var templateOptions = InstitutionalReportExportOptionsResolver.Resolve(request);
 
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
@@ -182,6 +185,8 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             PageNumberingMode = templateOptions.PageNumberingMode,
             IncludePartialCover = templateOptions.IncludePartialCover,
             IncludePartialManifest = templateOptions.IncludePartialManifest,
+            DetailSortBy = templateOptions.DetailSortBy,
+            GroupDetailsByDepartment = templateOptions.GroupDetailsByDepartment,
             CreatedById = _currentUser.UserId,
             CreatedAt = DateTime.UtcNow
         };
@@ -224,7 +229,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             totalMatched = metricSnapshots.Count;
         }
         var metrics = InstitutionalReportMetricsCalculator.Calculate(metricSnapshots, overdueEvaluationDate);
-        var comparisonRequest = InstitutionalReportAnalysisService.CreateComparisonRequest(request);
+        var comparisonRequest = InstitutionalReportAnalysisService.CreateComparisonRequest(request, out var comparisonUnavailableReason);
         // CreateComparisonRequest can shift Filters.DateTo to a prior period (previous-period /
         // year-over-year comparisons), so the comparison snapshots must be evaluated for
         // overdue-ness against their own period end, not the current request's.
@@ -243,6 +248,12 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
 
         var (detailSnapshots, exportedDetailRows) = await ResolveDetailRowsAsync(
             request, options, totalMatched, metricSnapshots, overdueEvaluationDate, ct);
+
+        // Sorting/grouping is a pure post-processing step on the already-loaded, already-truncated
+        // detail rows: it never changes which rows survive truncation (still governed by
+        // LoadSnapshotsAsync's DB-level order) or the metricSnapshots-driven aggregates above.
+        var (sortedDetailSnapshots, effectiveSort) = ApplyDetailSort(detailSnapshots, request);
+        var (detailRows, groupedByDepartment) = BuildTransactionDetails(sortedDetailSnapshots, request);
 
         var detailRowsTruncated = options.DetailRowsTruncated || totalMatched > exportedDetailRows || options.DetailPartsCount > 1;
         string reportNumber;
@@ -288,8 +299,12 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             Risks = BuildRisks(metrics.Snapshots),
             Recommendations = BuildRecommendations(metrics.Snapshots, referenceDate, _reportingOptions.Analysis),
             RiskCounters = BuildRiskCounters(metrics.Snapshots, referenceDate, _reportingOptions.Analysis),
-            Transactions = BuildTransactionDetails(detailSnapshots),
-            IntegrityWarnings = ValidateIntegrity(metrics)
+            Transactions = detailRows,
+            IntegrityWarnings = ValidateIntegrity(metrics),
+            DetailSortByEffective = effectiveSort,
+            GroupDetailsByDepartmentEffective = groupedByDepartment,
+            DetailRowsAreAdditive = !groupedByDepartment,
+            ComparisonUnavailableReason = comparisonUnavailableReason,
         };
 
         model.Analysis = InstitutionalReportAnalysisService.Build(
@@ -619,28 +634,178 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         };
     }
 
-    private static List<TransactionDetailRowDto> BuildTransactionDetails(IReadOnlyList<TransactionReportSnapshot> snapshots) =>
-        snapshots.Select((s, index) => new TransactionDetailRowDto
+    /// <summary>
+    /// Post-processing re-sort of the already-loaded, already-truncated detail snapshots. Never
+    /// changes which rows survive truncation (that's still LoadSnapshotsAsync's DB-level order) or
+    /// the metricSnapshots-driven aggregates computed earlier in BuildInternalAsync — this only
+    /// reorders the final TransactionDetails table/export rows.
+    /// </summary>
+    private static (List<TransactionReportSnapshot> Snapshots, ReportDetailSortBy EffectiveSort) ApplyDetailSort(
+        List<TransactionReportSnapshot> snapshots, ReportBuildRequestDto request)
+    {
+        var requested = request.DetailSortBy ?? ReportDetailSortBy.Default;
+
+        if (requested == ReportDetailSortBy.Default)
         {
-            Sequence = index + 1,
-            TransactionId = s.TransactionId,
-            TrackingNumber = s.TrackingNumber,
-            IncomingNumber = s.IncomingNumber,
-            IncomingDate = s.IncomingDate,
-            Subject = s.Subject,
-            IncomingParty = s.IncomingParty,
-            ResponsibleDepartment = s.ResponsibleDepartment,
-            JointDepartments = string.Join("، ", s.AssignmentDepartmentNames.Concat(s.OutgoingDepartmentNames).Distinct()),
-            Priority = PriorityLabel(s.Priority),
-            Status = StatusLabel(s.Status),
-            FollowUpStage = string.Join("، ", s.FollowUpStages.Select(InstitutionalReportMetricsCalculator.FollowUpStageLabel)),
-            ElapsedDays = s.ElapsedDays,
-            DueDate = s.ResponseDueDate?.ToString(IsoDateFormat, CultureInfo.InvariantCulture),
-            LastActionDate = (s.UpdatedAt ?? s.LastFollowUpDate)?.ToString(IsoDateFormat, CultureInfo.InvariantCulture),
-            ResponseState = ResolveResponseState(s),
-            OutgoingNumber = s.OutgoingNumber,
-            OutgoingDate = s.OutgoingDate?.ToString(IsoDateFormat, CultureInfo.InvariantCulture)
+            if (request.ReportType == InstitutionalReportType.DepartmentTransactions)
+            {
+                var departmentSorted = snapshots
+                    .OrderBy(s => ResolveDepartmentSortKey(s, request), StringComparer.Ordinal)
+                    .ThenByDescending(s => s.IncomingDate)
+                    .ThenByDescending(s => s.TransactionId)
+                    .ToList();
+                return (departmentSorted, ReportDetailSortBy.Department);
+            }
+
+            // Unchanged for every other report type: LoadSnapshotsAsync already applied
+            // OrderByDescending(IncomingDate).ThenByDescending(Id) at the DB level — zero
+            // regression when DetailSortBy is omitted.
+            return (snapshots, ReportDetailSortBy.IncomingDateDesc);
+        }
+
+        List<TransactionReportSnapshot> sorted = requested switch
+        {
+            ReportDetailSortBy.IncomingDateDesc => snapshots
+                .OrderByDescending(s => s.IncomingDate).ThenByDescending(s => s.TransactionId).ToList(),
+            ReportDetailSortBy.Department => snapshots
+                .OrderBy(s => ResolveDepartmentSortKey(s, request), StringComparer.Ordinal).ThenByDescending(s => s.IncomingDate).ToList(),
+            ReportDetailSortBy.Status => snapshots
+                .OrderBy(s => s.Status).ThenByDescending(s => s.IncomingDate).ToList(),
+            ReportDetailSortBy.Priority => snapshots
+                .OrderByDescending(s => s.Priority).ThenByDescending(s => s.IncomingDate).ToList(),
+            ReportDetailSortBy.DueDate => snapshots
+                .OrderBy(s => s.ResponseDueDate ?? DateTime.MaxValue).ThenByDescending(s => s.IncomingDate).ToList(),
+            _ => snapshots
+        };
+        return (sorted, requested);
+    }
+
+    /// <summary>
+    /// For DepartmentTransactions, "Department" sort must reflect the report's own selected-department
+    /// scope (assignment OR outgoing), not the generic ResponsibleDepartment field — which only reflects
+    /// the first ASSIGNMENT department and is empty ("—") for transactions matched purely via an
+    /// OutgoingDepartment relation, which would otherwise sort those rows incorrectly. For every other
+    /// report type, ResponsibleDepartment (the existing, unaffected meaning) is used unchanged.
+    /// </summary>
+    private static string ResolveDepartmentSortKey(TransactionReportSnapshot s, ReportBuildRequestDto request)
+    {
+        if (request.ReportType != InstitutionalReportType.DepartmentTransactions)
+            return s.ResponsibleDepartment;
+
+        foreach (var deptId in request.Filters.DepartmentIds)
+        {
+            if (s.AssignmentDepartmentIds.Contains(deptId))
+                return s.AssignmentDepartmentNames[s.AssignmentDepartmentIds.IndexOf(deptId)];
+            if (s.OutgoingDepartmentIds.Contains(deptId))
+                return s.OutgoingDepartmentNames[s.OutgoingDepartmentIds.IndexOf(deptId)];
+        }
+        return s.ResponsibleDepartment;
+    }
+
+    private static (List<TransactionDetailRowDto> Rows, bool GroupedByDepartment) BuildTransactionDetails(
+        IReadOnlyList<TransactionReportSnapshot> snapshots, ReportBuildRequestDto request)
+    {
+        var isDepartmentTransactions = request.ReportType == InstitutionalReportType.DepartmentTransactions;
+        if (!isDepartmentTransactions)
+        {
+            var plainRows = snapshots.Select((s, index) => BuildDetailRow(s, index + 1, [])).ToList();
+            return (plainRows, false);
+        }
+
+        var selectedDepartmentIds = request.Filters.DepartmentIds;
+        var groupByDepartment = request.GroupDetailsByDepartment == true && selectedDepartmentIds.Count > 1;
+
+        if (!groupByDepartment)
+        {
+            var rows = snapshots.Select((s, index) =>
+                BuildDetailRow(s, index + 1, ComputeMatchedDepartments(s, selectedDepartmentIds))).ToList();
+            return (rows, false);
+        }
+
+        // Grouped: expand each snapshot into one row per matched selected department, ordered
+        // department-first. A shared transaction may appear under more than one department here —
+        // intentional and documented via InstitutionalReportModel.DetailRowsAreAdditive = false.
+        var expanded = new List<(TransactionReportSnapshot Snapshot, TransactionDetailDepartmentRelationDto Match)>();
+        foreach (var s in snapshots)
+        {
+            foreach (var match in ComputeMatchedDepartments(s, selectedDepartmentIds))
+                expanded.Add((s, match));
+        }
+
+        var orderedExpanded = expanded
+            .OrderBy(e => e.Match.DepartmentName, StringComparer.Ordinal)
+            .ThenByDescending(e => e.Snapshot.IncomingDate)
+            .ThenByDescending(e => e.Snapshot.TransactionId)
+            .ToList();
+
+        var groupedRows = orderedExpanded.Select((e, index) =>
+        {
+            var row = BuildDetailRow(e.Snapshot, index + 1, ComputeMatchedDepartments(e.Snapshot, selectedDepartmentIds));
+            row.DepartmentGroupDepartmentId = e.Match.DepartmentId;
+            row.DepartmentGroupDepartmentName = e.Match.DepartmentName;
+            return row;
         }).ToList();
+
+        return (groupedRows, true);
+    }
+
+    private static TransactionDetailRowDto BuildDetailRow(
+        TransactionReportSnapshot s, int sequence, List<TransactionDetailDepartmentRelationDto> matchedDepartments) => new()
+    {
+        Sequence = sequence,
+        TransactionId = s.TransactionId,
+        TrackingNumber = s.TrackingNumber,
+        IncomingNumber = s.IncomingNumber,
+        IncomingDate = s.IncomingDate,
+        Subject = s.Subject,
+        IncomingParty = s.IncomingParty,
+        ResponsibleDepartment = s.ResponsibleDepartment,
+        JointDepartments = string.Join("، ", s.AssignmentDepartmentNames.Concat(s.OutgoingDepartmentNames).Distinct()),
+        Priority = PriorityLabel(s.Priority),
+        Status = StatusLabel(s.Status),
+        FollowUpStage = string.Join("، ", s.FollowUpStages.Select(InstitutionalReportMetricsCalculator.FollowUpStageLabel)),
+        ElapsedDays = s.ElapsedDays,
+        DueDate = s.ResponseDueDate?.ToString(IsoDateFormat, CultureInfo.InvariantCulture),
+        LastActionDate = (s.UpdatedAt ?? s.LastFollowUpDate)?.ToString(IsoDateFormat, CultureInfo.InvariantCulture),
+        ResponseState = ResolveResponseState(s),
+        OutgoingNumber = s.OutgoingNumber,
+        OutgoingDate = s.OutgoingDate?.ToString(IsoDateFormat, CultureInfo.InvariantCulture),
+        MatchedDepartments = matchedDepartments,
+        AllAssignmentDepartments = s.AssignmentDepartmentNames.ToList(),
+        AllOutgoingDepartments = s.OutgoingDepartmentNames.ToList(),
+    };
+
+    /// <summary>
+    /// DepartmentTransactions only: for each selected department id, checks whether this transaction
+    /// matches it via Assignment ("إحالة"), OutgoingDepartment ("صادر لها"), or both — using the
+    /// already-loaded, already-deduped AssignmentDepartmentIds/OutgoingDepartmentIds on the snapshot
+    /// (no new query/join). Mirrors PR #108's dedup-by-department-id idea without importing its code.
+    /// </summary>
+    private static List<TransactionDetailDepartmentRelationDto> ComputeMatchedDepartments(
+        TransactionReportSnapshot s, IReadOnlyList<int> selectedDepartmentIds)
+    {
+        var result = new List<TransactionDetailDepartmentRelationDto>();
+        foreach (var deptId in selectedDepartmentIds.Distinct())
+        {
+            var viaAssignment = s.AssignmentDepartmentIds.Contains(deptId);
+            var viaOutgoing = s.OutgoingDepartmentIds.Contains(deptId);
+            if (!viaAssignment && !viaOutgoing)
+                continue;
+
+            var name = viaAssignment
+                ? s.AssignmentDepartmentNames[s.AssignmentDepartmentIds.IndexOf(deptId)]
+                : s.OutgoingDepartmentNames[s.OutgoingDepartmentIds.IndexOf(deptId)];
+            var relation = viaAssignment && viaOutgoing ? "إحالة وصادر لها" : viaAssignment ? "إحالة" : "صادر لها";
+
+            result.Add(new TransactionDetailDepartmentRelationDto
+            {
+                DepartmentId = deptId,
+                DepartmentName = name,
+                Relation = relation
+            });
+        }
+        return result;
+    }
 
     private static string ResolveResponseState(TransactionReportSnapshot snapshot)
     {
@@ -712,6 +877,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         InstitutionalReportType.JointDepartmentTransactions => "تقرير معاملات الإدارات المشتركة",
         InstitutionalReportType.PartialResponses => "تقرير الإفادات والردود الجزئية",
         InstitutionalReportType.SingleTransaction => "تقرير معاملة واحدة",
+        InstitutionalReportType.DepartmentTransactions => "تقرير معاملات إدارة",
         _ => "التقرير التنفيذي الشامل"
     };
 
@@ -742,6 +908,8 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         DefaultFormat = entity.DefaultFormat,
         PageNumberingMode = entity.PageNumberingMode,
         IncludePartialCover = entity.IncludePartialCover,
-        IncludePartialManifest = entity.IncludePartialManifest
+        IncludePartialManifest = entity.IncludePartialManifest,
+        DetailSortBy = entity.DetailSortBy,
+        GroupDetailsByDepartment = entity.GroupDetailsByDepartment
     };
 }

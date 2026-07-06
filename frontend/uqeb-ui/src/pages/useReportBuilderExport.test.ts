@@ -47,11 +47,7 @@ const defaultBuildRequest = (): ReportBuildRequest => ({
     categoryIds: [],
     priorities: [],
     statuses: [],
-    includeJointDepartmentTransactions: false,
     includeOverdue: false,
-    includeDetails: false,
-    includeRisks: false,
-    includeRecommendations: false,
   },
 });
 

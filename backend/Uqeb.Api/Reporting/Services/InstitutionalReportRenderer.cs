@@ -141,6 +141,12 @@ public sealed class InstitutionalReportRenderer
         }
     }
 
+    // Denser layout metrics for the DepartmentTransactions detail table only (see .report-table--department-transactions
+    // in institutional-report.css). These are the same values the CSS uses, kept as named constants (not a bare row
+    // count) so the row-per-page capacity below is derived from real page geometry rather than a hardcoded literal.
+    private const decimal DepartmentTransactionsRowHeightMm = 13.5m;
+    private const decimal DepartmentTransactionsHeaderReserveMm = 28m;
+
     private static void AppendTransactionDetailPages(
         InstitutionalReportModel model,
         bool includeTransactionDetails,
@@ -152,11 +158,38 @@ public sealed class InstitutionalReportRenderer
         if (model.DetailRowsTruncated)
             pages.Add(MakePage(ReportSectionId.TransactionDetails, "تنبيه صفوف التفاصيل", RenderDetailTruncationNotice(model)));
 
-        foreach (var chunk in model.Transactions.Chunk(TransactionRowsPerPdfPage))
-            pages.Add(MakePage(ReportSectionId.TransactionDetails, "المعاملات التفصيلية", RenderTransactions(model, chunk.ToList())));
+        var isDepartmentTransactions = model.Metadata.ReportType == InstitutionalReportType.DepartmentTransactions;
+        var rowsPerPage = isDepartmentTransactions
+            ? ComputeRowsPerPage(InstitutionalReportPdfProfiles.ExtraWideLandscape, DepartmentTransactionsRowHeightMm, DepartmentTransactionsHeaderReserveMm)
+            : TransactionRowsPerPdfPage;
+
+        foreach (var chunk in model.Transactions.Chunk(rowsPerPage))
+        {
+            var html = isDepartmentTransactions
+                ? RenderDepartmentTransactionDetails(model, chunk.ToList())
+                : RenderTransactions(model, chunk.ToList());
+            pages.Add(MakePage(ReportSectionId.TransactionDetails, "المعاملات التفصيلية", html));
+        }
 
         if (model.Transactions.Count == 0)
-            pages.Add(MakePage(ReportSectionId.TransactionDetails, "المعاملات التفصيلية", RenderTransactions(model, [])));
+        {
+            var emptyHtml = isDepartmentTransactions
+                ? RenderDepartmentTransactionDetails(model, [])
+                : RenderTransactions(model, []);
+            pages.Add(MakePage(ReportSectionId.TransactionDetails, "المعاملات التفصيلية", emptyHtml));
+        }
+    }
+
+    /// <summary>
+    /// Row capacity per PDF page, derived from real page-profile geometry (content height minus margins
+    /// and a header reserve) divided by the table's own row height — not a fixed literal. Only used for
+    /// the DepartmentTransactions detail table; the 5 pre-existing report types keep TransactionRowsPerPdfPage
+    /// untouched (unaffected, zero regression risk to their existing pagination/tests).
+    /// </summary>
+    private static int ComputeRowsPerPage(PdfPageProfile profile, decimal rowHeightMm, decimal headerReserveMm)
+    {
+        var usableHeightMm = profile.HeightMm - profile.MarginTopMm - profile.MarginBottomMm - headerReserveMm;
+        return Math.Max(1, (int)Math.Floor(usableHeightMm / rowHeightMm));
     }
 
     private static void AppendDetailOverflowNoticeIfNeeded(
@@ -977,6 +1010,36 @@ public sealed class InstitutionalReportRenderer
         """;
     }
 
+    private static string RenderDepartmentTransactionDetails(InstitutionalReportModel model, List<TransactionDetailRowDto> rows)
+    {
+        var body = string.Join(string.Empty, rows.Select(r =>
+        {
+            var matched = string.Join("<br/>", r.MatchedDepartments.Select(m =>
+                $"{Esc(NormalizeDepartmentName(m.DepartmentName))} ({Esc(m.Relation)})"));
+            return $"<tr><td class=\"cell--number\">{r.Sequence}</td><td class=\"cell--id\">{Esc(r.IncomingNumber)}</td><td class=\"cell--date\">{FormatDate(r.IncomingDate)}</td><td class=\"cell--subject\">{Esc(r.Subject)}</td><td>{Esc(DisplayValue(r.IncomingParty))}</td><td class=\"cell--relation\">{matched}</td><td>{Esc(DisplayValue(r.Status))}</td><td>{Esc(DisplayValue(r.Priority))}</td><td class=\"cell--date\">{Esc(r.DueDate ?? "—")}</td><td class=\"cell--date\">{Esc(r.LastActionDate ?? "—")}</td></tr>";
+        }));
+        var totalResults = model.TotalMatchedRows > 0 ? model.TotalMatchedRows : model.Transactions.Count;
+        var pageNote = rows.Count < totalResults
+            ? $" — عرض {rows.Count:N0} صف في هذه الصفحة من {model.ExportedDetailRows:N0} صفًا مصدَّرًا"
+            : string.Empty;
+        var truncationNote = model.DetailRowsTruncated
+            ? $"""<div class="partial-note">إجمالي النتائج المطابقة: {totalResults:N0} — صفوف التفاصيل في هذا الملف: {model.ExportedDetailRows:N0}</div>"""
+            : string.Empty;
+        var groupingNote = model.GroupDetailsByDepartmentEffective
+            ? """<div class="partial-note">التفاصيل مجمّعة حسب الإدارة: قد تظهر المعاملة المشتركة تحت أكثر من إدارة — هذا التجميع غير تراكمي (لا يُجمع عدد الصفوف كإجمالي معاملات).</div>"""
+            : string.Empty;
+        return $"""
+        <h2 class="section-title">المعاملات التفصيلية — تقرير معاملات إدارة</h2>
+        {truncationNote}
+        {groupingNote}
+        <p class="section-subtitle">إجمالي النتائج: {totalResults:N0} معاملة{pageNote} — الفترة من {FormatDate(model.Metadata.PeriodFrom)} إلى {FormatDate(model.Metadata.PeriodTo)}</p>
+        <table class="report-table report-table--department-transactions"><thead><tr>
+          <th>#</th><th>رقم الوارد</th><th>تاريخ الوارد</th><th>الموضوع</th><th>الجهة الوارد منها</th>
+          <th>الإدارة/الإدارات المطابقة</th><th>الحالة</th><th>الأولوية</th><th>المهلة</th><th>آخر إجراء</th>
+        </tr></thead><tbody>{body}</tbody></table>
+        """;
+    }
+
     private static string RenderMetadata(InstitutionalReportModel model)
     {
         var warnings = string.Join(string.Empty, model.IntegrityWarnings.Select(w =>
@@ -998,6 +1061,9 @@ public sealed class InstitutionalReportRenderer
           <dt>إصدار القالب</dt><dd>{Esc(InstitutionalReportStyles.TemplateVersion)}</dd>
           <dt>البصمة</dt><dd>{Esc(model.Metadata.FileFingerprint ?? "—")}</dd>
           <dt>الفلاتر</dt><dd>{Esc(filterSummary)}</dd>
+          <dt>حالة المقارنة</dt><dd>{Esc(ComparisonStatusLabel(model))}</dd>
+          <dt>ترتيب التفاصيل</dt><dd>{Esc(DetailSortByLabel(model.DetailSortByEffective))}</dd>
+          <dt>تجميع التفاصيل حسب الإدارة</dt><dd>{(model.GroupDetailsByDepartmentEffective ? "نعم (غير تراكمي)" : "لا")}</dd>
         </dl>
         {(warnings.Length > 0 ? $"<h3>تحذيرات سلامة البيانات</h3><ul>{warnings}</ul>" : string.Empty)}
         """;
@@ -1018,10 +1084,41 @@ public sealed class InstitutionalReportRenderer
             parts.Add($"جهات: {filters.PartyIds.Count}");
         if (filters.CategoryIds.Count > 0)
             parts.Add($"تصنيفات: {filters.CategoryIds.Count}");
+        if (filters.Priorities.Count > 0)
+            parts.Add($"الأولويات: {string.Join("، ", filters.Priorities)}");
+        if (filters.Statuses.Count > 0)
+            parts.Add($"الحالات: {string.Join("، ", filters.Statuses)}");
+        if (filters.IncludeOverdue)
+            parts.Add("المتأخرة فقط");
         if (!string.IsNullOrWhiteSpace(filters.Search))
             parts.Add($"بحث: {filters.Search.Trim()}");
         return parts.Count == 0 ? "بدون فلاتر إضافية" : string.Join(" | ", parts);
     }
+
+    private static string ComparisonStatusLabel(InstitutionalReportModel model)
+    {
+        if (model.ComparisonUnavailableReason is not null)
+            return $"غير متاحة — {model.ComparisonUnavailableReason}";
+        if (model.Analysis.ComparisonMode == ReportComparisonMode.None)
+            return "غير مطبقة";
+        return model.Analysis.ComparisonMode switch
+        {
+            ReportComparisonMode.PreviousEquivalentPeriod => "الفترة السابقة المكافئة",
+            ReportComparisonMode.YearOverYear => "نفس الفترة من العام السابق",
+            ReportComparisonMode.Custom => "فترة مخصصة",
+            _ => "غير مطبقة"
+        };
+    }
+
+    private static string DetailSortByLabel(ReportDetailSortBy sortBy) => sortBy switch
+    {
+        ReportDetailSortBy.IncomingDateDesc => "تاريخ الوارد (الأحدث أولاً)",
+        ReportDetailSortBy.Department => "الإدارة",
+        ReportDetailSortBy.Status => "الحالة",
+        ReportDetailSortBy.Priority => "الأولوية",
+        ReportDetailSortBy.DueDate => "المهلة",
+        _ => "افتراضي"
+    };
 
     private static List<RiskAlertRowDto> BuildUnifiedRiskAlerts(InstitutionalReportModel model)
     {

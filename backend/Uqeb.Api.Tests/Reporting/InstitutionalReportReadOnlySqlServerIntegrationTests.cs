@@ -202,7 +202,6 @@ public class InstitutionalReportReadOnlySqlServerIntegrationTests
         {
             DateFrom = DateTime.UtcNow.Date.AddDays(-30),
             DateTo = DateTime.UtcNow.Date,
-            IncludeDetails = true,
         },
     };
 

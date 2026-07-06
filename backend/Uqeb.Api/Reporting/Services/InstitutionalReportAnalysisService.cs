@@ -269,8 +269,19 @@ internal static class InstitutionalReportAnalysisService
         }
     }
 
-    internal static ReportBuildRequestDto? CreateComparisonRequest(ReportBuildRequestDto request)
+    internal static ReportBuildRequestDto? CreateComparisonRequest(ReportBuildRequestDto request) =>
+        CreateComparisonRequest(request, out _);
+
+    /// <summary>
+    /// <paramref name="unavailableReason"/> is non-null only when comparison was actually requested
+    /// (IncludeComparison=true, mode != None) but the current period was incomplete — never set when
+    /// comparison simply wasn't requested (no message needed in that case).
+    /// </summary>
+    internal static ReportBuildRequestDto? CreateComparisonRequest(ReportBuildRequestDto request, out string? unavailableReason)
     {
+        unavailableReason = null;
+        const string incompletePeriodReason = "المقارنة غير متاحة لعدم تحديد فترة حالية مكتملة.";
+
         if (request.IncludeComparison == false)
             return null;
 
@@ -303,11 +314,15 @@ internal static class InstitutionalReportAnalysisService
         }
         else
         {
+            unavailableReason = incompletePeriodReason;
             return null;
         }
 
         if (!from.HasValue || !to.HasValue || from.Value > to.Value)
+        {
+            unavailableReason = incompletePeriodReason;
             return null;
+        }
 
         return new ReportBuildRequestDto
         {
@@ -333,6 +348,8 @@ internal static class InstitutionalReportAnalysisService
             MaxCriticalCases = request.MaxCriticalCases,
             MaxFindings = request.MaxFindings,
             MaxRecommendations = request.MaxRecommendations,
+            DetailSortBy = request.DetailSortBy,
+            GroupDetailsByDepartment = request.GroupDetailsByDepartment,
             Filters = new ReportFiltersDto
             {
                 DateFrom = from,
@@ -342,11 +359,7 @@ internal static class InstitutionalReportAnalysisService
                 CategoryIds = request.Filters.CategoryIds.ToList(),
                 Priorities = request.Filters.Priorities.ToList(),
                 Statuses = request.Filters.Statuses.ToList(),
-                IncludeJointDepartmentTransactions = request.Filters.IncludeJointDepartmentTransactions,
                 IncludeOverdue = request.Filters.IncludeOverdue,
-                IncludeDetails = request.Filters.IncludeDetails,
-                IncludeRisks = request.Filters.IncludeRisks,
-                IncludeRecommendations = request.Filters.IncludeRecommendations,
                 Search = request.Filters.Search
             }
         };

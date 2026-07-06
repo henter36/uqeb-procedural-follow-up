@@ -6,7 +6,20 @@ public enum InstitutionalReportType
     OverdueTransactions = 2,
     JointDepartmentTransactions = 3,
     PartialResponses = 4,
-    SingleTransaction = 5
+    SingleTransaction = 5,
+    DepartmentTransactions = 6
+}
+
+/// <summary>Detail-table row ordering for the report's TransactionDetails section.</summary>
+public enum ReportDetailSortBy
+{
+    /// <summary>Report-type-dependent default: Department-first for DepartmentTransactions, IncomingDate desc for every other type (unchanged from historical behavior).</summary>
+    Default = 0,
+    IncomingDateDesc = 1,
+    Department = 2,
+    Status = 3,
+    Priority = 4,
+    DueDate = 5
 }
 
 public enum ReportSectionId

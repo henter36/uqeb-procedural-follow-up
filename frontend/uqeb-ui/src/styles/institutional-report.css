@@ -291,6 +291,13 @@
   margin-inline-start: 0.35rem;
 }
 
+.rb-filter-hint {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  margin: 0.15rem 0 0.6rem;
+  line-height: 1.5;
+}
+
 .rb-clear-btn {
   flex-shrink: 0;
   font-size: 0.78rem;
