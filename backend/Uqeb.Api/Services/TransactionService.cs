@@ -287,7 +287,11 @@ public class TransactionService : ITransactionService
         else if (request.ResponseCompleted == false)
             query = query.Where(t => t.RequiresResponse && !t.ResponseCompleted);
         if (request.ResponseOverdue == true)
-            query = query.Where(t => t.RequiresResponse && !t.ResponseCompleted && t.ResponseDueDate < now);
+            query = query.Where(t => t.RequiresResponse && t.ResponseDueDate.HasValue &&
+                ((!t.ResponseCompleted && t.Status != TransactionStatus.Closed && t.ResponseDueDate.Value < now) ||
+                 ((t.ResponseCompleted || t.Status == TransactionStatus.Closed) &&
+                  (t.ClosedAt ?? t.ResponseCompletedDate).HasValue &&
+                  (t.ClosedAt ?? t.ResponseCompletedDate)!.Value.Date > t.ResponseDueDate.Value.Date)));
         if (request.HasPendingAssignments == true)
             query = query.Where(t => t.Assignments.Any(a =>
                 a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied && a.Status == AssignmentStatus.Active));
@@ -295,7 +299,11 @@ public class TransactionService : ITransactionService
             query = query.Where(t => t.Status == TransactionStatus.PartiallyReplied);
         if (request.OverdueOnly == true)
             query = query.Where(t =>
-                (t.RequiresResponse && !t.ResponseCompleted && t.ResponseDueDate < now) ||
+                (t.RequiresResponse && t.ResponseDueDate.HasValue &&
+                    ((!t.ResponseCompleted && t.Status != TransactionStatus.Closed && t.ResponseDueDate.Value < now) ||
+                     ((t.ResponseCompleted || t.Status == TransactionStatus.Closed) &&
+                      (t.ClosedAt ?? t.ResponseCompletedDate).HasValue &&
+                      (t.ClosedAt ?? t.ResponseCompletedDate)!.Value.Date > t.ResponseDueDate.Value.Date))) ||
                 t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied && a.DueDate < now));
         return query;
     }
@@ -327,10 +335,16 @@ public class TransactionService : ITransactionService
             t.CreatedAt,
             t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
                 && a.Status == AssignmentStatus.Active),
-            t.RequiresResponse && !t.ResponseCompleted
-                && t.ResponseDueDate.HasValue && t.ResponseDueDate.Value < now,
-            (t.RequiresResponse && !t.ResponseCompleted
-                    && t.ResponseDueDate.HasValue && t.ResponseDueDate.Value < now)
+            t.RequiresResponse && t.ResponseDueDate.HasValue
+                && ((!t.ResponseCompleted && t.Status != TransactionStatus.Closed && t.ResponseDueDate.Value < now) ||
+                    ((t.ResponseCompleted || t.Status == TransactionStatus.Closed) &&
+                     (t.ClosedAt ?? t.ResponseCompletedDate).HasValue &&
+                     (t.ClosedAt ?? t.ResponseCompletedDate)!.Value.Date > t.ResponseDueDate.Value.Date)),
+            (t.RequiresResponse && t.ResponseDueDate.HasValue
+                    && ((!t.ResponseCompleted && t.Status != TransactionStatus.Closed && t.ResponseDueDate.Value < now) ||
+                        ((t.ResponseCompleted || t.Status == TransactionStatus.Closed) &&
+                         (t.ClosedAt ?? t.ResponseCompletedDate).HasValue &&
+                         (t.ClosedAt ?? t.ResponseCompletedDate)!.Value.Date > t.ResponseDueDate.Value.Date)))
                 || t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
                     && a.Status == AssignmentStatus.Active && a.DueDate.HasValue && a.DueDate.Value < now),
             t.RecurringTemplateId,
@@ -882,6 +896,9 @@ public class TransactionService : ITransactionService
         if (validationErrors.Count > 0)
             throw new FieldValidationException(validationErrors);
 
+        if (request.IncomingDate.HasValue)
+            await EnsureIncomingDateDoesNotFollowExistingTimelineAsync(id, incomingDateSpecified: true, request.IncomingDate.Value.Date);
+
         var oldValues = JsonSerializer.Serialize(new
         {
             t.IncomingNumber,
@@ -1084,6 +1101,8 @@ public class TransactionService : ITransactionService
             throw new InvalidOperationException("تاريخ الإفادة مطلوب");
         if (IsFutureEventDate(request.ResponseDate))
             throw new InvalidOperationException(FutureEventDateMessage);
+        if (request.ResponseDate.Date < t.IncomingDate.Date)
+            throw new InvalidOperationException("تاريخ الإفادة لا يمكن أن يسبق تاريخ الوارد.");
 
         if (string.IsNullOrWhiteSpace(request.ResponseSummary))
             throw new InvalidOperationException("ملخص الإفادة مطلوب");
@@ -1097,6 +1116,8 @@ public class TransactionService : ITransactionService
                 throw new InvalidOperationException("تاريخ الصادر مطلوب لنوع الإفادة المحدد");
             if (IsFutureEventDate(request.OutgoingDate.Value))
                 throw new InvalidOperationException(FutureEventDateMessage);
+            if (request.OutgoingDate.Value.Date < t.IncomingDate.Date)
+                throw new InvalidOperationException("تاريخ الصادر لا يمكن أن يسبق تاريخ الوارد.");
         }
 
         await CommitWorkflowMutationAsync(() =>
@@ -1150,6 +1171,8 @@ public class TransactionService : ITransactionService
             throw new InvalidOperationException("يجب اختيار إدارة واحدة على الأقل لإرسال التعقيب.");
         if (IsFutureEventDate(request.FollowUpDate))
             ThrowFutureEventDateValidation(nameof(CreateFollowUpRequest.FollowUpDate));
+        if (request.FollowUpDate.Date < t.IncomingDate.Date)
+            throw new InvalidOperationException("تاريخ التعقيب لا يمكن أن يسبق تاريخ الوارد.");
 
         var allowedIds = GetAllowedFollowUpDepartmentIds(t);
         var invalid = departmentIds.Where(id => !allowedIds.Contains(id)).ToList();
@@ -1253,11 +1276,17 @@ public class TransactionService : ITransactionService
 
     public async Task<FollowUpDto?> ReplyFollowUpAsync(int transactionId, int followUpId, ReplyFollowUpRequest request, int userId)
     {
-        var followUp = await _db.FollowUps.Include(f => f.CreatedBy)
+        var followUp = await _db.FollowUps
+            .Include(f => f.CreatedBy)
+            .Include(f => f.Transaction)
             .FirstOrDefaultAsync(f => f.Id == followUpId && f.TransactionId == transactionId);
         if (followUp == null) return null;
         if (IsFutureEventDate(request.ReplyDate))
             ThrowFutureEventDateValidation(nameof(ReplyFollowUpRequest.ReplyDate));
+        if (request.ReplyDate.Date < followUp.Transaction.IncomingDate.Date)
+            throw new InvalidOperationException("تاريخ رد التعقيب لا يمكن أن يسبق تاريخ الوارد.");
+        if (request.ReplyDate.Date < followUp.FollowUpDate.Date)
+            throw new InvalidOperationException("تاريخ رد التعقيب لا يمكن أن يسبق تاريخ التعقيب.");
 
         await CommitWorkflowMutationAsync(
             () =>
@@ -1299,10 +1328,14 @@ public class TransactionService : ITransactionService
         var requestedDueDate = request.DueDate.HasValue
             ? NormalizeDateOnlyUtc(request.DueDate.Value)
             : (DateTime?)null;
-        var dueDate = WorkflowHelper.CalculateAssignmentDueDate(assignedDate, request.ReplyDueDays, requestedDueDate);
+        var replyDueDays = request.ReplyDueDays ?? WorkflowHelper.CalculateAssignmentDueDays(assignedDate, requestedDueDate);
+        var dueDate = WorkflowHelper.CalculateAssignmentDueDate(assignedDate, replyDueDays, requestedDueDate);
 
         if (assignedDate.Date < t.IncomingDate.Date)
             throw new InvalidOperationException("تاريخ الإحالة لا يمكن أن يسبق تاريخ الوارد.");
+
+        if (replyDueDays.HasValue && replyDueDays.Value < 0)
+            throw new InvalidOperationException("عدد أيام الرد لا يمكن أن يكون سالبًا.");
 
         if (dueDate.HasValue && dueDate.Value.Date < assignedDate.Date)
             throw new InvalidOperationException("تاريخ استحقاق الإدارة لا يمكن أن يسبق تاريخ الإحالة.");
@@ -1315,7 +1348,7 @@ public class TransactionService : ITransactionService
             LetterNumber = string.IsNullOrWhiteSpace(request.LetterNumber) ? null : request.LetterNumber.Trim(),
             RequiredAction = request.RequiredAction,
             RequiresReply = true,
-            ReplyDueDays = request.ReplyDueDays,
+            ReplyDueDays = replyDueDays,
             DueDate = dueDate,
             ReplyStatus = ReplyStatus.Pending,
             Status = AssignmentStatus.Active,
@@ -1367,6 +1400,10 @@ public class TransactionService : ITransactionService
 
         if (currentUser.Role == UserRole.DepartmentUser)
             throw new UnauthorizedAccessException("لا تملك صلاحية تسجيل رد على الاحالة. استخدم مسار إفادات الإدارة.");
+        if (request.ReplyDate.Date < assignment.Transaction.IncomingDate.Date)
+            throw new InvalidOperationException("تاريخ إنجاز الإدارة لا يمكن أن يسبق تاريخ الوارد.");
+        if (request.ReplyDate.Date < assignment.AssignedDate.Date)
+            throw new InvalidOperationException("تاريخ إنجاز الإدارة لا يمكن أن يسبق تاريخ الإحالة.");
 
         await CommitWorkflowMutationAsync(
             () =>
@@ -1410,8 +1447,8 @@ public class TransactionService : ITransactionService
         });
 
         var resolvedDates = ResolveAdminEditAssignmentDates(assignment, request);
-        ValidateAdminEditAssignmentDates(assignment, resolvedDates.AssignedDate, resolvedDates.DueDate);
-        ApplyAdminEditAssignmentChanges(assignment, request, resolvedDates.AssignedDate, resolvedDates.DueDate);
+        ValidateAdminEditAssignmentDates(assignment, resolvedDates.AssignedDate, resolvedDates.ReplyDueDays, resolvedDates.DueDate);
+        ApplyAdminEditAssignmentChanges(assignment, request, resolvedDates.AssignedDate, resolvedDates.ReplyDueDays, resolvedDates.DueDate);
 
         var newSnapshot = JsonSerializer.Serialize(new
         {
@@ -1451,19 +1488,34 @@ public class TransactionService : ITransactionService
         var oldSnapshot = JsonSerializer.Serialize(new
         {
             t.IncomingDate,
+            t.ResponseDueDays,
             t.ResponseDueDate,
             ClosedAt = t.ClosedAt,
             Reason = request.Reason
         });
 
         var resolvedDates = ResolveAdminEditTransactionDates(t, request);
-        ValidateAdminEditTransactionDateOrder(resolvedDates.IncomingDate, resolvedDates.ResponseDueDate, resolvedDates.ClosedAt);
-        await EnsureIncomingDateDoesNotFollowExistingAssignmentsAsync(transactionId, request, resolvedDates.IncomingDate);
-        ApplyAdminEditTransactionDates(t, request, resolvedDates.IncomingDate, resolvedDates.ResponseDueDate, resolvedDates.ClosedAt);
+        ValidateAdminEditTransactionDateOrder(
+            resolvedDates.IncomingDate,
+            resolvedDates.ResponseDueDays,
+            resolvedDates.ResponseDueDate,
+            resolvedDates.ClosedAt);
+        await EnsureIncomingDateDoesNotFollowExistingTimelineAsync(
+            transactionId,
+            request.IsIncomingDateSpecified && request.IncomingDate.HasValue,
+            resolvedDates.IncomingDate);
+        ApplyAdminEditTransactionDates(
+            t,
+            request,
+            resolvedDates.IncomingDate,
+            resolvedDates.ResponseDueDays,
+            resolvedDates.ResponseDueDate,
+            resolvedDates.ClosedAt);
 
         var newSnapshot = JsonSerializer.Serialize(new
         {
             t.IncomingDate,
+            t.ResponseDueDays,
             t.ResponseDueDate,
             ClosedAt = t.ClosedAt,
             Reason = request.Reason
@@ -1485,29 +1537,41 @@ public class TransactionService : ITransactionService
         return MapToBasicDetailDto(t, assignmentRows, DateTime.UtcNow);
     }
 
-    private static (DateTime AssignedDate, DateTime? DueDate) ResolveAdminEditAssignmentDates(
+    private static (DateTime AssignedDate, int? ReplyDueDays, DateTime? DueDate) ResolveAdminEditAssignmentDates(
         Assignment assignment,
         AdminEditAssignmentRequest request)
     {
         var assignedDate = request.AssignedDate.HasValue
             ? NormalizeDateOnlyUtc(request.AssignedDate.Value)
             : assignment.AssignedDate;
-        var dueDate = request.DueDate.HasValue
-            ? NormalizeDateOnlyUtc(request.DueDate.Value)
-            : assignment.DueDate;
+        var replyDueDays = request.ReplyDueDays ?? assignment.ReplyDueDays;
+        DateTime? dueDate;
 
-        return (assignedDate, dueDate);
+        if (request.DueDate.HasValue)
+        {
+            dueDate = NormalizeDateOnlyUtc(request.DueDate.Value);
+            replyDueDays = WorkflowHelper.CalculateAssignmentDueDays(assignedDate, dueDate);
+        }
+        else
+        {
+            dueDate = WorkflowHelper.CalculateAssignmentDueDate(assignedDate, replyDueDays, assignment.DueDate);
+        }
+
+        return (assignedDate, replyDueDays, dueDate);
     }
 
     private static void ValidateAdminEditAssignmentDates(
         Assignment assignment,
         DateTime assignedDate,
+        int? replyDueDays,
         DateTime? dueDate)
     {
         if (IsFutureEventDate(assignedDate))
             throw new InvalidOperationException(FutureEventDateMessage);
         if (assignedDate.Date < assignment.Transaction.IncomingDate.Date)
             throw new InvalidOperationException("تاريخ الإحالة لا يمكن أن يسبق تاريخ الوارد.");
+        if (replyDueDays.HasValue && replyDueDays.Value < 0)
+            throw new InvalidOperationException("عدد أيام الرد لا يمكن أن يكون سالبًا.");
         if (dueDate.HasValue && dueDate.Value.Date < assignedDate.Date)
             throw new InvalidOperationException("تاريخ استحقاق الإدارة لا يمكن أن يسبق تاريخ الإحالة.");
     }
@@ -1516,57 +1580,87 @@ public class TransactionService : ITransactionService
         Assignment assignment,
         AdminEditAssignmentRequest request,
         DateTime assignedDate,
+        int? replyDueDays,
         DateTime? dueDate)
     {
         if (request.AssignedDate.HasValue)
             assignment.AssignedDate = assignedDate;
-        if (request.DueDate.HasValue)
+        if (request.DueDate.HasValue || request.ReplyDueDays.HasValue || request.AssignedDate.HasValue)
             assignment.DueDate = dueDate;
         if (request.IsLetterNumberSpecified)
             assignment.LetterNumber = string.IsNullOrWhiteSpace(request.LetterNumber) ? null : request.LetterNumber.Trim();
         if (request.RequiredAction != null)
             assignment.RequiredAction = string.IsNullOrWhiteSpace(request.RequiredAction) ? null : request.RequiredAction.Trim();
-        if (request.ReplyDueDays.HasValue)
-            assignment.ReplyDueDays = request.ReplyDueDays;
+        if (request.ReplyDueDays.HasValue || request.DueDate.HasValue || request.AssignedDate.HasValue)
+            assignment.ReplyDueDays = replyDueDays;
     }
 
-    private static (DateTime IncomingDate, DateTime? ResponseDueDate, DateTime? ClosedAt) ResolveAdminEditTransactionDates(
+    private static (DateTime IncomingDate, int? ResponseDueDays, DateTime? ResponseDueDate, DateTime? ClosedAt) ResolveAdminEditTransactionDates(
         Transaction transaction,
         AdminEditTransactionDatesRequest request)
     {
         var incomingDate = request.IncomingDate.HasValue
             ? NormalizeDateOnlyUtc(request.IncomingDate.Value)
             : transaction.IncomingDate;
-        var responseDueDate = request.ResponseDueDate.HasValue
-            ? NormalizeDateOnlyUtc(request.ResponseDueDate.Value)
-            : transaction.ResponseDueDate;
+        var responseDueDays = request.IsResponseDueDaysSpecified
+            ? request.ResponseDueDays
+            : transaction.ResponseDueDays;
+        DateTime? responseDueDate;
+
+        if (request.IsResponseDueDateSpecified)
+        {
+            responseDueDate = request.ResponseDueDate.HasValue
+                ? NormalizeDateOnlyUtc(request.ResponseDueDate.Value)
+                : null;
+            responseDueDays = WorkflowHelper.CalculateResponseDueDays(incomingDate, responseDueDate);
+        }
+        else
+        {
+            responseDueDate = transaction.RequiresResponse
+                ? WorkflowHelper.CalculateResponseDueDate(incomingDate, responseDueDays)
+                : null;
+        }
+
         var closedAt = request.ClosedAt.HasValue
             ? NormalizeDateOnlyUtc(request.ClosedAt.Value)
             : transaction.ClosedAt;
 
-        return (incomingDate, responseDueDate, closedAt);
+        return (incomingDate, responseDueDays, responseDueDate, closedAt);
     }
 
     private static void ValidateAdminEditTransactionDateOrder(
         DateTime incomingDate,
+        int? responseDueDays,
         DateTime? responseDueDate,
         DateTime? closedAt)
     {
         if (IsFutureEventDate(incomingDate) || (closedAt.HasValue && IsFutureEventDate(closedAt.Value)))
             throw new InvalidOperationException(FutureEventDateMessage);
+        if (responseDueDays.HasValue && responseDueDays.Value < 0)
+            throw new InvalidOperationException("عدد أيام الرد لا يمكن أن يكون سالبًا.");
         if (responseDueDate.HasValue && responseDueDate.Value.Date < incomingDate.Date)
             throw new InvalidOperationException("تاريخ استحقاق المعاملة لا يمكن أن يسبق تاريخ الوارد.");
         if (closedAt.HasValue && closedAt.Value.Date < incomingDate.Date)
             throw new InvalidOperationException("تاريخ إغلاق المعاملة لا يمكن أن يسبق تاريخ الوارد.");
     }
 
-    private async Task EnsureIncomingDateDoesNotFollowExistingAssignmentsAsync(
+    private async Task EnsureIncomingDateDoesNotFollowExistingTimelineAsync(
         int transactionId,
-        AdminEditTransactionDatesRequest request,
+        bool incomingDateSpecified,
         DateTime incomingDate)
     {
-        if (!request.IsIncomingDateSpecified || !request.IncomingDate.HasValue)
+        if (!incomingDateSpecified)
             return;
+
+        var transactionHasEarlierEvent = await _db.Transactions
+            .AsNoTracking()
+            .AnyAsync(t => t.Id == transactionId &&
+                ((t.OutgoingDate.HasValue && t.OutgoingDate.Value.Date < incomingDate.Date) ||
+                 (t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date < incomingDate.Date) ||
+                 (t.ClosedAt.HasValue && t.ClosedAt.Value.Date < incomingDate.Date)));
+
+        if (transactionHasEarlierEvent)
+            throw new InvalidOperationException("تاريخ الوارد لا يمكن أن يكون بعد تاريخ صادر أو إفادة أو إغلاق قائم.");
 
         var hasEarlierAssignment = await _db.Assignments
             .AsNoTracking()
@@ -1574,18 +1668,39 @@ public class TransactionService : ITransactionService
 
         if (hasEarlierAssignment)
             throw new InvalidOperationException("تاريخ الوارد لا يمكن أن يكون بعد تاريخ أي إحالة قائمة.");
+
+        var hasEarlierFollowUp = await _db.FollowUps
+            .AsNoTracking()
+            .AnyAsync(f => f.TransactionId == transactionId &&
+                (f.FollowUpDate.Date < incomingDate.Date ||
+                 (f.ReplyDate.HasValue && f.ReplyDate.Value.Date < incomingDate.Date)));
+
+        if (hasEarlierFollowUp)
+            throw new InvalidOperationException("تاريخ الوارد لا يمكن أن يكون بعد تاريخ تعقيب أو رد تعقيب قائم.");
+
+        var hasEarlierDepartmentResponse = await _db.DepartmentResponses
+            .AsNoTracking()
+            .AnyAsync(r => r.TransactionId == transactionId &&
+                r.SubmittedAt.HasValue &&
+                r.SubmittedAt.Value.Date < incomingDate.Date);
+
+        if (hasEarlierDepartmentResponse)
+            throw new InvalidOperationException("تاريخ الوارد لا يمكن أن يكون بعد تاريخ إنجاز إدارة قائم.");
     }
 
     private static void ApplyAdminEditTransactionDates(
         Transaction transaction,
         AdminEditTransactionDatesRequest request,
         DateTime incomingDate,
+        int? responseDueDays,
         DateTime? responseDueDate,
         DateTime? closedAt)
     {
         if (request.IsIncomingDateSpecified && request.IncomingDate.HasValue)
             transaction.IncomingDate = incomingDate;
-        if (request.IsResponseDueDateSpecified)
+        if (request.IsResponseDueDaysSpecified || request.IsResponseDueDateSpecified || request.IsIncomingDateSpecified)
+            transaction.ResponseDueDays = responseDueDays;
+        if (request.IsResponseDueDateSpecified || request.IsResponseDueDaysSpecified || request.IsIncomingDateSpecified)
             transaction.ResponseDueDate = responseDueDate;
         if (request.IsClosedAtSpecified)
             transaction.ClosedAt = closedAt;

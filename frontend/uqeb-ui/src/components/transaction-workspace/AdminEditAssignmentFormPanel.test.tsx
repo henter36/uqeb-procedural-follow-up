@@ -1,6 +1,8 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
 import AdminEditAssignmentFormPanel from './AdminEditAssignmentFormPanel';
+import { transactionsApi } from '../../api/services';
 
 vi.mock('../../api/services', () => ({
   transactionsApi: {
@@ -81,5 +83,34 @@ describe('AdminEditAssignmentFormPanel', () => {
     );
 
     expect(screen.getByLabelText('رقم الخطاب')).toHaveValue('L-2');
+  });
+
+  it('keeps reply due days and due date synchronized before submit', async () => {
+    vi.mocked(transactionsApi.adminEditAssignment).mockResolvedValue({ data: baseAssignment } as never);
+    const user = userEvent.setup();
+    const onSuccess = vi.fn();
+
+    render(
+      <AdminEditAssignmentFormPanel
+        transactionId={1}
+        assignmentId={10}
+        initialAssignment={baseAssignment}
+        onDirtyChange={vi.fn()}
+        onCancel={vi.fn()}
+        onSuccess={onSuccess}
+      />,
+    );
+
+    await user.clear(screen.getByLabelText('تاريخ الاستحقاق - اختيار من التقويم'));
+    await user.type(screen.getByLabelText('تاريخ الاستحقاق - اختيار من التقويم'), '2026-01-12');
+
+    expect(screen.getByLabelText('عدد أيام الرد')).toHaveValue(10);
+
+    await user.click(screen.getByRole('button', { name: 'حفظ التعديلات' }));
+
+    expect(transactionsApi.adminEditAssignment).toHaveBeenCalledWith(1, 10, expect.objectContaining({
+      replyDueDays: 10,
+      dueDate: '2026-01-12',
+    }));
   });
 });

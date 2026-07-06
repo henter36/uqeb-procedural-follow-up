@@ -55,6 +55,23 @@ public class TransactionTemporalCalculatorTests
     }
 
     [Fact]
+    public void IsResponseOverdue_counts_completed_transaction_after_due_date()
+    {
+        var transaction = new Transaction
+        {
+            IncomingDate = new DateTime(2026, 1, 1),
+            RequiresResponse = true,
+            ResponseCompleted = true,
+            ResponseCompletedDate = new DateTime(2026, 1, 10),
+            ResponseDueDate = new DateTime(2026, 1, 5),
+            Status = TransactionStatus.ResponseCompleted
+        };
+
+        Assert.True(TransactionTemporalCalculator.IsResponseOverdue(transaction, new DateTime(2026, 1, 20)));
+        Assert.Equal(5, TransactionTemporalCalculator.DaysOverdue(transaction, new DateTime(2026, 1, 20)));
+    }
+
+    [Fact]
     public void CompletionDays_counts_closed_transactions_only()
     {
         var incoming = new DateTime(2026, 6, 1);

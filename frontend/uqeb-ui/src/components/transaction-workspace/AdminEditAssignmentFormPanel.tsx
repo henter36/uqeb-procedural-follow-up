@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import type { Assignment } from '../../api/types';
 import { transactionsApi } from '../../api/services';
 import { getApiErrorMessage } from '../../utils/apiHelpers';
-import { FUTURE_EVENT_DATE_MESSAGE, isFutureLocalDate } from '../../utils/localDate';
+import { addDaysIso, diffDaysIso, FUTURE_EVENT_DATE_MESSAGE, isFutureLocalDate } from '../../utils/localDate';
 import { Alert } from '../ui';
 import HijriDateInput from '../HijriDateInput';
 
@@ -58,6 +58,30 @@ export default function AdminEditAssignmentFormPanel({
     onDirtyChange(isDirty(form, initialForm));
   }, [form, initialForm, onDirtyChange]);
 
+  const updateAssignedDate = (assignedDate: string) => setForm((prev) => ({
+    ...prev,
+    assignedDate,
+    dueDate: assignedDate && prev.replyDueDays
+      ? addDaysIso(assignedDate, Number(prev.replyDueDays))
+      : prev.dueDate,
+  }));
+
+  const updateReplyDueDays = (replyDueDays: string) => setForm((prev) => ({
+    ...prev,
+    replyDueDays,
+    dueDate: prev.assignedDate && replyDueDays
+      ? addDaysIso(prev.assignedDate, Number(replyDueDays))
+      : '',
+  }));
+
+  const updateDueDate = (dueDate: string) => setForm((prev) => ({
+    ...prev,
+    dueDate,
+    replyDueDays: prev.assignedDate && dueDate
+      ? String(diffDaysIso(prev.assignedDate, dueDate))
+      : '',
+  }));
+
   const update = (patch: Partial<FormState>) => setForm((prev) => ({ ...prev, ...patch }));
 
   const submit = async (e: FormEvent) => {
@@ -65,6 +89,14 @@ export default function AdminEditAssignmentFormPanel({
     if (saving) return;
     if (isFutureLocalDate(form.assignedDate)) {
       setError(FUTURE_EVENT_DATE_MESSAGE);
+      return;
+    }
+    if (form.replyDueDays && Number(form.replyDueDays) < 0) {
+      setError('عدد أيام الرد لا يمكن أن يكون سالبًا.');
+      return;
+    }
+    if (form.assignedDate && form.dueDate && form.dueDate < form.assignedDate) {
+      setError('تاريخ استحقاق الإدارة لا يمكن أن يسبق تاريخ الإحالة.');
       return;
     }
     setSaving(true);
@@ -102,7 +134,7 @@ export default function AdminEditAssignmentFormPanel({
             id="admin-edit-assigned-date"
             label="تاريخ الإحالة"
             value={form.assignedDate}
-            onChange={(assignedDate) => update({ assignedDate })}
+            onChange={updateAssignedDate}
             disallowFutureDate
           />
         </div>
@@ -119,9 +151,9 @@ export default function AdminEditAssignmentFormPanel({
           <input
             id="admin-edit-days"
             type="number"
-            min="1"
+            min="0"
             value={form.replyDueDays}
-            onChange={(e) => update({ replyDueDays: e.target.value })}
+            onChange={(e) => updateReplyDueDays(e.target.value)}
           />
         </div>
         <div className="form-group">
@@ -129,7 +161,7 @@ export default function AdminEditAssignmentFormPanel({
             id="admin-edit-due"
             label="تاريخ الاستحقاق"
             value={form.dueDate}
-            onChange={(dueDate) => update({ dueDate })}
+            onChange={updateDueDate}
           />
         </div>
       </div>

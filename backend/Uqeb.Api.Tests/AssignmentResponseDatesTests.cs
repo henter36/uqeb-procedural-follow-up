@@ -282,6 +282,78 @@ public class AssignmentResponseDatesTests
     }
 
     [Fact]
+    public async Task AdminEditTransactionDates_recalculates_due_date_when_incoming_date_changes()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(AdminEditTransactionDates_recalculates_due_date_when_incoming_date_changes));
+        var t = await SeedTransactionAsync(db, 1, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        t.ResponseDueDays = 5;
+        t.ResponseDueDate = new DateTime(2026, 1, 6, 0, 0, 0, DateTimeKind.Utc);
+        await db.SaveChangesAsync();
+
+        var updated = await service.AdminEditTransactionDatesAsync(
+            1,
+            new AdminEditTransactionDatesRequest
+            {
+                IncomingDate = new DateTime(2026, 1, 3, 0, 0, 0, DateTimeKind.Utc),
+                Reason = "تصحيح تاريخ الوارد"
+            },
+            userId: 1);
+
+        Assert.NotNull(updated);
+        Assert.Equal(new DateTime(2026, 1, 8), updated.ResponseDueDate!.Value.Date);
+        Assert.Equal(5, updated.ResponseDueDays);
+    }
+
+    [Fact]
+    public async Task AdminEditTransactionDates_recalculates_due_days_when_due_date_changes()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(AdminEditTransactionDates_recalculates_due_days_when_due_date_changes));
+        var t = await SeedTransactionAsync(db, 1, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        t.ResponseDueDays = 5;
+        t.ResponseDueDate = new DateTime(2026, 1, 6, 0, 0, 0, DateTimeKind.Utc);
+        await db.SaveChangesAsync();
+
+        var updated = await service.AdminEditTransactionDatesAsync(
+            1,
+            new AdminEditTransactionDatesRequest
+            {
+                ResponseDueDate = new DateTime(2026, 1, 10, 0, 0, 0, DateTimeKind.Utc),
+                Reason = "تصحيح تاريخ الاستحقاق"
+            },
+            userId: 1);
+
+        Assert.NotNull(updated);
+        Assert.Equal(new DateTime(2026, 1, 10), updated.ResponseDueDate!.Value.Date);
+        Assert.Equal(9, updated.ResponseDueDays);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_rejects_incoming_date_after_existing_follow_up()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(UpdateAsync_rejects_incoming_date_after_existing_follow_up));
+        await SeedTransactionAsync(db, 1, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        db.FollowUps.Add(new FollowUp
+        {
+            TransactionId = 1,
+            FollowUpDate = new DateTime(2026, 1, 5, 0, 0, 0, DateTimeKind.Utc),
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Pending,
+            CreatedById = 1,
+            CreatedAt = new DateTime(2026, 1, 5, 0, 0, 0, DateTimeKind.Utc)
+        });
+        await db.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpdateAsync(
+                1,
+                new UpdateTransactionRequest { IncomingDate = new DateTime(2026, 1, 6, 0, 0, 0, DateTimeKind.Utc) },
+                userId: 1,
+                role: UserRole.Admin));
+
+        Assert.Contains("تعقيب", ex.Message);
+    }
+
+    [Fact]
     public async Task AdminEditAssignmentAsync_updates_LetterNumber_and_logs_audit()
     {
         var (service, db) = await CreateServiceAsync(nameof(AdminEditAssignmentAsync_updates_LetterNumber_and_logs_audit));

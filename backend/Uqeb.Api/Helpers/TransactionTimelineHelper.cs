@@ -97,6 +97,17 @@ public static class TransactionTimelineHelper
 
         if (input.ResponseCompleted)
         {
+            if (input.ResponseDueDate.HasValue && completionDate.HasValue && completionDate.Value.Date > input.ResponseDueDate.Value.Date)
+            {
+                var completedOverdueDays = Math.Max(0, (completionDate.Value.Date - input.ResponseDueDate.Value.Date).Days);
+                return BuildMetrics(buildInput with
+                {
+                    DaysRemainingForResponse = -completedOverdueDays,
+                    ResponseTimingStatus = StatusOverdue,
+                    ResponseTimingLabel = $"مكتملة متأخرة {completedOverdueDays} أيام"
+                });
+            }
+
             return BuildMetrics(buildInput with
             {
                 DaysRemainingForResponse = null,

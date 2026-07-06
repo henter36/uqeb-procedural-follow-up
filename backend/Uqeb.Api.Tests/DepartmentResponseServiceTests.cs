@@ -161,6 +161,25 @@ public class DepartmentResponseServiceTests
     }
 
     [Fact]
+    public async Task Approve_marks_matching_assignment_completed()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(Approve_marks_matching_assignment_completed));
+        var service = BuildService(db);
+        var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
+        var reviewer = new FakeUser { UserId = userId, Role = UserRole.Supervisor, DepartmentId = null };
+
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الإفادة"), submitter);
+        await service.SubmitAsync(created.Id, submitter);
+        await service.ApproveAsync(created.Id, reviewer);
+
+        var assignment = await db.Assignments.SingleAsync(a => a.TransactionId == txId && a.DepartmentId == deptId);
+        Assert.Equal(AssignmentStatus.Completed, assignment.Status);
+        Assert.Equal(ReplyStatus.Replied, assignment.ReplyStatus);
+        Assert.NotNull(assignment.ReplyDate);
+        Assert.Equal("نص الإفادة", assignment.ReplySummary);
+    }
+
+    [Fact]
     public async Task ReturnForCorrection_RequiresNote()
     {
         var (db, txId, deptId, userId) = await SeedAsync(nameof(ReturnForCorrection_RequiresNote));

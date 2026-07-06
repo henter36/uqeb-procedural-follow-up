@@ -19,6 +19,15 @@ export function addDaysIso(baseDate: string, days: number): string {
   return `${resultYear}-${resultMonth}-${resultDay}`;
 }
 
+/** Difference in calendar days between two YYYY-MM-DD strings. */
+export function diffDaysIso(startDate: string, endDate: string): number {
+  const [startYear, startMonth, startDay] = startDate.split('-').map(Number);
+  const [endYear, endMonth, endDay] = endDate.split('-').map(Number);
+  const start = Date.UTC(startYear, startMonth - 1, startDay);
+  const end = Date.UTC(endYear, endMonth - 1, endDay);
+  return Math.round((end - start) / 86400000);
+}
+
 export const FUTURE_EVENT_DATE_MESSAGE = 'لا يمكن أن يكون التاريخ بعد تاريخ اليوم.';
 
 export function isFutureLocalDate(value: string): boolean {

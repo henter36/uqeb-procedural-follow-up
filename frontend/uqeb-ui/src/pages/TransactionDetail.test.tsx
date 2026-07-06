@@ -374,6 +374,28 @@ describe('TransactionDetailPage three-tab layout', () => {
     expect(screen.getByText('file.pdf')).toBeInTheDocument();
   });
 
+  it('shows explicit edit response action for authorized admin when response exists', async () => {
+    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: {
+        ...defaultWorkspace,
+        assignments: [{
+          ...sampleAssignment,
+          replyStatus: 'Replied',
+          status: 'Completed',
+          departmentResponseId: 100,
+          responseDate: '2026-01-05',
+          canAdminEdit: true,
+        }],
+      },
+    } as never);
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    const card = getAssignmentsCard();
+    expect(within(card).getByRole('button', { name: 'تعديل الإفادة' })).toBeInTheDocument();
+  });
+
   it('does not expose legacy sub-tabs', async () => {
     renderDetail();
 

@@ -500,22 +500,25 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
           canAdminEdit: a.canAdminEdit,
         }
       : a)));
-    closeAction();
+    resetAndCloseAction();
+    await loadWorkspace({ silent: true });
   };
 
-  const handleAdminEditDatesSuccess = (updated: import('../api/types').TransactionDetail) => {
+  const handleAdminEditDatesSuccess = async (updated: import('../api/types').TransactionDetail) => {
     setTx(updated);
-    closeAction();
+    resetAndCloseAction();
+    setMessage('تم تصحيح التواريخ بنجاح.');
+    await loadWorkspace({ silent: true });
   };
 
   const handleEnableRecurringSuccess = (updated: import('../api/types').TransactionDetail) => {
     setTx(updated);
-    closeAction();
+    resetAndCloseAction();
     setMessage('تم تفعيل المتابعة الدورية لهذه المعاملة.');
   };
 
   const handleAdminEditResponseSuccess = () => {
-    closeAction();
+    resetAndCloseAction();
     loadWorkspace({ silent: true }).catch(() => undefined);
   };
 
@@ -1088,7 +1091,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                   {assignments.map((a) => {
                     const replyStatusLabel = getAssignmentReplyStatusLabel(a.replyStatus);
                     const canOpenAdminAssignmentEdit = isAdmin && a.canAdminEdit === true;
-                    const canOpenAdminResponseEdit = isAdmin && a.replyStatus === 'Replied' && Boolean(a.departmentResponseId);
+                    const canOpenAdminResponseEdit = isAdmin && Boolean(a.departmentResponseId);
 
                     return (
                       <tr key={a.id} className={a.isOverdue ? 'row-overdue' : ''}>
@@ -1143,6 +1146,15 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                               onClick={() => openAction('reply-assignment', { replyAssignmentId: a.id })}
                             >
                               تسجيل رد
+                            </button>
+                          )}
+                          {canOpenAdminResponseEdit && (
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-outline"
+                              onClick={() => openAction('admin-edit-response', { adminEditResponseId: a.departmentResponseId! })}
+                            >
+                              تعديل الإفادة
                             </button>
                           )}
                           {a.replySummary && <div className="text-muted reply-summary">{a.replySummary}</div>}

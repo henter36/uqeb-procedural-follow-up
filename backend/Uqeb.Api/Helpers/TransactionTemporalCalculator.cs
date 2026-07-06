@@ -60,7 +60,7 @@ public static class TransactionTemporalCalculator
         DateTime? earliestPendingAssignmentDueDate = null)
     {
         var dueDates = new List<DateTime>();
-        if (transaction.RequiresResponse && !transaction.ResponseCompleted && transaction.ResponseDueDate.HasValue)
+        if (transaction.RequiresResponse && transaction.ResponseDueDate.HasValue)
             dueDates.Add(transaction.ResponseDueDate.Value.Date);
         if (earliestPendingAssignmentDueDate.HasValue)
             dueDates.Add(earliestPendingAssignmentDueDate.Value.Date);
@@ -69,10 +69,11 @@ public static class TransactionTemporalCalculator
             return null;
 
         var earliestDue = dueDates.Min();
-        if (referenceDate.Date <= earliestDue)
+        var comparisonDate = WorkflowHelper.ResolveResponseCompletionDate(transaction) ?? referenceDate.Date;
+        if (comparisonDate.Date <= earliestDue)
             return null;
 
-        return Math.Max(0, (referenceDate.Date - earliestDue).Days);
+        return Math.Max(0, (comparisonDate.Date - earliestDue).Days);
     }
 
     public static bool IsStale(
