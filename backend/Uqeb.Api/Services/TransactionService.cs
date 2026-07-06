@@ -339,20 +339,54 @@ public class TransactionService : ITransactionService
             .Select(t => new
             {
                 Transaction = t,
-                HasPendingAssignment = t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
-                    && a.Status == AssignmentStatus.Active),
-                HasOverdueAssignment = t.Assignments.Any(a => a.RequiresReply && a.DueDate.HasValue &&
-                    ((a.ReplyStatus != ReplyStatus.Replied
-                      && a.Status == AssignmentStatus.Active
-                      && a.DueDate.Value.Date < today) ||
-                     (a.ReplyStatus == ReplyStatus.Replied
-                      && a.ReplyDate.HasValue
-                      && a.ReplyDate.Value.Date > a.DueDate.Value.Date))),
-                IsResponseOverdue = t.RequiresResponse && t.ResponseDueDate.HasValue
-                    && ((!t.ResponseCompleted && t.Status != TransactionStatus.Closed && t.ResponseDueDate.Value.Date < today) ||
-                        ((t.ResponseCompleted || t.Status == TransactionStatus.Closed) &&
-                         ((t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date) ||
-                          (!t.ClosedAt.HasValue && t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date))))
+                IncomingFromPartyName = t.IncomingFromParty != null ? t.IncomingFromParty.Name : null,
+                IncomingFromDepartmentName = t.IncomingFromDepartment != null ? t.IncomingFromDepartment.Name : null,
+                CategoryName = t.CategoryEntity != null ? t.CategoryEntity.Name : t.Category,
+                CreatedByName = t.CreatedBy != null ? t.CreatedBy.FullName : "",
+                RecurrenceType = t.RecurringTemplate != null ? t.RecurringTemplate.RecurrenceType : (RecurrenceType?)null,
+                HasPendingAssignment = t.Assignments.Any(a =>
+                    a.RequiresReply &&
+                    a.ReplyStatus != ReplyStatus.Replied &&
+                    a.Status == AssignmentStatus.Active),
+                HasOpenOverdueAssignment = t.Assignments.Any(a =>
+                    a.RequiresReply &&
+                    a.ReplyStatus != ReplyStatus.Replied &&
+                    a.Status == AssignmentStatus.Active &&
+                    a.DueDate.HasValue &&
+                    a.DueDate.Value.Date < today),
+                HasCompletedLateAssignment = t.Assignments.Any(a =>
+                    a.RequiresReply &&
+                    a.ReplyStatus == ReplyStatus.Replied &&
+                    a.DueDate.HasValue &&
+                    a.ReplyDate.HasValue &&
+                    a.ReplyDate.Value.Date > a.DueDate.Value.Date),
+                HasOpenResponseOverdue =
+                    t.RequiresResponse &&
+                    t.ResponseDueDate.HasValue &&
+                    !t.ResponseCompleted &&
+                    t.Status != TransactionStatus.Closed &&
+                    t.ResponseDueDate.Value.Date < today,
+                HasCompletedLateResponse =
+                    t.RequiresResponse &&
+                    t.ResponseDueDate.HasValue &&
+                    (t.ResponseCompleted || t.Status == TransactionStatus.Closed) &&
+                    (
+                        (t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date) ||
+                        (!t.ClosedAt.HasValue && t.ResponseCompletedDate.HasValue &&
+                         t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date)
+                    )
+            })
+            .Select(x => new
+            {
+                x.Transaction,
+                x.IncomingFromPartyName,
+                x.IncomingFromDepartmentName,
+                x.CategoryName,
+                x.CreatedByName,
+                x.RecurrenceType,
+                x.HasPendingAssignment,
+                HasOverdueAssignment = x.HasOpenOverdueAssignment || x.HasCompletedLateAssignment,
+                IsResponseOverdue = x.HasOpenResponseOverdue || x.HasCompletedLateResponse
             })
             .Select(x => new TransactionSearchRow(
                 x.Transaction.Id,
@@ -362,13 +396,13 @@ public class TransactionService : ITransactionService
                 x.Transaction.Subject,
                 x.Transaction.IncomingFrom,
                 x.Transaction.IncomingSourceType,
-                x.Transaction.IncomingFromParty != null ? x.Transaction.IncomingFromParty.Name : null,
-                x.Transaction.IncomingFromDepartment != null ? x.Transaction.IncomingFromDepartment.Name : null,
+                x.IncomingFromPartyName,
+                x.IncomingFromDepartmentName,
                 x.Transaction.OutgoingNumber,
                 x.Transaction.OutgoingDate,
                 x.Transaction.Status,
                 x.Transaction.Priority,
-                x.Transaction.CategoryEntity != null ? x.Transaction.CategoryEntity.Name : x.Transaction.Category,
+                x.CategoryName,
                 x.Transaction.RequiresResponse,
                 x.Transaction.ResponseCompleted,
                 x.Transaction.ResponseCompletedDate,
@@ -376,14 +410,14 @@ public class TransactionService : ITransactionService
                 x.Transaction.ResponseDueDate,
                 x.Transaction.ClosedAt,
                 x.Transaction.IsArchived,
-                x.Transaction.CreatedBy != null ? x.Transaction.CreatedBy.FullName : "",
+                x.CreatedByName,
                 x.Transaction.CreatedAt,
                 x.HasPendingAssignment,
                 x.IsResponseOverdue,
                 x.IsResponseOverdue || x.HasOverdueAssignment,
                 x.Transaction.RecurringTemplateId,
                 x.Transaction.RecurringPeriodLabel,
-                x.Transaction.RecurringTemplate != null ? x.Transaction.RecurringTemplate.RecurrenceType : (RecurrenceType?)null));
+                x.RecurrenceType));
     }
 
     private async Task<List<TransactionListDto>> MapSearchRowsToDtosAsync(List<TransactionSearchRow> rows, DateTime now)
