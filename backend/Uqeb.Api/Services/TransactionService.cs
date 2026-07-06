@@ -366,7 +366,7 @@ public class TransactionService : ITransactionService
                         ? (t.ClosedAt.HasValue
                             ? t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date
                             : t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date)
-                        : t.Status != TransactionStatus.Closed && t.ResponseDueDate.Value.Date < today)
+                        : t.ResponseDueDate.Value.Date < today)
             })
             .Select(x => new TransactionSearchRow(
                 x.Transaction.Id,
