@@ -162,6 +162,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
 
         InstitutionalReportRequestValidator.ValidateDepartmentTransactionsRequiresDepartments(
             request.ReportType.Value, request.DefaultFilters, "defaultFilters.departmentIds");
+        InstitutionalReportRequestValidator.ValidateDetailSortBy(request.DetailSortBy);
 
         var templateOptions = InstitutionalReportExportOptionsResolver.Resolve(request);
 
@@ -692,14 +693,36 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         if (request.ReportType != InstitutionalReportType.DepartmentTransactions)
             return s.ResponsibleDepartment;
 
-        foreach (var deptId in request.Filters.DepartmentIds)
+        var assignmentIds = s.AssignmentDepartmentIds ?? [];
+        var assignmentNames = s.AssignmentDepartmentNames ?? [];
+        var outgoingIds = s.OutgoingDepartmentIds ?? [];
+        var outgoingNames = s.OutgoingDepartmentNames ?? [];
+
+        foreach (var deptId in request.Filters?.DepartmentIds ?? [])
         {
-            if (s.AssignmentDepartmentIds.Contains(deptId))
-                return s.AssignmentDepartmentNames[s.AssignmentDepartmentIds.IndexOf(deptId)];
-            if (s.OutgoingDepartmentIds.Contains(deptId))
-                return s.OutgoingDepartmentNames[s.OutgoingDepartmentIds.IndexOf(deptId)];
+            if (assignmentIds.Contains(deptId))
+                return ResolveDepartmentNameById(deptId, assignmentIds, assignmentNames, s.ResponsibleDepartment);
+            if (outgoingIds.Contains(deptId))
+                return ResolveDepartmentNameById(deptId, outgoingIds, outgoingNames, s.ResponsibleDepartment);
         }
         return s.ResponsibleDepartment;
+    }
+
+    /// <summary>
+    /// Looks up the name at the same index as <paramref name="departmentId"/> in <paramref name="ids"/>,
+    /// without assuming <paramref name="ids"/> and <paramref name="names"/> are the same length —
+    /// returns <paramref name="fallback"/> instead of throwing if the id is missing or the lists are
+    /// mismatched.
+    /// </summary>
+    internal static string ResolveDepartmentNameById(
+        int departmentId, IReadOnlyList<int> ids, IReadOnlyList<string> names, string fallback)
+    {
+        for (var i = 0; i < ids.Count; i++)
+        {
+            if (ids[i] == departmentId && i < names.Count)
+                return names[i];
+        }
+        return fallback;
     }
 
     private static (List<TransactionDetailRowDto> Rows, bool GroupedByDepartment) BuildTransactionDetails(
@@ -712,7 +735,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             return (plainRows, false);
         }
 
-        var selectedDepartmentIds = request.Filters.DepartmentIds;
+        var selectedDepartmentIds = request.Filters?.DepartmentIds ?? [];
         var groupByDepartment = request.GroupDetailsByDepartment == true && selectedDepartmentIds.Count > 1;
 
         if (!groupByDepartment)
@@ -760,7 +783,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         Subject = s.Subject,
         IncomingParty = s.IncomingParty,
         ResponsibleDepartment = s.ResponsibleDepartment,
-        JointDepartments = string.Join("، ", s.AssignmentDepartmentNames.Concat(s.OutgoingDepartmentNames).Distinct()),
+        JointDepartments = string.Join("، ", (s.AssignmentDepartmentNames ?? []).Concat(s.OutgoingDepartmentNames ?? []).Distinct()),
         Priority = PriorityLabel(s.Priority),
         Status = StatusLabel(s.Status),
         FollowUpStage = string.Join("، ", s.FollowUpStages.Select(InstitutionalReportMetricsCalculator.FollowUpStageLabel)),
@@ -771,8 +794,8 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         OutgoingNumber = s.OutgoingNumber,
         OutgoingDate = s.OutgoingDate?.ToString(IsoDateFormat, CultureInfo.InvariantCulture),
         MatchedDepartments = matchedDepartments,
-        AllAssignmentDepartments = s.AssignmentDepartmentNames.ToList(),
-        AllOutgoingDepartments = s.OutgoingDepartmentNames.ToList(),
+        AllAssignmentDepartments = (s.AssignmentDepartmentNames ?? []).ToList(),
+        AllOutgoingDepartments = (s.OutgoingDepartmentNames ?? []).ToList(),
     };
 
     /// <summary>
@@ -784,27 +807,42 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
     private static List<TransactionDetailDepartmentRelationDto> ComputeMatchedDepartments(
         TransactionReportSnapshot s, IReadOnlyList<int> selectedDepartmentIds)
     {
+        var assignmentIds = s.AssignmentDepartmentIds ?? [];
+        var assignmentNames = s.AssignmentDepartmentNames ?? [];
+        var outgoingIds = s.OutgoingDepartmentIds ?? [];
+        var outgoingNames = s.OutgoingDepartmentNames ?? [];
+
         var result = new List<TransactionDetailDepartmentRelationDto>();
         foreach (var deptId in selectedDepartmentIds.Distinct())
         {
-            var viaAssignment = s.AssignmentDepartmentIds.Contains(deptId);
-            var viaOutgoing = s.OutgoingDepartmentIds.Contains(deptId);
+            var viaAssignment = assignmentIds.Contains(deptId);
+            var viaOutgoing = outgoingIds.Contains(deptId);
             if (!viaAssignment && !viaOutgoing)
                 continue;
 
             var name = viaAssignment
-                ? s.AssignmentDepartmentNames[s.AssignmentDepartmentIds.IndexOf(deptId)]
-                : s.OutgoingDepartmentNames[s.OutgoingDepartmentIds.IndexOf(deptId)];
-            var relation = viaAssignment && viaOutgoing ? "إحالة وصادر لها" : viaAssignment ? "إحالة" : "صادر لها";
+                ? ResolveDepartmentNameById(deptId, assignmentIds, assignmentNames, fallback: "—")
+                : ResolveDepartmentNameById(deptId, outgoingIds, outgoingNames, fallback: "—");
 
             result.Add(new TransactionDetailDepartmentRelationDto
             {
                 DepartmentId = deptId,
                 DepartmentName = name,
-                Relation = relation
+                Relation = DepartmentRelationLabel(viaAssignment, viaOutgoing)
             });
         }
         return result;
+    }
+
+    private static string DepartmentRelationLabel(bool viaAssignment, bool viaOutgoing)
+    {
+        if (viaAssignment && viaOutgoing)
+            return "إحالة وصادر لها";
+
+        if (viaAssignment)
+            return "إحالة";
+
+        return "صادر لها";
     }
 
     private static string ResolveResponseState(TransactionReportSnapshot snapshot)

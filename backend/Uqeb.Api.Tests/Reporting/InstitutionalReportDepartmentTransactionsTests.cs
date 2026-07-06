@@ -5,6 +5,7 @@ using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
+using Uqeb.Api.Reporting.Services;
 using Xunit;
 
 namespace Uqeb.Api.Tests.Reporting;
@@ -146,6 +147,7 @@ public class InstitutionalReportDepartmentTransactionsTests
 
     [Theory]
     [InlineData("NotAPriority")]
+    [InlineData("999")] // numeric but undefined - Enum.TryParse alone would accept this silently
     public async Task BuildReportModelAsync_InvalidPriorityValue_ThrowsValidation(string invalidValue)
     {
         var service = InstitutionalReportServiceTestHelpers.CreateService();
@@ -162,6 +164,7 @@ public class InstitutionalReportDepartmentTransactionsTests
 
     [Theory]
     [InlineData("NotAStatus")]
+    [InlineData("999")] // numeric but undefined - Enum.TryParse alone would accept this silently
     public async Task BuildReportModelAsync_InvalidStatusValue_ThrowsValidation(string invalidValue)
     {
         var service = InstitutionalReportServiceTestHelpers.CreateService();
@@ -174,6 +177,109 @@ public class InstitutionalReportDepartmentTransactionsTests
 
         var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.BuildReportModelAsync(request));
         Assert.Contains("filters.statuses", ex.FieldErrors.Keys);
+    }
+
+    [Fact]
+    public async Task BuildReportModelAsync_UndefinedDetailSortBy_ThrowsValidation()
+    {
+        var service = InstitutionalReportServiceTestHelpers.CreateService();
+        var request = new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [ReportSectionId.Cover],
+            DetailSortBy = (ReportDetailSortBy)999,
+        };
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.BuildReportModelAsync(request));
+        Assert.Contains("detailSortBy", ex.FieldErrors.Keys);
+    }
+
+    [Fact]
+    public async Task SaveTemplateAsync_UndefinedDetailSortBy_ThrowsValidation()
+    {
+        var service = InstitutionalReportServiceTestHelpers.CreateService();
+        var request = new SaveReportTemplateRequestDto
+        {
+            Name = "قالب تجريبي",
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [ReportSectionId.Cover],
+            DefaultFilters = new ReportFiltersDto(),
+            DetailSortBy = (ReportDetailSortBy)999,
+        };
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.SaveTemplateAsync(request));
+        Assert.Contains("detailSortBy", ex.FieldErrors.Keys);
+    }
+
+    [Fact]
+    public async Task BuildReportModelAsync_DepartmentTransactionsWithNullFilters_ThrowsValidationNotNullReferenceException()
+    {
+        var service = InstitutionalReportServiceTestHelpers.CreateService();
+        var request = new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.DepartmentTransactions,
+            SectionIds = [ReportSectionId.Cover],
+            Filters = null!,
+        };
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.BuildReportModelAsync(request));
+        // The generic "filters is required" check fires first for a fully-null Filters object -
+        // proving no NullReferenceException leaks out for DepartmentTransactions either.
+        Assert.Contains("filters", ex.FieldErrors.Keys);
+    }
+
+    [Fact]
+    public async Task BuildReportModelAsync_DepartmentTransactionsWithNullDepartmentIds_ThrowsFieldValidationException()
+    {
+        var service = InstitutionalReportServiceTestHelpers.CreateService();
+        var request = new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.DepartmentTransactions,
+            SectionIds = [ReportSectionId.Cover],
+            Filters = new ReportFiltersDto { DepartmentIds = null! },
+        };
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.BuildReportModelAsync(request));
+        Assert.Contains("filters.departmentIds", ex.FieldErrors.Keys);
+        Assert.Equal("يجب تحديد إدارة واحدة على الأقل لتقرير معاملات إدارة.", ex.FieldErrors["filters.departmentIds"]);
+    }
+
+    [Fact]
+    public void ResolveDepartmentNameById_MatchingIndexWithinBounds_ReturnsName()
+    {
+        var name = InstitutionalReportService.ResolveDepartmentNameById(
+            departmentId: 20, ids: [10, 20, 30], names: ["A", "B", "C"], fallback: "—");
+
+        Assert.Equal("B", name);
+    }
+
+    [Fact]
+    public void ResolveDepartmentNameById_NamesListShorterThanIdsList_ReturnsFallbackInsteadOfThrowing()
+    {
+        // ids has 3 entries but names only has 1 - the id at index 2 (departmentId 30) has no
+        // corresponding name. Must return the fallback, not throw ArgumentOutOfRangeException.
+        var name = InstitutionalReportService.ResolveDepartmentNameById(
+            departmentId: 30, ids: [10, 20, 30], names: ["A"], fallback: "—");
+
+        Assert.Equal("—", name);
+    }
+
+    [Fact]
+    public void ResolveDepartmentNameById_DepartmentIdNotInList_ReturnsFallback()
+    {
+        var name = InstitutionalReportService.ResolveDepartmentNameById(
+            departmentId: 99, ids: [10, 20, 30], names: ["A", "B", "C"], fallback: "—");
+
+        Assert.Equal("—", name);
+    }
+
+    [Fact]
+    public void ResolveDepartmentNameById_EmptyIdsList_ReturnsFallback()
+    {
+        var name = InstitutionalReportService.ResolveDepartmentNameById(
+            departmentId: 20, ids: [], names: [], fallback: "—");
+
+        Assert.Equal("—", name);
     }
 
     [Fact]

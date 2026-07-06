@@ -263,14 +263,15 @@ public static class InstitutionalReportDocxExporter
             AppendParagraph(body, "التفاصيل مجمّعة حسب الإدارة (غير تراكمي): قد تظهر المعاملة المشتركة تحت أكثر من إدارة.", bold: true);
 
         var table = new Table();
-        var tableProperties = new TableProperties(
-            new TableBorders(
-                new TopBorder { Val = BorderValues.Single, Size = 4 },
-                new BottomBorder { Val = BorderValues.Single, Size = 4 },
-                new LeftBorder { Val = BorderValues.Single, Size = 4 },
-                new RightBorder { Val = BorderValues.Single, Size = 4 },
-                new InsideHorizontalBorder { Val = BorderValues.Single, Size = 4 },
-                new InsideVerticalBorder { Val = BorderValues.Single, Size = 4 }));
+        var tableBorders = new TableBorders(
+            new TopBorder { Val = BorderValues.Single, Size = 4 },
+            new BottomBorder { Val = BorderValues.Single, Size = 4 },
+            new LeftBorder { Val = BorderValues.Single, Size = 4 },
+            new RightBorder { Val = BorderValues.Single, Size = 4 },
+            new InsideHorizontalBorder { Val = BorderValues.Single, Size = 4 },
+            new InsideVerticalBorder { Val = BorderValues.Single, Size = 4 });
+        var tableProperties = new TableProperties();
+        tableProperties.AppendChild(tableBorders);
         table.AppendChild(tableProperties);
 
         table.AppendChild(CreateTableRow(

@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
+import type { AxiosResponse } from 'axios';
 import { MemoryRouter } from 'react-router-dom';
 import ReportBuilderPage from './ReportBuilder';
 import { buildReportExportPageSelection, defaultDate } from './reportBuilderHelpers';
@@ -22,6 +23,31 @@ import {
   ReportTimeGrouping,
 } from '../api/institutionalReports.constants';
 import * as services from '../api/services';
+import type { ReportTemplate } from '../api/services';
+import type { LookupItem } from '../api/types';
+
+function mockAxiosResponse<T>(data: T): AxiosResponse<T> {
+  return {
+    data,
+    status: 200,
+    statusText: 'OK',
+    headers: {},
+    config: { headers: {} } as AxiosResponse<T>['config'],
+  };
+}
+
+function mockLookupItems(items: Array<Pick<LookupItem, 'id' | 'name'>>): AxiosResponse<LookupItem[]> {
+  return mockAxiosResponse(items.map((item) => ({ ...item, isActive: true })));
+}
+
+const emptyDeptTransactionsFilters = {
+  departmentIds: [] as number[],
+  partyIds: [] as number[],
+  categoryIds: [] as number[],
+  priorities: [] as string[],
+  statuses: [] as string[],
+  includeOverdue: false,
+};
 
 const mockUseAuth = vi.fn(() => ({
   isAdmin: true,
@@ -771,9 +797,9 @@ describe('ReportBuilderPage export dialog', () => {
   });
 
   it('blocks preview when DepartmentTransactions is selected with no departments', async () => {
-    vi.mocked(services.departmentsApi.lookup).mockResolvedValueOnce({
-      data: [{ id: 20, name: 'الإدارة ب' }],
-    } as never);
+    vi.mocked(services.departmentsApi.lookup).mockResolvedValueOnce(
+      mockLookupItems([{ id: 20, name: 'الإدارة ب' }]),
+    );
     const user = userEvent.setup();
     render(<ReportBuilderPage />);
 
@@ -787,9 +813,9 @@ describe('ReportBuilderPage export dialog', () => {
   });
 
   it('sends detailSortBy and groupDetailsByDepartment in the preview request', async () => {
-    vi.mocked(services.departmentsApi.lookup).mockResolvedValueOnce({
-      data: [{ id: 20, name: 'الإدارة ب' }, { id: 30, name: 'الإدارة ج' }],
-    } as never);
+    vi.mocked(services.departmentsApi.lookup).mockResolvedValueOnce(
+      mockLookupItems([{ id: 20, name: 'الإدارة ب' }, { id: 30, name: 'الإدارة ج' }]),
+    );
     vi.mocked(services.institutionalReportsApi.preview).mockResolvedValue({ data: mockManifest } as never);
     const user = userEvent.setup();
     render(<ReportBuilderPage />);
@@ -808,9 +834,9 @@ describe('ReportBuilderPage export dialog', () => {
   });
 
   it('resets groupDetailsByDepartment when switching away from DepartmentTransactions', async () => {
-    vi.mocked(services.departmentsApi.lookup).mockResolvedValueOnce({
-      data: [{ id: 20, name: 'الإدارة ب' }, { id: 30, name: 'الإدارة ج' }],
-    } as never);
+    vi.mocked(services.departmentsApi.lookup).mockResolvedValueOnce(
+      mockLookupItems([{ id: 20, name: 'الإدارة ب' }, { id: 30, name: 'الإدارة ج' }]),
+    );
     vi.mocked(services.institutionalReportsApi.preview).mockResolvedValue({ data: mockManifest } as never);
     const user = userEvent.setup();
     render(<ReportBuilderPage />);
@@ -829,23 +855,20 @@ describe('ReportBuilderPage export dialog', () => {
   });
 
   it('restores detailSortBy and groupDetailsByDepartment when applying a saved template', async () => {
-    vi.mocked(services.institutionalReportsApi.getTemplates).mockResolvedValueOnce({
-      data: [
-        {
-          id: 10,
-          name: 'قالب معاملات إدارة',
-          reportType: InstitutionalReportType.DepartmentTransactions,
-          sectionIds: [ReportSectionId.Cover, ReportSectionId.TransactionDetails],
-          defaultFilters: { departmentIds: [20, 30] },
-          defaultFormat: ExportFormat.Pdf,
-          pageNumberingMode: 1,
-          includePartialCover: false,
-          includePartialManifest: false,
-          detailSortBy: 2,
-          groupDetailsByDepartment: true,
-        },
-      ],
-    } as never);
+    const template: ReportTemplate = {
+      id: 10,
+      name: 'قالب معاملات إدارة',
+      reportType: InstitutionalReportType.DepartmentTransactions,
+      sectionIds: [ReportSectionId.Cover, ReportSectionId.TransactionDetails],
+      defaultFilters: { ...emptyDeptTransactionsFilters, departmentIds: [20, 30] },
+      defaultFormat: ExportFormat.Pdf,
+      pageNumberingMode: 1,
+      includePartialCover: false,
+      includePartialManifest: false,
+      detailSortBy: 2,
+      groupDetailsByDepartment: true,
+    };
+    vi.mocked(services.institutionalReportsApi.getTemplates).mockResolvedValueOnce(mockAxiosResponse([template]));
     vi.mocked(services.institutionalReportsApi.preview).mockResolvedValue({ data: mockManifest } as never);
 
     const user = userEvent.setup();
@@ -865,24 +888,23 @@ describe('ReportBuilderPage export dialog', () => {
   });
 
   it('includes detailSortBy and groupDetailsByDepartment in the saveTemplate payload', async () => {
-    vi.mocked(services.departmentsApi.lookup).mockResolvedValueOnce({
-      data: [{ id: 20, name: 'الإدارة ب' }, { id: 30, name: 'الإدارة ج' }],
-    } as never);
-    vi.mocked(services.institutionalReportsApi.saveTemplate).mockResolvedValueOnce({
-      data: {
-        id: 11,
-        name: 'قالب جديد',
-        reportType: InstitutionalReportType.DepartmentTransactions,
-        sectionIds: [ReportSectionId.Cover],
-        defaultFilters: { departmentIds: [20, 30] },
-        defaultFormat: ExportFormat.Pdf,
-        pageNumberingMode: 1,
-        includePartialCover: true,
-        includePartialManifest: true,
-        detailSortBy: 2,
-        groupDetailsByDepartment: true,
-      },
-    } as never);
+    vi.mocked(services.departmentsApi.lookup).mockResolvedValueOnce(
+      mockLookupItems([{ id: 20, name: 'الإدارة ب' }, { id: 30, name: 'الإدارة ج' }]),
+    );
+    const savedTemplate: ReportTemplate = {
+      id: 11,
+      name: 'قالب جديد',
+      reportType: InstitutionalReportType.DepartmentTransactions,
+      sectionIds: [ReportSectionId.Cover],
+      defaultFilters: { ...emptyDeptTransactionsFilters, departmentIds: [20, 30] },
+      defaultFormat: ExportFormat.Pdf,
+      pageNumberingMode: 1,
+      includePartialCover: true,
+      includePartialManifest: true,
+      detailSortBy: 2,
+      groupDetailsByDepartment: true,
+    };
+    vi.mocked(services.institutionalReportsApi.saveTemplate).mockResolvedValueOnce(mockAxiosResponse(savedTemplate));
 
     const user = userEvent.setup();
     render(<ReportBuilderPage />);
@@ -903,9 +925,9 @@ describe('ReportBuilderPage export dialog', () => {
   });
 
   it('shows the relabeled departments filter with its clarifying hint text', async () => {
-    vi.mocked(services.departmentsApi.lookup).mockResolvedValueOnce({
-      data: [{ id: 20, name: 'الإدارة ب' }],
-    } as never);
+    vi.mocked(services.departmentsApi.lookup).mockResolvedValueOnce(
+      mockLookupItems([{ id: 20, name: 'الإدارة ب' }]),
+    );
     render(<ReportBuilderPage />);
     await waitFor(() => {
       expect(screen.getByText(/الإدارات المحالة\/الصادر لها/)).toBeInTheDocument();

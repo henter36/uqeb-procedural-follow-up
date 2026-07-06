@@ -35,13 +35,17 @@ internal static class InstitutionalReportRequestValidator
         ValidateDepartmentTransactionsRequiresDepartments(request.ReportType, request.Filters);
         ValidatePriorityAndStatusValues(request.Filters);
         ValidateFilterDateRange(request.Filters);
+        ValidateDetailSortBy(request.DetailSortBy);
         ValidateAnalyticalOptions(request, options?.Analysis);
     }
 
     internal static void ValidateDepartmentTransactionsRequiresDepartments(
-        InstitutionalReportType reportType, ReportFiltersDto filters, string fieldKey = "filters.departmentIds")
+        InstitutionalReportType reportType, ReportFiltersDto? filters, string fieldKey = "filters.departmentIds")
     {
-        if (reportType == InstitutionalReportType.DepartmentTransactions && filters.DepartmentIds.Count == 0)
+        if (reportType != InstitutionalReportType.DepartmentTransactions)
+            return;
+
+        if (filters?.DepartmentIds is null || filters.DepartmentIds.Count == 0)
         {
             throw new FieldValidationException(new Dictionary<string, string>
             {
@@ -50,11 +54,20 @@ internal static class InstitutionalReportRequestValidator
         }
     }
 
-    private static void ValidatePriorityAndStatusValues(ReportFiltersDto filters)
+    internal static void ValidateDetailSortBy(ReportDetailSortBy? detailSortBy)
     {
-        foreach (var value in filters.Priorities)
+        if (detailSortBy.HasValue && !Enum.IsDefined(detailSortBy.Value))
+            throw InvalidEnum("detailSortBy", "ترتيب التفاصيل غير صالح.");
+    }
+
+    private static void ValidatePriorityAndStatusValues(ReportFiltersDto? filters)
+    {
+        if (filters is null)
+            return;
+
+        foreach (var value in filters.Priorities ?? [])
         {
-            if (!Enum.TryParse<Priority>(value, ignoreCase: true, out _))
+            if (!Enum.TryParse<Priority>(value, ignoreCase: true, out var priority) || !Enum.IsDefined(priority))
             {
                 throw new FieldValidationException(new Dictionary<string, string>
                 {
@@ -63,9 +76,9 @@ internal static class InstitutionalReportRequestValidator
             }
         }
 
-        foreach (var value in filters.Statuses)
+        foreach (var value in filters.Statuses ?? [])
         {
-            if (!Enum.TryParse<TransactionStatus>(value, ignoreCase: true, out _))
+            if (!Enum.TryParse<TransactionStatus>(value, ignoreCase: true, out var status) || !Enum.IsDefined(status))
             {
                 throw new FieldValidationException(new Dictionary<string, string>
                 {
