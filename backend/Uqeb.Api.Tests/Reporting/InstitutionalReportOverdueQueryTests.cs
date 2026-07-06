@@ -45,7 +45,7 @@ public class InstitutionalReportOverdueQueryTests
             ("status-overdue", TransactionStatus.Overdue, today, false, (DateTime?)null, true),
             ("response-due-past", TransactionStatus.New, today.AddDays(-3), true, today.AddDays(-1), true),
             ("assignment-due-past", TransactionStatus.New, today, true, today.AddDays(-2), true),
-            ("closed-old-due", TransactionStatus.Closed, today.AddDays(-10), true, today.AddDays(-20), false),
+            ("closed-late", TransactionStatus.Closed, today.AddDays(-10), true, today.AddDays(-20), true),
         };
 
         foreach (var (label, status, incomingDate, requiresResponse, responseDue, _) in scenarios)
@@ -134,8 +134,8 @@ public class InstitutionalReportOverdueQueryTests
         Assert.Contains("IN-status-overdue", filteredIds);
         Assert.Contains("IN-response-due-past", filteredIds);
         Assert.Contains("IN-assignment-due-past", filteredIds);
+        Assert.Contains("IN-closed-late", filteredIds);
         Assert.DoesNotContain("IN-open-not-overdue", filteredIds);
-        Assert.DoesNotContain("IN-closed-old-due", filteredIds);
     }
 
     [Fact]

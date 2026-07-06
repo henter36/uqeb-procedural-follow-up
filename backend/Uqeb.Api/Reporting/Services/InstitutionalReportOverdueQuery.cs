@@ -14,14 +14,17 @@ internal static class InstitutionalReportOverdueQuery
         var todayDate = today.Date;
 
         return query.Where(t =>
-            t.Status != TransactionStatus.Closed
-            && t.Status != TransactionStatus.Cancelled
+            t.Status != TransactionStatus.Cancelled
             && t.Status != TransactionStatus.Archived
             && (
                 t.Status == TransactionStatus.Overdue
                 || (t.ResponseDueDate.HasValue
                     && t.ResponseDueDate.Value.Date < todayDate
                     && !t.ResponseCompleted)
+                || (t.ResponseDueDate.HasValue
+                    && (t.ResponseCompleted || t.Status == TransactionStatus.Closed)
+                    && (t.ClosedAt ?? t.ResponseCompletedDate).HasValue
+                    && (t.ClosedAt ?? t.ResponseCompletedDate)!.Value.Date > t.ResponseDueDate.Value.Date)
                 || t.Assignments.Any(a =>
                     a.Status == AssignmentStatus.Active
                     && a.RequiresReply

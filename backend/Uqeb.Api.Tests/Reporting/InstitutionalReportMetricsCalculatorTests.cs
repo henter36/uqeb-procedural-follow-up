@@ -52,16 +52,39 @@ public class InstitutionalReportMetricsCalculatorTests
     }
 
     [Fact]
-    public void OverdueIsSubsetOfOpen()
+    public void OverdueSeparatesOpenAndCompletedLate()
     {
+        var today = DateTime.UtcNow.Date;
         var snapshots = new[]
         {
-            Snap(1, TransactionStatus.Overdue, overdue: true),
-            Snap(2, TransactionStatus.InProgress),
-            Snap(3, TransactionStatus.Closed),
+            new TransactionReportSnapshot
+            {
+                TransactionId = 1,
+                IncomingDate = today.AddDays(-30),
+                Status = TransactionStatus.Overdue,
+                IsOpen = true,
+                RequiresResponse = true,
+                ResponseDueDate = today.AddDays(-1),
+                ResponseCompleted = false,
+            },
+            new TransactionReportSnapshot
+            {
+                TransactionId = 2,
+                IncomingDate = today.AddDays(-30),
+                Status = TransactionStatus.Closed,
+                IsClosed = true,
+                RequiresResponse = true,
+                ResponseDueDate = today.AddDays(-10),
+                ResponseCompleted = true,
+                ClosedAt = today.AddDays(-5),
+            },
+            Snap(3, TransactionStatus.InProgress),
         };
-        var result = InstitutionalReportMetricsCalculator.Calculate(snapshots, DateTime.UtcNow.Date);
-        Assert.True(result.OverdueCount <= result.OpenCount);
+        var result = InstitutionalReportMetricsCalculator.Calculate(snapshots, today);
+
+        Assert.Equal(2, result.OverdueCount);
+        Assert.Equal(1, result.OpenOverdueCount);
+        Assert.Equal(1, result.CompletedLateCount);
     }
 
     [Fact]

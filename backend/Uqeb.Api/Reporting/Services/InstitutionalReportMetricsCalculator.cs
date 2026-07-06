@@ -21,7 +21,9 @@ public static class InstitutionalReportMetricsCalculator
         var cancelled = unique.Count(s => TransactionStatusSemantics.IsCancelled(s.Status));
         var archived = unique.Count(s => TransactionStatusSemantics.IsArchived(s.Status));
 
-        var overdueOpen = open.Count(s => IsOverdue(s, today));
+        var overdueOpen = open.Count(s => IsOpenOverdue(s, today));
+        var completedLate = closed.Count(IsCompletedLate);
+        var overdueTotal = unique.Count(s => IsOverdue(s, today));
         var joint = unique.Count(s => s.IsJointDepartment);
         var partial = open.Count(s => s.IsPartialReply);
 
@@ -50,7 +52,9 @@ public static class InstitutionalReportMetricsCalculator
             OpenCount = open.Count,
             CancelledCount = cancelled,
             ArchivedCount = archived,
-            OverdueCount = overdueOpen,
+            OverdueCount = overdueTotal,
+            OpenOverdueCount = overdueOpen,
+            CompletedLateCount = completedLate,
             JointDepartmentCount = joint,
             PartialResponseCount = partial,
             AverageCompletionDays = averageCompletion,
@@ -100,6 +104,15 @@ public static class InstitutionalReportMetricsCalculator
 
     public static bool IsOverdue(TransactionReportSnapshot snapshot, DateTime today)
     {
+        if (TransactionStatusSemantics.IsCancelled(snapshot.Status) ||
+            TransactionStatusSemantics.IsArchived(snapshot.Status))
+            return false;
+
+        return IsOpenOverdue(snapshot, today) || IsCompletedLate(snapshot);
+    }
+
+    public static bool IsOpenOverdue(TransactionReportSnapshot snapshot, DateTime today)
+    {
         if (!snapshot.IsOpen)
             return false;
 
@@ -111,6 +124,17 @@ public static class InstitutionalReportMetricsCalculator
             return true;
 
         return snapshot.Status == TransactionStatus.Overdue;
+    }
+
+    public static bool IsCompletedLate(TransactionReportSnapshot snapshot)
+    {
+        if (!snapshot.ResponseDueDate.HasValue)
+            return false;
+
+        var completionDate = snapshot.ClosedAt?.Date
+            ?? (snapshot.ResponseCompleted ? snapshot.ResponseCompletedDate?.Date : null);
+
+        return completionDate.HasValue && completionDate.Value.Date > snapshot.ResponseDueDate.Value.Date;
     }
 
     public static bool IsJointDepartment(TransactionReportSnapshot snapshot) =>
@@ -142,7 +166,7 @@ public static class InstitutionalReportMetricsCalculator
         if (snapshot.Status is TransactionStatus.New or TransactionStatus.InProgress or TransactionStatus.Assigned)
             stages.Add(FollowUpStage.UnderProcessing);
         if (IsOverdue(snapshot, today))
-            stages.Add(FollowUpStage.Overdue);
+            stages.Add(snapshot.IsCompletedLate ? FollowUpStage.CompletedLate : FollowUpStage.Overdue);
         return stages.Distinct().ToList();
     }
 
@@ -153,6 +177,7 @@ public static class InstitutionalReportMetricsCalculator
         FollowUpStage.PartialReply => "رد جزئي",
         FollowUpStage.UnderProcessing => "تحت الإجراء",
         FollowUpStage.Overdue => "متأخرة",
+        FollowUpStage.CompletedLate => "منجزة متأخرة",
         _ => "—"
     };
 }
