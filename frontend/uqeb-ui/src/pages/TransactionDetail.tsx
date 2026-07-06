@@ -517,9 +517,13 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     setMessage('تم تفعيل المتابعة الدورية لهذه المعاملة.');
   };
 
-  const handleAdminEditResponseSuccess = () => {
+  const handleAdminEditResponseSuccess = async () => {
     resetAndCloseAction();
-    loadWorkspace({ silent: true }).catch(() => undefined);
+    try {
+      await loadWorkspace({ silent: true });
+    } catch {
+      setError('تم الحفظ لكن تعذر تحديث بعض الأقسام. حاول تحديث الصفحة.');
+    }
   };
 
   const handleReplyFollowUpSuccess = async () => {

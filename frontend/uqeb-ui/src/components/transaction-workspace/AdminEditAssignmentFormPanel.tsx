@@ -58,13 +58,18 @@ export default function AdminEditAssignmentFormPanel({
     onDirtyChange(isDirty(form, initialForm));
   }, [form, initialForm, onDirtyChange]);
 
-  const updateAssignedDate = (assignedDate: string) => setForm((prev) => ({
-    ...prev,
-    assignedDate,
-    dueDate: assignedDate && prev.replyDueDays
-      ? addDaysIso(assignedDate, Number(prev.replyDueDays))
-      : prev.dueDate,
-  }));
+  const updateAssignedDate = (assignedDate: string) => setForm((prev) => {
+    if (!assignedDate) {
+      return { ...prev, assignedDate, dueDate: '', replyDueDays: '' };
+    }
+    return {
+      ...prev,
+      assignedDate,
+      dueDate: prev.replyDueDays
+        ? addDaysIso(assignedDate, Number(prev.replyDueDays))
+        : prev.dueDate,
+    };
+  });
 
   const updateReplyDueDays = (replyDueDays: string) => setForm((prev) => ({
     ...prev,
@@ -74,13 +79,17 @@ export default function AdminEditAssignmentFormPanel({
       : '',
   }));
 
-  const updateDueDate = (dueDate: string) => setForm((prev) => ({
-    ...prev,
-    dueDate,
-    replyDueDays: prev.assignedDate && dueDate
-      ? String(diffDaysIso(prev.assignedDate, dueDate))
-      : '',
-  }));
+  const updateDueDate = (dueDate: string) => setForm((prev) => {
+    if (!prev.assignedDate || !dueDate) {
+      return { ...prev, dueDate, replyDueDays: '' };
+    }
+    const diff = diffDaysIso(prev.assignedDate, dueDate);
+    return {
+      ...prev,
+      dueDate,
+      replyDueDays: Number.isFinite(diff) ? String(diff) : prev.replyDueDays,
+    };
+  });
 
   const update = (patch: Partial<FormState>) => setForm((prev) => ({ ...prev, ...patch }));
 

@@ -23,8 +23,8 @@ internal static class InstitutionalReportOverdueQuery
                     && !t.ResponseCompleted)
                 || (t.ResponseDueDate.HasValue
                     && (t.ResponseCompleted || t.Status == TransactionStatus.Closed)
-                    && (t.ClosedAt ?? t.ResponseCompletedDate).HasValue
-                    && (t.ClosedAt ?? t.ResponseCompletedDate)!.Value.Date > t.ResponseDueDate.Value.Date)
+                    && ((t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date) ||
+                        (!t.ClosedAt.HasValue && t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date)))
                 || t.Assignments.Any(a =>
                     a.Status == AssignmentStatus.Active
                     && a.RequiresReply

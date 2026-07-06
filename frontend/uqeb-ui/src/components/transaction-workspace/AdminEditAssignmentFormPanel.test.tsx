@@ -119,4 +119,55 @@ describe('AdminEditAssignmentFormPanel', () => {
       dueDate: '2026-01-12',
     }));
   });
+
+  it('clears stale due date and reply days when assigned date is cleared', async () => {
+    mockApi(transactionsApi.adminEditAssignment).mockResolvedValue({ data: baseAssignment });
+    const user = userEvent.setup();
+    const onSuccess = vi.fn();
+
+    render(
+      <AdminEditAssignmentFormPanel
+        transactionId={1}
+        assignmentId={10}
+        initialAssignment={baseAssignment}
+        onDirtyChange={vi.fn()}
+        onCancel={vi.fn()}
+        onSuccess={onSuccess}
+      />,
+    );
+
+    await user.clear(screen.getByLabelText('تاريخ الإحالة - اختيار من التقويم'));
+
+    expect(screen.getByLabelText('تاريخ الاستحقاق - اختيار من التقويم')).toHaveValue('');
+    expect(screen.getByLabelText('عدد أيام الرد')).toHaveValue(null);
+
+    await user.click(screen.getByRole('button', { name: 'حفظ التعديلات' }));
+
+    expect(transactionsApi.adminEditAssignment).toHaveBeenCalledWith(1, 10, expect.objectContaining({
+      assignedDate: null,
+      dueDate: null,
+      replyDueDays: null,
+    }));
+  });
+
+  it('does not populate NaN reply days when due date input is incomplete', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <AdminEditAssignmentFormPanel
+        transactionId={1}
+        assignmentId={10}
+        initialAssignment={baseAssignment}
+        onDirtyChange={vi.fn()}
+        onCancel={vi.fn()}
+        onSuccess={vi.fn()}
+      />,
+    );
+
+    const dueDateInput = screen.getByLabelText('تاريخ الاستحقاق - اختيار من التقويم') as HTMLInputElement;
+    await user.clear(dueDateInput);
+    await user.type(dueDateInput, '2026-01-1');
+
+    expect((screen.getByLabelText('عدد أيام الرد') as HTMLInputElement).value).not.toBe('NaN');
+  });
 });

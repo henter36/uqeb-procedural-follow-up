@@ -1364,6 +1364,45 @@ describe('TransactionDetailPage card interaction flows', () => {
     expect(within(card).queryByRole('button', { name: 'تعديل إفادة إدارة إدارة اختبار' })).not.toBeInTheDocument();
   });
 
+  it('shows an error when the workspace refresh after an admin response edit fails', async () => {
+    const user = userEvent.setup();
+    const repliedAssignment = {
+      ...sampleAssignment,
+      replyStatus: 'Replied',
+      responseDate: '2026-01-05',
+      departmentResponseId: 100,
+    };
+    mockApi(services.transactionsApi.getWorkspace)
+      .mockResolvedValueOnce({
+        data: { ...defaultWorkspace, assignments: [repliedAssignment] },
+      })
+      .mockRejectedValueOnce(new Error('network error'));
+    mockApi(services.transactionsApi.getAssignments).mockResolvedValue({
+      data: [repliedAssignment],
+    });
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getAssignmentsCard();
+
+    const responseButton = await within(card).findByRole('button', { name: 'تعديل إفادة إدارة إدارة اختبار' });
+    await user.click(responseButton);
+
+    expect(within(card).getByTestId('admin-edit-response-form-panel')).toBeInTheDocument();
+    const summaryField = await screen.findByLabelText('ملخص الإفادة');
+    await user.type(summaryField, ' إضافة');
+    await user.type(screen.getByLabelText(/سبب التعديل/), 'تصحيح الإفادة');
+
+    await user.click(screen.getByRole('button', { name: 'حفظ التصحيح' }));
+
+    // loadWorkspace surfaces its own failure via the page-level error state; the
+    // fix under test ensures handleAdminEditResponseSuccess awaits that refresh
+    // instead of a fire-and-forget `.catch(() => undefined)` that discarded it.
+    await waitFor(() => {
+      expect(screen.getByText('تعذر تحميل بيانات المعاملة')).toBeInTheDocument();
+    });
+  });
+
   it('renders completed response status as plain text for DepartmentUser', async () => {
     const repliedAssignment = {
       ...sampleAssignment,

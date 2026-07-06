@@ -281,6 +281,14 @@ public class TransactionService : ITransactionService
         IQueryable<Transaction> query, TransactionSearchRequest request, DateTime now)
     {
         var today = now.Date;
+        query = ApplyResponseStatusFilters(query, request, today);
+        query = ApplyAssignmentStatusFilters(query, request, today);
+        return query;
+    }
+
+    private static IQueryable<Transaction> ApplyResponseStatusFilters(
+        IQueryable<Transaction> query, TransactionSearchRequest request, DateTime today)
+    {
         if (request.RequiresResponse == true)
             query = query.Where(t => t.RequiresResponse);
         if (request.ResponseCompleted == true)
@@ -291,8 +299,14 @@ public class TransactionService : ITransactionService
             query = query.Where(t => t.RequiresResponse && t.ResponseDueDate.HasValue &&
                 ((!t.ResponseCompleted && t.Status != TransactionStatus.Closed && t.ResponseDueDate.Value.Date < today) ||
                  ((t.ResponseCompleted || t.Status == TransactionStatus.Closed) &&
-                  (t.ClosedAt ?? t.ResponseCompletedDate).HasValue &&
-                  (t.ClosedAt ?? t.ResponseCompletedDate)!.Value.Date > t.ResponseDueDate.Value.Date)));
+                  ((t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date) ||
+                   (!t.ClosedAt.HasValue && t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date)))));
+        return query;
+    }
+
+    private static IQueryable<Transaction> ApplyAssignmentStatusFilters(
+        IQueryable<Transaction> query, TransactionSearchRequest request, DateTime today)
+    {
         if (request.HasPendingAssignments == true)
             query = query.Where(t => t.Assignments.Any(a =>
                 a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied && a.Status == AssignmentStatus.Active));
@@ -303,8 +317,8 @@ public class TransactionService : ITransactionService
                 (t.RequiresResponse && t.ResponseDueDate.HasValue &&
                     ((!t.ResponseCompleted && t.Status != TransactionStatus.Closed && t.ResponseDueDate.Value.Date < today) ||
                      ((t.ResponseCompleted || t.Status == TransactionStatus.Closed) &&
-                      (t.ClosedAt ?? t.ResponseCompletedDate).HasValue &&
-                      (t.ClosedAt ?? t.ResponseCompletedDate)!.Value.Date > t.ResponseDueDate.Value.Date))) ||
+                      ((t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date) ||
+                       (!t.ClosedAt.HasValue && t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date))))) ||
                 t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
                     && a.Status == AssignmentStatus.Active && a.DueDate.HasValue && a.DueDate.Value.Date < today));
         return query;
@@ -313,47 +327,50 @@ public class TransactionService : ITransactionService
     private static IQueryable<TransactionSearchRow> ProjectSearchRows(IQueryable<Transaction> ordered, DateTime now)
     {
         var today = now.Date;
-        return ordered.Select(t => new TransactionSearchRow(
-            t.Id,
-            t.InternalTrackingNumber,
-            t.IncomingNumber,
-            t.IncomingDate,
-            t.Subject,
-            t.IncomingFrom,
-            t.IncomingSourceType,
-            t.IncomingFromParty != null ? t.IncomingFromParty.Name : null,
-            t.IncomingFromDepartment != null ? t.IncomingFromDepartment.Name : null,
-            t.OutgoingNumber,
-            t.OutgoingDate,
-            t.Status,
-            t.Priority,
-            t.CategoryEntity != null ? t.CategoryEntity.Name : t.Category,
-            t.RequiresResponse,
-            t.ResponseCompleted,
-            t.ResponseCompletedDate,
-            t.ResponseDueDays,
-            t.ResponseDueDate,
-            t.ClosedAt,
-            t.IsArchived,
-            t.CreatedBy != null ? t.CreatedBy.FullName : "",
-            t.CreatedAt,
-            t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
-                && a.Status == AssignmentStatus.Active),
-            t.RequiresResponse && t.ResponseDueDate.HasValue
-                && ((!t.ResponseCompleted && t.Status != TransactionStatus.Closed && t.ResponseDueDate.Value.Date < today) ||
-                    ((t.ResponseCompleted || t.Status == TransactionStatus.Closed) &&
-                     (t.ClosedAt ?? t.ResponseCompletedDate).HasValue &&
-                     (t.ClosedAt ?? t.ResponseCompletedDate)!.Value.Date > t.ResponseDueDate.Value.Date)),
-            (t.RequiresResponse && t.ResponseDueDate.HasValue
+        return ordered
+            .Select(t => new
+            {
+                Transaction = t,
+                HasPendingAssignment = t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
+                    && a.Status == AssignmentStatus.Active),
+                HasOverdueAssignment = t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
+                    && a.Status == AssignmentStatus.Active && a.DueDate.HasValue && a.DueDate.Value.Date < today),
+                IsResponseOverdue = t.RequiresResponse && t.ResponseDueDate.HasValue
                     && ((!t.ResponseCompleted && t.Status != TransactionStatus.Closed && t.ResponseDueDate.Value.Date < today) ||
                         ((t.ResponseCompleted || t.Status == TransactionStatus.Closed) &&
-                         (t.ClosedAt ?? t.ResponseCompletedDate).HasValue &&
-                         (t.ClosedAt ?? t.ResponseCompletedDate)!.Value.Date > t.ResponseDueDate.Value.Date)))
-                || t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
-                    && a.Status == AssignmentStatus.Active && a.DueDate.HasValue && a.DueDate.Value.Date < today),
-            t.RecurringTemplateId,
-            t.RecurringPeriodLabel,
-            t.RecurringTemplate != null ? t.RecurringTemplate.RecurrenceType : (RecurrenceType?)null));
+                         ((t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date) ||
+                          (!t.ClosedAt.HasValue && t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date))))
+            })
+            .Select(x => new TransactionSearchRow(
+                x.Transaction.Id,
+                x.Transaction.InternalTrackingNumber,
+                x.Transaction.IncomingNumber,
+                x.Transaction.IncomingDate,
+                x.Transaction.Subject,
+                x.Transaction.IncomingFrom,
+                x.Transaction.IncomingSourceType,
+                x.Transaction.IncomingFromParty != null ? x.Transaction.IncomingFromParty.Name : null,
+                x.Transaction.IncomingFromDepartment != null ? x.Transaction.IncomingFromDepartment.Name : null,
+                x.Transaction.OutgoingNumber,
+                x.Transaction.OutgoingDate,
+                x.Transaction.Status,
+                x.Transaction.Priority,
+                x.Transaction.CategoryEntity != null ? x.Transaction.CategoryEntity.Name : x.Transaction.Category,
+                x.Transaction.RequiresResponse,
+                x.Transaction.ResponseCompleted,
+                x.Transaction.ResponseCompletedDate,
+                x.Transaction.ResponseDueDays,
+                x.Transaction.ResponseDueDate,
+                x.Transaction.ClosedAt,
+                x.Transaction.IsArchived,
+                x.Transaction.CreatedBy != null ? x.Transaction.CreatedBy.FullName : "",
+                x.Transaction.CreatedAt,
+                x.HasPendingAssignment,
+                x.IsResponseOverdue,
+                x.IsResponseOverdue || x.HasOverdueAssignment,
+                x.Transaction.RecurringTemplateId,
+                x.Transaction.RecurringPeriodLabel,
+                x.Transaction.RecurringTemplate != null ? x.Transaction.RecurringTemplate.RecurrenceType : (RecurrenceType?)null));
     }
 
     private async Task<List<TransactionListDto>> MapSearchRowsToDtosAsync(List<TransactionSearchRow> rows, DateTime now)
@@ -1508,7 +1525,8 @@ public class TransactionService : ITransactionService
         await EnsureIncomingDateDoesNotFollowExistingTimelineAsync(
             transactionId,
             request.IsIncomingDateSpecified && request.IncomingDate.HasValue,
-            resolvedDates.IncomingDate);
+            resolvedDates.IncomingDate,
+            resolvedDates.ClosedAt);
         ApplyAdminEditTransactionDates(
             t,
             request,
@@ -1652,17 +1670,21 @@ public class TransactionService : ITransactionService
     private async Task EnsureIncomingDateDoesNotFollowExistingTimelineAsync(
         int transactionId,
         bool incomingDateSpecified,
-        DateTime incomingDate)
+        DateTime incomingDate,
+        DateTime? resolvedClosedAt = null)
     {
         if (!incomingDateSpecified)
             return;
+
+        if (resolvedClosedAt.HasValue && resolvedClosedAt.Value.Date < incomingDate.Date)
+            throw new InvalidOperationException("تاريخ الوارد لا يمكن أن يكون بعد تاريخ إغلاق المعاملة.");
 
         var transactionHasEarlierEvent = await _db.Transactions
             .AsNoTracking()
             .AnyAsync(t => t.Id == transactionId &&
                 ((t.OutgoingDate.HasValue && t.OutgoingDate.Value.Date < incomingDate.Date) ||
                  (t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date < incomingDate.Date) ||
-                 (t.ClosedAt.HasValue && t.ClosedAt.Value.Date < incomingDate.Date)));
+                 (!resolvedClosedAt.HasValue && t.ClosedAt.HasValue && t.ClosedAt.Value.Date < incomingDate.Date)));
 
         if (transactionHasEarlierEvent)
             throw new InvalidOperationException("تاريخ الوارد لا يمكن أن يكون بعد تاريخ صادر أو إفادة أو إغلاق قائم.");

@@ -498,6 +498,8 @@ public class DepartmentResponseService : IDepartmentResponseService
             var assignedDate = await _db.Assignments
                 .AsNoTracking()
                 .Where(a => a.TransactionId == response.TransactionId && a.DepartmentId == response.DepartmentId)
+                .OrderByDescending(a => a.Status == AssignmentStatus.Active)
+                .ThenByDescending(a => a.AssignedDate)
                 .Select(a => (DateTime?)a.AssignedDate)
                 .FirstOrDefaultAsync();
             if (assignedDate.HasValue && submittedAt.Date < assignedDate.Value.Date)
@@ -705,7 +707,12 @@ public class DepartmentResponseService : IDepartmentResponseService
 
         var replyDate = (response.SubmittedAt ?? response.ReviewedAt ?? DateTime.UtcNow).Date;
         if (replyDate < assignment.AssignedDate.Date)
-            throw new InvalidOperationException("تاريخ إنجاز الإدارة لا يمكن أن يسبق تاريخ الإحالة.");
+        {
+            // The supervisor cannot edit assignment dates; if an admin later moved AssignedDate
+            // past the response's own submission date, block-and-throw would strand approval
+            // permanently. Clamp instead so approval can proceed.
+            replyDate = assignment.AssignedDate.Date;
+        }
 
         assignment.ReplyStatus = ReplyStatus.Replied;
         assignment.ReplyDate = replyDate;

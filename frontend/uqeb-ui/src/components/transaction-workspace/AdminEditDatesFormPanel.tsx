@@ -54,29 +54,41 @@ export default function AdminEditDatesFormPanel({
     onDirtyChange(dirty);
   }, [dirty, onDirtyChange]);
 
-  const updateIncomingDate = (incomingDate: string) => setForm((prev) => ({
-    ...prev,
-    incomingDate,
-    responseDueDate: incomingDate && prev.responseDueDays
-      ? addDaysIso(incomingDate, Number(prev.responseDueDays))
-      : prev.responseDueDate,
-  }));
+  const updateIncomingDate = (incomingDate: string) => setForm((prev) => {
+    if (!incomingDate) {
+      return { ...prev, incomingDate, responseDueDate: '', responseDueDays: '' };
+    }
+    return {
+      ...prev,
+      incomingDate,
+      responseDueDate: prev.responseDueDays
+        ? addDaysIso(incomingDate, Number(prev.responseDueDays))
+        : prev.responseDueDate,
+    };
+  });
 
-  const updateResponseDueDays = (responseDueDays: string) => setForm((prev) => ({
-    ...prev,
-    responseDueDays,
-    responseDueDate: prev.incomingDate && responseDueDays
-      ? addDaysIso(prev.incomingDate, Number(responseDueDays))
-      : '',
-  }));
+  const updateResponseDueDays = (responseDueDays: string) => setForm((prev) => {
+    if (!responseDueDays) {
+      return { ...prev, responseDueDays, responseDueDate: '' };
+    }
+    const days = Number(responseDueDays);
+    if (!prev.incomingDate || !Number.isFinite(days)) {
+      return { ...prev, responseDueDays };
+    }
+    return { ...prev, responseDueDays, responseDueDate: addDaysIso(prev.incomingDate, days) };
+  });
 
-  const updateResponseDueDate = (responseDueDate: string) => setForm((prev) => ({
-    ...prev,
-    responseDueDate,
-    responseDueDays: prev.incomingDate && responseDueDate
-      ? String(diffDaysIso(prev.incomingDate, responseDueDate))
-      : '',
-  }));
+  const updateResponseDueDate = (responseDueDate: string) => setForm((prev) => {
+    if (!prev.incomingDate || !responseDueDate) {
+      return { ...prev, responseDueDate, responseDueDays: '' };
+    }
+    const diff = diffDaysIso(prev.incomingDate, responseDueDate);
+    return {
+      ...prev,
+      responseDueDate,
+      responseDueDays: Number.isFinite(diff) ? String(diff) : prev.responseDueDays,
+    };
+  });
 
   const update = (patch: Partial<FormState>) => setForm((prev) => ({ ...prev, ...patch }));
 
@@ -91,9 +103,12 @@ export default function AdminEditDatesFormPanel({
       setError(FUTURE_EVENT_DATE_MESSAGE);
       return;
     }
-    if (form.responseDueDays && Number(form.responseDueDays) < 0) {
-      setError('عدد أيام الرد لا يمكن أن يكون سالبًا.');
-      return;
+    if (form.responseDueDays) {
+      const days = Number(form.responseDueDays);
+      if (!Number.isFinite(days) || days < 0) {
+        setError('عدد أيام الرد لا يمكن أن يكون سالبًا.');
+        return;
+      }
     }
     if (form.incomingDate && form.responseDueDate && form.responseDueDate < form.incomingDate) {
       setError('تاريخ استحقاق المعاملة لا يمكن أن يسبق تاريخ الوارد.');
