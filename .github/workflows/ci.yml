@@ -20,6 +20,7 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - run: dotnet restore backend/Uqeb.Api/Uqeb.Api.csproj
+      - run: dotnet restore backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj
       - run: dotnet build backend/Uqeb.Api/Uqeb.Api.csproj --no-restore
       - run: dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj --no-restore --filter "FullyQualifiedName!~InstitutionalReportPlaywrightPdfExporterTests&FullyQualifiedName!~InstitutionalReportVisualRegressionTests&FullyQualifiedName!~TransactionPersistenceSqlServerIntegrationTests"
 
@@ -36,6 +37,7 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - run: dotnet restore backend/Uqeb.Api/Uqeb.Api.csproj
+      - run: dotnet restore backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj
       - run: dotnet build backend/Uqeb.Api/Uqeb.Api.csproj -c Release --no-restore
       - run: dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName!~InstitutionalReportPlaywrightPdfExporterTests&FullyQualifiedName!~InstitutionalReportVisualRegressionTests&FullyQualifiedName!~InstitutionalReportPreviewPdfParityTests&FullyQualifiedName!~TransactionPersistenceSqlServerIntegrationTests&Category!=SqlServer"
 
@@ -49,6 +51,7 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - run: dotnet restore backend/Uqeb.Api/Uqeb.Api.csproj
+      - run: dotnet restore backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj
       - run: dotnet build backend/Uqeb.Api/Uqeb.Api.csproj -c Release --no-restore
       - run: pwsh backend/Uqeb.Api/bin/Release/net10.0/playwright.ps1 install --with-deps chromium
       - run: dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName~InstitutionalReportVisualRegressionTests|FullyQualifiedName~InstitutionalReportPlaywrightPdfExporterTests|FullyQualifiedName~InstitutionalReportPreviewPdfParityTests"
@@ -75,6 +78,7 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - run: dotnet restore backend/Uqeb.Api/Uqeb.Api.csproj
+      - run: dotnet restore backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj
       - run: dotnet build backend/Uqeb.Api/Uqeb.Api.csproj -c Release --no-restore
       - run: pwsh backend/Uqeb.Api/bin/Release/net10.0/playwright.ps1 install --with-deps chromium
       - run: dotnet test backend/Uqeb.Api.Tests/Uqeb.Api.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName~InstitutionalReportPlaywrightPdfExporterTests"

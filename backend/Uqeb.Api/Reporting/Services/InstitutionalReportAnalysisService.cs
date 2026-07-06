@@ -409,7 +409,7 @@ internal static class InstitutionalReportAnalysisService
             Kpi(new AnalysisMetricDefinition { Key = "ClosedTransactions", Title = "المعاملات المغلقة", Definition = "عدد المعاملات ذات الحالة المغلقة.", Formula = "count(IsClosed)", FieldsUsed = "Status, ClosedAt", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.HigherIsBetter }, current.ClosedCount, current.ClosedCount, previous?.ClosedCount, options),
             Kpi(new AnalysisMetricDefinition { Key = "OpenTransactions", Title = "المعاملات المفتوحة", Definition = "عدد المعاملات التشغيلية غير المغلقة.", Formula = "count(IsOpen)", FieldsUsed = "Status", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.LowerIsBetter }, current.OpenCount, current.OpenCount, previous?.OpenCount, options),
             Kpi(new AnalysisMetricDefinition { Key = "OnTimeCompletionRate", Title = "نسبة الإنجاز ضمن المهلة", Definition = "نسبة المعاملات المغلقة قبل أو في تاريخ المهلة.", Formula = "on-time closed / measurable closed", FieldsUsed = "ClosedAt, ResponseDueDate", Unit = "%", Format = MetricValueTypes.Percent, MinimumSampleSize = options.MinimumComparisonSampleSize, Direction = KpiDirection.HigherIsBetter }, (decimal)current.OnTimeCompletionRate, current.ClosedCount, previous is null ? null : (decimal)previous.OnTimeCompletionRate, options),
-            Kpi(new AnalysisMetricDefinition { Key = "OverdueRate", Title = "نسبة التأخر", Definition = "نسبة المعاملات المفتوحة المتأخرة من إجمالي المعاملات.", Formula = "overdue open / total", FieldsUsed = "ResponseDueDate, AssignmentDueDate, Status", Unit = "%", Format = MetricValueTypes.Percent, MinimumSampleSize = options.MinimumComparisonSampleSize, Direction = KpiDirection.LowerIsBetter }, Rate(current.OverdueCount, current.TotalTransactions), current.TotalTransactions, previous is null ? null : Rate(previous.OverdueCount, previous.TotalTransactions), options),
+            Kpi(new AnalysisMetricDefinition { Key = "OverdueRate", Title = "نسبة التأخر", Definition = "نسبة إجمالي المعاملات المتأخرة، وتشمل المفتوحة المتأخرة والمنجزة/المغلقة بعد تاريخ الاستحقاق.", Formula = "(open overdue + completed late) / total", FieldsUsed = "ResponseDueDate, AssignmentDueDate, ResponseCompletedDate, ClosedAt, Status", Unit = "%", Format = MetricValueTypes.Percent, MinimumSampleSize = options.MinimumComparisonSampleSize, Direction = KpiDirection.LowerIsBetter }, Rate(current.OverdueCount, current.TotalTransactions), current.TotalTransactions, previous is null ? null : Rate(previous.OverdueCount, previous.TotalTransactions), options),
             Kpi(new AnalysisMetricDefinition { Key = "AverageCompletionDays", Title = "متوسط مدة الإنجاز", Definition = "متوسط الأيام بين الوارد والإغلاق للمعاملات المغلقة.", Formula = "avg(ClosedAt - IncomingDate)", FieldsUsed = "IncomingDate, ClosedAt", Unit = "يوم", Format = MetricValueTypes.Decimal, MinimumSampleSize = options.MinimumComparisonSampleSize, Direction = KpiDirection.LowerIsBetter }, (decimal)current.AverageCompletionDays, closedDurations.Count, previous is null ? null : (decimal)previous.AverageCompletionDays, options),
             Kpi(new AnalysisMetricDefinition { Key = "MedianCompletionDays", Title = "وسيط مدة الإنجاز", Definition = "وسيط أيام الإنجاز لتقليل أثر القيم الشاذة.", Formula = "median(ClosedAt - IncomingDate)", FieldsUsed = "IncomingDate, ClosedAt", Unit = "يوم", Format = MetricValueTypes.Decimal, MinimumSampleSize = options.MinimumComparisonSampleSize, Direction = KpiDirection.LowerIsBetter }, (decimal)completionMedian, closedDurations.Count, null, options),
             // AverageResponseDays: uses ClosedAt as proxy for ResponseCompletedAt (no discrete field in snapshot).
@@ -567,8 +567,8 @@ internal static class InstitutionalReportAnalysisService
             insights.Add(new ExecutiveInsightDto
             {
                 Code = "EXEC_OVERDUE",
-                Text = $"توجد {metrics.OverdueCount:N0} معاملة متأخرة تمثل {overdueRate:N1}% من نطاق التقرير.",
-                Evidence = $"overdue={metrics.OverdueCount};rate={overdueRate}",
+                Text = $"توجد {metrics.OverdueCount:N0} معاملة متأخرة تمثل {overdueRate:N1}% من نطاق التقرير، منها {metrics.OpenOverdueCount:N0} مفتوحة متأخرة و{metrics.CompletedLateCount:N0} منجزة/مغلقة بعد الاستحقاق.",
+                Evidence = $"overdue={metrics.OverdueCount};openOverdue={metrics.OpenOverdueCount};completedLate={metrics.CompletedLateCount};rate={overdueRate}",
                 Severity = overdueRate >= 20 ? AnalyticalSeverity.High : AnalyticalSeverity.Medium
             });
         }
@@ -630,10 +630,10 @@ internal static class InstitutionalReportAnalysisService
 
     private static IEnumerable<CriticalCaseDto> CriticalRules(TransactionReportSnapshot snapshot, ReportingAnalysisOptions options, DateTime referenceDate)
     {
-        if (snapshot.Priority is Priority.VeryUrgent or Priority.Urgent && snapshot.IsOverdue)
+        if (snapshot.Priority is Priority.VeryUrgent or Priority.Urgent && snapshot.IsOpenOverdue)
             yield return CriticalCase(snapshot, "CRITICAL_PRIORITY_OVERDUE", "أولوية عالية متأخرة", "مراجعة المعاملة المتأخرة فورًا", AnalyticalSeverity.Critical, referenceDate);
 
-        if (snapshot.IsOverdue && snapshot.ElapsedDays >= options.CriticalOverdueDays)
+        if (snapshot.IsOpenOverdue && snapshot.ElapsedDays >= options.CriticalOverdueDays)
             yield return CriticalCase(snapshot, "OPEN_OLDER_THAN_THRESHOLD", $"معاملة مفتوحة متأخرة لأكثر من {options.CriticalOverdueDays} أيام", "تصعيد المعاملة المتأخرة", AnalyticalSeverity.High, referenceDate);
 
         if (snapshot.PendingReplyAssignmentCount > 0 && snapshot.EarliestPendingReplyDueDate.HasValue && snapshot.EarliestPendingReplyDueDate.Value.Date < referenceDate.Date)
@@ -730,7 +730,7 @@ internal static class InstitutionalReportAnalysisService
                     IncomingCount = g.Count(),
                     OutgoingCount = g.Count(s => !string.IsNullOrWhiteSpace(s.OutgoingNumber)),
                     PendingResponseCount = pending.Count,
-                    OverdueResponseCount = pending.Count(s => s.IsOverdue),
+                    OverdueResponseCount = pending.Count(s => s.IsOpenOverdue),
                     AverageResponseDays = responseDays.Count == 0 ? 0 : Math.Round(responseDays.Average(), 1),
                     MedianResponseDays = InstitutionalReportStatistics.Median(responseDays),
                     FollowUpCount = g.Count(s => s.LastFollowUpDate.HasValue),
@@ -1115,7 +1115,7 @@ internal static class InstitutionalReportAnalysisService
     {
         if (reportType == InstitutionalReportType.OverdueTransactions)
         {
-            return "يعرض التقرير المعاملات المفتوحة المتأخرة حتى تاريخ نهاية الفترة (تاريخ التقييم)، " +
+            return "يعرض التقرير المعاملات المتأخرة حتى تاريخ نهاية الفترة (تاريخ التقييم)، ويشمل المفتوحة المتأخرة والمنجزة/المغلقة بعد الاستحقاق، " +
                    "بغض النظر عن كون تاريخ الوارد قبل بداية الفترة، مع استبعاد المعاملات ذات تاريخ وارد بعد نهاية الفترة. " +
                    "أيام التأخير محسوبة حتى تاريخ نهاية الفترة نفسه.";
         }
@@ -1124,7 +1124,7 @@ internal static class InstitutionalReportAnalysisService
         if (includeOverdue)
         {
             basis += " فلتر «تضمين المتأخرات» يعرض المعاملات المتأخرة ضمن نطاق تاريخ الوارد المحدد فقط، " +
-                     "وليس كل المعاملات المتأخرة المفتوحة (استخدم تقرير المعاملات المتأخرة لذلك).";
+                     "وليس كل المعاملات المتأخرة في النظام (استخدم تقرير المعاملات المتأخرة لذلك).";
         }
 
         return basis;

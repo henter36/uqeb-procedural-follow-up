@@ -161,6 +161,102 @@ public class DepartmentResponseServiceTests
     }
 
     [Fact]
+    public async Task Approve_marks_matching_assignment_completed()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(Approve_marks_matching_assignment_completed));
+        var service = BuildService(db);
+        var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
+        var reviewer = new FakeUser { UserId = userId, Role = UserRole.Supervisor, DepartmentId = null };
+
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الإفادة"), submitter);
+        await service.SubmitAsync(created.Id, submitter);
+        await service.ApproveAsync(created.Id, reviewer);
+
+        var assignment = await db.Assignments.SingleAsync(a => a.TransactionId == txId && a.DepartmentId == deptId);
+        Assert.Equal(AssignmentStatus.Completed, assignment.Status);
+        Assert.Equal(ReplyStatus.Replied, assignment.ReplyStatus);
+        Assert.NotNull(assignment.ReplyDate);
+        Assert.Equal("نص الإفادة", assignment.ReplySummary);
+    }
+
+    [Fact]
+    public async Task Approve_loads_transaction_assignments_without_relying_on_context_fixup()
+    {
+        var dbName = nameof(Approve_loads_transaction_assignments_without_relying_on_context_fixup);
+        int responseId;
+        int txId;
+        int deptId;
+        int userId;
+
+        await using (var seedDb = CreateDb(dbName))
+        {
+            var dept = new Department { Name = "إدارة الاختبار", NameNormalized = "إدارة الاختبار", Code = "TEST" };
+            var user = new User { Username = "u1", PasswordHash = "x", FullName = "المستخدم الأول", Role = UserRole.DepartmentUser };
+            seedDb.Departments.Add(dept);
+            seedDb.Users.Add(user);
+            await seedDb.SaveChangesAsync();
+
+            user.DepartmentId = dept.Id;
+            var tx = new Transaction
+            {
+                InternalTrackingNumber = "TX-REL",
+                IncomingNumber = "IN-REL",
+                IncomingDate = DateTime.UtcNow.AddDays(-3),
+                Subject = "اعتماد إفادة",
+                RequiresResponse = true,
+                Status = TransactionStatus.Assigned,
+                CreatedById = user.Id,
+            };
+            seedDb.Transactions.Add(tx);
+            await seedDb.SaveChangesAsync();
+
+            seedDb.Assignments.Add(new Assignment
+            {
+                TransactionId = tx.Id,
+                DepartmentId = dept.Id,
+                AssignedDate = DateTime.UtcNow.AddDays(-2),
+                RequiresReply = true,
+                ReplyStatus = ReplyStatus.Pending,
+                Status = AssignmentStatus.Active,
+                CreatedById = user.Id,
+            });
+            var response = new DepartmentResponse
+            {
+                TransactionId = tx.Id,
+                DepartmentId = dept.Id,
+                ResponseText = "نص الإفادة",
+                Status = DepartmentResponseStatus.SubmittedForReview,
+                SubmittedByUserId = user.Id,
+                SubmittedAt = DateTime.UtcNow.AddDays(-1),
+                CreatedAt = DateTime.UtcNow.AddDays(-1)
+            };
+            seedDb.DepartmentResponses.Add(response);
+            await seedDb.SaveChangesAsync();
+
+            responseId = response.Id;
+            txId = tx.Id;
+            deptId = dept.Id;
+            userId = user.Id;
+        }
+
+        await using var approveDb = CreateDb(dbName);
+        var service = BuildService(approveDb);
+        var reviewer = new FakeUser { UserId = userId, Role = UserRole.Supervisor, DepartmentId = null };
+
+        await service.ApproveAsync(responseId, reviewer);
+
+        var assignment = await approveDb.Assignments.SingleAsync(a => a.TransactionId == txId && a.DepartmentId == deptId);
+        var transaction = await approveDb.Transactions.SingleAsync(t => t.Id == txId);
+        Assert.Equal(AssignmentStatus.Completed, assignment.Status);
+        Assert.Equal(ReplyStatus.Replied, assignment.ReplyStatus);
+        // Approving a department's internal reply is distinct from completing the
+        // transaction's own formal response (CompleteResponseAsync); once every
+        // required reply is in, WorkflowHelper.UpdateTransactionStatusFromAssignments
+        // moves a RequiresResponse transaction to ReadyForResponse, not ResponseCompleted.
+        Assert.Equal(TransactionStatus.ReadyForResponse, transaction.Status);
+    }
+
+    [Fact]
     public async Task ReturnForCorrection_RequiresNote()
     {
         var (db, txId, deptId, userId) = await SeedAsync(nameof(ReturnForCorrection_RequiresNote));
@@ -786,11 +882,15 @@ public class DepartmentResponseServiceTests
 
         var stats = await service.GetMyStatsAsync(submitter);
 
-        Assert.Equal(1, stats.TotalAssigned);
+        // GetMyStatsAsync is deliberately scoped to active assignments only (commit
+        // 48249bd, PR #68): once ApproveAsync completes the assignment, the
+        // transaction drops out of MyStats entirely — see
+        // GetMyStats_IgnoresResponsesForInactiveAssignments for the authoritative spec.
+        Assert.Equal(0, stats.TotalAssigned);
         Assert.Equal(0, stats.PendingResponse);
         Assert.Equal(0, stats.Draft);
         Assert.Equal(0, stats.SubmittedForReview);
-        Assert.Equal(1, stats.Approved);
+        Assert.Equal(0, stats.Approved);
     }
 
     [Fact]

@@ -29,6 +29,7 @@ internal static class InstitutionalReportSnapshotQuery
         public TransactionStatus Status { get; init; }
         public bool RequiresResponse { get; init; }
         public bool ResponseCompleted { get; init; }
+        public DateTime? ResponseCompletedDate { get; init; }
         public DateTime? ResponseDueDate { get; init; }
         public DateTime? ClosedAt { get; init; }
         public DateTime? UpdatedAt { get; init; }
@@ -73,6 +74,7 @@ internal static class InstitutionalReportSnapshotQuery
         Status = t.Status,
         RequiresResponse = t.RequiresResponse,
         ResponseCompleted = t.ResponseCompleted,
+        ResponseCompletedDate = t.ResponseCompletedDate,
         ResponseDueDate = t.ResponseDueDate,
         ClosedAt = t.ClosedAt,
         UpdatedAt = t.UpdatedAt,
@@ -317,6 +319,7 @@ internal static class InstitutionalReportSnapshotQuery
             Status = row.Status,
             RequiresResponse = row.RequiresResponse,
             ResponseCompleted = row.ResponseCompleted,
+            ResponseCompletedDate = row.ResponseCompletedDate?.Date,
             ResponseDueDate = row.ResponseDueDate?.Date,
             ClosedAt = row.ClosedAt?.Date,
             UpdatedAt = row.UpdatedAt?.Date,
@@ -340,6 +343,8 @@ internal static class InstitutionalReportSnapshotQuery
         };
 
         snapshot.IsOverdue = InstitutionalReportMetricsCalculator.IsOverdue(snapshot, today);
+        snapshot.IsOpenOverdue = InstitutionalReportMetricsCalculator.IsOpenOverdue(snapshot, today);
+        snapshot.IsCompletedLate = InstitutionalReportMetricsCalculator.IsCompletedLate(snapshot);
         snapshot.IsWaitingForStatement = InstitutionalReportMetricsCalculator.IsWaitingForStatement(snapshot);
         snapshot.IsPartialReply = InstitutionalReportMetricsCalculator.IsPartialReply(snapshot);
         snapshot.IsJointDepartment = InstitutionalReportMetricsCalculator.IsJointDepartment(snapshot);

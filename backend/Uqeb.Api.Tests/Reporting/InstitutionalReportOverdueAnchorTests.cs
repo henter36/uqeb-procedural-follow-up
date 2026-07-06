@@ -147,10 +147,10 @@ public class InstitutionalReportOverdueAnchorTests
     }
 
     [Fact]
-    public async Task OverdueReport_ExcludesTransaction_ClosedAfterDeadline()
+    public async Task OverdueReport_IncludesTransaction_ClosedAfterDeadline()
     {
-        // Scenario 4: closed late — that's a distinct "completed after the deadline" signal,
-        // not a currently-open overdue one, so it must not appear in the overdue report.
+        // Scenario 4: closed late remains an overdue signal and must be visible in the
+        // overdue report instead of disappearing because the transaction is no longer open.
         var (db, user, factory) = await SeedBaseAsync($"overdue-anchor-closed-late-{Guid.NewGuid():N}");
         var today = DateTime.UtcNow.Date;
         var periodFrom = today.AddDays(-20);
@@ -169,8 +169,8 @@ public class InstitutionalReportOverdueAnchorTests
         var model = await service.BuildReportModelAsync(
             BuildRequest(InstitutionalReportType.OverdueTransactions, periodFrom, periodTo));
 
-        Assert.Equal(0, model.TotalMatchedRows);
-        Assert.DoesNotContain(model.Transactions, t => t.TrackingNumber == "CLOSED-LATE");
+        Assert.Equal(1, model.TotalMatchedRows);
+        Assert.Contains(model.Transactions, t => t.TrackingNumber == "CLOSED-LATE");
     }
 
     [Fact]

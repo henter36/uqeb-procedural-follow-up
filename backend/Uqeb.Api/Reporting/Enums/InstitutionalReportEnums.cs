@@ -90,7 +90,8 @@ public enum FollowUpStage
     WaitingForDepartmentReply = 2,
     PartialReply = 3,
     UnderProcessing = 4,
-    Overdue = 5
+    Overdue = 5,
+    CompletedLate = 6
 }
 
 public enum RecommendationSource

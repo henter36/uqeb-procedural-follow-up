@@ -16,6 +16,7 @@ public sealed class TransactionReportSnapshot
     public TransactionStatus Status { get; set; }
     public bool RequiresResponse { get; set; }
     public bool ResponseCompleted { get; set; }
+    public DateTime? ResponseCompletedDate { get; set; }
     public DateTime? ResponseDueDate { get; set; }
     public DateTime? ClosedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
@@ -40,6 +41,8 @@ public sealed class TransactionReportSnapshot
     public bool IsClosed { get; set; }
     public bool IsOpen { get; set; }
     public bool IsOverdue { get; set; }
+    public bool IsOpenOverdue { get; set; }
+    public bool IsCompletedLate { get; set; }
     public bool IsWaitingForStatement { get; set; }
     public bool IsPartialReply { get; set; }
     public bool IsJointDepartment { get; set; }
@@ -55,6 +58,8 @@ public sealed class InstitutionalMetricsResult
     public int CancelledCount { get; init; }
     public int ArchivedCount { get; init; }
     public int OverdueCount { get; init; }
+    public int OpenOverdueCount { get; init; }
+    public int CompletedLateCount { get; init; }
     public int JointDepartmentCount { get; init; }
     public int PartialResponseCount { get; init; }
     public double AverageCompletionDays { get; init; }

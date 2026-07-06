@@ -72,9 +72,10 @@ internal static class ReportingTemporalCalculator
 
     public static bool IsResponseOverdue(TransactionReportSnapshot snapshot, DateTime referenceDate) =>
         snapshot.RequiresResponse
-        && !snapshot.ResponseCompleted
         && snapshot.ResponseDueDate.HasValue
-        && snapshot.ResponseDueDate.Value.Date < referenceDate.Date;
+        && (snapshot.ClosedAt?.Date
+            ?? (snapshot.ResponseCompleted ? snapshot.ResponseCompletedDate?.Date : null)
+            ?? referenceDate.Date) > snapshot.ResponseDueDate.Value.Date;
 
     public static int AgeDays(TransactionReportSnapshot snapshot, DateTime referenceDate) =>
         Math.Max(0, (referenceDate.Date - snapshot.IncomingDate.Date).Days);
@@ -88,7 +89,15 @@ internal static class ReportingTemporalCalculator
         if (dueDates.Count == 0)
             return snapshot.IsOverdue ? snapshot.ElapsedDays : null;
 
-        return Math.Max(0, (referenceDate.Date - dueDates.Min()).Days);
+        var comparisonDate = snapshot.ClosedAt?.Date
+            ?? (snapshot.ResponseCompleted ? snapshot.ResponseCompletedDate?.Date : null)
+            ?? referenceDate.Date;
+
+        var earliestDue = dueDates.Min();
+        if (comparisonDate <= earliestDue)
+            return null;
+
+        return Math.Max(0, (comparisonDate - earliestDue).Days);
     }
 
     public static bool IsStale(TransactionReportSnapshot snapshot, DateTime referenceDate, int staleDays) =>

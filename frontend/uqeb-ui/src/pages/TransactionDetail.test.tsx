@@ -197,6 +197,19 @@ vi.mock('../api/services', () => ({
   externalPartiesApi: { getAll: vi.fn() },
 }));
 
+type MockedApiFunction = {
+  mockResolvedValue(value: unknown): MockedApiFunction;
+  mockResolvedValueOnce(value: unknown): MockedApiFunction;
+  mockRejectedValue(value: unknown): MockedApiFunction;
+  mockRejectedValueOnce(value: unknown): MockedApiFunction;
+  mockReturnValue(value: unknown): MockedApiFunction;
+  mock: {
+    calls: unknown[][];
+  };
+};
+
+const mockApi = (fn: unknown) => fn as MockedApiFunction;
+
 function getActionBar() {
   return screen.getByRole('navigation', { name: 'إجراءات المعاملة' });
 }
@@ -235,19 +248,19 @@ function renderDetail(path = '/transactions/1') {
 }
 
 function setupDefaultMocks() {
-  vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({ data: defaultWorkspace } as never);
-  vi.mocked(services.transactionsApi.getBasic).mockResolvedValue({ data: baseTx } as never);
-  vi.mocked(services.transactionsApi.getAssignments).mockResolvedValue({ data: [sampleAssignment] } as never);
-  vi.mocked(services.transactionsApi.getFollowUps).mockResolvedValue({ data: [sampleFollowUp] } as never);
-  vi.mocked(services.transactionsApi.getAttachments).mockResolvedValue({ data: [sampleAttachment] } as never);
-  vi.mocked(services.transactionsApi.getAuditLog).mockResolvedValue({
+  mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({ data: defaultWorkspace });
+  mockApi(services.transactionsApi.getBasic).mockResolvedValue({ data: baseTx });
+  mockApi(services.transactionsApi.getAssignments).mockResolvedValue({ data: [sampleAssignment] });
+  mockApi(services.transactionsApi.getFollowUps).mockResolvedValue({ data: [sampleFollowUp] });
+  mockApi(services.transactionsApi.getAttachments).mockResolvedValue({ data: [sampleAttachment] });
+  mockApi(services.transactionsApi.getAuditLog).mockResolvedValue({
     data: { items: [{ id: 1, action: 'Create', userName: 'مختبر', createdAt: '2026-01-01' }], hasNextPage: false },
-  } as never);
-  vi.mocked(services.transactionsApi.getFollowUpDepartments).mockResolvedValue({
+  });
+  mockApi(services.transactionsApi.getFollowUpDepartments).mockResolvedValue({
     data: [{ departmentId: 2, departmentName: 'إدارة ثانية', isDefaultSelected: true }],
-  } as never);
-  vi.mocked(services.departmentResponsesApi.getDepartmentTransactions).mockResolvedValue({ data: [] } as never);
-  vi.mocked(services.departmentResponsesApi.getById).mockResolvedValue({
+  });
+  mockApi(services.departmentResponsesApi.getDepartmentTransactions).mockResolvedValue({ data: [] });
+  mockApi(services.departmentResponsesApi.getById).mockResolvedValue({
     data: {
       id: 100,
       transactionId: 1,
@@ -261,8 +274,8 @@ function setupDefaultMocks() {
       createdAt: '2026-01-01',
       attachments: [],
     },
-  } as never);
-  vi.mocked(services.departmentResponsesApi.create).mockResolvedValue({
+  });
+  mockApi(services.departmentResponsesApi.create).mockResolvedValue({
     data: {
       id: 100,
       transactionId: 1,
@@ -276,8 +289,8 @@ function setupDefaultMocks() {
       createdAt: '2026-01-01',
       attachments: [],
     },
-  } as never);
-  vi.mocked(services.departmentResponsesApi.update).mockResolvedValue({
+  });
+  mockApi(services.departmentResponsesApi.update).mockResolvedValue({
     data: {
       id: 100,
       transactionId: 1,
@@ -291,8 +304,8 @@ function setupDefaultMocks() {
       createdAt: '2026-01-01',
       attachments: [],
     },
-  } as never);
-  vi.mocked(services.departmentResponsesApi.adminEdit).mockResolvedValue({
+  });
+  mockApi(services.departmentResponsesApi.adminEdit).mockResolvedValue({
     data: {
       id: 100,
       transactionId: 1,
@@ -307,14 +320,14 @@ function setupDefaultMocks() {
       createdAt: '2026-01-01',
       attachments: [],
     },
-  } as never);
-  vi.mocked(services.transactionsApi.adminEditAssignment).mockResolvedValue({
+  });
+  mockApi(services.transactionsApi.adminEditAssignment).mockResolvedValue({
     data: {
       ...sampleAssignment,
       assignedDate: '2026-01-01',
     },
-  } as never);
-  vi.mocked(services.departmentResponsesApi.uploadAttachment).mockResolvedValue({
+  });
+  mockApi(services.departmentResponsesApi.uploadAttachment).mockResolvedValue({
     data: {
       id: 101,
       originalFileName: 'scan.jpg',
@@ -322,7 +335,7 @@ function setupDefaultMocks() {
       uploadedByName: 'موظف إدارة',
       uploadedAt: '2026-01-01',
     },
-  } as never);
+  });
 }
 
 describe('TransactionDetailPage three-tab layout', () => {
@@ -372,6 +385,28 @@ describe('TransactionDetailPage three-tab layout', () => {
     expect(within(assignmentsCard).getByText('عمر المعاملة: 1 يوم').closest('.transaction-metric-tile')).toBeNull();
     expect(screen.getByText('F-1')).toBeInTheDocument();
     expect(screen.getByText('file.pdf')).toBeInTheDocument();
+  });
+
+  it('shows explicit edit response action for authorized admin when response exists', async () => {
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: {
+        ...defaultWorkspace,
+        assignments: [{
+          ...sampleAssignment,
+          replyStatus: 'Replied',
+          status: 'Completed',
+          departmentResponseId: 100,
+          responseDate: '2026-01-05',
+          canAdminEdit: true,
+        }],
+      },
+    });
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    const card = getAssignmentsCard();
+    expect(within(card).getByRole('button', { name: 'تعديل الإفادة' })).toBeInTheDocument();
   });
 
   it('does not expose legacy sub-tabs', async () => {
@@ -460,10 +495,10 @@ describe('TransactionDetailPage three-tab layout', () => {
 
   it('refreshes workspace after adding assignment from card button', async () => {
     const user = userEvent.setup();
-    vi.mocked(services.transactionsApi.addAssignment).mockResolvedValue({ data: { id: 99 } } as never);
-    vi.mocked(services.transactionsApi.getWorkspace)
-      .mockResolvedValueOnce({ data: { ...defaultWorkspace, assignments: [] } } as never)
-      .mockResolvedValueOnce({ data: defaultWorkspace } as never);
+    mockApi(services.transactionsApi.addAssignment).mockResolvedValue({ data: { id: 99 } });
+    mockApi(services.transactionsApi.getWorkspace)
+      .mockResolvedValueOnce({ data: { ...defaultWorkspace, assignments: [] } })
+      .mockResolvedValueOnce({ data: defaultWorkspace });
 
     renderDetail();
     await waitForDetailsReady();
@@ -484,20 +519,20 @@ describe('TransactionDetailPage three-tab layout', () => {
       expect(within(card).queryByTestId('assignment-form-panel')).not.toBeInTheDocument();
     });
     expect(services.transactionsApi.addAssignment).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(services.transactionsApi.getWorkspace).mock.calls.length).toBeGreaterThan(1);
+    expect(mockApi(services.transactionsApi.getWorkspace).mock.calls.length).toBeGreaterThan(1);
     expect(services.transactionsApi.getFollowUps).not.toHaveBeenCalled();
     expect(screen.getByRole('heading', { level: 2, name: 'IN-1' })).toBeInTheDocument();
   });
 
   it('shows page error with retry when workspace load fails', async () => {
     const user = userEvent.setup();
-    vi.mocked(services.transactionsApi.getWorkspace)
+    mockApi(services.transactionsApi.getWorkspace)
       .mockRejectedValueOnce(Object.assign(new Error('server error'), {
         isAxiosError: true,
         response: { status: 500 },
         code: 'ERR_BAD_RESPONSE',
       }))
-      .mockResolvedValueOnce({ data: defaultWorkspace } as never);
+      .mockResolvedValueOnce({ data: defaultWorkspace });
 
     renderDetail();
 
@@ -531,7 +566,7 @@ describe('TransactionDetailPage department user permissions', () => {
       isAdmin: false,
     });
     setupDefaultMocks();
-    vi.mocked(services.departmentResponsesApi.getDepartmentTransactions).mockResolvedValue({
+    mockApi(services.departmentResponsesApi.getDepartmentTransactions).mockResolvedValue({
       data: [{
         transactionId: 1,
         internalTrackingNumber: 'TRK-1',
@@ -543,8 +578,8 @@ describe('TransactionDetailPage department user permissions', () => {
         canEditResponse: false,
         canSubmitResponse: false,
       }],
-    } as never);
-    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+    });
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
       data: {
         ...defaultWorkspace,
         transaction: {
@@ -554,7 +589,7 @@ describe('TransactionDetailPage department user permissions', () => {
           responseCompleted: false,
         },
       },
-    } as never);
+    });
   });
 
   afterEach(() => {
@@ -654,7 +689,7 @@ describe('TransactionDetailPage department user permissions', () => {
 
   it('shows continue action and correction note for returned department responses', async () => {
     const user = userEvent.setup();
-    vi.mocked(services.departmentResponsesApi.getDepartmentTransactions).mockResolvedValue({
+    mockApi(services.departmentResponsesApi.getDepartmentTransactions).mockResolvedValue({
       data: [{
         transactionId: 1,
         internalTrackingNumber: 'TRK-1',
@@ -668,8 +703,8 @@ describe('TransactionDetailPage department user permissions', () => {
         canEditResponse: true,
         canSubmitResponse: true,
       }],
-    } as never);
-    vi.mocked(services.departmentResponsesApi.getById).mockResolvedValue({
+    });
+    mockApi(services.departmentResponsesApi.getById).mockResolvedValue({
       data: {
         id: 100,
         transactionId: 1,
@@ -684,7 +719,7 @@ describe('TransactionDetailPage department user permissions', () => {
         createdAt: '2026-01-01',
         attachments: [],
       },
-    } as never);
+    });
 
     renderDetail();
     await waitForDetailsReady();
@@ -698,7 +733,7 @@ describe('TransactionDetailPage department user permissions', () => {
   });
 
   it('shows submitted-for-review status without a new submit button', async () => {
-    vi.mocked(services.departmentResponsesApi.getDepartmentTransactions).mockResolvedValue({
+    mockApi(services.departmentResponsesApi.getDepartmentTransactions).mockResolvedValue({
       data: [{
         transactionId: 1,
         internalTrackingNumber: 'TRK-1',
@@ -712,7 +747,7 @@ describe('TransactionDetailPage department user permissions', () => {
         canEditResponse: false,
         canSubmitResponse: false,
       }],
-    } as never);
+    });
 
     renderDetail();
     await waitForDetailsReady();
@@ -725,7 +760,7 @@ describe('TransactionDetailPage department user permissions', () => {
 
   it('shows department response attachments inside the response form when available', async () => {
     const user = userEvent.setup();
-    vi.mocked(services.departmentResponsesApi.getDepartmentTransactions).mockResolvedValue({
+    mockApi(services.departmentResponsesApi.getDepartmentTransactions).mockResolvedValue({
       data: [{
         transactionId: 1,
         internalTrackingNumber: 'TRK-1',
@@ -739,8 +774,8 @@ describe('TransactionDetailPage department user permissions', () => {
         canEditResponse: true,
         canSubmitResponse: true,
       }],
-    } as never);
-    vi.mocked(services.departmentResponsesApi.getById).mockResolvedValue({
+    });
+    mockApi(services.departmentResponsesApi.getById).mockResolvedValue({
       data: {
         id: 100,
         transactionId: 1,
@@ -760,7 +795,7 @@ describe('TransactionDetailPage department user permissions', () => {
           uploadedAt: '2026-01-01',
         }],
       },
-    } as never);
+    });
 
     renderDetail();
     await waitForDetailsReady();
@@ -778,7 +813,7 @@ describe('TransactionDetailPage department user permissions', () => {
 
   it('shows error message and retry button when getDepartmentTransactions fails', async () => {
     const user = userEvent.setup();
-    vi.mocked(services.departmentResponsesApi.getDepartmentTransactions)
+    mockApi(services.departmentResponsesApi.getDepartmentTransactions)
       .mockRejectedValueOnce(new Error('network error'))
       .mockResolvedValueOnce({
         data: [{
@@ -792,7 +827,7 @@ describe('TransactionDetailPage department user permissions', () => {
           canEditResponse: false,
           canSubmitResponse: false,
         }],
-      } as never);
+      });
 
     renderDetail();
     await waitForDetailsReady();
@@ -806,7 +841,7 @@ describe('TransactionDetailPage department user permissions', () => {
   });
 
   it('submit button is disabled when canSubmitResponse is false', async () => {
-    vi.mocked(services.departmentResponsesApi.getDepartmentTransactions).mockResolvedValue({
+    mockApi(services.departmentResponsesApi.getDepartmentTransactions).mockResolvedValue({
       data: [{
         transactionId: 1,
         internalTrackingNumber: 'TRK-1',
@@ -820,7 +855,7 @@ describe('TransactionDetailPage department user permissions', () => {
         canEditResponse: true,
         canSubmitResponse: false,
       }],
-    } as never);
+    });
 
     const user = userEvent.setup();
     renderDetail();
@@ -836,7 +871,7 @@ describe('TransactionDetailPage department user permissions', () => {
 
   it('does not call create again on submit retry after saveDraft succeeds but submit fails', async () => {
     const user = userEvent.setup();
-    vi.mocked(services.departmentResponsesApi.submit).mockRejectedValueOnce(new Error('server error'));
+    mockApi(services.departmentResponsesApi.submit).mockRejectedValueOnce(new Error('server error'));
 
     renderDetail();
     await waitForDetailsReady();
@@ -851,7 +886,7 @@ describe('TransactionDetailPage department user permissions', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'إرسال الإفادة' })).toBeEnabled());
     expect(services.departmentResponsesApi.create).toHaveBeenCalledTimes(1);
 
-    vi.mocked(services.departmentResponsesApi.submit).mockResolvedValueOnce({
+    mockApi(services.departmentResponsesApi.submit).mockResolvedValueOnce({
       data: {
         id: 100,
         transactionId: 1,
@@ -865,7 +900,7 @@ describe('TransactionDetailPage department user permissions', () => {
         createdAt: '2026-01-01',
         attachments: [],
       },
-    } as never);
+    });
     await user.click(screen.getByRole('button', { name: 'إرسال الإفادة' }));
 
     await waitFor(() => expect(services.departmentResponsesApi.submit).toHaveBeenCalledTimes(2));
@@ -906,9 +941,9 @@ describe('TransactionDetailPage card interaction flows', () => {
       isAdmin: true,
     });
     setupDefaultMocks();
-    vi.mocked(services.transactionsApi.getAssignments).mockResolvedValue({ data: [] } as never);
-    vi.mocked(services.transactionsApi.getFollowUps).mockResolvedValue({ data: [] } as never);
-    vi.mocked(services.transactionsApi.getAttachments).mockResolvedValue({ data: [] } as never);
+    mockApi(services.transactionsApi.getAssignments).mockResolvedValue({ data: [] });
+    mockApi(services.transactionsApi.getFollowUps).mockResolvedValue({ data: [] });
+    mockApi(services.transactionsApi.getAttachments).mockResolvedValue({ data: [] });
   });
 
   afterEach(() => {
@@ -938,7 +973,7 @@ describe('TransactionDetailPage card interaction flows', () => {
 
   it('never prefills a new assignment letter number from the transaction outgoing number or any prior assignment', async () => {
     const user = userEvent.setup();
-    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
       data: {
         ...defaultWorkspace,
         transaction: {
@@ -959,7 +994,7 @@ describe('TransactionDetailPage card interaction flows', () => {
           },
         ],
       },
-    } as never);
+    });
 
     renderDetail();
     await waitForDetailsReady();
@@ -972,10 +1007,10 @@ describe('TransactionDetailPage card interaction flows', () => {
 
   it('saves assignment from card form and refreshes data', async () => {
     const user = userEvent.setup();
-    vi.mocked(services.transactionsApi.addAssignment).mockResolvedValue({ data: { id: 9 } } as never);
-    vi.mocked(services.transactionsApi.getWorkspace)
-      .mockResolvedValueOnce({ data: { ...defaultWorkspace, assignments: [] } } as never)
-      .mockResolvedValue({ data: defaultWorkspace } as never);
+    mockApi(services.transactionsApi.addAssignment).mockResolvedValue({ data: { id: 9 } });
+    mockApi(services.transactionsApi.getWorkspace)
+      .mockResolvedValueOnce({ data: { ...defaultWorkspace, assignments: [] } })
+      .mockResolvedValue({ data: defaultWorkspace });
 
     renderDetail();
     await waitForDetailsReady();
@@ -993,12 +1028,12 @@ describe('TransactionDetailPage card interaction flows', () => {
       expect(within(card).queryByTestId('assignment-form-panel')).not.toBeInTheDocument();
     });
     expect(services.transactionsApi.addAssignment).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(services.transactionsApi.getWorkspace).mock.calls.length).toBeGreaterThan(1);
+    expect(mockApi(services.transactionsApi.getWorkspace).mock.calls.length).toBeGreaterThan(1);
   });
 
   it('keeps assignment form open when save fails', async () => {
     const user = userEvent.setup();
-    vi.mocked(services.transactionsApi.addAssignment).mockRejectedValue(new Error('save failed'));
+    mockApi(services.transactionsApi.addAssignment).mockRejectedValue(new Error('save failed'));
 
     renderDetail();
     await waitForDetailsReady();
@@ -1053,7 +1088,7 @@ describe('TransactionDetailPage card interaction flows', () => {
   it('closes assignment form from panel header without confirm after successful save', async () => {
     const user = userEvent.setup();
     const confirmSpy = vi.spyOn(globalThis, 'confirm');
-    vi.mocked(services.transactionsApi.addAssignment).mockResolvedValue({ data: { id: 9 } } as never);
+    mockApi(services.transactionsApi.addAssignment).mockResolvedValue({ data: { id: 9 } });
 
     renderDetail();
     await waitForDetailsReady();
@@ -1089,10 +1124,10 @@ describe('TransactionDetailPage card interaction flows', () => {
 
   it('opens follow-up form inside follow-ups card and saves', async () => {
     const user = userEvent.setup();
-    vi.mocked(services.transactionsApi.addFollowUp).mockResolvedValue({ data: { id: 21 } } as never);
-    vi.mocked(services.transactionsApi.getWorkspace)
-      .mockResolvedValueOnce({ data: { ...defaultWorkspace, followUps: [] } } as never)
-      .mockResolvedValue({ data: defaultWorkspace } as never);
+    mockApi(services.transactionsApi.addFollowUp).mockResolvedValue({ data: { id: 21 } });
+    mockApi(services.transactionsApi.getWorkspace)
+      .mockResolvedValueOnce({ data: { ...defaultWorkspace, followUps: [] } })
+      .mockResolvedValue({ data: defaultWorkspace });
 
     renderDetail();
     await waitForDetailsReady();
@@ -1112,15 +1147,15 @@ describe('TransactionDetailPage card interaction flows', () => {
       expect(within(card).queryByTestId('followup-form-panel')).not.toBeInTheDocument();
     });
     expect(services.transactionsApi.addFollowUp).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(services.transactionsApi.getWorkspace).mock.calls.length).toBeGreaterThan(1);
+    expect(mockApi(services.transactionsApi.getWorkspace).mock.calls.length).toBeGreaterThan(1);
   });
 
   it('opens attachment form inside attachments card and uploads file', async () => {
     const user = userEvent.setup();
-    vi.mocked(services.transactionsApi.uploadAttachment).mockResolvedValue({ data: sampleAttachment } as never);
-    vi.mocked(services.transactionsApi.getWorkspace)
-      .mockResolvedValueOnce({ data: { ...defaultWorkspace, attachments: [] } } as never)
-      .mockResolvedValue({ data: defaultWorkspace } as never);
+    mockApi(services.transactionsApi.uploadAttachment).mockResolvedValue({ data: sampleAttachment });
+    mockApi(services.transactionsApi.getWorkspace)
+      .mockResolvedValueOnce({ data: { ...defaultWorkspace, attachments: [] } })
+      .mockResolvedValue({ data: defaultWorkspace });
 
     renderDetail();
     await waitForDetailsReady();
@@ -1143,7 +1178,7 @@ describe('TransactionDetailPage card interaction flows', () => {
       expect(screen.getByText('file.pdf')).toBeInTheDocument();
     });
     expect(services.transactionsApi.uploadAttachment).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(services.transactionsApi.getWorkspace).mock.calls.length).toBeGreaterThan(1);
+    expect(mockApi(services.transactionsApi.getWorkspace).mock.calls.length).toBeGreaterThan(1);
   });
 
   it('shows only one inline add form at a time when switching cards', async () => {
@@ -1161,8 +1196,8 @@ describe('TransactionDetailPage card interaction flows', () => {
 
   it('opens reply form inside assignments card for pending assignment', async () => {
     const user = userEvent.setup();
-    vi.mocked(services.transactionsApi.getAssignments).mockResolvedValue({ data: [sampleAssignment] } as never);
-    vi.mocked(services.transactionsApi.replyAssignment).mockResolvedValue({ data: {} } as never);
+    mockApi(services.transactionsApi.getAssignments).mockResolvedValue({ data: [sampleAssignment] });
+    mockApi(services.transactionsApi.replyAssignment).mockResolvedValue({ data: {} });
 
     renderDetail();
     await waitForDetailsReady();
@@ -1195,7 +1230,7 @@ describe('TransactionDetailPage card interaction flows', () => {
   });
 
   it('shows transaction outgoing number as assignment letter fallback', async () => {
-    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
       data: {
         ...defaultWorkspace,
         transaction: {
@@ -1207,7 +1242,7 @@ describe('TransactionDetailPage card interaction flows', () => {
           letterNumber: null,
         }],
       },
-    } as never);
+    });
 
     renderDetail();
     await waitForDetailsReady();
@@ -1222,15 +1257,15 @@ describe('TransactionDetailPage card interaction flows', () => {
         assignedDate: '2026-01-02',
         canAdminEdit: true,
       };
-    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
       data: {
         ...defaultWorkspace,
         assignments: [editableAssignment],
       },
-    } as never);
-    vi.mocked(services.transactionsApi.getAssignments).mockResolvedValue({
+    });
+    mockApi(services.transactionsApi.getAssignments).mockResolvedValue({
       data: [editableAssignment],
-    } as never);
+    });
 
     renderDetail();
     await waitForDetailsReady();
@@ -1279,15 +1314,15 @@ describe('TransactionDetailPage card interaction flows', () => {
       responseDate: '2026-01-05',
       departmentResponseId: 100,
     };
-    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
       data: {
         ...defaultWorkspace,
         assignments: [repliedAssignment],
       },
-    } as never);
-    vi.mocked(services.transactionsApi.getAssignments).mockResolvedValue({
+    });
+    mockApi(services.transactionsApi.getAssignments).mockResolvedValue({
       data: [repliedAssignment],
-    } as never);
+    });
 
     renderDetail();
     await waitForDetailsReady();
@@ -1311,15 +1346,15 @@ describe('TransactionDetailPage card interaction flows', () => {
       responseDate: '2026-01-05',
       departmentResponseId: undefined,
     };
-    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
       data: {
         ...defaultWorkspace,
         assignments: [repliedAssignment],
       },
-    } as never);
-    vi.mocked(services.transactionsApi.getAssignments).mockResolvedValue({
+    });
+    mockApi(services.transactionsApi.getAssignments).mockResolvedValue({
       data: [repliedAssignment],
-    } as never);
+    });
 
     renderDetail();
     await waitForDetailsReady();
@@ -1327,6 +1362,45 @@ describe('TransactionDetailPage card interaction flows', () => {
 
     expect(within(card).getByText('تمت الإفادة')).toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: 'تعديل إفادة إدارة إدارة اختبار' })).not.toBeInTheDocument();
+  });
+
+  it('shows an error when the workspace refresh after an admin response edit fails', async () => {
+    const user = userEvent.setup();
+    const repliedAssignment = {
+      ...sampleAssignment,
+      replyStatus: 'Replied',
+      responseDate: '2026-01-05',
+      departmentResponseId: 100,
+    };
+    mockApi(services.transactionsApi.getWorkspace)
+      .mockResolvedValueOnce({
+        data: { ...defaultWorkspace, assignments: [repliedAssignment] },
+      })
+      .mockRejectedValueOnce(new Error('network error'));
+    mockApi(services.transactionsApi.getAssignments).mockResolvedValue({
+      data: [repliedAssignment],
+    });
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getAssignmentsCard();
+
+    const responseButton = await within(card).findByRole('button', { name: 'تعديل إفادة إدارة إدارة اختبار' });
+    await user.click(responseButton);
+
+    expect(within(card).getByTestId('admin-edit-response-form-panel')).toBeInTheDocument();
+    const summaryField = await screen.findByLabelText('ملخص الإفادة');
+    await user.type(summaryField, ' إضافة');
+    await user.type(screen.getByLabelText(/سبب التعديل/), 'تصحيح الإفادة');
+
+    await user.click(screen.getByRole('button', { name: 'حفظ التصحيح' }));
+
+    // loadWorkspace surfaces its own failure via the page-level error state; the
+    // fix under test ensures handleAdminEditResponseSuccess awaits that refresh
+    // instead of a fire-and-forget `.catch(() => undefined)` that discarded it.
+    await waitFor(() => {
+      expect(screen.getByText('تعذر تحميل بيانات المعاملة')).toBeInTheDocument();
+    });
   });
 
   it('renders completed response status as plain text for DepartmentUser', async () => {
@@ -1350,15 +1424,15 @@ describe('TransactionDetailPage card interaction flows', () => {
       login: vi.fn(),
       isAdmin: false,
     });
-    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
       data: {
         ...defaultWorkspace,
         assignments: [repliedAssignment],
       },
-    } as never);
-    vi.mocked(services.transactionsApi.getAssignments).mockResolvedValue({
+    });
+    mockApi(services.transactionsApi.getAssignments).mockResolvedValue({
       data: [repliedAssignment],
-    } as never);
+    });
 
     renderDetail();
     await waitForDetailsReady();
@@ -1384,7 +1458,7 @@ describe('TransactionDetailPage operational workspace', () => {
       isAdmin: true,
     });
     setupDefaultMocks();
-    vi.mocked(services.transactionsApi.getAssignments).mockResolvedValue({ data: [] } as never);
+    mockApi(services.transactionsApi.getAssignments).mockResolvedValue({ data: [] });
   });
 
   afterEach(() => {
@@ -1412,7 +1486,7 @@ describe('TransactionDetailPage operational workspace', () => {
       completionDate: '2026-01-04',
       completionDays: 3,
     };
-    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
       data: {
         ...defaultWorkspace,
         transaction: completedTransaction,
@@ -1421,8 +1495,8 @@ describe('TransactionDetailPage operational workspace', () => {
           completionDays: 3,
         },
       },
-    } as never);
-    vi.mocked(services.transactionsApi.getBasic).mockResolvedValue({ data: completedTransaction } as never);
+    });
+    mockApi(services.transactionsApi.getBasic).mockResolvedValue({ data: completedTransaction });
     renderDetail();
 
     await waitFor(() => {
@@ -1451,7 +1525,7 @@ describe('TransactionDetailPage operational workspace', () => {
   it('does not confirm after successful assignment save from action bar', async () => {
     const user = userEvent.setup();
     const confirmSpy = vi.spyOn(globalThis, 'confirm');
-    vi.mocked(services.transactionsApi.addAssignment).mockResolvedValue({ data: { id: 9 } } as never);
+    mockApi(services.transactionsApi.addAssignment).mockResolvedValue({ data: { id: 9 } });
 
     renderDetail();
     await waitFor(() => expect(getActionBarButton('إضافة احالة')).toBeInTheDocument());
@@ -1534,7 +1608,7 @@ describe('TransactionDetailPage permissions', () => {
       login: vi.fn(),
       isAdmin: false,
     });
-    vi.mocked(services.transactionsApi.getAssignments).mockResolvedValue({ data: [] } as never);
+    mockApi(services.transactionsApi.getAssignments).mockResolvedValue({ data: [] });
 
     renderDetail();
 
@@ -1559,7 +1633,7 @@ describe('TransactionDetailPage Admin/Supervisor response form', () => {
       isAdmin: true,
     });
     setupDefaultMocks();
-    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
       data: {
         ...defaultWorkspace,
         transaction: {
@@ -1570,9 +1644,9 @@ describe('TransactionDetailPage Admin/Supervisor response form', () => {
           pendingDepartmentNames: [],
         },
       },
-    } as never);
-    vi.mocked(services.transactionsApi.completeResponse).mockResolvedValue({ data: {} } as never);
-    vi.mocked(services.transactionsApi.uploadAttachment).mockResolvedValue({ data: {} } as never);
+    });
+    mockApi(services.transactionsApi.completeResponse).mockResolvedValue({ data: {} });
+    mockApi(services.transactionsApi.uploadAttachment).mockResolvedValue({ data: {} });
   });
 
   afterEach(() => {
@@ -1668,10 +1742,10 @@ describe('TransactionDetailPage recurring template info', () => {
       recurringPeriodKey: '2026-01',
       recurringPeriodLabel: 'يناير 2026',
     };
-    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
       data: { ...defaultWorkspace, transaction: recurringTx },
-    } as never);
-    vi.mocked(services.transactionsApi.getBasic).mockResolvedValue({ data: recurringTx } as never);
+    });
+    mockApi(services.transactionsApi.getBasic).mockResolvedValue({ data: recurringTx });
 
     renderDetail();
     await waitForDetailsReady();
@@ -1702,10 +1776,10 @@ describe('TransactionDetailPage recurring template info', () => {
 
   it('does not show the enable-recurring action once a transaction is already linked to a template', async () => {
     const recurringTx = { ...baseTx, recurringTemplateId: 7, recurringTemplateTitle: 'قالب', recurringPeriodLabel: 'يناير 2026' };
-    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
       data: { ...defaultWorkspace, transaction: recurringTx },
-    } as never);
-    vi.mocked(services.transactionsApi.getBasic).mockResolvedValue({ data: recurringTx } as never);
+    });
+    mockApi(services.transactionsApi.getBasic).mockResolvedValue({ data: recurringTx });
 
     renderDetail();
     await waitForDetailsReady();
@@ -1715,7 +1789,7 @@ describe('TransactionDetailPage recurring template info', () => {
 
   it('enables recurring follow-up from the transaction detail page', async () => {
     const user = userEvent.setup();
-    vi.mocked(services.transactionsApi.enableRecurring).mockResolvedValue({
+    mockApi(services.transactionsApi.enableRecurring).mockResolvedValue({
       data: {
         ...baseTx,
         recurringTemplateId: 9,
@@ -1723,7 +1797,7 @@ describe('TransactionDetailPage recurring template info', () => {
         recurringPeriodKey: '2026-01',
         recurringPeriodLabel: 'يناير 2026',
       },
-    } as never);
+    });
 
     renderDetail();
     await waitForDetailsReady();
@@ -1735,7 +1809,7 @@ describe('TransactionDetailPage recurring template info', () => {
     await user.click(within(panel).getByRole('button', { name: 'تفعيل المتابعة الدورية' }));
 
     await waitFor(() => expect(services.transactionsApi.enableRecurring).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(services.transactionsApi.enableRecurring).mock.calls[0][0]).toBe(1);
+    expect(mockApi(services.transactionsApi.enableRecurring).mock.calls[0][0]).toBe(1);
     await waitFor(() => expect(screen.getByTestId('recurring-template-info')).toBeInTheDocument());
   });
 
@@ -1749,19 +1823,19 @@ describe('TransactionDetailPage recurring template info', () => {
       requiresResponse: false,
       responseType: 'None',
     };
-    vi.mocked(services.transactionsApi.getWorkspace).mockResolvedValue({
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
       data: { ...defaultWorkspace, transaction: recurringTx },
-    } as never);
-    vi.mocked(services.transactionsApi.getBasic).mockResolvedValue({ data: recurringTx } as never);
-    vi.mocked(services.transactionsApi.close).mockResolvedValue({} as never);
-    vi.mocked(services.recurringTemplatesApi.getById).mockResolvedValue({
+    });
+    mockApi(services.transactionsApi.getBasic).mockResolvedValue({ data: recurringTx });
+    mockApi(services.transactionsApi.close).mockResolvedValue({});
+    mockApi(services.recurringTemplatesApi.getById).mockResolvedValue({
       data: {
         id: 7,
         status: 'Active',
         nextTransactionCreationMethod: 'AutomaticOnClose',
         nextPeriodLabel: 'فبراير 2026',
       },
-    } as never);
+    });
     vi.spyOn(globalThis, 'confirm').mockReturnValue(true);
 
     renderDetail();

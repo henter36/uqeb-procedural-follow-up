@@ -10,6 +10,11 @@ public static class WorkflowHelper
             ? incomingDate.Date.AddDays(responseDueDays.Value)
             : null;
 
+    public static int? CalculateResponseDueDays(DateTime incomingDate, DateTime? responseDueDate) =>
+        responseDueDate.HasValue
+            ? (responseDueDate.Value.Date - incomingDate.Date).Days
+            : null;
+
     public static DateTime? CalculateAssignmentDueDate(DateTime assignedDate, int? replyDueDays, DateTime? explicitDueDate)
     {
         if (replyDueDays.HasValue && replyDueDays > 0)
@@ -17,19 +22,40 @@ public static class WorkflowHelper
         return explicitDueDate;
     }
 
+    public static int? CalculateAssignmentDueDays(DateTime assignedDate, DateTime? dueDate) =>
+        dueDate.HasValue
+            ? (dueDate.Value.Date - assignedDate.Date).Days
+            : null;
+
     public static bool IsAssignmentOverdue(Assignment a, DateTime now) =>
         a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied && a.Status == AssignmentStatus.Active
-        && a.DueDate.HasValue && a.DueDate.Value < now;
+        && a.DueDate.HasValue && a.DueDate.Value.Date < now.Date;
 
-    public static bool IsResponseOverdue(Transaction t, DateTime now) =>
-        t.RequiresResponse && !t.ResponseCompleted && t.ResponseDueDate.HasValue && t.ResponseDueDate.Value < now;
+    public static DateTime? ResolveResponseCompletionDate(Transaction t)
+    {
+        if (t.ClosedAt.HasValue)
+            return t.ClosedAt.Value.Date;
+        if ((t.ResponseCompleted || t.Status is TransactionStatus.ResponseCompleted or TransactionStatus.Closed)
+            && t.ResponseCompletedDate.HasValue)
+            return t.ResponseCompletedDate.Value.Date;
+        return null;
+    }
+
+    public static bool IsResponseOverdue(Transaction t, DateTime now)
+    {
+        if (!t.RequiresResponse || !t.ResponseDueDate.HasValue)
+            return false;
+
+        var comparisonDate = ResolveResponseCompletionDate(t) ?? now.Date;
+        return comparisonDate.Date > t.ResponseDueDate.Value.Date;
+    }
 
     public static bool IsTransactionOverdue(Transaction t, DateTime now) =>
         IsResponseOverdue(t, now) || t.Assignments.Any(a => IsAssignmentOverdue(a, now));
 
     public static void UpdateAssignmentOverdueStatus(Assignment a, DateTime now)
     {
-        if (a.RequiresReply && a.ReplyStatus == ReplyStatus.Pending && a.DueDate < now)
+        if (a.RequiresReply && a.ReplyStatus == ReplyStatus.Pending && a.DueDate.HasValue && a.DueDate.Value.Date < now.Date)
             a.ReplyStatus = ReplyStatus.Overdue;
     }
 

@@ -333,7 +333,8 @@ public class DepartmentResponseService : IDepartmentResponseService
 
     public async Task<DepartmentResponseDto> UpdateAsync(int id, UpdateDepartmentResponseRequest request, ICurrentUserService currentUser)
     {
-        var response = await _db.DepartmentResponses.FindAsync(id)
+        var response = await _db.DepartmentResponses
+            .FirstOrDefaultAsync(r => r.Id == id)
             ?? throw new InvalidOperationException(ResponseNotFoundMessage);
 
         RequireDepartmentOwnership(response, currentUser);
@@ -380,19 +381,39 @@ public class DepartmentResponseService : IDepartmentResponseService
     {
         RequireReviewer(currentUser);
 
-        var response = await _db.DepartmentResponses.FindAsync(id)
+        var response = await _db.DepartmentResponses
+            .Include(r => r.Transaction)
+                .ThenInclude(t => t.Assignments)
+            .FirstOrDefaultAsync(r => r.Id == id)
             ?? throw new InvalidOperationException(ResponseNotFoundMessage);
 
         if (response.Status != DepartmentResponseStatus.SubmittedForReview)
             throw new InvalidOperationException("لا يمكن قبول الرد إلا إذا كان في حالة 'مقدّم للمراجعة'.");
 
-        response.Status = DepartmentResponseStatus.Approved;
-        response.ReviewedByUserId = currentUser.UserId;
-        response.ReviewedAt = DateTime.UtcNow;
-        response.UpdatedAt = DateTime.UtcNow;
+        var tx = await TryBeginTransactionAsync();
+        try
+        {
+            response.Status = DepartmentResponseStatus.Approved;
+            response.ReviewedByUserId = currentUser.UserId;
+            response.ReviewedAt = DateTime.UtcNow;
+            response.UpdatedAt = DateTime.UtcNow;
 
-        _audit.TrackLog(currentUser.UserId, AuditAction.DepartmentResponseApproved, DepartmentResponseEntityName, id, response.TransactionId, DepartmentResponseStatus.SubmittedForReview.ToString(), DepartmentResponseStatus.Approved.ToString());
-        await _db.SaveChangesAsync();
+            ApplyApprovedDepartmentResponseToAssignment(response);
+            WorkflowHelper.UpdateTransactionStatusFromAssignments(response.Transaction);
+
+            _audit.TrackLog(currentUser.UserId, AuditAction.DepartmentResponseApproved, DepartmentResponseEntityName, id, response.TransactionId, DepartmentResponseStatus.SubmittedForReview.ToString(), DepartmentResponseStatus.Approved.ToString());
+            await _db.SaveChangesAsync();
+            if (tx != null) await tx.CommitAsync();
+        }
+        catch
+        {
+            if (tx != null) await tx.RollbackAsync();
+            throw;
+        }
+        finally
+        {
+            if (tx != null) await tx.DisposeAsync();
+        }
 
         return MapToDto((await LoadWithDetailsAsync(id))!);
     }
@@ -474,6 +495,15 @@ public class DepartmentResponseService : IDepartmentResponseService
                 throw new InvalidOperationException(FutureEventDateMessage);
             if (submittedAt.Date < response.Transaction.IncomingDate.Date)
                 throw new InvalidOperationException("تاريخ إنجاز الإدارة لا يمكن أن يسبق تاريخ الوارد.");
+            var assignedDate = await _db.Assignments
+                .AsNoTracking()
+                .Where(a => a.TransactionId == response.TransactionId && a.DepartmentId == response.DepartmentId)
+                .OrderByDescending(a => a.Status == AssignmentStatus.Active)
+                .ThenByDescending(a => a.AssignedDate)
+                .Select(a => (DateTime?)a.AssignedDate)
+                .FirstOrDefaultAsync();
+            if (assignedDate.HasValue && submittedAt.Date < assignedDate.Value.Date)
+                throw new InvalidOperationException("تاريخ إنجاز الإدارة لا يمكن أن يسبق تاريخ الإحالة.");
             response.SubmittedAt = submittedAt;
         }
         response.UpdatedAt = DateTime.UtcNow;
@@ -662,6 +692,32 @@ public class DepartmentResponseService : IDepartmentResponseService
         if (response.Status != DepartmentResponseStatus.Draft &&
             response.Status != DepartmentResponseStatus.ReturnedForCorrection)
             throw new InvalidOperationException("لا يمكن تعديل الرد في حالته الحالية.");
+    }
+
+    private static void ApplyApprovedDepartmentResponseToAssignment(DepartmentResponse response)
+    {
+        var assignment = response.Transaction.Assignments
+            .Where(a => a.DepartmentId == response.DepartmentId && a.RequiresReply)
+            .OrderByDescending(a => a.Status == AssignmentStatus.Active)
+            .ThenByDescending(a => a.AssignedDate)
+            .FirstOrDefault();
+
+        if (assignment == null)
+            return;
+
+        var replyDate = (response.SubmittedAt ?? response.ReviewedAt ?? DateTime.UtcNow).Date;
+        if (replyDate < assignment.AssignedDate.Date)
+        {
+            // The supervisor cannot edit assignment dates; if an admin later moved AssignedDate
+            // past the response's own submission date, block-and-throw would strand approval
+            // permanently. Clamp instead so approval can proceed.
+            replyDate = assignment.AssignedDate.Date;
+        }
+
+        assignment.ReplyStatus = ReplyStatus.Replied;
+        assignment.ReplyDate = replyDate;
+        assignment.ReplySummary = response.ResponseText;
+        assignment.Status = AssignmentStatus.Completed;
     }
 
     private static DepartmentResponseDto MapToDto(DepartmentResponse r) => new(

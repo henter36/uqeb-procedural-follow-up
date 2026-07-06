@@ -1,12 +1,20 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
 import AdminEditAssignmentFormPanel from './AdminEditAssignmentFormPanel';
+import { transactionsApi } from '../../api/services';
 
 vi.mock('../../api/services', () => ({
   transactionsApi: {
     adminEditAssignment: vi.fn(),
   },
 }));
+
+type MockedApiFunction = {
+  mockResolvedValue(value: unknown): MockedApiFunction;
+};
+
+const mockApi = (fn: unknown) => fn as MockedApiFunction;
 
 afterEach(() => {
   cleanup();
@@ -81,5 +89,85 @@ describe('AdminEditAssignmentFormPanel', () => {
     );
 
     expect(screen.getByLabelText('رقم الخطاب')).toHaveValue('L-2');
+  });
+
+  it('keeps reply due days and due date synchronized before submit', async () => {
+    mockApi(transactionsApi.adminEditAssignment).mockResolvedValue({ data: baseAssignment });
+    const user = userEvent.setup();
+    const onSuccess = vi.fn();
+
+    render(
+      <AdminEditAssignmentFormPanel
+        transactionId={1}
+        assignmentId={10}
+        initialAssignment={baseAssignment}
+        onDirtyChange={vi.fn()}
+        onCancel={vi.fn()}
+        onSuccess={onSuccess}
+      />,
+    );
+
+    await user.clear(screen.getByLabelText('تاريخ الاستحقاق - اختيار من التقويم'));
+    await user.type(screen.getByLabelText('تاريخ الاستحقاق - اختيار من التقويم'), '2026-01-12');
+
+    expect(screen.getByLabelText('عدد أيام الرد')).toHaveValue(10);
+
+    await user.click(screen.getByRole('button', { name: 'حفظ التعديلات' }));
+
+    expect(transactionsApi.adminEditAssignment).toHaveBeenCalledWith(1, 10, expect.objectContaining({
+      replyDueDays: 10,
+      dueDate: '2026-01-12',
+    }));
+  });
+
+  it('clears stale due date and reply days when assigned date is cleared', async () => {
+    mockApi(transactionsApi.adminEditAssignment).mockResolvedValue({ data: baseAssignment });
+    const user = userEvent.setup();
+    const onSuccess = vi.fn();
+
+    render(
+      <AdminEditAssignmentFormPanel
+        transactionId={1}
+        assignmentId={10}
+        initialAssignment={baseAssignment}
+        onDirtyChange={vi.fn()}
+        onCancel={vi.fn()}
+        onSuccess={onSuccess}
+      />,
+    );
+
+    await user.clear(screen.getByLabelText('تاريخ الإحالة - اختيار من التقويم'));
+
+    expect(screen.getByLabelText('تاريخ الاستحقاق - اختيار من التقويم')).toHaveValue('');
+    expect(screen.getByLabelText('عدد أيام الرد')).toHaveValue(null);
+
+    await user.click(screen.getByRole('button', { name: 'حفظ التعديلات' }));
+
+    expect(transactionsApi.adminEditAssignment).toHaveBeenCalledWith(1, 10, expect.objectContaining({
+      assignedDate: null,
+      dueDate: null,
+      replyDueDays: null,
+    }));
+  });
+
+  it('does not populate NaN reply days when due date input is incomplete', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <AdminEditAssignmentFormPanel
+        transactionId={1}
+        assignmentId={10}
+        initialAssignment={baseAssignment}
+        onDirtyChange={vi.fn()}
+        onCancel={vi.fn()}
+        onSuccess={vi.fn()}
+      />,
+    );
+
+    const dueDateInput = screen.getByLabelText('تاريخ الاستحقاق - اختيار من التقويم') as HTMLInputElement;
+    await user.clear(dueDateInput);
+    await user.type(dueDateInput, '2026-01-1');
+
+    expect((screen.getByLabelText('عدد أيام الرد') as HTMLInputElement).value).not.toBe('NaN');
   });
 });

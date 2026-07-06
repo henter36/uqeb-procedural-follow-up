@@ -166,9 +166,9 @@ internal static class InstitutionalReportVisualFixtures
             {
                 Key = "OverdueRate",
                 Title = "نسبة التأخر",
-                Definition = "نسبة المعاملات المفتوحة المتأخرة.",
-                Formula = "overdue / total",
-                FieldsUsed = "ResponseDueDate, AssignmentDueDate, Status",
+                Definition = "نسبة إجمالي المعاملات المتأخرة، وتشمل المفتوحة المتأخرة والمنجزة/المغلقة بعد تاريخ الاستحقاق.",
+                Formula = "(open overdue + completed late) / total",
+                FieldsUsed = "ResponseDueDate, AssignmentDueDate, ResponseCompletedDate, ClosedAt, Status",
                 DisplayValue = "8.8%",
                 NumericValue = 8.8m,
                 Unit = "%",

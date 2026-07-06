@@ -371,6 +371,7 @@ public class ReplyAssignmentRequest
 public class AdminEditTransactionDatesRequest
 {
     private DateTime? _incomingDate;
+    private int? _responseDueDays;
     private DateTime? _responseDueDate;
     private DateTime? _closedAt;
 
@@ -386,6 +387,19 @@ public class AdminEditTransactionDatesRequest
 
     [JsonIgnore]
     public bool IsIncomingDateSpecified { get; private set; }
+
+    public int? ResponseDueDays
+    {
+        get => _responseDueDays;
+        set
+        {
+            _responseDueDays = value;
+            IsResponseDueDaysSpecified = true;
+        }
+    }
+
+    [JsonIgnore]
+    public bool IsResponseDueDaysSpecified { get; private set; }
 
     public DateTime? ResponseDueDate
     {

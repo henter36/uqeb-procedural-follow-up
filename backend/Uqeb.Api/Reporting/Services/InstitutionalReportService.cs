@@ -425,21 +425,25 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             new() { Key = "total", Title = "إجمالي المعاملات", Value = metrics.TotalTransactions.ToString("N0") },
             new() { Key = "closed", Title = "المعاملات المغلقة", Value = metrics.ClosedCount.ToString("N0") },
             new() { Key = "open", Title = "المعاملات المفتوحة", Value = metrics.OpenCount.ToString("N0") },
-            new() { Key = "overdue", Title = "المعاملات المتأخرة", Value = metrics.OverdueCount.ToString("N0") },
+            new() { Key = "overdue", Title = "إجمالي المتأخرات", Value = metrics.OverdueCount.ToString("N0"), Footnote = "يشمل المفتوحة المتأخرة والمنجزة/المغلقة بعد الاستحقاق." },
+            new() { Key = "openOverdue", Title = "متأخرة مفتوحة", Value = metrics.OpenOverdueCount.ToString("N0") },
+            new() { Key = "completedLate", Title = "منجزة متأخرة", Value = metrics.CompletedLateCount.ToString("N0") },
             new() { Key = "joint", Title = "معاملات الإدارات المشتركة", Value = metrics.JointDepartmentCount.ToString("N0") },
             new() { Key = "partial", Title = "الردود الجزئية", Value = metrics.PartialResponseCount.ToString("N0") },
             new() { Key = "avgDays", Title = "متوسط مدة الإنجاز", Value = $"{metrics.AverageCompletionDays:N1} يوم" },
             new() { Key = "onTime", Title = "نسبة الإنجاز ضمن المهلة", Value = $"{metrics.OnTimeCompletionRate:N1}%" }
         };
 
-        var topOverdueDept = snapshots.Where(s => s.IsOpen && s.IsOverdue)
+        var topOverdueDept = snapshots.Where(s => s.IsOpenOverdue)
             .GroupBy(s => s.ResponsibleDepartment)
             .OrderByDescending(g => g.Count())
             .FirstOrDefault()?.Key;
 
         var narrative = $"خلال الفترة المحددة، بلغ إجمالي المعاملات الفريدة {metrics.TotalTransactions:N0} معاملة، " +
                         $"منها {metrics.ClosedCount:N0} مغلقة و{metrics.OpenCount:N0} مفتوحة. " +
-                        $"تضم المعاملات المفتوحة {metrics.OverdueCount:N0} معاملة متأخرة و{metrics.PartialResponseCount:N0} ردًا جزئيًا " +
+                        $"تضم المعاملات المفتوحة {metrics.OpenOverdueCount:N0} معاملة متأخرة، " +
+                        $"وتوجد {metrics.CompletedLateCount:N0} معاملة منجزة/مغلقة بعد الاستحقاق، " +
+                        $"و{metrics.PartialResponseCount:N0} ردًا جزئيًا " +
                         $"و{metrics.JointDepartmentCount:N0} معاملة مشتركة بين الإدارات. " +
                         $"بلغ متوسط مدة الإنجاز للمعاملات المغلقة {metrics.AverageCompletionDays:N1} يومًا، " +
                         $"ونسبة الإنجاز ضمن المهلة {metrics.OnTimeCompletionRate:N1}%." +
@@ -476,7 +480,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             .Select(g => new ChartSeriesPointDto { Label = PriorityLabel(g.Key), Value = g.Count() })
             .ToList();
 
-        var topOverdueDepts = snapshots.Where(s => s.IsOpen && s.IsOverdue)
+        var topOverdueDepts = snapshots.Where(s => s.IsOverdue)
             .GroupBy(s => s.ResponsibleDepartment)
             .OrderByDescending(g => g.Count())
             .Take(8)
@@ -538,7 +542,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
                 var ratingMetrics = new InstitutionalReportMetricsCalculator.DepartmentPerformanceMetrics
                 {
                     OnTimeCompletionRate = onTimeRate,
-                    OverdueCount = open.Count(s => s.IsOverdue),
+                    OverdueCount = items.Count(s => s.IsOverdue),
                     OldestOpenDays = open.Count == 0 ? 0 : open.Max(s => s.ElapsedDays),
                     PartialResponses = open.Count(s => s.IsPartialReply),
                     StaleUpdates = open.Count(s => (s.UpdatedAt ?? s.CreatedAt) < staleThreshold)
@@ -552,7 +556,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
                     ClosedCount = closed.Count,
                     OpenCount = open.Count,
                     WaitingForStatementCount = open.Count(s => s.IsWaitingForStatement),
-                    OverdueCount = open.Count(s => s.IsOverdue),
+                    OverdueCount = items.Count(s => s.IsOverdue),
                     JointDepartmentCount = items.Count(s => s.IsJointDepartment),
                     AverageCompletionDays = closedWithDates.Count == 0 ? 0 :
                         Math.Round(closedWithDates.Average(s => (s.ClosedAt!.Value - s.IncomingDate).TotalDays), 1),
@@ -571,7 +575,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         var risks = new List<RiskAlertRowDto>();
         foreach (var s in snapshots.Where(s => s.IsOpen).OrderByDescending(s => s.ElapsedDays).Take(25))
         {
-            if (s.IsOverdue)
+            if (s.IsOpenOverdue)
                 risks.Add(new RiskAlertRowDto
                 {
                     Sequence = seq++,
@@ -631,7 +635,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         var staleThreshold = today.AddDays(-analysisOptions.StaleRiskWindowDays);
         return new RiskSummaryCountersDto
         {
-            DepartmentsNeedingFollowUp = snapshots.Where(s => s.IsOpen && s.IsOverdue).Select(s => s.ResponsibleDepartment).Distinct().Count(),
+            DepartmentsNeedingFollowUp = snapshots.Where(s => s.IsOpenOverdue).Select(s => s.ResponsibleDepartment).Distinct().Count(),
             OpenJointDepartmentTransactions = snapshots.Count(s => s.IsOpen && s.IsJointDepartment),
             PartialResponses = snapshots.Count(s => s.IsOpen && s.IsPartialReply),
             TransactionsWithoutRecentUpdate = snapshots.Count(s => s.IsOpen && (s.UpdatedAt ?? s.CreatedAt) < staleThreshold),
@@ -854,6 +858,9 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
 
     private static string ResolveResponseState(TransactionReportSnapshot snapshot)
     {
+        if (snapshot.IsCompletedLate)
+            return "مكتمل متأخر";
+
         if (snapshot.ResponseCompleted)
             return "مكتمل";
 
@@ -876,12 +883,12 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
                 Severity = "critical"
             });
         }
-        if (metrics.OverdueCount > metrics.OpenCount)
+        if (metrics.OpenOverdueCount > metrics.OpenCount)
         {
             warnings.Add(new IntegrityWarningDto
             {
                 Code = "OVERDUE_OUTSIDE_OPEN",
-                Message = "عدد المتأخرة يتجاوز عدد المفتوحة.",
+                Message = "عدد المتأخرة المفتوحة يتجاوز عدد المفتوحة.",
                 Severity = "critical"
             });
         }

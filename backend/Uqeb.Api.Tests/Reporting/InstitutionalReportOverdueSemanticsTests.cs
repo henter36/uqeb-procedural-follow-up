@@ -1,4 +1,5 @@
 using Uqeb.Api.Models.Enums;
+using Uqeb.Api.Reporting.Enums;
 using Uqeb.Api.Reporting.Models;
 using Uqeb.Api.Reporting.Services;
 using Xunit;
@@ -81,6 +82,63 @@ public class InstitutionalReportOverdueSemanticsTests
             ]);
 
         Assert.False(snapshot.IsOverdue);
+    }
+
+    [Fact]
+    public void IsOverdue_ClosedAfterResponseDueDate_IsCompletedLate()
+    {
+        var snapshot = InstitutionalReportSnapshotQuery.MapRowToSnapshot(
+            new InstitutionalReportSnapshotQuery.SnapshotRow
+            {
+                Id = 1,
+                InternalTrackingNumber = "INT-1",
+                IncomingNumber = "IN-1",
+                IncomingDate = Today.AddDays(-40),
+                Subject = "closed late",
+                Priority = Priority.Normal,
+                Status = TransactionStatus.Closed,
+                RequiresResponse = true,
+                ResponseCompleted = true,
+                ResponseDueDate = Today.AddDays(-10),
+                ClosedAt = Today.AddDays(-5),
+                CreatedAt = Today.AddDays(-40),
+                Assignments = [],
+                OutgoingDepartments = [],
+            },
+            Today);
+
+        Assert.True(snapshot.IsOverdue);
+        Assert.False(snapshot.IsOpenOverdue);
+        Assert.True(snapshot.IsCompletedLate);
+        Assert.Contains(FollowUpStage.CompletedLate, snapshot.FollowUpStages);
+    }
+
+    [Fact]
+    public void IsOverdue_ClosedOnOrBeforeResponseDueDate_IsNotOverdue()
+    {
+        var snapshot = InstitutionalReportSnapshotQuery.MapRowToSnapshot(
+            new InstitutionalReportSnapshotQuery.SnapshotRow
+            {
+                Id = 1,
+                InternalTrackingNumber = "INT-1",
+                IncomingNumber = "IN-1",
+                IncomingDate = Today.AddDays(-40),
+                Subject = "closed on time",
+                Priority = Priority.Normal,
+                Status = TransactionStatus.Closed,
+                RequiresResponse = true,
+                ResponseCompleted = true,
+                ResponseDueDate = Today.AddDays(-5),
+                ClosedAt = Today.AddDays(-5),
+                CreatedAt = Today.AddDays(-40),
+                Assignments = [],
+                OutgoingDepartments = [],
+            },
+            Today);
+
+        Assert.False(snapshot.IsOverdue);
+        Assert.False(snapshot.IsOpenOverdue);
+        Assert.False(snapshot.IsCompletedLate);
     }
 
     [Fact]

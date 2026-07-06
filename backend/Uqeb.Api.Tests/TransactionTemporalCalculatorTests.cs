@@ -55,6 +55,40 @@ public class TransactionTemporalCalculatorTests
     }
 
     [Fact]
+    public void IsResponseOverdue_does_not_count_due_today_as_overdue()
+    {
+        var referenceDate = new DateTime(2026, 6, 25, 18, 30, 0, DateTimeKind.Utc);
+        var transaction = new Transaction
+        {
+            IncomingDate = referenceDate.AddDays(-5),
+            RequiresResponse = true,
+            ResponseCompleted = false,
+            ResponseDueDate = referenceDate.Date,
+            Status = TransactionStatus.WaitingForReply
+        };
+
+        Assert.False(TransactionTemporalCalculator.IsResponseOverdue(transaction, referenceDate));
+        Assert.Null(TransactionTemporalCalculator.DaysOverdue(transaction, referenceDate));
+    }
+
+    [Fact]
+    public void IsResponseOverdue_counts_completed_transaction_after_due_date()
+    {
+        var transaction = new Transaction
+        {
+            IncomingDate = new DateTime(2026, 1, 1),
+            RequiresResponse = true,
+            ResponseCompleted = true,
+            ResponseCompletedDate = new DateTime(2026, 1, 10),
+            ResponseDueDate = new DateTime(2026, 1, 5),
+            Status = TransactionStatus.ResponseCompleted
+        };
+
+        Assert.True(TransactionTemporalCalculator.IsResponseOverdue(transaction, new DateTime(2026, 1, 20)));
+        Assert.Equal(5, TransactionTemporalCalculator.DaysOverdue(transaction, new DateTime(2026, 1, 20)));
+    }
+
+    [Fact]
     public void CompletionDays_counts_closed_transactions_only()
     {
         var incoming = new DateTime(2026, 6, 1);
