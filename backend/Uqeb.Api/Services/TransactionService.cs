@@ -313,21 +313,24 @@ public class TransactionService : ITransactionService
         if (request.HasPartialReplies == true)
             query = query.Where(t => t.Status == TransactionStatus.PartiallyReplied);
         if (request.OverdueOnly == true)
-            query = query.Where(t =>
-                (t.RequiresResponse && t.ResponseDueDate.HasValue &&
-                    ((!t.ResponseCompleted && t.Status != TransactionStatus.Closed && t.ResponseDueDate.Value.Date < today) ||
-                     ((t.ResponseCompleted || t.Status == TransactionStatus.Closed) &&
-                      ((t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date) ||
-                       (!t.ClosedAt.HasValue && t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date))))) ||
-                t.Assignments.Any(a => a.RequiresReply && a.DueDate.HasValue &&
-                    ((a.ReplyStatus != ReplyStatus.Replied
-                      && a.Status == AssignmentStatus.Active
-                      && a.DueDate.Value.Date < today) ||
-                     (a.ReplyStatus == ReplyStatus.Replied
-                      && a.ReplyDate.HasValue
-                      && a.ReplyDate.Value.Date > a.DueDate.Value.Date))));
+            query = ApplyOverdueOnlyFilter(query, today);
         return query;
     }
+
+    private static IQueryable<Transaction> ApplyOverdueOnlyFilter(IQueryable<Transaction> query, DateTime today) =>
+        query.Where(t =>
+            (t.RequiresResponse && t.ResponseDueDate.HasValue &&
+                ((!t.ResponseCompleted && t.Status != TransactionStatus.Closed && t.ResponseDueDate.Value.Date < today) ||
+                 ((t.ResponseCompleted || t.Status == TransactionStatus.Closed) &&
+                  ((t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date) ||
+                   (!t.ClosedAt.HasValue && t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date))))) ||
+            t.Assignments.Any(a => a.RequiresReply && a.DueDate.HasValue &&
+                ((a.ReplyStatus != ReplyStatus.Replied
+                  && a.Status == AssignmentStatus.Active
+                  && a.DueDate.Value.Date < today) ||
+                 (a.ReplyStatus == ReplyStatus.Replied
+                  && a.ReplyDate.HasValue
+                  && a.ReplyDate.Value.Date > a.DueDate.Value.Date))));
 
     private static IQueryable<TransactionSearchRow> ProjectSearchRows(IQueryable<Transaction> ordered, DateTime now)
     {
@@ -1686,44 +1689,53 @@ public class TransactionService : ITransactionService
         if (!incomingDateSpecified)
             return;
 
+        EnsureClosedAtDoesNotPrecedeIncoming(incomingDate, resolvedClosedAt);
+
+        if (await HasEarlierTransactionEventAsync(transactionId, incomingDate, resolvedClosedAt))
+            throw new InvalidOperationException("تاريخ الوارد لا يمكن أن يكون بعد تاريخ صادر أو إفادة أو إغلاق قائم.");
+
+        if (await HasEarlierAssignmentEventAsync(transactionId, incomingDate))
+            throw new InvalidOperationException("تاريخ الوارد لا يمكن أن يكون بعد تاريخ أي إحالة قائمة.");
+
+        if (await HasEarlierFollowUpEventAsync(transactionId, incomingDate))
+            throw new InvalidOperationException("تاريخ الوارد لا يمكن أن يكون بعد تاريخ تعقيب أو رد تعقيب قائم.");
+
+        if (await HasEarlierDepartmentResponseEventAsync(transactionId, incomingDate))
+            throw new InvalidOperationException("تاريخ الوارد لا يمكن أن يكون بعد تاريخ إنجاز إدارة قائم.");
+    }
+
+    private static void EnsureClosedAtDoesNotPrecedeIncoming(DateTime incomingDate, DateTime? resolvedClosedAt)
+    {
         if (resolvedClosedAt.HasValue && resolvedClosedAt.Value.Date < incomingDate.Date)
             throw new InvalidOperationException("تاريخ الوارد لا يمكن أن يكون بعد تاريخ إغلاق المعاملة.");
+    }
 
-        var transactionHasEarlierEvent = await _db.Transactions
+    private Task<bool> HasEarlierTransactionEventAsync(int transactionId, DateTime incomingDate, DateTime? resolvedClosedAt) =>
+        _db.Transactions
             .AsNoTracking()
             .AnyAsync(t => t.Id == transactionId &&
                 ((t.OutgoingDate.HasValue && t.OutgoingDate.Value.Date < incomingDate.Date) ||
                  (t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date < incomingDate.Date) ||
                  (!resolvedClosedAt.HasValue && t.ClosedAt.HasValue && t.ClosedAt.Value.Date < incomingDate.Date)));
 
-        if (transactionHasEarlierEvent)
-            throw new InvalidOperationException("تاريخ الوارد لا يمكن أن يكون بعد تاريخ صادر أو إفادة أو إغلاق قائم.");
-
-        var hasEarlierAssignment = await _db.Assignments
+    private Task<bool> HasEarlierAssignmentEventAsync(int transactionId, DateTime incomingDate) =>
+        _db.Assignments
             .AsNoTracking()
             .AnyAsync(a => a.TransactionId == transactionId && a.AssignedDate.Date < incomingDate.Date);
 
-        if (hasEarlierAssignment)
-            throw new InvalidOperationException("تاريخ الوارد لا يمكن أن يكون بعد تاريخ أي إحالة قائمة.");
-
-        var hasEarlierFollowUp = await _db.FollowUps
+    private Task<bool> HasEarlierFollowUpEventAsync(int transactionId, DateTime incomingDate) =>
+        _db.FollowUps
             .AsNoTracking()
             .AnyAsync(f => f.TransactionId == transactionId &&
                 (f.FollowUpDate.Date < incomingDate.Date ||
                  (f.ReplyDate.HasValue && f.ReplyDate.Value.Date < incomingDate.Date)));
 
-        if (hasEarlierFollowUp)
-            throw new InvalidOperationException("تاريخ الوارد لا يمكن أن يكون بعد تاريخ تعقيب أو رد تعقيب قائم.");
-
-        var hasEarlierDepartmentResponse = await _db.DepartmentResponses
+    private Task<bool> HasEarlierDepartmentResponseEventAsync(int transactionId, DateTime incomingDate) =>
+        _db.DepartmentResponses
             .AsNoTracking()
             .AnyAsync(r => r.TransactionId == transactionId &&
                 r.SubmittedAt.HasValue &&
                 r.SubmittedAt.Value.Date < incomingDate.Date);
-
-        if (hasEarlierDepartmentResponse)
-            throw new InvalidOperationException("تاريخ الوارد لا يمكن أن يكون بعد تاريخ إنجاز إدارة قائم.");
-    }
 
     private static void ApplyAdminEditTransactionDates(
         Transaction transaction,
