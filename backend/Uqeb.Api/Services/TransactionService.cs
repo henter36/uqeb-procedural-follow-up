@@ -348,18 +348,17 @@ public class TransactionService : ITransactionService
                     a.RequiresReply &&
                     a.ReplyStatus != ReplyStatus.Replied &&
                     a.Status == AssignmentStatus.Active),
-                // ReplyStatus == Replied and != Replied are mutually exclusive, so the
-                // original "(open && !replied) || (late && replied)" OR-of-ANDs collapses
-                // into a single if/else on ReplyStatus.
+                // Replied vs not-replied are mutually exclusive, so the open-and-pending
+                // vs completed-and-late cases branch on reply status instead of an OR.
                 HasOverdueAssignment = t.Assignments.Any(a =>
                     a.RequiresReply &&
                     a.DueDate.HasValue &&
                     (a.ReplyStatus == ReplyStatus.Replied
                         ? a.ReplyDate.HasValue && a.ReplyDate.Value.Date > a.DueDate.Value.Date
                         : a.Status == AssignmentStatus.Active && a.DueDate.Value.Date < today)),
-                // Likewise, "(ResponseCompleted || Status == Closed)" and its negation are
-                // mutually exclusive, and within that branch ClosedAt.HasValue vs not is
-                // also mutually exclusive, so both OR-of-ANDs collapse into nested if/else.
+                // Completed-or-closed vs still open are mutually exclusive, and within the
+                // completed branch, having a ClosedAt vs not is also mutually exclusive, so
+                // both branch on those conditions instead of combining via OR.
                 IsResponseOverdue =
                     t.RequiresResponse &&
                     t.ResponseDueDate.HasValue &&
