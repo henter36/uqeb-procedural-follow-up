@@ -360,21 +360,18 @@ public class TransactionService : ITransactionService
                     a.DueDate.HasValue &&
                     a.ReplyDate.HasValue &&
                     a.ReplyDate.Value.Date > a.DueDate.Value.Date),
+                HasResponseDueDate = t.RequiresResponse && t.ResponseDueDate.HasValue,
                 HasOpenResponseOverdue =
                     t.RequiresResponse &&
                     t.ResponseDueDate.HasValue &&
                     !t.ResponseCompleted &&
                     t.Status != TransactionStatus.Closed &&
                     t.ResponseDueDate.Value.Date < today,
-                HasCompletedLateResponse =
-                    t.RequiresResponse &&
-                    t.ResponseDueDate.HasValue &&
-                    (t.ResponseCompleted || t.Status == TransactionStatus.Closed) &&
-                    (
-                        (t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date) ||
-                        (!t.ClosedAt.HasValue && t.ResponseCompletedDate.HasValue &&
-                         t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date)
-                    )
+                IsCompletedOrClosed = t.ResponseCompleted || t.Status == TransactionStatus.Closed,
+                IsClosedAfterDue = t.ClosedAt.HasValue && t.ResponseDueDate.HasValue
+                    && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date,
+                IsCompletedDateAfterDue = !t.ClosedAt.HasValue && t.ResponseCompletedDate.HasValue && t.ResponseDueDate.HasValue
+                    && t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date
             })
             .Select(x => new
             {
@@ -386,6 +383,34 @@ public class TransactionService : ITransactionService
                 x.RecurrenceType,
                 x.HasPendingAssignment,
                 HasOverdueAssignment = x.HasOpenOverdueAssignment || x.HasCompletedLateAssignment,
+                x.HasResponseDueDate,
+                x.HasOpenResponseOverdue,
+                x.IsCompletedOrClosed,
+                IsCompletionDateAfterDue = x.IsClosedAfterDue || x.IsCompletedDateAfterDue
+            })
+            .Select(x => new
+            {
+                x.Transaction,
+                x.IncomingFromPartyName,
+                x.IncomingFromDepartmentName,
+                x.CategoryName,
+                x.CreatedByName,
+                x.RecurrenceType,
+                x.HasPendingAssignment,
+                x.HasOverdueAssignment,
+                x.HasOpenResponseOverdue,
+                HasCompletedLateResponse = x.HasResponseDueDate && x.IsCompletedOrClosed && x.IsCompletionDateAfterDue
+            })
+            .Select(x => new
+            {
+                x.Transaction,
+                x.IncomingFromPartyName,
+                x.IncomingFromDepartmentName,
+                x.CategoryName,
+                x.CreatedByName,
+                x.RecurrenceType,
+                x.HasPendingAssignment,
+                x.HasOverdueAssignment,
                 IsResponseOverdue = x.HasOpenResponseOverdue || x.HasCompletedLateResponse
             })
             .Select(x => new TransactionSearchRow(
