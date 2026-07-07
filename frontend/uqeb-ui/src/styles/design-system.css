@@ -1076,6 +1076,17 @@
   resize: vertical;
 }
 
+.transaction-form input[type='checkbox'] {
+  width: 1.05rem;
+  height: 1.05rem;
+  min-width: 1.05rem;
+  min-height: 1.05rem;
+  flex: 0 0 auto;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+}
+
 .form-subsection-divider {
   grid-column: 1 / -1;
   margin-top: var(--space-2);
