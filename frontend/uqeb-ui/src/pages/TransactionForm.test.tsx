@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import TransactionForm from './TransactionForm';
 import * as services from '../api/services';
 import { formatHijriInputParts, gregorianToHijriParts } from '../utils/hijriDateInput';
@@ -20,8 +20,8 @@ vi.mock('../api/services', () => ({
 
 const parties = [{ id: 10, name: 'جهة خارجية أ', type: 'Gov', isActive: true }];
 const departments = [
-  { id: 20, name: 'إدارة داخلية', code: 'D-01', isActive: true },
-  { id: 21, name: 'إدارة المتابعة', code: 'D-02', isActive: true },
+  { id: 3, name: 'إدارة داخلية', code: 'D-01', isActive: true },
+  { id: 7, name: 'إدارة المتابعة', code: 'D-02', isActive: true },
 ];
 const categories = [{ id: 30, name: 'تصنيف عام', code: 'CAT-01', isActive: true }];
 
@@ -36,6 +36,7 @@ function renderCreateForm() {
     <MemoryRouter initialEntries={['/transactions/new']}>
       <Routes>
         <Route path="/transactions/new" element={<TransactionForm mode="create" />} />
+        <Route path="/transactions/:id" element={<LocationProbe />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -46,6 +47,7 @@ function renderEditForm(id = '5') {
     <MemoryRouter initialEntries={[`/transactions/${id}/edit`]}>
       <Routes>
         <Route path="/transactions/:id/edit" element={<TransactionForm mode="edit" />} />
+        <Route path="/transactions/:id" element={<LocationProbe />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -58,7 +60,12 @@ async function waitForFormReady() {
 }
 
 function getIncomingSection() {
-  return getSectionByHeading('بيانات الوارد');
+  return getSectionByHeading('معلومات المعاملة الأساسية');
+}
+
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="current-location">{location.pathname}{location.search}</div>;
 }
 
 function getSectionByHeading(name: string) {
@@ -102,12 +109,12 @@ async function fillValidCreateForm(user: ReturnType<typeof userEvent.setup>) {
   const responseSection = getResponseSection();
   await user.type(getFieldInSection(incomingSection, 'رقم المعاملة *'), 'IN-100');
   await user.type(getFieldInSection(incomingSection, 'تاريخ المعاملة *'), hijriInputForGregorian('2026-06-01'));
-  await user.type(getFieldInSection(incomingSection, 'الموضوع *'), 'اختبار');
+  await user.type(getFieldInSection(incomingSection, 'الموضوع / البيان *'), 'اختبار');
   await user.click(screen.getByRole('combobox', { name: /الجهة الوارد منها/ }));
   await user.click(screen.getByRole('option', { name: /جهة خارجية أ/ }));
   await user.click(screen.getByRole('combobox', { name: /التصنيف/ }));
   await user.click(screen.getByRole('option', { name: /تصنيف عام/ }));
-  await user.type(getFieldInSection(responseSection, 'عدد الأيام للرد *'), '7');
+  await user.type(getFieldInSection(responseSection, 'مدة الرد بالأيام *'), '7');
 }
 
 function validationError(errors: Record<string, string | string[]>) {
@@ -178,12 +185,29 @@ describe('TransactionForm incoming layout', () => {
     renderCreateForm();
     await waitForFormReady();
 
-    expect(screen.getByRole('heading', { name: 'بيانات الوارد' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'معلومات المعاملة الأساسية' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'بيانات التوجيه والإرسال الداخلي' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'ملاحظات' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'إعدادات المتابعة الدورية' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'الملاحظات' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'التصنيف والأولوية' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'بيانات الإفادة' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'بيانات الصادر' })).not.toBeInTheDocument();
+  });
+
+  it('renders the approved basic information field order and labels', async () => {
+    renderCreateForm();
+    await waitForFormReady();
+
+    const section = getIncomingSection();
+    expect(within(section).getByLabelText('رقم المعاملة *')).toBeInTheDocument();
+    expect(within(section).getByLabelText('تاريخ المعاملة *')).toBeInTheDocument();
+    expect(within(section).getByText('نوع الجهة الوارد منها *')).toBeInTheDocument();
+    expect(within(section).getByRole('combobox', { name: /الجهة الوارد منها/ })).toBeInTheDocument();
+    expect(within(section).getByLabelText('الموضوع / البيان *')).toBeInTheDocument();
+    expect(within(section).getByRole('combobox', { name: /التصنيف/ })).toBeInTheDocument();
+    expect(within(section).getByLabelText('الأولوية *')).toBeInTheDocument();
+    expect(within(section).getByLabelText('نوع الإفادة *')).toBeInTheDocument();
+    expect(within(section).getByLabelText('مدة الرد بالأيام *')).toBeInTheDocument();
   });
 
   it('TransactionForm_HasSingleMainHeading', async () => {
@@ -192,6 +216,17 @@ describe('TransactionForm incoming layout', () => {
 
     expect(screen.getAllByRole('heading', { name: 'إضافة معاملة' })).toHaveLength(1);
     expect(screen.queryByText('إدخال بيانات معاملة جديدة')).not.toBeInTheDocument();
+  });
+
+  it('shows a read-only response due date hint when incoming date and due days are valid', async () => {
+    const user = userEvent.setup();
+    renderCreateForm();
+    await waitForFormReady();
+
+    await user.type(getFieldInSection(getIncomingSection(), 'تاريخ المعاملة *'), hijriInputForGregorian('2026-06-01'));
+    await user.type(getFieldInSection(getResponseSection(), 'مدة الرد بالأيام *'), '7');
+
+    expect(screen.getByText(/تاريخ الرد المطلوب:/)).toBeInTheDocument();
   });
 
   it('shows category inside classification card', async () => {
@@ -208,7 +243,7 @@ describe('TransactionForm incoming layout', () => {
 
     const responseSection = getResponseSection();
     expect(getFieldInSection(responseSection, 'نوع الإفادة *')).toBeInTheDocument();
-    expect(getFieldInSection(responseSection, 'عدد الأيام للرد *')).toBeInTheDocument();
+    expect(getFieldInSection(responseSection, 'مدة الرد بالأيام *')).toBeInTheDocument();
   });
 
   it('does not duplicate category in outgoing card', async () => {
@@ -217,6 +252,29 @@ describe('TransactionForm incoming layout', () => {
 
     const outgoingSection = getOutgoingSection();
     expect(within(outgoingSection).queryByRole('combobox', { name: /التصنيف/ })).not.toBeInTheDocument();
+  });
+
+  it('renders routing fields in the approved order and keeps department routing as a multi-select', async () => {
+    const user = userEvent.setup();
+    renderCreateForm();
+    await waitForFormReady();
+
+    const routingSection = getRoutingSection();
+    expect(within(routingSection).getByText('بيانات الإحالة غير إلزامية، ولكن يجب إكمالها عند البدء بتعبئتها.')).toBeInTheDocument();
+    expect(within(routingSection).getByText('الإدارات المحال لها')).toBeInTheDocument();
+    expect(getFieldInSection(routingSection, 'رقم خطاب الإحالة للإدارة')).toBeInTheDocument();
+    expect(getFieldInSection(routingSection, 'تاريخ الإحالة')).toBeInTheDocument();
+
+    const groups = Array.from(routingSection.querySelectorAll('.transaction-form-field'));
+    const departmentsGroup = within(routingSection).getByText('الإدارات المحال لها').closest('.transaction-form-field');
+    const outgoingNumberGroup = getFieldInSection(routingSection, 'رقم خطاب الإحالة للإدارة').closest('.transaction-form-field');
+    expect(groups.indexOf(departmentsGroup as Element)).toBeLessThan(groups.indexOf(outgoingNumberGroup as Element));
+
+    await openOutgoingDepartmentsDropdown(user);
+    await user.click(within(routingSection).getByLabelText('إدارة داخلية'));
+    await user.click(within(routingSection).getByLabelText('إدارة المتابعة'));
+
+    expect(within(routingSection).getByText('إدارتان مختارتان')).toBeInTheDocument();
   });
 
   it('loads saved category value in edit mode', async () => {
@@ -309,14 +367,14 @@ describe('TransactionForm searchable selects', () => {
     const responseSection = getResponseSection();
     await user.type(getFieldInSection(incomingSection, 'رقم المعاملة *'), 'IN-100');
     await user.type(getFieldInSection(incomingSection, 'تاريخ المعاملة *'), hijriInputForGregorian('2026-06-01'));
-    await user.type(getFieldInSection(incomingSection, 'الموضوع *'), 'اختبار');
+    await user.type(getFieldInSection(incomingSection, 'الموضوع / البيان *'), 'اختبار');
     await user.click(screen.getByRole('combobox', { name: /الجهة الوارد منها/ }));
     await user.click(screen.getByRole('option', { name: /جهة خارجية أ/ }));
     await user.click(screen.getByRole('combobox', { name: /التصنيف/ }));
     await user.click(screen.getByRole('option', { name: /تصنيف عام/ }));
     await user.selectOptions(getFieldInSection(classificationSection, 'الأولوية *'), 'Urgent');
     await user.selectOptions(getFieldInSection(responseSection, 'نوع الإفادة *'), 'Internal');
-    await user.type(getFieldInSection(responseSection, 'عدد الأيام للرد *'), '7');
+    await user.type(getFieldInSection(responseSection, 'مدة الرد بالأيام *'), '7');
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
 
     await waitFor(() => {
@@ -339,7 +397,7 @@ describe('TransactionForm searchable selects', () => {
         subject: 'تعديل',
         incomingSourceType: 'Internal',
         incomingFromPartyId: null,
-        incomingFromDepartmentId: 20,
+        incomingFromDepartmentId: 3,
         outgoingNumber: '',
         outgoingDate: null,
         outgoingDepartments: [],
@@ -356,6 +414,7 @@ describe('TransactionForm searchable selects', () => {
     renderEditForm();
     await waitForFormReady();
 
+    expect(screen.getByRole('heading', { name: 'تعديل معاملة' })).toBeInTheDocument();
     const incomingSection = getIncomingSection();
     expect(getFieldInSection(incomingSection, 'رقم المعاملة *')).toHaveValue('IN-EDIT');
     expect(screen.getByRole('combobox', { name: /الجهة الوارد منها/ })).toHaveValue('إدارة داخلية');
@@ -367,6 +426,8 @@ describe('TransactionForm searchable selects', () => {
     await waitFor(() => {
       expect(services.transactionsApi.update).toHaveBeenCalled();
     });
+    const payload = vi.mocked(services.transactionsApi.update).mock.calls[0][1];
+    expect(payload.requiresResponse).toBe(true);
   });
 
   it('EditTransaction_ResponseTypeNone_PreservesStoredValue', async () => {
@@ -557,7 +618,20 @@ describe('TransactionForm searchable selects', () => {
 
     await waitFor(() => expect(services.transactionsApi.create).toHaveBeenCalled());
     const payload = vi.mocked(services.transactionsApi.create).mock.calls[0][0];
-    expect(payload.outgoingDepartmentIds).toEqual([20, 21]);
+    expect(payload.outgoingDepartmentIds).toEqual([3, 7]);
+  });
+
+  it('SaveAndOpenAttachments_CreatesTransactionAndNavigatesToAttachmentsTab', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.create).mockResolvedValue({ data: { id: 99 } } as never);
+
+    renderCreateForm();
+    await waitForFormReady();
+    await fillValidCreateForm(user);
+    await user.click(screen.getByRole('button', { name: 'حفظ وفتح المرفقات' }));
+
+    await waitFor(() => expect(services.transactionsApi.create).toHaveBeenCalled());
+    expect(screen.getByTestId('current-location')).toHaveTextContent('/transactions/99?tab=attachments');
   });
 
   it('converts Hijri incoming date to Gregorian ISO in create payload', async () => {
@@ -589,8 +663,10 @@ describe('TransactionForm recurring follow-up', () => {
     renderCreateForm();
     await waitForFormReady();
 
-    const checkbox = screen.getByRole('checkbox', { name: /هذه المعاملة ذات التزام دوري/ });
+    expect(screen.getByRole('heading', { name: 'إعدادات المتابعة الدورية' })).toBeInTheDocument();
+    const checkbox = screen.getByRole('checkbox', { name: /تفعيل متابعة دورية/ });
     expect(checkbox).not.toBeChecked();
+    expect(screen.getByText('لم يتم تفعيل المتابعة الدورية لهذه المعاملة.')).toBeInTheDocument();
     expect(screen.queryByLabelText('نوع التكرار *')).not.toBeInTheDocument();
     expect(screen.queryByText(/بداية الالتزام/)).not.toBeInTheDocument();
   });
@@ -602,9 +678,12 @@ describe('TransactionForm recurring follow-up', () => {
 
     expect(screen.queryByLabelText('نوع التكرار *')).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('checkbox', { name: /هذه المعاملة ذات التزام دوري/ }));
+    await user.click(screen.getByRole('checkbox', { name: /تفعيل متابعة دورية/ }));
 
     expect(screen.getByLabelText('نوع التكرار *')).toBeInTheDocument();
+    expect(screen.getByText('نهاية الفترة الأولى المتوقعة')).toBeInTheDocument();
+    expect(screen.getByText('طريقة إنشاء المعاملة التالية')).toBeInTheDocument();
+    expect(screen.getByText('يتم إنشاء المعاملة التالية وفق إعدادات المتابعة الدورية.')).toBeInTheDocument();
     expect(screen.queryByText(/بداية الالتزام/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText('عدد الأيام بعد نهاية الفترة للاستحقاق *')).not.toBeInTheDocument();
   });
@@ -640,15 +719,28 @@ describe('TransactionForm recurring follow-up', () => {
     const routingSection = await openOutgoingDepartmentsDropdown(user);
     await user.click(within(routingSection).getByLabelText('إدارة داخلية'));
 
-    await user.click(screen.getByRole('checkbox', { name: /هذه المعاملة ذات التزام دوري/ }));
+    await user.click(screen.getByRole('checkbox', { name: /تفعيل متابعة دورية/ }));
+    await user.selectOptions(screen.getByLabelText('نوع التكرار *'), 'Quarterly');
+    await user.click(screen.getByRole('radio', { name: 'تلقائيًا عند إغلاق المعاملة الحالية' }));
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
 
     await waitFor(() => expect(services.transactionsApi.create).toHaveBeenCalled());
     const payload = vi.mocked(services.transactionsApi.create).mock.calls[0][0] as Record<string, unknown>;
     expect(payload.enableRecurringFollowUp).toBe(true);
-    expect(payload.recurringRecurrenceType).toBe('Monthly');
+    expect(payload.recurringRecurrenceType).toBe('Quarterly');
     expect(payload.recurringStartDate).toBe('2026-06-01T00:00:00');
+    expect(payload.recurringEndDate).toBeNull();
     expect(payload.recurringDueDaysAfterPeriodEnd).toBe(0);
+    expect(payload.recurringNextTransactionCreationMethod).toBe('AutomaticOnClose');
+    expect(payload.outgoingDepartmentIds).toEqual([3]);
+  });
+
+  it('renders the notes card with the approved placeholder', async () => {
+    renderCreateForm();
+    await waitForFormReady();
+
+    expect(screen.getByRole('heading', { name: 'الملاحظات' })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('أدخل أي ملاحظات أو تفاصيل إضافية اختيارية')).toBeInTheDocument();
   });
 });
 
@@ -669,10 +761,10 @@ describe('TransactionForm validation feedback', () => {
     expect(alert).toHaveTextContent('يرجى تصحيح الحقول التالية:');
     expect(alert).toHaveTextContent('رقم المعاملة مطلوب.');
     expect(alert).toHaveTextContent('تاريخ المعاملة مطلوب.');
-    expect(alert).toHaveTextContent('الموضوع مطلوب.');
-    expect(alert).toHaveTextContent('الجهة الخارجية مطلوبة.');
+    expect(alert).toHaveTextContent('الموضوع / البيان مطلوب.');
+    expect(alert).toHaveTextContent('الجهة الخارجية مطلوبة عند اختيار مصدر خارجي.');
     expect(alert).toHaveTextContent('التصنيف مطلوب.');
-    expect(alert).toHaveTextContent('عدد أيام الرد مطلوب عند طلب إفادة.');
+    expect(alert).toHaveTextContent('مدة الرد بالأيام مطلوبة عند اختيار نوع إفادة.');
     expect(services.transactionsApi.create).not.toHaveBeenCalled();
   });
 
@@ -684,7 +776,7 @@ describe('TransactionForm validation feedback', () => {
     await user.click(screen.getByRole('radio', { name: 'داخلية' }));
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
 
-    expect(screen.getByRole('alert')).toHaveTextContent('الجهة الداخلية مطلوبة.');
+    expect(screen.getByRole('alert')).toHaveTextContent('الإدارة الداخلية مطلوبة عند اختيار مصدر داخلي.');
     expect(document.querySelector('[data-field-name="incomingFromDepartmentId"]')).toHaveAttribute('aria-invalid', 'true');
   });
 
@@ -731,7 +823,7 @@ describe('TransactionForm validation feedback', () => {
 
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
 
-    const subject = getFieldInSection(getIncomingSection(), 'الموضوع *');
+    const subject = getFieldInSection(getIncomingSection(), 'الموضوع / البيان *');
     expect(subject).toHaveAttribute('aria-invalid', 'true');
     expect(subject.closest('.form-group')).toHaveClass('has-error');
   });
@@ -740,7 +832,7 @@ describe('TransactionForm validation feedback', () => {
     const user = userEvent.setup();
     vi.mocked(services.transactionsApi.create).mockRejectedValue(validationError({
       IncomingNumber: 'رقم المعاملة مطلوب.',
-      ResponseDueDays: ['عدد أيام الرد مطلوب عند طلب إفادة.'],
+      ResponseDueDays: ['مدة الرد بالأيام مطلوبة عند اختيار نوع إفادة.'],
     }) as never);
     renderCreateForm();
     await waitForFormReady();
@@ -749,7 +841,7 @@ describe('TransactionForm validation feedback', () => {
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
 
     const incomingNumber = getFieldInSection(getIncomingSection(), 'رقم المعاملة *');
-    const responseDueDays = getFieldInSection(getResponseSection(), 'عدد الأيام للرد *');
+    const responseDueDays = getFieldInSection(getResponseSection(), 'مدة الرد بالأيام *');
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('رقم المعاملة مطلوب.'));
     expect(incomingNumber).toHaveAttribute('aria-invalid', 'true');
     expect(responseDueDays).toHaveAttribute('aria-invalid', 'true');
@@ -758,7 +850,7 @@ describe('TransactionForm validation feedback', () => {
   it('CreateTransaction_SaveFailure_DoesNotClearForm', async () => {
     const user = userEvent.setup();
     vi.mocked(services.transactionsApi.create).mockRejectedValue(validationError({
-      Subject: 'الموضوع مطلوب.',
+      Subject: 'الموضوع / البيان مطلوب.',
     }) as never);
     renderCreateForm();
     await waitForFormReady();
@@ -766,7 +858,7 @@ describe('TransactionForm validation feedback', () => {
 
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
 
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('الموضوع مطلوب.'));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('الموضوع / البيان مطلوب.'));
     expect(getFieldInSection(getIncomingSection(), 'رقم المعاملة *')).toHaveValue('IN-100');
     expect(screen.getByRole('combobox', { name: /الجهة الوارد منها/ })).toHaveValue('جهة خارجية أ');
     expect(screen.getByRole('combobox', { name: /التصنيف/ })).toHaveValue('تصنيف عام');
@@ -786,7 +878,23 @@ describe('TransactionForm validation feedback', () => {
     const outgoingDepartments = document.querySelector<HTMLElement>('[data-field-name="outgoingDepartmentIds"]');
     expect(outgoingDepartments).not.toBeNull();
     await waitFor(() => expect(outgoingDepartments).toHaveFocus());
-    expect(screen.getByRole('alert')).toHaveTextContent('اختر جهة داخلية واحدة على الأقل.');
+    expect(screen.getByRole('alert')).toHaveTextContent('إدارة واحدة على الأقل من الإدارات المحال لها مطلوبة');
+  });
+
+  it('requires the complete routing set when any routing field is entered', async () => {
+    const user = userEvent.setup();
+    renderCreateForm();
+    await waitForFormReady();
+    await fillValidCreateForm(user);
+
+    await user.type(getFieldInSection(getOutgoingSection(), 'رقم خطاب الإحالة للإدارة'), 'OUT-100');
+    await user.click(screen.getByRole('button', { name: 'حفظ' }));
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('رقم خطاب الإحالة للإدارة');
+    expect(alert).toHaveTextContent('تاريخ الإحالة');
+    expect(alert).toHaveTextContent('إدارة واحدة على الأقل من الإدارات المحال لها');
+    expect(services.transactionsApi.create).not.toHaveBeenCalled();
   });
 
   it('CreateTransaction_MissingOutgoingDepartmentIds_SetsInvalidClassAndDescribedBy', async () => {
@@ -836,12 +944,12 @@ describe('TransactionForm validation feedback', () => {
     const responseSection = getResponseSection();
     await user.type(getFieldInSection(incomingSection, 'رقم المعاملة *'), 'IN-100');
     await user.type(getFieldInSection(incomingSection, 'تاريخ المعاملة *'), hijriInputForGregorian(todayLocalIso()));
-    await user.type(getFieldInSection(incomingSection, 'الموضوع *'), 'اختبار');
+    await user.type(getFieldInSection(incomingSection, 'الموضوع / البيان *'), 'اختبار');
     await user.click(screen.getByRole('combobox', { name: /الجهة الوارد منها/ }));
     await user.click(screen.getByRole('option', { name: /جهة خارجية أ/ }));
     await user.click(screen.getByRole('combobox', { name: /التصنيف/ }));
     await user.click(screen.getByRole('option', { name: /تصنيف عام/ }));
-    await user.type(getFieldInSection(responseSection, 'عدد الأيام للرد *'), '30');
+    await user.type(getFieldInSection(responseSection, 'مدة الرد بالأيام *'), '30');
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
 
     await waitFor(() => expect(services.transactionsApi.create).toHaveBeenCalled());
@@ -920,7 +1028,7 @@ describe('TransactionForm validation feedback', () => {
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
 
     expect(screen.getByRole('alert')).toHaveTextContent('رقم المعاملة مطلوب.');
-    expect(screen.getByRole('alert')).toHaveTextContent('الموضوع مطلوب.');
+    expect(screen.getByRole('alert')).toHaveTextContent('الموضوع / البيان مطلوب.');
     expect(services.transactionsApi.update).not.toHaveBeenCalled();
   });
 });

@@ -53,8 +53,9 @@ type TransactionValidationRule = {
 };
 
 const OUTGOING_HINT = 'بيانات الإحالة غير إلزامية، ولكن يجب إكمالها عند البدء بتعبئتها.';
-const OUTGOING_PARTIAL_ERROR = 'عند إدخال أي بيان من بيانات الإحالة يجب إكمال رقم خطاب الإحالة للإدارة وتاريخ الإحالة والإدارة الموجه لها.';
-const OUTGOING_DEPARTMENT_ERROR = 'اختر جهة داخلية واحدة على الأقل.';
+const OUTGOING_NUMBER_REQUIRED_ERROR = 'رقم خطاب الإحالة للإدارة مطلوب عند إدخال أي بيان من بيانات التوجيه والإرسال الداخلي.';
+const OUTGOING_DATE_REQUIRED_ERROR = 'تاريخ الإحالة مطلوب عند إدخال أي بيان من بيانات التوجيه والإرسال الداخلي.';
+const OUTGOING_DEPARTMENT_ERROR = 'إدارة واحدة على الأقل من الإدارات المحال لها مطلوبة عند إدخال أي بيان من بيانات التوجيه والإرسال الداخلي.';
 const OUTGOING_DATE_REQUIRED_WITH_NUMBER_ERROR = 'تاريخ الإحالة مطلوب عند إدخال رقم خطاب الإحالة للإدارة.';
 // These mappings keep backend validation keys aligned with TransactionForm field names and error display order.
 // Update them when transaction DTO validation fields or form field names change.
@@ -184,7 +185,7 @@ function isMissingOutgoingNumber(form: TransactionFormState, hasPartialOutgoingD
 }
 
 function isMissingOutgoingDate(form: TransactionFormState, hasPartialOutgoingData: boolean): boolean {
-  return hasPartialOutgoingData && !form.outgoingDate && !form.outgoingNumber.trim();
+  return hasPartialOutgoingData && !form.outgoingDate;
 }
 
 function isMissingOutgoingDateForNumber(form: TransactionFormState): boolean {
@@ -211,7 +212,7 @@ function getRecurringValidationRules(form: TransactionFormState): TransactionVal
     {
       field: 'outgoingDepartmentIds',
       isInvalid: isMissingRecurringDepartments(form),
-      message: 'يجب تحديد إدارة واحدة على الأقل موجهة إليها المعاملة لتفعيل الالتزام الدوري.',
+      message: 'عند تفعيل المتابعة الدورية يجب اختيار إدارة واحدة على الأقل في الإدارات المحال لها.',
     },
   ];
 }
@@ -223,21 +224,21 @@ function getTransactionValidationRules(form: TransactionFormState, mode: Props['
     { field: 'incomingNumber', isInvalid: !form.incomingNumber.trim(), message: 'رقم المعاملة مطلوب.' },
     { field: 'incomingDate', isInvalid: !form.incomingDate, message: 'تاريخ المعاملة مطلوب.' },
     { field: 'incomingDate', isInvalid: isFutureLocalDate(form.incomingDate), message: FUTURE_EVENT_DATE_MESSAGE },
-    { field: 'subject', isInvalid: !form.subject.trim(), message: 'الموضوع مطلوب.' },
-    { field: 'incomingSourceType', isInvalid: !form.incomingSourceType, message: 'يجب اختيار نوع الجهة الوارد منها.' },
-    { field: 'incomingFromPartyId', isInvalid: isMissingExternalIncomingParty(form), message: 'الجهة الخارجية مطلوبة.' },
-    { field: 'incomingFromDepartmentId', isInvalid: isMissingInternalIncomingDepartment(form), message: 'الجهة الداخلية مطلوبة.' },
+    { field: 'subject', isInvalid: !form.subject.trim(), message: 'الموضوع / البيان مطلوب.' },
+    { field: 'incomingSourceType', isInvalid: !form.incomingSourceType, message: 'نوع الجهة الوارد منها مطلوب.' },
+    { field: 'incomingFromPartyId', isInvalid: isMissingExternalIncomingParty(form), message: 'الجهة الخارجية مطلوبة عند اختيار مصدر خارجي.' },
+    { field: 'incomingFromDepartmentId', isInvalid: isMissingInternalIncomingDepartment(form), message: 'الإدارة الداخلية مطلوبة عند اختيار مصدر داخلي.' },
     { field: 'incomingSourceType', isInvalid: hasConflictingIncomingSources(form), message: 'لا يمكن اختيار جهة خارجية وإدارة داخلية في نفس الوقت.' },
     { field: 'categoryId', isInvalid: !form.categoryId, message: 'التصنيف مطلوب.' },
     { field: 'priority', isInvalid: !form.priority, message: 'الأولوية مطلوبة.' },
-    { field: 'outgoingNumber', isInvalid: isMissingOutgoingNumber(form, hasPartialOutgoingData), message: OUTGOING_PARTIAL_ERROR },
-    { field: 'outgoingDate', isInvalid: isMissingOutgoingDate(form, hasPartialOutgoingData), message: OUTGOING_PARTIAL_ERROR },
+    { field: 'outgoingNumber', isInvalid: isMissingOutgoingNumber(form, hasPartialOutgoingData), message: OUTGOING_NUMBER_REQUIRED_ERROR },
+    { field: 'outgoingDate', isInvalid: isMissingOutgoingDate(form, hasPartialOutgoingData), message: OUTGOING_DATE_REQUIRED_ERROR },
     { field: 'outgoingDate', isInvalid: isMissingOutgoingDateForNumber(form), message: OUTGOING_DATE_REQUIRED_WITH_NUMBER_ERROR },
     { field: 'outgoingDate', isInvalid: isFutureLocalDate(form.outgoingDate), message: FUTURE_EVENT_DATE_MESSAGE },
     { field: 'outgoingDate', isInvalid: isOutgoingBeforeIncoming(form), message: 'تاريخ الإحالة لا يمكن أن يكون قبل تاريخ المعاملة.' },
     { field: 'outgoingDepartmentIds', isInvalid: isMissingOutgoingDepartments(form, hasPartialOutgoingData), message: OUTGOING_DEPARTMENT_ERROR },
     { field: 'responseType', isInvalid: isMissingResponseType(form, mode), message: 'نوع الإفادة مطلوب.' },
-    { field: 'responseDueDays', isInvalid: isMissingResponseDueDays(form), message: 'عدد أيام الرد مطلوب عند طلب إفادة.' },
+    { field: 'responseDueDays', isInvalid: isMissingResponseDueDays(form), message: 'مدة الرد بالأيام مطلوبة عند اختيار نوع إفادة.' },
     ...getRecurringValidationRules(form),
   ];
 }
@@ -444,10 +445,14 @@ function RecurringFollowUpSection({
               checked={form.enableRecurringFollowUp}
               onChange={(e) => setForm({ ...form, enableRecurringFollowUp: e.target.checked })}
             />
-            <span>هذه المعاملة ذات التزام دوري / متابعة متكررة</span>
+            <span>تفعيل متابعة دورية</span>
           </label>
         </div>
-        {form.enableRecurringFollowUp && (
+        {!form.enableRecurringFollowUp ? (
+          <p className="transaction-form-helper transaction-form-field transaction-form-field--wide">
+            لم يتم تفعيل المتابعة الدورية لهذه المعاملة.
+          </p>
+        ) : (
           <>
             <div className={formGroupClass('recurringRecurrenceType', 'transaction-form-field transaction-form-field--compact')}>
               <label htmlFor="recurring-recurrence-type">نوع التكرار *</label>
@@ -465,7 +470,7 @@ function RecurringFollowUpSection({
             </div>
             <div className="form-group transaction-form-field transaction-form-field--compact">
               <span className="form-label">نهاية الفترة الأولى المتوقعة</span>
-              <p className="text-muted">{expectedPeriodEnd ? formatHijri(expectedPeriodEnd) : '—'}</p>
+              <p className="transaction-form-readonly-value">{expectedPeriodEnd ? formatHijri(expectedPeriodEnd) : '—'}</p>
             </div>
             <div className="form-group transaction-form-field transaction-form-field--wide">
               <span className="form-label">طريقة إنشاء المعاملة التالية</span>
@@ -490,6 +495,9 @@ function RecurringFollowUpSection({
                 </label>
               </div>
             </div>
+            <p className="transaction-form-helper transaction-form-field transaction-form-field--wide">
+              يتم إنشاء المعاملة التالية وفق إعدادات المتابعة الدورية.
+            </p>
           </>
         )}
       </div>
@@ -677,6 +685,7 @@ export default function TransactionForm({ mode }: Props) {
   };
   const incomingSourceFieldName =
     form.incomingSourceType === 'External' ? 'incomingFromPartyId' : 'incomingFromDepartmentId';
+  const isRoutingRequired = hasOutgoingData(form) || form.enableRecurringFollowUp;
 
   if (loading || referenceLoading) {
     return (
@@ -696,7 +705,7 @@ export default function TransactionForm({ mode }: Props) {
         />
         {error && !hasFieldErrors && <Alert variant="error">{error}</Alert>}
 
-        <FormSection title="بيانات الوارد">
+        <FormSection title="معلومات المعاملة الأساسية">
           <div className="transaction-form-grid transaction-form-grid--incoming">
             <div className={formGroupClass('incomingNumber', 'transaction-form-field transaction-form-field--compact')}>
               <label htmlFor="incoming-number">رقم المعاملة *</label>
@@ -739,7 +748,7 @@ export default function TransactionForm({ mode }: Props) {
               onDepartmentChange={(id) => setForm({ ...form, incomingFromDepartmentId: id, incomingFromPartyId: '' })}
             />
             <div className={formGroupClass('subject', 'transaction-form-field transaction-form-field--wide transaction-subject-field')}>
-              <label htmlFor="transaction-subject">الموضوع *</label>
+              <label htmlFor="transaction-subject">الموضوع / البيان *</label>
               <input id="transaction-subject" {...fieldProps('subject')} value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
               {fieldError('subject') && <span id={fieldErrorId('subject')} className="field-error">{fieldError('subject')}</span>}
             </div>
@@ -778,12 +787,12 @@ export default function TransactionForm({ mode }: Props) {
               {fieldError('responseType') && <span id={fieldErrorId('responseType')} className="field-error">{fieldError('responseType')}</span>}
             </div>
             <div className={formGroupClass('responseDueDays', 'transaction-form-field transaction-form-field--compact')}>
-              <label htmlFor="transaction-response-due-days">عدد الأيام للرد *</label>
+              <label htmlFor="transaction-response-due-days">مدة الرد بالأيام *</label>
               <input id="transaction-response-due-days" {...fieldProps('responseDueDays')} type="number" min="1" value={form.responseDueDays}
                 onChange={(e) => setForm({ ...form, responseDueDays: e.target.value })} />
               {fieldError('responseDueDays') && <span id={fieldErrorId('responseDueDays')} className="field-error">{fieldError('responseDueDays')}</span>}
               {computedResponseDueDate && (
-                <small className="text-muted">
+                <small className="transaction-form-helper">
                   تاريخ الرد المطلوب: {formatHijri(computedResponseDueDate)}
                 </small>
               )}
@@ -801,7 +810,8 @@ export default function TransactionForm({ mode }: Props) {
           <div className="transaction-form-grid transaction-form-grid--routing">
             <div className={formGroupClass('outgoingDepartmentIds', 'transaction-form-field transaction-form-field--wide')}>
               <MultiSelect
-                label="الإدارات الموجه لها"
+                label="الإدارات المحال لها"
+                required={isRoutingRequired}
                 options={departments.map((d) => ({ id: d.id, name: d.name, isActive: d.isActive }))}
                 selected={form.outgoingDepartmentIds}
                 onChange={(ids) => setForm({ ...form, outgoingDepartmentIds: ids })}
@@ -832,20 +842,24 @@ export default function TransactionForm({ mode }: Props) {
           </div>
         </FormSection>
 
-        {mode === 'create' && (
-          <RecurringFollowUpSection
-            form={form}
-            setForm={setForm}
-            fieldError={fieldError}
-            fieldErrorId={fieldErrorId}
-            formGroupClass={formGroupClass}
-          />
-        )}
+        <RecurringFollowUpSection
+          form={form}
+          setForm={setForm}
+          fieldError={fieldError}
+          fieldErrorId={fieldErrorId}
+          formGroupClass={formGroupClass}
+        />
 
-        <FormSection title="ملاحظات">
+        <FormSection title="الملاحظات">
           <div className="transaction-form-grid">
             <div className="form-group transaction-form-field transaction-form-field--wide">
-              <textarea rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} aria-label="ملاحظات" />
+              <textarea
+                rows={3}
+                value={form.notes}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                aria-label="الملاحظات"
+                placeholder="أدخل أي ملاحظات أو تفاصيل إضافية اختيارية"
+              />
             </div>
           </div>
         </FormSection>
