@@ -1189,6 +1189,71 @@ public class DepartmentResponseServiceTests
     }
 
     [Fact]
+    public async Task UpdateAsync_RejectsFutureResponseDate()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(UpdateAsync_RejectsFutureResponseDate));
+        var service = BuildService(db);
+        var user = new FakeUser { UserId = userId, DepartmentId = deptId };
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpdateAsync(created.Id,
+                new UpdateDepartmentResponseRequest("نص", ResponseDate: DateTime.UtcNow.AddDays(2)),
+                user));
+        Assert.Equal("لا يمكن أن يكون التاريخ بعد تاريخ اليوم.", ex.Message);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_RejectsResponseDateBeforeIncomingDate()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(UpdateAsync_RejectsResponseDateBeforeIncomingDate));
+        var service = BuildService(db);
+        var user = new FakeUser { UserId = userId, DepartmentId = deptId };
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpdateAsync(created.Id,
+                new UpdateDepartmentResponseRequest("نص", ResponseDate: DateTime.UtcNow.AddDays(-30)),
+                user));
+        Assert.Equal("تاريخ إنجاز الإدارة لا يمكن أن يسبق تاريخ الوارد.", ex.Message);
+    }
+
+    [Fact]
+    public async Task AdminEditResponse_InvalidSubmittedAt_UsesSubmissionDateLabel()
+    {
+        // SubmittedAt is a technical/legacy submission timestamp, not the operational
+        // completion date — its validation message must not say "تاريخ إنجاز الإدارة"
+        // (that label belongs to ResponseDate) or it misleads whoever reads the error.
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(AdminEditResponse_InvalidSubmittedAt_UsesSubmissionDateLabel));
+        var service = BuildService(db);
+        var creator = new FakeUser { UserId = userId, DepartmentId = deptId, Role = UserRole.Admin };
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), creator);
+
+        var admin = new FakeUser { UserId = userId, Role = UserRole.Admin };
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.AdminEditAsync(created.Id,
+                new AdminEditDepartmentResponseRequest("تصحيح", SubmittedAt: DateTime.UtcNow.AddDays(-30)),
+                admin));
+        Assert.Equal("تاريخ إرسال إفادة الإدارة لا يمكن أن يسبق تاريخ الوارد.", ex.Message);
+    }
+
+    [Fact]
+    public async Task AdminEditResponse_InvalidResponseDate_UsesCompletionDateLabel()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(AdminEditResponse_InvalidResponseDate_UsesCompletionDateLabel));
+        var service = BuildService(db);
+        var creator = new FakeUser { UserId = userId, DepartmentId = deptId, Role = UserRole.Admin };
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), creator);
+
+        var admin = new FakeUser { UserId = userId, Role = UserRole.Admin };
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.AdminEditAsync(created.Id,
+                new AdminEditDepartmentResponseRequest("تصحيح", ResponseDate: DateTime.UtcNow.AddDays(-30)),
+                admin));
+        Assert.Equal("تاريخ إنجاز الإدارة لا يمكن أن يسبق تاريخ الوارد.", ex.Message);
+    }
+
+    [Fact]
     public async Task Approve_UsesResponseDate_NotSubmittedAt_ForAssignmentReplyDate()
     {
         // The operational completion date the department entered can legitimately differ

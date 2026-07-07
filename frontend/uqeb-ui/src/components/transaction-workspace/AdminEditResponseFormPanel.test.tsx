@@ -102,7 +102,7 @@ describe('AdminEditResponseFormPanel', () => {
 
     await waitFor(() => expect(services.departmentResponsesApi.adminEdit).toHaveBeenCalledTimes(1));
     const payload = vi.mocked(services.departmentResponsesApi.adminEdit).mock.calls[0][1] as Record<string, unknown>;
-    expect(payload.responseDate).not.toBe('2026-01-10');
+    expect(payload.responseDate).toBe('2025-12-25');
     expect(payload).not.toHaveProperty('submittedAt');
   });
 });

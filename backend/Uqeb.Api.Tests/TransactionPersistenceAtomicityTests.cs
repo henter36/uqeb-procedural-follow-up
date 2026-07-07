@@ -180,6 +180,31 @@ public class TransactionPersistenceAtomicityTests
     }
 
     [Fact]
+    public async Task CreateAsync_with_response_due_date_before_outgoing_date_keeps_auto_referral_due_date_from_preceding_assigned_date()
+    {
+        // ResponseDueDate is computed relative to IncomingDate. When OutgoingDate lands after
+        // it, blindly copying ResponseDueDate onto the auto-referral's DueDate would produce
+        // DueDate < AssignedDate — an invalid assignment state. The due date must instead be
+        // recomputed relative to the resolved AssignedDate (OutgoingDate), same as
+        // AddAssignmentAsync's own invariant.
+        var (service, db, _, _) = await CreateServiceAsync(
+            nameof(CreateAsync_with_response_due_date_before_outgoing_date_keeps_auto_referral_due_date_from_preceding_assigned_date));
+
+        var request = BuildCreateRequest(10, 11);
+        request.IncomingDate = SaudiToday().AddDays(-10);
+        request.OutgoingDate = SaudiToday();
+        request.ResponseDueDays = 7;
+
+        var created = await service.CreateAsync(request, userId: 1);
+
+        var assignments = await db.Assignments.Where(a => a.TransactionId == created.Id).ToListAsync();
+        Assert.Equal(2, assignments.Count);
+        Assert.All(assignments, a => Assert.Equal(request.OutgoingDate!.Value.Date, a.AssignedDate.Date));
+        Assert.All(assignments, a => Assert.True(!a.DueDate.HasValue || a.DueDate.Value.Date >= a.AssignedDate.Date));
+        Assert.All(assignments, a => Assert.Equal(request.OutgoingDate!.Value.Date.AddDays(7), a.DueDate!.Value.Date));
+    }
+
+    [Fact]
     public async Task UpdateAsync_with_outgoing_department_change_uses_single_save_changes()
     {
         var (service, db, counter, cache) = await CreateServiceAsync(nameof(UpdateAsync_with_outgoing_department_change_uses_single_save_changes));

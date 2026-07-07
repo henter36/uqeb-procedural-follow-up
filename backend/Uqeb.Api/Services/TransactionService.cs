@@ -2296,7 +2296,13 @@ public class TransactionService : ITransactionService
         // (OutgoingDate) rather than when it first arrived (IncomingDate), whenever an
         // outgoing date has been recorded.
         var assignedDate = transaction.OutgoingDate ?? transaction.IncomingDate;
-        var dueDate = transaction.ResponseDueDate;
+        // Recompute the due date relative to the resolved assignedDate (matching
+        // AddAssignmentAsync's own invariant) instead of blindly reusing the transaction's
+        // IncomingDate-relative ResponseDueDate, which can precede an OutgoingDate-based
+        // assignedDate and produce DueDate < AssignedDate.
+        var dueDate = WorkflowHelper.CalculateAssignmentDueDate(assignedDate, transaction.ResponseDueDays, transaction.ResponseDueDate);
+        if (dueDate.HasValue && dueDate.Value.Date < assignedDate.Date)
+            dueDate = null;
         var assignmentsChanged = false;
 
         List<Assignment> existingAssignments;

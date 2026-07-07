@@ -89,12 +89,17 @@ public class DepartmentResponseService : IDepartmentResponseService
 
     private static DateTime GetSaudiToday() => DateTime.UtcNow.AddHours(3).Date;
 
-    private async Task ValidateResponseDateAsync(int transactionId, int departmentId, DateTime incomingDate, DateTime responseDate)
+    private async Task ValidateResponseDateAsync(
+        int transactionId,
+        int departmentId,
+        DateTime incomingDate,
+        DateTime responseDate,
+        string fieldLabel = "تاريخ إنجاز الإدارة")
     {
         if (responseDate.Date > GetSaudiToday())
             throw new InvalidOperationException(FutureEventDateMessage);
         if (responseDate.Date < incomingDate.Date)
-            throw new InvalidOperationException("تاريخ إنجاز الإدارة لا يمكن أن يسبق تاريخ الوارد.");
+            throw new InvalidOperationException($"{fieldLabel} لا يمكن أن يسبق تاريخ الوارد.");
 
         var assignedDate = await _db.Assignments
             .AsNoTracking()
@@ -104,7 +109,7 @@ public class DepartmentResponseService : IDepartmentResponseService
             .Select(a => (DateTime?)a.AssignedDate)
             .FirstOrDefaultAsync();
         if (assignedDate.HasValue && responseDate.Date < assignedDate.Value.Date)
-            throw new InvalidOperationException("تاريخ إنجاز الإدارة لا يمكن أن يسبق تاريخ الإحالة.");
+            throw new InvalidOperationException($"{fieldLabel} لا يمكن أن يسبق تاريخ الإحالة.");
     }
 
     // InMemory (test) provider throws InvalidOperationException on BeginTransactionAsync.
@@ -544,7 +549,12 @@ public class DepartmentResponseService : IDepartmentResponseService
         if (request.SubmittedAt.HasValue)
         {
             var submittedAt = DateTime.SpecifyKind(request.SubmittedAt.Value.Date, DateTimeKind.Utc);
-            await ValidateResponseDateAsync(response.TransactionId, response.DepartmentId, response.Transaction.IncomingDate, submittedAt);
+            await ValidateResponseDateAsync(
+                response.TransactionId,
+                response.DepartmentId,
+                response.Transaction.IncomingDate,
+                submittedAt,
+                fieldLabel: "تاريخ إرسال إفادة الإدارة");
             response.SubmittedAt = submittedAt;
         }
         if (request.ResponseDate.HasValue)

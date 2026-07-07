@@ -128,6 +128,6 @@ describe('DepartmentResponseInlinePanel', () => {
     });
 
     const dateField = await screen.findByLabelText('تاريخ إنجاز الإدارة *');
-    await waitFor(() => expect(dateField).not.toHaveValue(''));
+    await waitFor(() => expect(dateField).toHaveValue('05/01/1448'));
   });
 });
