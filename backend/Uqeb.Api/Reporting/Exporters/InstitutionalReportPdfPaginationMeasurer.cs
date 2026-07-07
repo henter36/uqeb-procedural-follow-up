@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Playwright;
+using System.Text.Json;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
 
@@ -17,6 +18,7 @@ public interface IInstitutionalReportPdfPaginationMeasurer
 public sealed class InstitutionalReportPdfPaginationMeasurer : IInstitutionalReportPdfPaginationMeasurer, IAsyncDisposable
 {
     private const int MaxHtmlLength = 8 * 1024 * 1024;
+    private static readonly JsonSerializerOptions MeasurementJsonOptions = new(JsonSerializerDefaults.Web);
     private readonly IReportingPlaywrightBrowserHost _browserHost;
 
     public InstitutionalReportPdfPaginationMeasurer(IReportingPlaywrightBrowserHost browserHost)
@@ -53,7 +55,7 @@ public sealed class InstitutionalReportPdfPaginationMeasurer : IInstitutionalRep
 
             await _browserHost.WaitForFontsAsync(page, token);
 
-            var measurement = await page.EvaluateAsync<TransactionDetailDomMeasurement>("""
+            var measurementJson = await page.EvaluateAsync<string>("""
                 () => {
                   const pages = Array.from(document.querySelectorAll('.report-page'))
                     .filter(page => page.dataset.sectionId === 'TransactionDetails')
@@ -87,14 +89,19 @@ public sealed class InstitutionalReportPdfPaginationMeasurer : IInstitutionalRep
                   const firstAvailableRowsHeight = pages.length > 0 ? measurePage(pages[0]) : 0;
                   const continuationAvailableRowsHeight = pages.length > 1 ? measurePage(pages[1]) : firstAvailableRowsHeight;
 
-                  return {
+                  return JSON.stringify({
                     firstAvailableRowsHeight,
                     continuationAvailableRowsHeight,
                     rowHeights,
-                  };
+                  });
                 }
                 """);
             token.ThrowIfCancellationRequested();
+
+            var measurement = JsonSerializer.Deserialize<TransactionDetailDomMeasurement>(
+                    measurementJson,
+                    MeasurementJsonOptions)
+                ?? throw new InvalidOperationException("فشل تحليل نتيجة قياس صفوف التفاصيل.");
 
             if (measurement.RowHeights.Count != sourceRows.Count)
             {
