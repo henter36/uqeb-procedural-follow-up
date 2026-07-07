@@ -264,7 +264,7 @@ public class InstitutionalReportPlaywrightPdfExporterTests
         ]);
         var html = InstitutionalReportRenderer.RenderHtmlDocument(manifest);
 
-        Assert.Equal(2, CountOccurrences(html, "report-table--transactions"));
+        Assert.Equal(2, CountOccurrences(html, "<table class=\"report-table report-table--transactions\""));
         Assert.Contains("data-section-id=\"CriticalCases\"", html);
         Assert.Contains("data-section-id=\"TransactionDetails\"", html);
 
