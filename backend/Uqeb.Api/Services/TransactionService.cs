@@ -24,6 +24,7 @@ public interface ITransactionService
     Task<bool> ArchiveAsync(int id, int userId, UserRole role);
     Task<bool> CloseAsync(int id, int userId, UserRole role);
     Task<TransactionDetailDto?> CompleteResponseAsync(int id, CompleteResponseRequest request, ICurrentUserService currentUser);
+    Task<TransactionDetailDto?> EditResponseAsync(int id, CompleteResponseRequest request, ICurrentUserService currentUser);
     Task<List<FollowUpDepartmentOptionDto>?> GetFollowUpDepartmentsAsync(int transactionId, ICurrentUserService currentUser);
     Task<FollowUpDto> AddFollowUpAsync(int transactionId, CreateFollowUpRequest request, int userId);
     Task<FollowUpDto?> ReplyFollowUpAsync(int transactionId, int followUpId, ReplyFollowUpRequest request, int userId);
@@ -34,6 +35,7 @@ public interface ITransactionService
     Task<PagedResult<AuditLogDto>> GetAuditLogAsync(int transactionId, int page, int pageSize, ICurrentUserService currentUser);
     Task<TransactionDetailDto?> EnableRecurringAsync(int id, EnableRecurringForTransactionRequest request, int userId);
     Task<bool> CanAccessTransactionAsync(int transactionId, ICurrentUserService currentUser);
+    Task<TransactionAdjacentDto?> GetAdjacentAsync(int id, ICurrentUserService currentUser);
 }
 
 public class TransactionService : ITransactionService
@@ -598,10 +600,6 @@ public class TransactionService : ITransactionService
                 on a.CreatedById equals u.Id
                 into createdByGroup
             from u in createdByGroup.DefaultIfEmpty()
-            join dr in _db.DepartmentResponses.AsNoTracking()
-                on new { a.TransactionId, a.DepartmentId } equals new { dr.TransactionId, dr.DepartmentId }
-                into drGroup
-            from dr in drGroup.DefaultIfEmpty()
             orderby a.AssignedDate descending
             select new
             {
@@ -620,16 +618,24 @@ public class TransactionService : ITransactionService
                 a.Status,
                 CreatedByName = u != null ? u.FullName : "",
                 a.CreatedAt,
-                DepartmentResponseId = (int?)dr.Id,
-                ResponseDate = dr.SubmittedAt
+                // The assignment's own ReplyDate is the authoritative completion date
+                // (set once ApproveAsync clamps/records it); DepartmentResponse rows can be
+                // drafts, rejected, or resubmitted, so joining on them directly for the date
+                // both used the wrong field and risked duplicate/non-deterministic rows.
+                DepartmentResponseId = _db.DepartmentResponses
+                    .Where(dr => dr.TransactionId == a.TransactionId && dr.DepartmentId == a.DepartmentId)
+                    .OrderByDescending(dr => dr.Status == DepartmentResponseStatus.Approved)
+                    .ThenByDescending(dr => dr.Id)
+                    .Select(dr => (int?)dr.Id)
+                    .FirstOrDefault()
             }
         ).ToListAsync();
 
         return rows.Select(r =>
         {
             int? completionDays = null;
-            if (r.ResponseDate.HasValue && incomingDate.HasValue)
-                completionDays = Math.Max(0, (r.ResponseDate.Value.Date - incomingDate.Value.Date).Days);
+            if (r.ReplyDate.HasValue && incomingDate.HasValue)
+                completionDays = Math.Max(0, (r.ReplyDate.Value.Date - incomingDate.Value.Date).Days);
 
             return new AssignmentDto
             {
@@ -649,7 +655,7 @@ public class TransactionService : ITransactionService
                 IsOverdue = TransactionTemporalCalculator.IsAssignmentOverdue(
                     r.ReplyStatus, r.RequiresReply, r.Status, r.DueDate, now),
                 DepartmentResponseId = r.DepartmentResponseId,
-                ResponseDate = r.ResponseDate,
+                ResponseDate = r.ReplyDate,
                 DepartmentCompletionDays = completionDays,
                 CanAdminEdit = isAdmin,
                 CreatedByName = r.CreatedByName,
@@ -1146,38 +1152,15 @@ public class TransactionService : ITransactionService
             throw new InvalidOperationException($"لا يمكن تسجيل الإفادة قبل اكتمال رد جميع الإدارات: {names}");
         }
 
-        if (request.ResponseDate == default)
-            throw new InvalidOperationException("تاريخ الإفادة مطلوب");
-        if (IsFutureEventDate(request.ResponseDate))
-            throw new InvalidOperationException(FutureEventDateMessage);
-        if (request.ResponseDate.Date < t.IncomingDate.Date)
-            throw new InvalidOperationException("تاريخ الإفادة لا يمكن أن يسبق تاريخ الوارد.");
-
-        if (string.IsNullOrWhiteSpace(request.ResponseSummary))
-            throw new InvalidOperationException("ملخص الإفادة مطلوب");
-
         var requiresOutgoing = t.ResponseType is ResponseType.External or ResponseType.Both;
-        if (requiresOutgoing)
-        {
-            if (string.IsNullOrWhiteSpace(request.OutgoingNumber))
-                throw new InvalidOperationException("رقم الصادر مطلوب لنوع الإفادة المحدد");
-            if (!request.OutgoingDate.HasValue)
-                throw new InvalidOperationException("تاريخ الصادر مطلوب لنوع الإفادة المحدد");
-            if (IsFutureEventDate(request.OutgoingDate.Value))
-                throw new InvalidOperationException(FutureEventDateMessage);
-            if (request.OutgoingDate.Value.Date < t.IncomingDate.Date)
-                throw new InvalidOperationException("تاريخ الصادر لا يمكن أن يسبق تاريخ الوارد.");
-        }
+        ValidateResponseFields(t, request, requiresOutgoing);
 
         await CommitWorkflowMutationAsync(() =>
         {
             t.ResponseCompleted = true;
             t.ResponseCompletedDate = request.ResponseDate.Date;
             t.ResponseSummary = request.ResponseSummary.Trim();
-            if (!string.IsNullOrWhiteSpace(request.OutgoingNumber))
-                t.OutgoingNumber = request.OutgoingNumber.Trim();
-            if (request.OutgoingDate.HasValue)
-                t.OutgoingDate = request.OutgoingDate.Value.Date;
+            ApplyOutgoingFields(t, request, requiresOutgoing);
             t.Status = TransactionStatus.ResponseCompleted;
             t.UpdatedById = userId;
             t.UpdatedAt = DateTime.UtcNow;
@@ -1193,6 +1176,83 @@ public class TransactionService : ITransactionService
         });
 
         return await GetByIdAsync(id, currentUser);
+    }
+
+    public async Task<TransactionDetailDto?> EditResponseAsync(int id, CompleteResponseRequest request, ICurrentUserService currentUser)
+    {
+        if (currentUser.Role != UserRole.Admin && currentUser.Role != UserRole.Supervisor)
+            throw new UnauthorizedAccessException("لا تملك صلاحية تعديل الإفادة");
+
+        var userId = currentUser.UserId;
+        var t = await _db.Transactions.FirstOrDefaultAsync(x => x.Id == id);
+        if (t == null) return null;
+
+        if (t.Status == TransactionStatus.Closed || t.Status == TransactionStatus.Cancelled || t.Status == TransactionStatus.Archived)
+            throw new InvalidOperationException("لا يمكن تعديل إفادة معاملة مغلقة أو ملغاة أو مؤرشفة");
+
+        if (!t.ResponseCompleted)
+            throw new InvalidOperationException("لم يتم تسجيل الإفادة بعد، لا يمكن تعديلها.");
+
+        var requiresOutgoing = t.ResponseType is ResponseType.External or ResponseType.Both;
+        ValidateResponseFields(t, request, requiresOutgoing);
+
+        var oldValue = JsonSerializer.Serialize(new
+        {
+            responseDate = t.ResponseCompletedDate,
+            responseSummary = t.ResponseSummary,
+            outgoingNumber = t.OutgoingNumber,
+            outgoingDate = t.OutgoingDate
+        });
+
+        await CommitWorkflowMutationAsync(() =>
+        {
+            t.ResponseCompletedDate = request.ResponseDate.Date;
+            t.ResponseSummary = request.ResponseSummary.Trim();
+            ApplyOutgoingFields(t, request, requiresOutgoing);
+            t.UpdatedById = userId;
+            t.UpdatedAt = DateTime.UtcNow;
+            _audit.TrackLog(userId, AuditAction.EditResponse, TransactionEntityName, id, id, oldValue,
+                JsonSerializer.Serialize(new
+                {
+                    responseDate = t.ResponseCompletedDate,
+                    responseSummary = t.ResponseSummary,
+                    outgoingNumber = t.OutgoingNumber,
+                    outgoingDate = t.OutgoingDate
+                }));
+            return Task.CompletedTask;
+        });
+
+        return await GetByIdAsync(id, currentUser);
+    }
+
+    private static void ValidateResponseFields(Transaction t, CompleteResponseRequest request, bool requiresOutgoing)
+    {
+        if (request.ResponseDate == default)
+            throw new InvalidOperationException("تاريخ الإفادة مطلوب");
+        if (IsFutureEventDate(request.ResponseDate))
+            throw new InvalidOperationException(FutureEventDateMessage);
+        if (request.ResponseDate.Date < t.IncomingDate.Date)
+            throw new InvalidOperationException("تاريخ الإفادة لا يمكن أن يسبق تاريخ الوارد.");
+
+        if (string.IsNullOrWhiteSpace(request.ResponseSummary))
+            throw new InvalidOperationException("ملخص الإفادة مطلوب");
+
+        if (!requiresOutgoing) return;
+
+        if (string.IsNullOrWhiteSpace(request.OutgoingNumber))
+            throw new InvalidOperationException("رقم الصادر مطلوب لنوع الإفادة المحدد");
+        if (!request.OutgoingDate.HasValue)
+            throw new InvalidOperationException("تاريخ الصادر مطلوب لنوع الإفادة المحدد");
+        if (IsFutureEventDate(request.OutgoingDate.Value))
+            throw new InvalidOperationException(FutureEventDateMessage);
+        if (request.OutgoingDate.Value.Date < t.IncomingDate.Date)
+            throw new InvalidOperationException("تاريخ الصادر لا يمكن أن يسبق تاريخ الوارد.");
+    }
+
+    private static void ApplyOutgoingFields(Transaction t, CompleteResponseRequest request, bool requiresOutgoing)
+    {
+        t.OutgoingNumber = requiresOutgoing ? request.OutgoingNumber!.Trim() : null;
+        t.OutgoingDate = requiresOutgoing ? request.OutgoingDate!.Value.Date : null;
     }
 
     public async Task<List<FollowUpDepartmentOptionDto>?> GetFollowUpDepartmentsAsync(int transactionId, ICurrentUserService currentUser)
@@ -2381,6 +2441,39 @@ public class TransactionService : ITransactionService
                     a.RequiresReply &&
                     a.Status != AssignmentStatus.Cancelled) ||
                     _db.DepartmentResponses.Any(r => r.TransactionId == t.Id && r.DepartmentId == deptId)));
+    }
+
+    // Adjacent transaction ids for the detail page's previous/next navigation. Ordered by
+    // (IncomingDate, Id) ascending, the same stable ordering as the transaction list's default
+    // sort; scoped with the same department-user visibility rule as SearchAsync so a user never
+    // navigates to a transaction they could not otherwise open.
+    public async Task<TransactionAdjacentDto?> GetAdjacentAsync(int id, ICurrentUserService currentUser)
+    {
+        var current = await _db.Transactions.AsNoTracking()
+            .Where(t => t.Id == id)
+            .Select(t => new { t.IncomingDate })
+            .FirstOrDefaultAsync();
+        if (current == null) return null;
+
+        var scoped = ApplyDepartmentUserScope(_db.Transactions.AsNoTracking(), currentUser);
+
+        var previousId = await scoped
+            .Where(t => t.IncomingDate < current.IncomingDate
+                || (t.IncomingDate == current.IncomingDate && t.Id < id))
+            .OrderByDescending(t => t.IncomingDate)
+            .ThenByDescending(t => t.Id)
+            .Select(t => (int?)t.Id)
+            .FirstOrDefaultAsync();
+
+        var nextId = await scoped
+            .Where(t => t.IncomingDate > current.IncomingDate
+                || (t.IncomingDate == current.IncomingDate && t.Id > id))
+            .OrderBy(t => t.IncomingDate)
+            .ThenBy(t => t.Id)
+            .Select(t => (int?)t.Id)
+            .FirstOrDefaultAsync();
+
+        return new TransactionAdjacentDto { PreviousId = previousId, NextId = nextId };
     }
 
     private static bool CanAccess(Transaction t, ICurrentUserService user)

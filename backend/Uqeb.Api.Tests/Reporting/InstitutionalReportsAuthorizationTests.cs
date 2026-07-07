@@ -105,6 +105,14 @@ public class InstitutionalReportsAuthorizationTests : IClassFixture<Institutiona
     }
 
     [Fact]
+    public async Task Templates_Unauthenticated_ReturnsUnauthorized()
+    {
+        var response = await _client.GetAsync("/api/institutional-reports/templates");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Readiness_Admin_ReturnsOk()
     {
         using var request = CreateAuthorizedRequest(HttpMethod.Get, "/api/institutional-reports/readiness", "Admin");

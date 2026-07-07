@@ -100,6 +100,20 @@ public class TransactionsController : ControllerBase
         }
     }
 
+    [HttpGet("{id:int}/adjacent")]
+    public async Task<IActionResult> GetAdjacent(int id)
+    {
+        try
+        {
+            var result = await _transactions.GetAdjacentAsync(id, _currentUser);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
+    }
+
     [HttpPost]
     [Authorize(Policy = Policies.CanEditTransactions)]
     public async Task<IActionResult> Create([FromBody] CreateTransactionRequest request)
@@ -199,6 +213,30 @@ public class TransactionsController : ControllerBase
         catch (UnauthorizedAccessException ex)
         {
             return Forbid(ex.Message);
+        }
+    }
+
+    [HttpPut("{id:int}/response")]
+    [Authorize(Policy = "SupervisorOrAdmin")]
+    public async Task<IActionResult> EditResponse(int id, [FromBody] CompleteResponseRequest request)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
+
+        try
+        {
+            var result = await _transactions.EditResponseAsync(id, request, _currentUser);
+            return result == null
+                ? NotFound(new { message = "المعاملة غير موجودة" })
+                : Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
         }
     }
 

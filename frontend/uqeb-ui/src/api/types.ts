@@ -111,6 +111,11 @@ export interface TransactionListItem {
   recurringRecurrenceType?: string;
 }
 
+export interface TransactionAdjacent {
+  previousId?: number | null;
+  nextId?: number | null;
+}
+
 export interface TransactionDetail extends TransactionListItem {
   outgoingTo?: string;
   incomingFromPartyId?: number;

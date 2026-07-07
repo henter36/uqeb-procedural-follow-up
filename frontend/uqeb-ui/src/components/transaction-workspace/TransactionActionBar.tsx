@@ -14,6 +14,8 @@ type TransactionActionBarProps = Readonly<{
   activeAction: WorkspaceAction | null;
   onAction: (action: WorkspaceAction) => void;
   onCloseTransaction: () => void;
+  showEnableRecurring?: boolean;
+  showAdminEditDates?: boolean;
 }>;
 
 export default function TransactionActionBar({
@@ -29,45 +31,37 @@ export default function TransactionActionBar({
   activeAction,
   onAction,
   onCloseTransaction,
+  showEnableRecurring = false,
+  showAdminEditDates = false,
 }: TransactionActionBarProps) {
   const showMutationActions = canEdit && !isDepartmentUser;
 
   return (
     <nav className="workspace-action-bar" aria-label="إجراءات المعاملة">
       {showMutationActions && (
-        <>
-          <button
-            type="button"
-            className={`btn btn-secondary btn-sm${activeAction === 'assignment' ? ' active' : ''}`}
-            onClick={() => onAction('assignment')}
-          >
-            إضافة احالة
-          </button>
-          <button
-            type="button"
-            className={`btn btn-secondary btn-sm${activeAction === 'followup' ? ' active' : ''}`}
-            onClick={() => onAction('followup')}
-          >
-            إضافة تعقيب
-          </button>
-          <button
-            type="button"
-            className={`btn btn-secondary btn-sm${activeAction === 'attachment' ? ' active' : ''}`}
-            onClick={() => onAction('attachment')}
-          >
-            إضافة مرفق
-          </button>
-          <Link to={`/transactions/${transactionId}/edit`} className="btn btn-outline btn-sm">
-            تعديل
-          </Link>
-          <button
-            type="button"
-            className={`btn btn-secondary btn-sm${activeAction === 'follow-up-letter' ? ' active' : ''}`}
-            onClick={() => onAction('follow-up-letter')}
-          >
-            خطاب تعقيب PDF
-          </button>
-        </>
+        <Link to={`/transactions/${transactionId}/edit`} className="btn btn-outline btn-sm">
+          تعديل
+        </Link>
+      )}
+      {showEnableRecurring && (
+        <button
+          type="button"
+          className={`btn btn-outline btn-sm${activeAction === 'enable-recurring' ? ' active' : ''}`}
+          aria-pressed={activeAction === 'enable-recurring'}
+          onClick={() => onAction('enable-recurring')}
+        >
+          تفعيل متابعة دورية لهذه المعاملة
+        </button>
+      )}
+      {showAdminEditDates && (
+        <button
+          type="button"
+          className={`btn btn-outline btn-sm${activeAction === 'admin-edit-dates' ? ' active' : ''}`}
+          aria-pressed={activeAction === 'admin-edit-dates'}
+          onClick={() => onAction('admin-edit-dates')}
+        >
+          تصحيح التواريخ إداريًا
+        </button>
       )}
       {canRegisterResponse && (
         <button

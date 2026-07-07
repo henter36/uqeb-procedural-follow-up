@@ -37,6 +37,7 @@ export const transactionsApi = {
     api.get<PagedResult<TransactionListItem>>('/transactions', { params }),
   getById: (id: number) => api.get<TransactionDetail>(`/transactions/${id}`),
   getBasic: (id: number) => api.get<TransactionDetail>(`/transactions/${id}/basic`),
+  getAdjacent: (id: number) => api.get<import('./types').TransactionAdjacent>(`/transactions/${id}/adjacent`),
   getWorkspace: (id: number, config?: { signal?: AbortSignal }) =>
     api.get<TransactionWorkspace>(`/transactions/${id}/workspace`, config),
   getAssignments: (id: number) => api.get<Assignment[]>(`/transactions/${id}/assignments`),
@@ -51,6 +52,8 @@ export const transactionsApi = {
     api.post<TransactionDetail>(`/transactions/${id}/enable-recurring`, data),
   completeResponse: (id: number, data: Record<string, unknown>) =>
     api.post<TransactionDetail>(`/transactions/${id}/complete-response`, data),
+  editResponse: (id: number, data: Record<string, unknown>) =>
+    api.put<TransactionDetail>(`/transactions/${id}/response`, data),
   cancel: (id: number) => api.post(`/transactions/${id}/cancel`),
   archive: (id: number) => api.post(`/transactions/${id}/archive`),
   getFollowUpDepartments: (id: number) =>

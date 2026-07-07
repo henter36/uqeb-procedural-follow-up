@@ -162,6 +162,7 @@ const defaultWorkspace = {
 vi.mock('../api/services', () => ({
   transactionsApi: {
     getBasic: vi.fn(),
+    getAdjacent: vi.fn(),
     getWorkspace: vi.fn(),
     getAssignments: vi.fn(),
     getFollowUps: vi.fn(),
@@ -173,6 +174,7 @@ vi.mock('../api/services', () => ({
     replyAssignment: vi.fn(),
     replyFollowUp: vi.fn(),
     completeResponse: vi.fn(),
+    editResponse: vi.fn(),
     adminEditAssignment: vi.fn(),
     adminEditTransactionDates: vi.fn(),
     getFollowUpDepartments: vi.fn(),
@@ -230,6 +232,14 @@ function getAttachmentsCard() {
   return screen.getByRole('region', { name: 'المرفقات' });
 }
 
+function getResponseCard() {
+  return screen.getByRole('region', { name: 'الإفادة' });
+}
+
+function getCurrentStatusCard() {
+  return screen.getByTestId('current-action-status-tile');
+}
+
 async function waitForDetailsReady() {
   await waitFor(() => {
     expect(screen.getByRole('region', { name: 'معلومات المعاملة' })).toBeInTheDocument();
@@ -250,6 +260,7 @@ function renderDetail(path = '/transactions/1') {
 function setupDefaultMocks() {
   mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({ data: defaultWorkspace });
   mockApi(services.transactionsApi.getBasic).mockResolvedValue({ data: baseTx });
+  mockApi(services.transactionsApi.getAdjacent).mockResolvedValue({ data: { previousId: null, nextId: null } });
   mockApi(services.transactionsApi.getAssignments).mockResolvedValue({ data: [sampleAssignment] });
   mockApi(services.transactionsApi.getFollowUps).mockResolvedValue({ data: [sampleFollowUp] });
   mockApi(services.transactionsApi.getAttachments).mockResolvedValue({ data: [sampleAttachment] });
@@ -377,12 +388,12 @@ describe('TransactionDetailPage three-tab layout', () => {
     });
 
     expect(screen.getByText('TRK-1')).toBeInTheDocument();
-    expect(screen.getByText('مراجعة')).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'تاريخ إنجاز الإدارة' })).toBeInTheDocument();
     const assignmentsCard = getAssignmentsCard();
     expect(within(assignmentsCard).getByText('عمر المعاملة: 1 يوم')).toBeInTheDocument();
     expect(within(assignmentsCard).getAllByText(/عمر المعاملة:/)).toHaveLength(1);
     expect(within(assignmentsCard).getByText('عمر المعاملة: 1 يوم').closest('.transaction-metric-tile')).toBeNull();
+    expect(within(assignmentsCard).queryByText('مراجعة')).not.toBeInTheDocument();
     expect(screen.getByText('F-1')).toBeInTheDocument();
     expect(screen.getByText('file.pdf')).toBeInTheDocument();
   });
@@ -515,7 +526,6 @@ describe('TransactionDetailPage three-tab layout', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('status')).toHaveTextContent('تم إضافة الاحالة بنجاح');
-      expect(screen.getByText('مراجعة')).toBeInTheDocument();
       expect(within(card).queryByTestId('assignment-form-panel')).not.toBeInTheDocument();
     });
     expect(services.transactionsApi.addAssignment).toHaveBeenCalledTimes(1);
@@ -921,10 +931,10 @@ describe('TransactionDetailPage department user permissions', () => {
     renderDetail();
     await waitForDetailsReady();
 
-    expect(within(getActionBar()).getByRole('button', { name: 'إضافة احالة' })).toBeInTheDocument();
-    expect(within(getActionBar()).getByRole('button', { name: 'إضافة تعقيب' })).toBeInTheDocument();
+    expect(within(getAssignmentsCard()).getByRole('button', { name: '+ إضافة احالة' })).toBeInTheDocument();
+    expect(within(getFollowUpsCard()).getByRole('button', { name: '+ إضافة تعقيب' })).toBeInTheDocument();
     expect(within(getActionBar()).getByRole('link', { name: 'تعديل' })).toBeInTheDocument();
-    expect(within(getActionBar()).getByRole('button', { name: 'خطاب تعقيب PDF' })).toBeInTheDocument();
+    expect(within(getFollowUpsCard()).getByRole('button', { name: 'خطاب تعقيب PDF' })).toBeInTheDocument();
   });
 });
 
@@ -1445,6 +1455,334 @@ describe('TransactionDetailPage card interaction flows', () => {
   });
 });
 
+describe('TransactionDetailPage current status and response workflow', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseAuth.mockReturnValue({
+      canEdit: true,
+      canClose: true,
+      isDepartmentUser: false,
+      user: { fullName: 'مختبر', role: 'Admin' },
+      logout: vi.fn(),
+      login: vi.fn(),
+      isAdmin: true,
+    });
+    setupDefaultMocks();
+    mockApi(services.transactionsApi.getAssignments).mockResolvedValue({ data: [] });
+    mockApi(services.transactionsApi.getFollowUps).mockResolvedValue({ data: [] });
+    mockApi(services.transactionsApi.getAttachments).mockResolvedValue({ data: [] });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    cleanup();
+  });
+
+  it('does not render the removed workspace title or transaction-context bar', async () => {
+    renderDetail();
+    await waitForDetailsReady();
+
+    expect(screen.queryByText('مساحة عمل المعاملة')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('transaction-context')).not.toBeInTheDocument();
+    expect(document.querySelector('.transaction-context-bar')).not.toBeInTheDocument();
+  });
+
+  it('shows the pending departments in the current action/status area', async () => {
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: {
+        ...defaultWorkspace,
+        transaction: {
+          ...baseTx,
+          requiresResponse: true,
+          responseType: 'Internal',
+          pendingDepartmentNames: ['إدارة أولى', 'إدارة ثانية'],
+        },
+      },
+    });
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    const statusCard = getCurrentStatusCard();
+    expect(within(statusCard).getByText('بانتظار رد إدارات')).toBeInTheDocument();
+    expect(within(statusCard).getByText(/إدارة أولى، إدارة ثانية/)).toBeInTheDocument();
+  });
+
+  it('shows an empty state in the الإفادة card when no response has been registered', async () => {
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: {
+        ...defaultWorkspace,
+        transaction: {
+          ...baseTx,
+          requiresResponse: true,
+          responseType: 'Internal',
+        },
+      },
+    });
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    const responseCard = getResponseCard();
+    expect(within(responseCard).getByText('لم يتم تسجيل إفادة لهذه المعاملة بعد.')).toBeInTheDocument();
+  });
+
+  it('shows the completed response details in the الإفادة card', async () => {
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: {
+        ...defaultWorkspace,
+        transaction: {
+          ...baseTx,
+          requiresResponse: true,
+          responseType: 'External',
+          responseCompleted: true,
+          responseCompletedDate: '2026-01-10',
+          responseSummary: 'تم الرد على المعاملة',
+          outgoingNumber: 'OUT-1',
+          outgoingDate: '2026-01-10',
+        },
+      },
+    });
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    const responseCard = getResponseCard();
+    expect(within(responseCard).getByText('تمت الإفادة')).toBeInTheDocument();
+    expect(within(responseCard).getByText('تم الرد على المعاملة')).toBeInTheDocument();
+    expect(within(responseCard).getByText('OUT-1')).toBeInTheDocument();
+  });
+
+  it('lets an authorized admin open the completed response for editing by clicking تمت الإفادة, prefilled with the existing values, and updates the same record without creating a duplicate', async () => {
+    const user = userEvent.setup();
+    const completedTx = {
+      ...baseTx,
+      requiresResponse: true,
+      responseType: 'External',
+      responseCompleted: true,
+      responseCompletedDate: '2026-01-10',
+      responseSummary: 'ملخص أصلي',
+      outgoingNumber: 'OUT-1',
+      outgoingDate: '2026-01-10',
+    };
+    const updatedTx = { ...completedTx, responseSummary: 'ملخص محدث' };
+    mockApi(services.transactionsApi.getWorkspace)
+      .mockResolvedValueOnce({ data: { ...defaultWorkspace, transaction: completedTx } })
+      .mockResolvedValue({ data: { ...defaultWorkspace, transaction: updatedTx } });
+    mockApi(services.transactionsApi.getBasic).mockResolvedValue({ data: completedTx });
+    mockApi(services.transactionsApi.editResponse).mockResolvedValue({
+      data: updatedTx,
+    });
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    const responseCard = getResponseCard();
+    const editButton = within(responseCard).getByRole('button', { name: 'تعديل الإفادة المسجلة' });
+    expect(editButton).toHaveTextContent('تمت الإفادة');
+
+    await user.click(editButton);
+
+    const panel = within(responseCard).getByTestId('admin-edit-transaction-response-form-panel');
+    const summaryField = await within(panel).findByLabelText('ملخص الإفادة *');
+    expect(summaryField).toHaveValue('ملخص أصلي');
+    expect(within(panel).getByLabelText('رقم الصادر *')).toHaveValue('OUT-1');
+
+    await user.clear(summaryField);
+    await user.type(summaryField, 'ملخص محدث');
+    await user.click(within(panel).getByRole('button', { name: 'حفظ التعديلات' }));
+
+    await waitFor(() => {
+      expect(services.transactionsApi.editResponse).toHaveBeenCalledTimes(1);
+    });
+    expect(services.transactionsApi.completeResponse).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(within(getResponseCard()).getByText('ملخص محدث')).toBeInTheDocument();
+    });
+    expect(screen.getAllByRole('region', { name: 'الإفادة' })).toHaveLength(1);
+  });
+
+  it('renders the completed response status as plain text for users without edit permission', async () => {
+    mockUseAuth.mockReturnValue({
+      canEdit: false,
+      canClose: false,
+      isDepartmentUser: false,
+      user: { fullName: 'قارئ', role: 'Reader' },
+      logout: vi.fn(),
+      login: vi.fn(),
+      isAdmin: false,
+    });
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: {
+        ...defaultWorkspace,
+        transaction: {
+          ...baseTx,
+          requiresResponse: true,
+          responseType: 'Internal',
+          responseCompleted: true,
+          responseCompletedDate: '2026-01-10',
+          responseSummary: 'ملخص',
+        },
+      },
+    });
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    const responseCard = getResponseCard();
+    expect(within(responseCard).getByText('تمت الإفادة')).toBeInTheDocument();
+    expect(within(responseCard).queryByRole('button', { name: 'تعديل الإفادة المسجلة' })).not.toBeInTheDocument();
+  });
+
+  it.each(['Closed', 'Cancelled', 'Archived'])(
+    'hides the تمت الإفادة edit affordance for %s transactions',
+    async (status) => {
+      mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+        data: {
+          ...defaultWorkspace,
+          transaction: {
+            ...baseTx,
+            status,
+            requiresResponse: true,
+            responseType: 'Internal',
+            responseCompleted: true,
+            responseCompletedDate: '2026-01-10',
+            responseSummary: 'ملخص',
+          },
+        },
+      });
+
+      renderDetail();
+      await waitForDetailsReady();
+
+      const responseCard = getResponseCard();
+      expect(within(responseCard).getByText('تمت الإفادة')).toBeInTheDocument();
+      expect(within(responseCard).queryByRole('button', { name: 'تعديل الإفادة المسجلة' })).not.toBeInTheDocument();
+    },
+  );
+
+  it('renders pending department names safely when the field is null or undefined', async () => {
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: {
+        ...defaultWorkspace,
+        transaction: {
+          ...baseTx,
+          requiresResponse: true,
+          responseType: 'Internal',
+          pendingDepartmentNames: null,
+        },
+      },
+    });
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    const statusCard = getCurrentStatusCard();
+    expect(within(statusCard).queryByText(/الإدارات المتبقية/)).not.toBeInTheDocument();
+    expect(within(statusCard).getByText('جاهزة لتسجيل الإفادة')).toBeInTheDocument();
+  });
+});
+
+describe('TransactionDetailPage indicators, action grouping, card order, and navigation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseAuth.mockReturnValue({
+      canEdit: true,
+      canClose: true,
+      isDepartmentUser: false,
+      user: { fullName: 'مختبر', role: 'Admin' },
+      logout: vi.fn(),
+      login: vi.fn(),
+      isAdmin: true,
+    });
+    setupDefaultMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    cleanup();
+  });
+
+  it('renders compact indicator boxes without long inline descriptions, with the explanation available via an accessible tooltip', async () => {
+    renderDetail();
+    await waitForDetailsReady();
+
+    expect(document.querySelector('.metric-hint')).not.toBeInTheDocument();
+
+    const incomingDateLabel = screen.getByText('تاريخ الوارد');
+    const tile = incomingDateLabel.closest('.transaction-metric-tile');
+    expect(tile).not.toBeNull();
+    const tooltip = within(tile as HTMLElement).getByRole('tooltip', { hidden: true });
+    expect(tooltip).toHaveTextContent('بداية عمر المعاملة وأيام الإنجاز');
+    expect(tooltip).toHaveAttribute('id');
+    const trigger = within(tile as HTMLElement).getByRole('button', { name: 'شرح مؤشر تاريخ الوارد' });
+    expect(trigger).toHaveAttribute('aria-describedby', tooltip.getAttribute('id'));
+  });
+
+  it('includes حالة الإجراء الحالية as one of the transaction indicator tiles', async () => {
+    renderDetail();
+    await waitForDetailsReady();
+
+    const statusTile = getCurrentStatusCard();
+    expect(statusTile.closest('.transaction-metric-grid')).not.toBeNull();
+    expect(within(statusTile).getByText('حالة الإجراء الحالية')).toBeInTheDocument();
+    expect(within(statusTile).getByText('لا تتطلب إفادة')).toBeInTheDocument();
+  });
+
+  it('groups the recurring and admin-date-correction actions beside تعديل in the action bar', async () => {
+    renderDetail();
+    await waitForDetailsReady();
+
+    const bar = getActionBar();
+    expect(within(bar).getByRole('link', { name: 'تعديل' })).toBeInTheDocument();
+    expect(within(bar).getByRole('button', { name: 'تفعيل متابعة دورية لهذه المعاملة' })).toBeInTheDocument();
+    expect(within(bar).getByRole('button', { name: 'تصحيح التواريخ إداريًا' })).toBeInTheDocument();
+  });
+
+  it('orders التعقيبات والردود before الإفادة in the section grid', async () => {
+    renderDetail();
+    await waitForDetailsReady();
+
+    const sections = Array.from(document.querySelectorAll('.transaction-sections-grid > section'))
+      .map((section) => section.getAttribute('aria-label'));
+    const followUpsIndex = sections.indexOf('التعقيبات والردود');
+    const responseIndex = sections.indexOf('الإفادة');
+    expect(followUpsIndex).toBeGreaterThan(-1);
+    expect(responseIndex).toBeGreaterThan(-1);
+    expect(followUpsIndex).toBeLessThan(responseIndex);
+  });
+
+  it('disables previous/next transaction navigation when no adjacent transaction exists', async () => {
+    mockApi(services.transactionsApi.getAdjacent).mockResolvedValue({ data: { previousId: null, nextId: null } });
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /المعاملة السابقة/ })).toBeDisabled();
+    });
+    expect(screen.getByRole('button', { name: /المعاملة التالية/ })).toBeDisabled();
+  });
+
+  it('navigates to the next transaction when an adjacent id is available', async () => {
+    const user = userEvent.setup();
+    mockApi(services.transactionsApi.getAdjacent).mockResolvedValue({ data: { previousId: 5, nextId: 9 } });
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    const nextButton = await screen.findByRole('button', { name: /المعاملة التالية/ });
+    await waitFor(() => expect(nextButton).not.toBeDisabled());
+
+    const callsBefore = mockApi(services.transactionsApi.getWorkspace).mock.calls.length;
+    await user.click(nextButton);
+
+    await waitFor(() => {
+      expect(mockApi(services.transactionsApi.getWorkspace).mock.calls.length).toBeGreaterThan(callsBefore);
+    });
+  });
+});
+
 describe('TransactionDetailPage operational workspace', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1473,7 +1811,7 @@ describe('TransactionDetailPage operational workspace', () => {
       expect(screen.getByRole('heading', { level: 2, name: 'IN-1' })).toBeInTheDocument();
     });
     expect(screen.getByRole('navigation', { name: 'إجراءات المعاملة' })).toBeInTheDocument();
-    expect(getActionBarButton('إضافة احالة')).toBeInTheDocument();
+    expect(within(getAssignmentsCard()).getByRole('button', { name: '+ إضافة احالة' })).toBeInTheDocument();
     expect(screen.getByText('محسوب تلقائيًا: اليوم − تاريخ الوارد')).toBeInTheDocument();
     const openDaysMetric = screen.getByText('الأيام المفتوحة').closest('.transaction-metric-tile');
     expect(openDaysMetric).not.toBeNull();
@@ -1513,10 +1851,10 @@ describe('TransactionDetailPage operational workspace', () => {
     renderDetail();
 
     await waitFor(() => {
-      expect(getActionBarButton('إضافة احالة')).toBeInTheDocument();
+      expect(within(getAssignmentsCard()).getByRole('button', { name: '+ إضافة احالة' })).toBeInTheDocument();
     });
 
-    await user.click(getActionBarButton('إضافة احالة'));
+    await user.click(within(getAssignmentsCard()).getByRole('button', { name: '+ إضافة احالة' }));
 
     expect(within(getAssignmentsCard()).getByTestId('assignment-form-panel')).toBeInTheDocument();
     expect(screen.getByLabelText('الإدارة *')).toBeInTheDocument();
@@ -1528,9 +1866,9 @@ describe('TransactionDetailPage operational workspace', () => {
     mockApi(services.transactionsApi.addAssignment).mockResolvedValue({ data: { id: 9 } });
 
     renderDetail();
-    await waitFor(() => expect(getActionBarButton('إضافة احالة')).toBeInTheDocument());
+    await waitFor(() => expect(within(getAssignmentsCard()).getByRole('button', { name: '+ إضافة احالة' })).toBeInTheDocument());
 
-    await user.click(getActionBarButton('إضافة احالة'));
+    await user.click(within(getAssignmentsCard()).getByRole('button', { name: '+ إضافة احالة' }));
     await user.selectOptions(screen.getByLabelText('الإدارة *'), '2');
     await user.type(screen.getByLabelText('تاريخ الإحالة *'), '16/01/1448');
     await user.type(screen.getByLabelText('الإجراء المطلوب'), 'مراجعة');

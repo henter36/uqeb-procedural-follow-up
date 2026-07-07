@@ -9,6 +9,7 @@ export type WorkspaceAction =
   | 'admin-edit-assignment'
   | 'admin-edit-dates'
   | 'admin-edit-response'
+  | 'admin-edit-transaction-response'
   | 'enable-recurring';
 
 export type WorkspaceActionContext = Readonly<{

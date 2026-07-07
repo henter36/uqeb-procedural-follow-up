@@ -12,3 +12,4 @@ export { default as FormField } from './FormField';
 export { default as ActivityTimeline } from './ActivityTimeline';
 export type { TimelineEvent } from './ActivityTimeline';
 export { TableSkeleton, CardSkeleton, StatsSkeleton, LoadingInline } from './LoadingSkeleton';
+export { default as Tooltip } from './Tooltip';

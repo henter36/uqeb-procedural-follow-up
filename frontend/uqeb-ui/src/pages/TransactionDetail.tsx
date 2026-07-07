@@ -5,7 +5,7 @@ import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { isAxiosError } from 'axios';
 import { departmentResponsesApi, recurringTemplatesApi, transactionsApi } from '../api/services';
 import type {
-  TransactionDetail, Assignment, FollowUp, Attachment, AuditLog, DepartmentTransactionResponseItemDto,
+  TransactionDetail, Assignment, FollowUp, Attachment, AuditLog, DepartmentTransactionResponseItemDto, TransactionAdjacent,
 } from '../api/types';
 import { useAuth } from '../context/useAuth';
 import { useReferenceData } from '../hooks/useReferenceData';
@@ -14,11 +14,12 @@ import {
   auditActionLabels, replyStatusLabels,
 } from '../utils/labels';
 import { getApiErrorMessage } from '../utils/apiHelpers';
+import { formatHijri } from '../utils/dateUtils';
 import DateDisplay from '../components/DateDisplay';
 import DepartmentBadges from '../components/DepartmentBadges';
 import { responseTimingBadgeClass, formatCompletionDays, formatDaysSince } from '../utils/responseTiming';
 import {
-  PageHeader, Alert, StatusBadge, PriorityBadge, ActivityTimeline, LoadingInline, ErrorState,
+  Alert, StatusBadge, PriorityBadge, ActivityTimeline, LoadingInline, ErrorState, Tooltip,
 } from '../components/ui';
 import type { TimelineEvent } from '../components/ui';
 import TransactionActionBar from '../components/transaction-workspace/TransactionActionBar';
@@ -34,27 +35,18 @@ import FollowUpLetterFormPanel from '../components/transaction-workspace/FollowU
 import AdminEditAssignmentFormPanel from '../components/transaction-workspace/AdminEditAssignmentFormPanel';
 import AdminEditDatesFormPanel from '../components/transaction-workspace/AdminEditDatesFormPanel';
 import AdminEditResponseFormPanel from '../components/transaction-workspace/AdminEditResponseFormPanel';
+import AdminEditTransactionResponseFormPanel from '../components/transaction-workspace/AdminEditTransactionResponseFormPanel';
 import EnableRecurringFormPanel from '../components/transaction-workspace/EnableRecurringFormPanel';
 import { departmentResponseStatusLabels } from '../components/transaction-workspace/departmentResponseStatusLabels';
 import type { WorkspaceAction, WorkspaceActionContext } from '../components/transaction-workspace/types';
 import { parseDetailTab, type DetailTab } from './transactionDetailTabs';
 
-const GLOBAL_ACTIONS = new Set<WorkspaceAction>(['complete-response', 'follow-up-letter']);
+const GLOBAL_ACTIONS = new Set<WorkspaceAction>(['complete-response']);
 
 function assignmentReplyBadgeClass(replyStatus: string, isOverdue: boolean): string {
   if (replyStatus === 'Replied') return 'badge-green';
   if (isOverdue) return 'badge-red';
   return 'badge-orange';
-}
-
-function responseStatusLabel(completed: boolean, completedDate?: string | null): ReactNode {
-  if (!completed) return 'لم تتم الإفادة';
-  return (
-    <>
-      تمت الإفادة
-      {completedDate && <> بتاريخ <DateDisplay date={completedDate} /></>}
-    </>
-  );
 }
 
 function isPreviewableAttachment(contentType?: string): boolean {
@@ -101,6 +93,93 @@ function getAssignmentReplyStatusLabel(replyStatus: string): string {
   return replyStatusLabels[replyStatus] || replyStatus;
 }
 
+type CurrentActionStatusProps = Readonly<{
+  tx: TransactionDetail;
+  isTerminal: boolean;
+  needsResponse: boolean;
+  hasPendingDepts: boolean;
+  pendingDepartmentNames: string[];
+}>;
+
+type CurrentActionStatusSummary = Readonly<{
+  value: string;
+  valueClassName?: string;
+  hint: string;
+}>;
+
+function getCurrentActionStatusSummary({
+  tx, isTerminal, needsResponse, hasPendingDepts, pendingDepartmentNames,
+}: CurrentActionStatusProps): CurrentActionStatusSummary {
+  if (isTerminal) {
+    return {
+      value: 'منتهية',
+      hint: 'المعاملة منتهية ولا يتطلب أي إجراء إضافي حاليًا.',
+    };
+  }
+
+  if (!needsResponse) {
+    return {
+      value: 'لا تتطلب إفادة',
+      hint: 'هذه المعاملة لا تتطلب تسجيل إفادة.',
+    };
+  }
+
+  if (tx.responseCompleted) {
+    return {
+      value: 'تمت الإفادة',
+      valueClassName: 'text-success',
+      hint: tx.responseCompletedDate
+        ? `تم تسجيل إفادة هذه المعاملة بتاريخ ${formatHijri(tx.responseCompletedDate)}.`
+        : 'تم تسجيل إفادة هذه المعاملة.',
+    };
+  }
+
+  if (hasPendingDepts) {
+    return {
+      value: 'بانتظار رد إدارات',
+      valueClassName: 'text-warning',
+      hint: `لا يمكن تسجيل الإفادة قبل اكتمال رد جميع الإدارات المعنية. الإدارات المتبقية: ${pendingDepartmentNames.join('، ')}`,
+    };
+  }
+
+  return {
+    value: 'جاهزة لتسجيل الإفادة',
+    hint: 'اكتملت ردود جميع الإدارات المطلوبة، ويمكن الآن تسجيل الإفادة.',
+  };
+}
+
+type MetricTileProps = Readonly<{
+  label: string;
+  value: ReactNode;
+  hint?: string;
+  tileClassName?: string;
+  valueClassName?: string;
+  testId?: string;
+}>;
+
+function MetricTile({
+  label, value, hint, tileClassName, valueClassName, testId,
+}: MetricTileProps) {
+  const tileClasses = ['transaction-metric-tile', tileClassName].filter(Boolean).join(' ');
+  const valueClasses = ['transaction-metric-value', valueClassName].filter(Boolean).join(' ');
+
+  return (
+    <div className={tileClasses} data-testid={testId}>
+      <span className="transaction-metric-label">
+        {label}
+        {hint && (
+          <Tooltip
+            content={hint}
+            className="metric-hint-tooltip"
+            triggerLabel={`شرح مؤشر ${label}`}
+          />
+        )}
+      </span>
+      <span className={valueClasses}>{value}</span>
+    </div>
+  );
+}
+
 function hasDepartmentResponseAssignment(items: Assignment[], departmentId?: number | null): boolean {
   if (!departmentId) return false;
   return items.some(
@@ -119,6 +198,7 @@ const ACTION_TITLES: Record<WorkspaceAction, string> = {
   'admin-edit-assignment': 'تعديل بيانات الاحالة',
   'admin-edit-dates': 'تصحيح التواريخ الحساسة (إداري)',
   'admin-edit-response': 'تعديل بيانات الإفادة',
+  'admin-edit-transaction-response': 'تعديل الإفادة',
   'enable-recurring': 'تفعيل متابعة دورية',
 };
 
@@ -171,6 +251,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [recurringSuggestion, setRecurringSuggestion] = useState<{ templateId: number; periodLabel: string } | null>(null);
+  const [adjacent, setAdjacent] = useState<TransactionAdjacent>({});
   const [workspaceLoading, setWorkspaceLoading] = useState(true);
   const [departmentResponseItem, setDepartmentResponseItem] = useState<DepartmentTransactionResponseItemDto | null>(null);
   const [departmentResponseItemError, setDepartmentResponseItemError] = useState('');
@@ -369,6 +450,18 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   }, [id, applyWorkspaceData, handleWorkspaceFailure]);
 
   useEffect(() => {
+    let active = true;
+    transactionsApi.getAdjacent(+id)
+      .then((res) => {
+        if (active) setAdjacent(res.data);
+      })
+      .catch(() => {
+        if (active) setAdjacent({});
+      });
+    return () => { active = false; };
+  }, [id]);
+
+  useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadDepartmentResponseItem().catch(() => undefined);
   }, [loadDepartmentResponseItem]);
@@ -526,6 +619,17 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     }
   };
 
+  const handleEditTransactionResponseSuccess = async (updated: TransactionDetail) => {
+    setTx(updated);
+    resetAndCloseAction();
+    setMessage('تم تحديث الإفادة بنجاح.');
+    try {
+      await loadWorkspace({ silent: true });
+    } catch {
+      setError('تم الحفظ لكن تعذر تحديث بعض الأقسام. حاول تحديث الصفحة.');
+    }
+  };
+
   const handleReplyFollowUpSuccess = async () => {
     await handleActionSuccess('تم تسجيل الرد بنجاح.', [() => loadWorkspace({ silent: true })]);
   };
@@ -636,7 +740,11 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
 
   const needsResponse = tx.requiresResponse || tx.responseType !== 'None';
   const isTerminal = tx.status === 'Closed' || tx.status === 'Cancelled' || tx.status === 'Archived';
-  const hasPendingDepts = tx.pendingDepartmentNames.length > 0;
+  const pendingDepartmentNames = tx.pendingDepartmentNames ?? [];
+  const hasPendingDepts = pendingDepartmentNames.length > 0;
+  const currentActionStatus = getCurrentActionStatusSummary({
+    tx, isTerminal, needsResponse, hasPendingDepts, pendingDepartmentNames,
+  });
   const departmentResponseStatus = departmentResponseItem?.departmentResponseStatus;
   const canDepartmentUserRegisterResponse = isDepartmentUser
     && hasDepartmentResponseAssignment(assignments, user?.departmentId)
@@ -651,6 +759,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     ? departmentResponseStatusLabels[departmentResponseStatus] ?? departmentResponseStatus
     : undefined;
   const canShowClose = canClose && !isTerminal && (!needsResponse || tx.responseCompleted);
+  const canEditTransactionResponse = canClose && tx.responseCompleted && !isTerminal;
   const showMutationActions = canEdit && !isDepartmentUser;
   const canReply = canEdit && !isDepartmentUser;
   const openAssignmentsCount = countOpenAssignments(assignments);
@@ -747,6 +856,8 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
               activeAction={activeAction}
               onAction={toggleAction}
               onCloseTransaction={handleCloseTransaction}
+              showEnableRecurring={canEdit && !tx?.recurringTemplateId}
+              showAdminEditDates={isAdmin}
             />
             {isDepartmentUser && departmentResponseItemError && (
               <div className="dept-response-item-error">
@@ -764,61 +875,45 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
         </div>
 
         <div className="transaction-metric-grid">
-          <div className="transaction-metric-tile">
-            <span className="transaction-metric-label">تاريخ الوارد</span>
-            <span className="transaction-metric-value"><DateDisplay date={tx.incomingDate} /></span>
-            <small className="text-muted metric-hint">بداية عمر المعاملة وأيام الإنجاز</small>
-          </div>
-          <div className="transaction-metric-tile">
-            <span className="transaction-metric-label">تاريخ استحقاق المعاملة</span>
-            <span className="transaction-metric-value">
-              {tx.responseDueDate ? <DateDisplay date={tx.responseDueDate} /> : '—'}
-            </span>
-            <small className="text-muted metric-hint">آخر تاريخ متوقع لإغلاق جميع الإحالات</small>
-          </div>
-          <div className="transaction-metric-tile">
-            <span className="transaction-metric-label">تاريخ إغلاق المعاملة</span>
-            <span className="transaction-metric-value">
-              {effectiveCompletionDate ? <DateDisplay date={effectiveCompletionDate} /> : '—'}
-            </span>
-            <small className="text-muted metric-hint">
-              {completionDateHint}
-            </small>
-          </div>
-          <div className="transaction-metric-tile">
-            <span className="transaction-metric-label">
-              {completionDaysLabel}
-            </span>
-            <span className="transaction-metric-value">
-              {completionDaysValue}
-            </span>
-            <small className="text-muted metric-hint">
-              {completionDaysHint}
-            </small>
-          </div>
-          <div className={`transaction-metric-tile${tx.isResponseOverdue ? ' metric-tile-overdue' : ''}`}>
-            <span className="transaction-metric-label">حالة التأخر</span>
-            <span className={`transaction-metric-value${tx.isResponseOverdue ? ' text-danger' : ' text-success'}`}>
-              {responseTimingLabel}
-            </span>
-            <small className="text-muted metric-hint">
-              {tx.responseDueDate
-                ? `${formatDaysRemaining(tx.daysRemainingForResponse)} حتى الاستحقاق`
-                : 'لم يُحدَّد تاريخ استحقاق'}
-            </small>
-          </div>
-          <div className="transaction-metric-tile">
-            <span className="transaction-metric-label">منذ آخر تعقيب</span>
-            <span className="transaction-metric-value">{formatDaysSince(tx.daysSinceLastFollowUp)}</span>
-          </div>
-          <div className="transaction-metric-tile">
-            <span className="transaction-metric-label">احالةات مفتوحة</span>
-            <span className="transaction-metric-value">{openAssignmentsCount}</span>
-          </div>
-          <div className="transaction-metric-tile">
-            <span className="transaction-metric-label">المرفقات</span>
-            <span className="transaction-metric-value">{attachments.length}</span>
-          </div>
+          <MetricTile
+            label="تاريخ الوارد"
+            value={<DateDisplay date={tx.incomingDate} />}
+            hint="بداية عمر المعاملة وأيام الإنجاز"
+          />
+          <MetricTile
+            label="تاريخ استحقاق المعاملة"
+            value={tx.responseDueDate ? <DateDisplay date={tx.responseDueDate} /> : '—'}
+            hint="آخر تاريخ متوقع لإغلاق جميع الإحالات"
+          />
+          <MetricTile
+            label="تاريخ إغلاق المعاملة"
+            value={effectiveCompletionDate ? <DateDisplay date={effectiveCompletionDate} /> : '—'}
+            hint={completionDateHint}
+          />
+          <MetricTile
+            label={completionDaysLabel}
+            value={completionDaysValue}
+            hint={completionDaysHint}
+          />
+          <MetricTile
+            label="حالة التأخر"
+            value={responseTimingLabel}
+            tileClassName={tx.isResponseOverdue ? 'metric-tile-overdue' : undefined}
+            valueClassName={tx.isResponseOverdue ? 'text-danger' : 'text-success'}
+            hint={tx.responseDueDate
+              ? `${formatDaysRemaining(tx.daysRemainingForResponse)} حتى الاستحقاق`
+              : 'لم يُحدَّد تاريخ استحقاق'}
+          />
+          <MetricTile label="منذ آخر تعقيب" value={formatDaysSince(tx.daysSinceLastFollowUp)} />
+          <MetricTile label="احالةات مفتوحة" value={openAssignmentsCount} />
+          <MetricTile label="المرفقات" value={attachments.length} />
+          <MetricTile
+            label="حالة الإجراء الحالية"
+            value={currentActionStatus.value}
+            valueClassName={currentActionStatus.valueClassName}
+            hint={currentActionStatus.hint}
+            testId="current-action-status-tile"
+          />
         </div>
 
         {tx.recurringTemplateId && (
@@ -843,19 +938,6 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
           </Alert>
         )}
 
-        {canEdit && !tx?.recurringTemplateId && (
-          <div className="admin-dates-edit-bar">
-            <button
-              type="button"
-              className={`btn btn-sm btn-outline${activeAction === 'enable-recurring' ? ' active' : ''}`}
-              aria-pressed={activeAction === 'enable-recurring'}
-              onClick={() => toggleAction('enable-recurring')}
-            >
-              تفعيل متابعة دورية لهذه المعاملة
-            </button>
-          </div>
-        )}
-
         {activeAction === 'enable-recurring' && (
           <CardActionPanel
             title={ACTION_TITLES['enable-recurring']}
@@ -870,19 +952,6 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
               onSuccess={handleEnableRecurringSuccess}
             />
           </CardActionPanel>
-        )}
-
-        {isAdmin && (
-          <div className="admin-dates-edit-bar">
-            <button
-              type="button"
-              className={`btn btn-sm btn-outline${activeAction === 'admin-edit-dates' ? ' active' : ''}`}
-              aria-pressed={activeAction === 'admin-edit-dates'}
-              onClick={() => toggleAction('admin-edit-dates')}
-            >
-              تصحيح التواريخ (إداري)
-            </button>
-          </div>
         )}
 
         {activeAction === 'admin-edit-dates' && (
@@ -907,14 +976,8 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
             <div><strong>رقم التتبع:</strong> {tx.internalTrackingNumber}</div>
             <div><strong>تاريخ الوارد:</strong> <DateDisplay date={tx.incomingDate} /></div>
             <div><strong>نوع الجهة:</strong> {tx.incomingSourceType === 'Internal' ? 'داخلية' : 'خارجية'}</div>
-            {tx.outgoingNumber && <div><strong>رقم الصادر:</strong> {tx.outgoingNumber}</div>}
-            {tx.outgoingDate && <div><strong>تاريخ الصادر:</strong> <DateDisplay date={tx.outgoingDate} /></div>}
             {needsResponse && (
-              <>
-                <div><strong>مطلوب إفادة:</strong> نعم ({responseTypeLabels[tx.responseType] || tx.responseType})</div>
-                <div><strong>حالة الإفادة:</strong> {responseStatusLabel(tx.responseCompleted, tx.responseCompletedDate)}</div>
-                {tx.responseSummary && <div className="full-width"><strong>ملخص الإفادة:</strong> {tx.responseSummary}</div>}
-              </>
+              <div><strong>نوع الإفادة:</strong> {responseTypeLabels[tx.responseType] || tx.responseType}</div>
             )}
             {tx.notes && <div className="full-width"><strong>ملاحظات:</strong> {tx.notes}</div>}
           </div>
@@ -949,16 +1012,6 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
               onDirtyChange={setActionDirty}
               onCancel={closeAction}
               onSuccess={handleCompleteResponseSuccess}
-            />
-          )}
-          {activeAction === 'follow-up-letter' && (
-            <FollowUpLetterFormPanel
-              transactionId={+id}
-              tx={tx}
-              assignments={assignments}
-              onDirtyChange={setActionDirty}
-              onCancel={closeAction}
-              onDownloaded={() => setMessage('تم تحميل خطاب التعقيب بنجاح.')}
             />
           )}
         </TransactionActionPanel>
@@ -1100,21 +1153,18 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                     return (
                       <tr key={a.id} className={a.isOverdue ? 'row-overdue' : ''}>
                         <td>
-                          <div>
-                            {canOpenAdminAssignmentEdit ? (
-                              <button
-                                type="button"
-                                className="link-button assignment-department-link"
-                                aria-label={`تعديل إحالة إدارة ${a.departmentName}`}
-                                onClick={() => openAction('admin-edit-assignment', { adminEditAssignmentId: a.id })}
-                              >
-                                {a.departmentName}
-                              </button>
-                            ) : (
-                              <span>{a.departmentName}</span>
-                            )}
-                          </div>
-                          {a.requiredAction && <div className="text-muted">{a.requiredAction}</div>}
+                          {canOpenAdminAssignmentEdit ? (
+                            <button
+                              type="button"
+                              className="link-button assignment-department-link"
+                              aria-label={`تعديل إحالة إدارة ${a.departmentName}`}
+                              onClick={() => openAction('admin-edit-assignment', { adminEditAssignmentId: a.id })}
+                            >
+                              {a.departmentName}
+                            </button>
+                          ) : (
+                            <span>{a.departmentName}</span>
+                          )}
                         </td>
                         <td>{a.letterNumber || tx.outgoingNumber || '—'}</td>
                         <td><DateDisplay date={a.assignedDate} /></td>
@@ -1180,16 +1230,43 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
               <span className="section-card-count">{followUps.length} تعقيب</span>
             </div>
             {showMutationActions && (
-              <button
-                type="button"
-                className={`btn btn-secondary btn-sm${activeAction === 'followup' ? ' active' : ''}`}
-                aria-pressed={activeAction === 'followup'}
-                onClick={() => toggleAction('followup')}
-              >
-                + إضافة تعقيب
-              </button>
+              <div className="btn-group">
+                <button
+                  type="button"
+                  className={`btn btn-secondary btn-sm${activeAction === 'followup' ? ' active' : ''}`}
+                  aria-pressed={activeAction === 'followup'}
+                  onClick={() => toggleAction('followup')}
+                >
+                  + إضافة تعقيب
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-outline btn-sm${activeAction === 'follow-up-letter' ? ' active' : ''}`}
+                  aria-pressed={activeAction === 'follow-up-letter'}
+                  onClick={() => toggleAction('follow-up-letter')}
+                >
+                  خطاب تعقيب PDF
+                </button>
+              </div>
             )}
           </div>
+
+          {activeAction === 'follow-up-letter' && (
+            <CardActionPanel
+              title={ACTION_TITLES['follow-up-letter']}
+              onClose={closeAction}
+              testId="follow-up-letter-form-panel"
+            >
+              <FollowUpLetterFormPanel
+                transactionId={+id}
+                tx={tx}
+                assignments={assignments}
+                onDirtyChange={setActionDirty}
+                onCancel={closeAction}
+                onDownloaded={() => setMessage('تم تحميل خطاب التعقيب بنجاح.')}
+              />
+            </CardActionPanel>
+          )}
 
           {activeAction === 'followup' && (
             <CardActionPanel
@@ -1276,9 +1353,78 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
             </div>
           )}
         </section>
-      </div>
 
-      <section className="card transaction-section-card transaction-section-card-full" aria-label="المرفقات">
+        <section className="card transaction-section-card" aria-label="الإفادة" data-testid="response-card">
+          <div className="section-card-header">
+            <div className="section-card-title">
+              <span className="section-card-icon" aria-hidden>📝</span>
+              <h3>الإفادة</h3>
+            </div>
+          </div>
+
+          {activeAction === 'admin-edit-transaction-response' && (
+            <CardActionPanel
+              title={ACTION_TITLES['admin-edit-transaction-response']}
+              onClose={closeAction}
+              testId="admin-edit-transaction-response-form-panel"
+            >
+              <AdminEditTransactionResponseFormPanel
+                transactionId={+id}
+                transaction={tx}
+                onDirtyChange={setActionDirty}
+                onCancel={closeAction}
+                onSuccess={handleEditTransactionResponseSuccess}
+              />
+            </CardActionPanel>
+          )}
+
+          {!needsResponse && (
+            <div className="section-empty-state">
+              <p>هذه المعاملة لا تتطلب إفادة.</p>
+            </div>
+          )}
+
+          {needsResponse && !tx.responseCompleted && (
+            <div className="section-empty-state">
+              <p>لم يتم تسجيل إفادة لهذه المعاملة بعد.</p>
+              {canRegisterResponse && !isDepartmentUser && (
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => toggleAction('complete-response')}>
+                  تسجيل الإفادة
+                </button>
+              )}
+            </div>
+          )}
+
+          {needsResponse && tx.responseCompleted && (
+            <div className="detail-grid">
+              <div>
+                <strong>الحالة: </strong>
+                {canEditTransactionResponse ? (
+                  <button
+                    type="button"
+                    className="badge badge-green assignment-response-status-link"
+                    aria-label="تعديل الإفادة المسجلة"
+                    onClick={() => openAction('admin-edit-transaction-response')}
+                  >
+                    تمت الإفادة
+                  </button>
+                ) : (
+                  <span className="badge badge-green">تمت الإفادة</span>
+                )}
+              </div>
+              {tx.responseCompletedDate && (
+                <div><strong>تاريخ الإفادة:</strong> <DateDisplay date={tx.responseCompletedDate} /></div>
+              )}
+              {tx.outgoingNumber && <div><strong>رقم الصادر:</strong> {tx.outgoingNumber}</div>}
+              {tx.outgoingDate && <div><strong>تاريخ الصادر:</strong> <DateDisplay date={tx.outgoingDate} /></div>}
+              {tx.responseSummary && (
+                <div className="full-width"><strong>ملخص الإفادة:</strong> {tx.responseSummary}</div>
+              )}
+            </div>
+          )}
+        </section>
+
+        <section className="card transaction-section-card" aria-label="المرفقات">
         <div className="section-card-header">
           <div className="section-card-title">
             <span className="section-card-icon" aria-hidden>📎</span>
@@ -1356,22 +1502,34 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
             ))}
           </div>
         )}
-      </section>
+        </section>
+      </div>
     </div>
   );
 
   return (
     <div className="transaction-workspace">
-      <PageHeader title="مساحة عمل المعاملة" titleDescribedBy="transaction-context" />
-
-      <div id="transaction-context" className="transaction-context-bar">
-        <span className="transaction-context-number">{tx.incomingNumber}</span>
-        <span aria-hidden="true">—</span>
-        <span className="transaction-context-subject">{tx.subject}</span>
-      </div>
-
       {message && <Alert variant="success">{message}</Alert>}
       {error && <Alert variant="error">{error}</Alert>}
+
+      <nav className="transaction-nav-bar" aria-label="التنقل بين المعاملات">
+        <button
+          type="button"
+          className="btn btn-sm btn-outline"
+          disabled={!adjacent.previousId}
+          onClick={() => adjacent.previousId && navigate(`/transactions/${adjacent.previousId}`)}
+        >
+          ← المعاملة السابقة
+        </button>
+        <button
+          type="button"
+          className="btn btn-sm btn-outline"
+          disabled={!adjacent.nextId}
+          onClick={() => adjacent.nextId && navigate(`/transactions/${adjacent.nextId}`)}
+        >
+          المعاملة التالية →
+        </button>
+      </nav>
 
       <div className="tabs" role="tablist" aria-label="تبويبات تفاصيل المعاملة">
         <button

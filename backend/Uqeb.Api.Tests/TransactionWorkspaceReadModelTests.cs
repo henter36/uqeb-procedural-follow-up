@@ -486,8 +486,10 @@ public class TransactionWorkspaceReadModelTests
         var assignment = Assert.Single(result!.Assignments);
         Assert.Equal("إدارة غير معروفة", assignment.DepartmentName);
         Assert.Equal("", assignment.CreatedByName);
-        Assert.Equal(new DateTime(2026, 1, 6, 0, 0, 0, DateTimeKind.Utc), assignment.ResponseDate);
-        Assert.Equal(5, assignment.DepartmentCompletionDays);
+        // The response is only submitted-for-review (not approved), so the assignment's own
+        // ReplyDate is still unset and completion fields must not be derived from SubmittedAt.
+        Assert.Null(assignment.ResponseDate);
+        Assert.Null(assignment.DepartmentCompletionDays);
         Assert.Contains("إدارة غير معروفة", result.Transaction.PendingDepartmentNames);
         Assert.NotNull(result.TemporalFacts);
     }
