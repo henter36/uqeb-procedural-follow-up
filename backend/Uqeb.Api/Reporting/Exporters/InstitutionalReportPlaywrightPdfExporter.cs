@@ -1,8 +1,6 @@
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Playwright;
 using Uqeb.Api.Reporting.DTOs;
-using Uqeb.Api.Reporting.Operations;
 
 namespace Uqeb.Api.Reporting.Exporters;
 
@@ -19,31 +17,10 @@ public sealed class InstitutionalReportPlaywrightPdfExporter : IInstitutionalRep
 {
     private const int MaxHtmlLength = 8 * 1024 * 1024;
     private readonly IReportingPlaywrightBrowserHost _browserHost;
-    private readonly bool _ownsBrowserHost;
 
-    public InstitutionalReportPlaywrightPdfExporter(
-        IReportingChromiumProbe chromiumProbe,
-        ILogger<InstitutionalReportPlaywrightPdfExporter> logger)
-        : this(
-            new ReportingPlaywrightBrowserHost(
-                chromiumProbe,
-                Microsoft.Extensions.Logging.Abstractions.NullLogger<ReportingPlaywrightBrowserHost>.Instance),
-            ownsBrowserHost: true)
-    {
-    }
-
-    [ActivatorUtilitiesConstructor]
     public InstitutionalReportPlaywrightPdfExporter(IReportingPlaywrightBrowserHost browserHost)
-        : this(browserHost, ownsBrowserHost: false)
-    {
-    }
-
-    private InstitutionalReportPlaywrightPdfExporter(
-        IReportingPlaywrightBrowserHost browserHost,
-        bool ownsBrowserHost)
     {
         _browserHost = browserHost;
-        _ownsBrowserHost = ownsBrowserHost;
     }
 
     public async Task<byte[]> ExportAsync(RenderedReportManifestDto manifest, string htmlDocument, CancellationToken ct = default)
@@ -85,7 +62,7 @@ public sealed class InstitutionalReportPlaywrightPdfExporter : IInstitutionalRep
 
     public async ValueTask DisposeAsync()
     {
-        if (_ownsBrowserHost && _browserHost is IAsyncDisposable disposable)
+        if (_browserHost is IAsyncDisposable disposable)
             await disposable.DisposeAsync();
     }
 }

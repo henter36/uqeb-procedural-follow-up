@@ -200,8 +200,9 @@ public class InstitutionalReportExportFormatTests
   {
       var unavailableProbe = new UnavailableChromiumProbe();
       var pdfExporter = new InstitutionalReportPlaywrightPdfExporter(
-          unavailableProbe,
-          NullLogger<InstitutionalReportPlaywrightPdfExporter>.Instance);
+          new ReportingPlaywrightBrowserHost(
+              unavailableProbe,
+              NullLogger<ReportingPlaywrightBrowserHost>.Instance));
       var service = InstitutionalReportServiceTestHelpers.CreateService(pdfExporter: pdfExporter);
 
       var ex = await Assert.ThrowsAsync<ReportingConfigurationException>(() => service.ExportAsync(new ReportExportRequestDto

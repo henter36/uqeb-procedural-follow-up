@@ -283,13 +283,15 @@ public class InstitutionalReportPlaywrightPdfExporterTests
 
     private static InstitutionalReportPlaywrightPdfExporter CreateExporter() =>
         new(
-            new ReadyChromiumProbe(),
-            NullLogger<InstitutionalReportPlaywrightPdfExporter>.Instance);
+            new ReportingPlaywrightBrowserHost(
+                new ReadyChromiumProbe(),
+                NullLogger<ReportingPlaywrightBrowserHost>.Instance));
 
     private static InstitutionalReportPdfPaginationMeasurer CreateMeasurer() =>
         new(
-            new ReadyChromiumProbe(),
-            NullLogger<InstitutionalReportPdfPaginationMeasurer>.Instance);
+            new ReportingPlaywrightBrowserHost(
+                new ReadyChromiumProbe(),
+                NullLogger<ReportingPlaywrightBrowserHost>.Instance));
 
     private static async Task<IReadOnlyList<IReadOnlyList<TransactionDetailRowDto>>> MeasureChunksAsync(
         InstitutionalReportRenderer renderer,
