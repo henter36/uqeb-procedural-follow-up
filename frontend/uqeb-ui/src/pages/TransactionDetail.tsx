@@ -34,7 +34,6 @@ import DepartmentResponseInlinePanel from '../components/transaction-workspace/D
 import FollowUpLetterFormPanel from '../components/transaction-workspace/FollowUpLetterFormPanel';
 import AdminEditAssignmentFormPanel from '../components/transaction-workspace/AdminEditAssignmentFormPanel';
 import AdminEditDatesFormPanel from '../components/transaction-workspace/AdminEditDatesFormPanel';
-import AdminEditResponseFormPanel from '../components/transaction-workspace/AdminEditResponseFormPanel';
 import AdminEditTransactionResponseFormPanel from '../components/transaction-workspace/AdminEditTransactionResponseFormPanel';
 import EnableRecurringFormPanel from '../components/transaction-workspace/EnableRecurringFormPanel';
 import { departmentResponseStatusLabels } from '../components/transaction-workspace/departmentResponseStatusLabels';
@@ -192,13 +191,13 @@ const ACTION_TITLES: Record<WorkspaceAction, string> = {
   followup: 'إضافة تعقيب',
   attachment: 'إضافة مرفق',
   'reply-assignment': 'تسجيل إفادة الإدارة',
+  'admin-edit-assignment-reply': 'تعديل إفادة الإحالة',
   'reply-followup': 'تسجيل رد على التعقيب',
   'admin-edit-followup-reply': 'تعديل الرد',
   'complete-response': 'تسجيل إفادة',
   'follow-up-letter': 'خطاب تعقيب PDF',
   'admin-edit-assignment': 'تعديل بيانات الاحالة',
   'admin-edit-dates': 'تصحيح التواريخ الحساسة (إداري)',
-  'admin-edit-response': 'تعديل إفادة الإدارة',
   'admin-edit-transaction-response': 'تعديل الإفادة',
   'enable-recurring': 'تفعيل متابعة دورية',
 };
@@ -611,13 +610,8 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     setMessage('تم تفعيل المتابعة الدورية لهذه المعاملة.');
   };
 
-  const handleAdminEditResponseSuccess = async () => {
-    resetAndCloseAction();
-    try {
-      await loadWorkspace({ silent: true });
-    } catch {
-      setError('تم الحفظ لكن تعذر تحديث بعض الأقسام. حاول تحديث الصفحة.');
-    }
+  const handleEditAssignmentReplySuccess = async () => {
+    await handleActionSuccess('تم تحديث الإفادة بنجاح.', [() => loadWorkspace({ silent: true })]);
   };
 
   const handleEditTransactionResponseSuccess = async (updated: TransactionDetail) => {
@@ -808,7 +802,6 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const replyAssignmentId = actionContext.replyAssignmentId;
   const replyFollowUpId = actionContext.replyFollowUpId;
   const adminEditAssignmentId = actionContext.adminEditAssignmentId;
-  const adminEditResponseId = actionContext.adminEditResponseId;
   const existingDepartmentIds = assignments.map((a) => a.departmentId);
   const isGlobalActionOpen = activeAction !== null && GLOBAL_ACTIONS.has(activeAction);
 
@@ -1103,17 +1096,29 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
             </CardActionPanel>
           )}
 
-          {activeAction === 'admin-edit-response' && adminEditResponseId && (
+          {activeAction === 'admin-edit-assignment-reply' && replyAssignmentId && (
             <CardActionPanel
-              title={ACTION_TITLES['admin-edit-response']}
+              title={ACTION_TITLES['admin-edit-assignment-reply']}
               onClose={closeAction}
-              testId="admin-edit-response-form-panel"
+              testId="admin-edit-assignment-reply-form-panel"
             >
-              <AdminEditResponseFormPanel
-                responseId={adminEditResponseId}
+              <ReplyFormPanel
+                title={ACTION_TITLES['admin-edit-assignment-reply']}
+                dateLabel="تاريخ إنجاز الإدارة"
+                dateRequiredMessage="تاريخ إنجاز الإدارة مطلوب."
+                summaryLabel="ملخص الإفادة *"
+                submitLabel="حفظ التعديلات"
+                initialValue={(() => {
+                  const editedAssignment = assignments.find((a) => a.id === replyAssignmentId);
+                  return {
+                    replyDate: (editedAssignment?.replyDate ?? editedAssignment?.responseDate ?? '').slice(0, 10),
+                    replySummary: editedAssignment?.replySummary ?? '',
+                  };
+                })()}
                 onDirtyChange={setActionDirty}
                 onCancel={closeAction}
-                onSuccess={handleAdminEditResponseSuccess}
+                onSubmit={(payload) => transactionsApi.editAssignmentReply(+id, replyAssignmentId, payload)}
+                onSuccess={handleEditAssignmentReplySuccess}
               />
             </CardActionPanel>
           )}
@@ -1156,10 +1161,10 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                   {assignments.map((a) => {
                     const replyStatusLabel = getAssignmentReplyStatusLabel(a.replyStatus);
                     const canOpenAdminAssignmentEdit = isAdmin && a.canAdminEdit === true;
-                    const canEditDepartmentResponse =
+                    const canEditAssignmentReply =
                       (isAdmin || user?.role === 'Supervisor') &&
-                      Boolean(a.departmentResponseId) &&
                       a.replyStatus === 'Replied' &&
+                      Boolean(a.replyDate || a.responseDate || a.replySummary) &&
                       !isTerminal;
 
                     return (
@@ -1186,13 +1191,13 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                           {renderDepartmentCompletionDays(a.departmentCompletionDays)}
                         </td>
                         <td>
-                          {canEditDepartmentResponse ? (
+                          {canEditAssignmentReply ? (
                             <button
                               type="button"
                               className="badge badge-green badge-button"
-                              aria-label="تمت الإفادة - تعديل إفادة الإدارة"
-                              title="تمت الإفادة - تعديل إفادة الإدارة"
-                              onClick={() => openAction('admin-edit-response', { adminEditResponseId: a.departmentResponseId! })}
+                              aria-label="تمت الإفادة - تعديل إفادة الإحالة"
+                              title="تمت الإفادة - تعديل إفادة الإحالة"
+                              onClick={() => openAction('admin-edit-assignment-reply', { replyAssignmentId: a.id })}
                             >
                               {replyStatusLabel}
                             </button>

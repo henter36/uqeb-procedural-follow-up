@@ -384,6 +384,29 @@ public class TransactionsController : ControllerBase
         }
     }
 
+    [HttpPatch("{id}/assignments/{assignmentId}/reply")]
+    [Authorize(Policy = Policies.SupervisorOrAdmin)]
+    public async Task<IActionResult> EditAssignmentReply(int id, int assignmentId, [FromBody] ReplyAssignmentRequest request)
+    {
+        try
+        {
+            var result = await _transactions.EditAssignmentReplyAsync(id, assignmentId, request, _currentUser);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
+        catch (FieldValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message, errors = ex.FieldErrors });
+        }
+    }
+
     [HttpPatch("{id}/assignments/{assignmentId}")]
     [Authorize(Policy = Policies.AdminOnly)]
     public async Task<IActionResult> AdminEditAssignment(int id, int assignmentId, [FromBody] AdminEditAssignmentRequest request)

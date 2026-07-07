@@ -172,6 +172,7 @@ vi.mock('../api/services', () => ({
     addFollowUp: vi.fn(),
     uploadAttachment: vi.fn(),
     replyAssignment: vi.fn(),
+    editAssignmentReply: vi.fn(),
     replyFollowUp: vi.fn(),
     editFollowUpReply: vi.fn(),
     completeResponse: vi.fn(),
@@ -418,7 +419,7 @@ describe('TransactionDetailPage three-tab layout', () => {
     await waitForDetailsReady();
 
     const card = getAssignmentsCard();
-    expect(within(card).getByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإدارة' })).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإحالة' })).toBeInTheDocument();
   });
 
   it('does not expose legacy sub-tabs', async () => {
@@ -1323,7 +1324,8 @@ describe('TransactionDetailPage card interaction flows', () => {
       ...sampleAssignment,
       replyStatus: 'Replied',
       responseDate: '2026-01-05',
-      departmentResponseId: 100,
+      replySummary: 'نص الإفادة',
+      departmentResponseId: null,
     };
     mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
       data: {
@@ -1339,15 +1341,15 @@ describe('TransactionDetailPage card interaction flows', () => {
     await waitForDetailsReady();
     const card = getAssignmentsCard();
 
-    const responseButton = await within(card).findByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإدارة' });
+    const responseButton = await within(card).findByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإحالة' });
     expect(responseButton).toHaveTextContent('تمت الإفادة');
     expect(within(card).queryByText('تعديل الرد')).not.toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: 'تعديل الرد' })).not.toBeInTheDocument();
 
     await user.click(responseButton);
 
-    expect(within(card).getByTestId('admin-edit-response-form-panel')).toBeInTheDocument();
-    expect(await screen.findByLabelText('ملخص الإفادة')).toHaveValue('نص الإفادة');
+    expect(within(card).getByTestId('admin-edit-assignment-reply-form-panel')).toBeInTheDocument();
+    expect(await screen.findByLabelText('ملخص الإفادة *')).toHaveValue('نص الإفادة');
   });
 
   it('renders the row-level edit button for a real-world replied المالية row with populated response fields', async () => {
@@ -1358,7 +1360,7 @@ describe('TransactionDetailPage card interaction flows', () => {
       replyDate: '2026-07-07T00:00:00',
       replySummary: 'طذطذ',
       responseDate: '2026-07-07T00:00:00',
-      departmentResponseId: 1001,
+      departmentResponseId: null,
       canAdminEdit: true,
     };
     mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
@@ -1371,7 +1373,126 @@ describe('TransactionDetailPage card interaction flows', () => {
     const card = getAssignmentsCard();
     const row = within(card).getByText('المالية').closest('tr')!;
 
-    expect(within(row).getByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإدارة' })).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإحالة' })).toBeInTheDocument();
+  });
+
+  it('edits the real-world المالية assignment reply by assignment.id when departmentResponseId is null', async () => {
+    const user = userEvent.setup();
+    const assignment = {
+      ...sampleAssignment,
+      id: 3,
+      departmentName: 'المالية',
+      replyStatus: 'Replied',
+      replyDate: '2026-07-07T00:00:00',
+      responseDate: '2026-07-07T00:00:00',
+      replySummary: 'طذطذ',
+      departmentResponseId: null,
+    };
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: { ...defaultWorkspace, assignments: [assignment] },
+    });
+    mockApi(services.transactionsApi.getAssignments).mockResolvedValue({ data: [assignment] });
+    mockApi(services.transactionsApi.editAssignmentReply).mockResolvedValue({
+      data: { ...assignment, replySummary: 'طذطذ محدث' },
+    });
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getAssignmentsCard();
+    const row = within(card).getByText('المالية').closest('tr')!;
+
+    const button = within(row).getByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإحالة' });
+    expect(button).toHaveTextContent('تمت الإفادة');
+
+    await user.click(button);
+
+    const panel = within(card).getByTestId('admin-edit-assignment-reply-form-panel');
+    expect(await within(panel).findByLabelText('ملخص الإفادة *')).toHaveValue('طذطذ');
+
+    const summaryField = within(panel).getByLabelText('ملخص الإفادة *');
+    await user.clear(summaryField);
+    await user.type(summaryField, 'طذطذ محدث');
+    await user.click(within(panel).getByRole('button', { name: 'حفظ التعديلات' }));
+
+    await waitFor(() => {
+      expect(services.transactionsApi.editAssignmentReply).toHaveBeenCalledWith(1, 3, expect.anything());
+    });
+    expect(services.departmentResponsesApi.adminEdit).not.toHaveBeenCalled();
+    expect(services.transactionsApi.editResponse).not.toHaveBeenCalled();
+  });
+
+  it('independently edits each replied assignment row across three departments by its own assignment.id', async () => {
+    const user = userEvent.setup();
+    const adminAffairs = {
+      ...sampleAssignment,
+      id: 11,
+      departmentName: 'الشؤون الإدارية',
+      replyStatus: 'Replied',
+      replySummary: 'إفادة الشؤون الإدارية',
+      responseDate: '2026-07-07T00:00:00',
+      departmentResponseId: null,
+    };
+    const finance = {
+      ...sampleAssignment,
+      id: 22,
+      departmentName: 'المالية',
+      replyStatus: 'Replied',
+      replySummary: 'إفادة المالية',
+      responseDate: '2026-07-07T00:00:00',
+      departmentResponseId: null,
+    };
+    const hr = {
+      ...sampleAssignment,
+      id: 33,
+      departmentName: 'الموارد البشرية',
+      replyStatus: 'Replied',
+      replySummary: 'إفادة الموارد البشرية',
+      responseDate: '2026-07-07T00:00:00',
+      departmentResponseId: null,
+    };
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: { ...defaultWorkspace, assignments: [adminAffairs, finance, hr] },
+    });
+    mockApi(services.transactionsApi.getAssignments).mockResolvedValue({
+      data: [adminAffairs, finance, hr],
+    });
+    mockApi(services.transactionsApi.editAssignmentReply).mockResolvedValue({ data: finance });
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getAssignmentsCard();
+
+    const buttons = within(card).getAllByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإحالة' });
+    expect(buttons).toHaveLength(3);
+
+    const editRowAndSave = async (departmentName: string, updatedSummary: string) => {
+      const row = within(card).getByText(departmentName).closest('tr')!;
+      await user.click(within(row).getByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإحالة' }));
+
+      const panel = within(card).getByTestId('admin-edit-assignment-reply-form-panel');
+      const summaryField = await within(panel).findByLabelText('ملخص الإفادة *');
+      expect(summaryField).toHaveValue(`إفادة ${departmentName}`);
+      await user.clear(summaryField);
+      await user.type(summaryField, updatedSummary);
+      await user.click(within(panel).getByRole('button', { name: 'حفظ التعديلات' }));
+    };
+
+    await editRowAndSave('المالية', 'إفادة المالية المحدثة');
+    await waitFor(() => {
+      expect(services.transactionsApi.editAssignmentReply).toHaveBeenLastCalledWith(1, 22, expect.anything());
+    });
+
+    await editRowAndSave('الشؤون الإدارية', 'إفادة الشؤون الإدارية المحدثة');
+    await waitFor(() => {
+      expect(services.transactionsApi.editAssignmentReply).toHaveBeenLastCalledWith(1, 11, expect.anything());
+    });
+
+    await editRowAndSave('الموارد البشرية', 'إفادة الموارد البشرية المحدثة');
+    await waitFor(() => {
+      expect(services.transactionsApi.editAssignmentReply).toHaveBeenLastCalledWith(1, 33, expect.anything());
+    });
+
+    expect(services.transactionsApi.editAssignmentReply).toHaveBeenCalledTimes(3);
   });
 
   it('lets Admin open and prefill the follow-up reply edit form from a real-world replied follow-up row', async () => {
@@ -1477,7 +1598,7 @@ describe('TransactionDetailPage card interaction flows', () => {
     await waitForDetailsReady();
     const card = getAssignmentsCard();
 
-    await within(card).findByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإدارة' });
+    await within(card).findByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإحالة' });
     expect(within(card).queryByRole('button', { name: 'تعديل الإفادة' })).not.toBeInTheDocument();
     expect(within(card).queryByText('تعديل الإفادة')).not.toBeInTheDocument();
   });
@@ -1497,7 +1618,8 @@ describe('TransactionDetailPage card interaction flows', () => {
       ...sampleAssignment,
       replyStatus: 'Replied',
       responseDate: '2026-01-05',
-      departmentResponseId: 100,
+      replySummary: 'نص الإفادة',
+      departmentResponseId: null,
     };
     mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
       data: {
@@ -1513,11 +1635,11 @@ describe('TransactionDetailPage card interaction flows', () => {
     await waitForDetailsReady();
     const card = getAssignmentsCard();
 
-    const responseButton = await within(card).findByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإدارة' });
+    const responseButton = await within(card).findByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإحالة' });
     await user.click(responseButton);
 
-    expect(within(card).getByTestId('admin-edit-response-form-panel')).toBeInTheDocument();
-    expect(await screen.findByLabelText('ملخص الإفادة')).toHaveValue('نص الإفادة');
+    expect(within(card).getByTestId('admin-edit-assignment-reply-form-panel')).toBeInTheDocument();
+    expect(await screen.findByLabelText('ملخص الإفادة *')).toHaveValue('نص الإفادة');
   });
 
   it('opens the row-level department response edit form from الإحالات والردود even when tx.responseCompleted is false', async () => {
@@ -1526,7 +1648,8 @@ describe('TransactionDetailPage card interaction flows', () => {
       ...sampleAssignment,
       replyStatus: 'Replied',
       responseDate: '2026-01-05',
-      departmentResponseId: 100,
+      replySummary: 'نص الإفادة',
+      departmentResponseId: null,
     };
     expect(baseTx.responseCompleted).toBe(false);
     mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
@@ -1545,13 +1668,13 @@ describe('TransactionDetailPage card interaction flows', () => {
 
     const referralsTable = screen.getByRole('region', { name: /الإحالات والردود/ });
     const completedResponseButton = within(referralsTable).getByRole('button', {
-      name: 'تمت الإفادة - تعديل إفادة الإدارة',
+      name: 'تمت الإفادة - تعديل إفادة الإحالة',
     });
 
     await user.click(completedResponseButton);
 
-    expect(within(referralsTable).getByRole('region', { name: 'تعديل إفادة الإدارة' })).toBeInTheDocument();
-    expect(await screen.findByLabelText('ملخص الإفادة')).toHaveValue('نص الإفادة');
+    expect(within(referralsTable).getByRole('region', { name: 'تعديل إفادة الإحالة' })).toBeInTheDocument();
+    expect(await screen.findByLabelText('ملخص الإفادة *')).toHaveValue('نص الإفادة');
   });
 
   it('scopes each row-level edit to its own department without affecting other rows', async () => {
@@ -1585,69 +1708,40 @@ describe('TransactionDetailPage card interaction flows', () => {
     mockApi(services.transactionsApi.getAssignments).mockResolvedValue({
       data: [legalAssignment, adminAssignment],
     });
-    mockApi(services.departmentResponsesApi.getById)
-      .mockResolvedValueOnce({
-        data: {
-          id: 200,
-          transactionId: 1,
-          transactionSubject: 'موضوع',
-          internalTrackingNumber: 'TRK-1',
-          departmentId: 1,
-          departmentName: 'الشؤون القانونية',
-          responseText: 'إفادة الشؤون القانونية',
-          status: 'Approved',
-          submittedByName: 'موظف إدارة',
-          createdAt: '2026-01-01',
-          attachments: [],
-        },
-      })
-      .mockResolvedValueOnce({
-        data: {
-          id: 201,
-          transactionId: 1,
-          transactionSubject: 'موضوع',
-          internalTrackingNumber: 'TRK-1',
-          departmentId: 2,
-          departmentName: 'الشؤون الإدارية',
-          responseText: 'إفادة الشؤون الإدارية',
-          status: 'Approved',
-          submittedByName: 'موظف إدارة',
-          createdAt: '2026-01-01',
-          attachments: [],
-        },
-      });
 
     renderDetail();
     await waitForDetailsReady();
     const card = getAssignmentsCard();
 
     const legalRow = within(card).getByText('الشؤون القانونية').closest('tr')!;
-    const legalButton = within(legalRow).getByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإدارة' });
+    const legalButton = within(legalRow).getByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإحالة' });
     await user.click(legalButton);
 
-    expect(await screen.findByLabelText('ملخص الإفادة')).toHaveValue('إفادة الشؤون القانونية');
+    expect(await screen.findByLabelText('ملخص الإفادة *')).toHaveValue('إفادة الشؤون القانونية');
 
     await user.click(within(card).getByRole('button', { name: 'إغلاق النموذج' }));
 
     const adminRow = within(card).getByText('الشؤون الإدارية').closest('tr')!;
-    const adminButton = within(adminRow).getByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإدارة' });
+    const adminButton = within(adminRow).getByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإحالة' });
     await user.click(adminButton);
 
-    expect(await screen.findByLabelText('ملخص الإفادة')).toHaveValue('إفادة الشؤون الإدارية');
+    expect(await screen.findByLabelText('ملخص الإفادة *')).toHaveValue('إفادة الشؤون الإدارية');
   });
 
   it('shows the updated department response summary in the same row after a successful admin edit', async () => {
     const user = userEvent.setup();
     const repliedAssignment = {
       ...sampleAssignment,
+      id: 3,
       replyStatus: 'Replied',
       responseDate: '2026-01-05',
       replySummary: 'نص الإفادة',
-      departmentResponseId: 100,
+      departmentResponseId: null,
     };
     const updatedAssignment = {
       ...repliedAssignment,
       responseDate: '2026-01-12',
+      replyDate: '2026-01-12',
       replySummary: 'نص محدث للإفادة',
     };
     mockApi(services.transactionsApi.getWorkspace)
@@ -1656,38 +1750,26 @@ describe('TransactionDetailPage card interaction flows', () => {
     mockApi(services.transactionsApi.getAssignments).mockResolvedValue({
       data: [repliedAssignment],
     });
-    mockApi(services.departmentResponsesApi.adminEdit).mockResolvedValue({
-      data: {
-        id: 100,
-        transactionId: 1,
-        transactionSubject: 'موضوع',
-        internalTrackingNumber: 'TRK-1',
-        departmentId: 1,
-        departmentName: 'إدارة اختبار',
-        responseText: 'نص محدث للإفادة',
-        status: 'Approved',
-        submittedByName: 'موظف إدارة',
-        submittedAt: '2026-01-12',
-        createdAt: '2026-01-01',
-        attachments: [],
-      },
+    mockApi(services.transactionsApi.editAssignmentReply).mockResolvedValue({
+      data: updatedAssignment,
     });
 
     renderDetail();
     await waitForDetailsReady();
 
-    const responseButton = await within(getAssignmentsCard()).findByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإدارة' });
+    const responseButton = await within(getAssignmentsCard()).findByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإحالة' });
     await user.click(responseButton);
 
-    const panel = within(getAssignmentsCard()).getByTestId('admin-edit-response-form-panel');
-    const summaryField = await within(panel).findByLabelText('ملخص الإفادة');
+    const panel = within(getAssignmentsCard()).getByTestId('admin-edit-assignment-reply-form-panel');
+    const summaryField = await within(panel).findByLabelText('ملخص الإفادة *');
     await user.type(summaryField, ' إضافة');
-    await user.type(within(panel).getByLabelText(/سبب التعديل/), 'تصحيح البيانات');
-    await user.click(within(panel).getByRole('button', { name: 'حفظ التصحيح' }));
+    await user.click(within(panel).getByRole('button', { name: 'حفظ التعديلات' }));
 
     await waitFor(() => {
-      expect(services.departmentResponsesApi.adminEdit).toHaveBeenCalledTimes(1);
+      expect(services.transactionsApi.editAssignmentReply).toHaveBeenCalledWith(1, 3, expect.anything());
     });
+    expect(services.departmentResponsesApi.adminEdit).not.toHaveBeenCalled();
+    expect(services.transactionsApi.editResponse).not.toHaveBeenCalled();
     await waitFor(() => {
       expect(within(getAssignmentsCard()).getByText('نص محدث للإفادة')).toBeInTheDocument();
     });
@@ -1718,16 +1800,17 @@ describe('TransactionDetailPage card interaction flows', () => {
       const card = getAssignmentsCard();
 
       expect(within(card).getByText('تمت الإفادة')).toBeInTheDocument();
-      expect(within(card).queryByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإدارة' })).not.toBeInTheDocument();
+      expect(within(card).queryByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإحالة' })).not.toBeInTheDocument();
     },
   );
 
-  it('does not make completed response status editable without departmentResponseId', async () => {
+  it('still makes completed response status editable without departmentResponseId as long as reply data exists', async () => {
     const repliedAssignment = {
       ...sampleAssignment,
       replyStatus: 'Replied',
       responseDate: '2026-01-05',
-      departmentResponseId: undefined,
+      replySummary: 'إفادة بدون معرف رد إدارة',
+      departmentResponseId: null,
     };
     mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
       data: {
@@ -1744,16 +1827,44 @@ describe('TransactionDetailPage card interaction flows', () => {
     const card = getAssignmentsCard();
 
     expect(within(card).getByText('تمت الإفادة')).toBeInTheDocument();
-    expect(within(card).queryByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإدارة' })).not.toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإحالة' })).toBeInTheDocument();
   });
 
-  it('shows an error when the workspace refresh after an admin response edit fails', async () => {
+  it('does not make status editable when a replied row has no saved reply data at all', async () => {
+    const emptyRepliedAssignment = {
+      ...sampleAssignment,
+      replyStatus: 'Replied',
+      responseDate: undefined,
+      replyDate: undefined,
+      replySummary: undefined,
+      departmentResponseId: null,
+    };
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: {
+        ...defaultWorkspace,
+        assignments: [emptyRepliedAssignment],
+      },
+    });
+    mockApi(services.transactionsApi.getAssignments).mockResolvedValue({
+      data: [emptyRepliedAssignment],
+    });
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getAssignmentsCard();
+
+    expect(within(card).getByText('تمت الإفادة')).toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإحالة' })).not.toBeInTheDocument();
+  });
+
+  it('shows an error when the workspace refresh after an assignment reply edit fails', async () => {
     const user = userEvent.setup();
     const repliedAssignment = {
       ...sampleAssignment,
       replyStatus: 'Replied',
       responseDate: '2026-01-05',
-      departmentResponseId: 100,
+      replySummary: 'نص الإفادة',
+      departmentResponseId: null,
     };
     mockApi(services.transactionsApi.getWorkspace)
       .mockResolvedValueOnce({
@@ -1763,23 +1874,25 @@ describe('TransactionDetailPage card interaction flows', () => {
     mockApi(services.transactionsApi.getAssignments).mockResolvedValue({
       data: [repliedAssignment],
     });
+    mockApi(services.transactionsApi.editAssignmentReply).mockResolvedValue({
+      data: { ...repliedAssignment, replySummary: 'نص الإفادة إضافة' },
+    });
 
     renderDetail();
     await waitForDetailsReady();
     const card = getAssignmentsCard();
 
-    const responseButton = await within(card).findByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإدارة' });
+    const responseButton = await within(card).findByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإحالة' });
     await user.click(responseButton);
 
-    expect(within(card).getByTestId('admin-edit-response-form-panel')).toBeInTheDocument();
-    const summaryField = await screen.findByLabelText('ملخص الإفادة');
+    expect(within(card).getByTestId('admin-edit-assignment-reply-form-panel')).toBeInTheDocument();
+    const summaryField = await screen.findByLabelText('ملخص الإفادة *');
     await user.type(summaryField, ' إضافة');
-    await user.type(screen.getByLabelText(/سبب التعديل/), 'تصحيح الإفادة');
 
-    await user.click(screen.getByRole('button', { name: 'حفظ التصحيح' }));
+    await user.click(screen.getByRole('button', { name: 'حفظ التعديلات' }));
 
     // loadWorkspace surfaces its own failure via the page-level error state; the
-    // fix under test ensures handleAdminEditResponseSuccess awaits that refresh
+    // fix under test ensures handleEditAssignmentReplySuccess awaits that refresh
     // instead of a fire-and-forget `.catch(() => undefined)` that discarded it.
     await waitFor(() => {
       expect(screen.getByText('تعذر تحميل بيانات المعاملة')).toBeInTheDocument();
@@ -1824,7 +1937,7 @@ describe('TransactionDetailPage card interaction flows', () => {
     expect(within(card).getByText('إدارة اختبار')).toBeInTheDocument();
     expect(within(card).getByText('تمت الإفادة')).toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: 'تعديل إحالة إدارة إدارة اختبار' })).not.toBeInTheDocument();
-    expect(within(card).queryByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإدارة' })).not.toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإحالة' })).not.toBeInTheDocument();
   });
 });
 

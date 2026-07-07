@@ -31,6 +31,7 @@ public interface ITransactionService
     Task<FollowUpDto?> EditFollowUpReplyAsync(int transactionId, int followUpId, ReplyFollowUpRequest request, ICurrentUserService currentUser);
     Task<AssignmentDto> AddAssignmentAsync(int transactionId, CreateAssignmentRequest request, int userId);
     Task<AssignmentDto?> ReplyAssignmentAsync(int transactionId, int assignmentId, ReplyAssignmentRequest request, ICurrentUserService currentUser);
+    Task<AssignmentDto?> EditAssignmentReplyAsync(int transactionId, int assignmentId, ReplyAssignmentRequest request, ICurrentUserService currentUser);
     Task<AssignmentDto?> AdminEditAssignmentAsync(int transactionId, int assignmentId, AdminEditAssignmentRequest request, int userId);
     Task<TransactionDetailDto?> AdminEditTransactionDatesAsync(int transactionId, AdminEditTransactionDatesRequest request, int userId);
     Task<PagedResult<AuditLogDto>> GetAuditLogAsync(int transactionId, int page, int pageSize, ICurrentUserService currentUser);
@@ -1623,6 +1624,79 @@ public class TransactionService : ITransactionService
             assignment.Department.Name,
             assignment.CreatedBy.FullName,
             departmentResponseId: departmentResponse?.Id ?? existingResponseId,
+            responseDate: assignment.ReplyDate,
+            canAdminEdit: currentUser.Role == UserRole.Admin);
+    }
+
+    public async Task<AssignmentDto?> EditAssignmentReplyAsync(int transactionId, int assignmentId, ReplyAssignmentRequest request, ICurrentUserService currentUser)
+    {
+        // Edits the assignment's own reply fields directly by assignmentId. A reply can be
+        // recorded either through ReplyAssignmentAsync or via an approved DepartmentResponse;
+        // in both cases the assignment's ReplyDate/ReplySummary are the source of truth, so
+        // this must not require (or create) a DepartmentResponse to work.
+        if (currentUser.Role != UserRole.Admin && currentUser.Role != UserRole.Supervisor)
+            throw new UnauthorizedAccessException("لا تملك صلاحية تعديل إفادة الإحالة");
+
+        var assignment = await _db.Assignments
+            .Include(a => a.Department)
+            .Include(a => a.CreatedBy)
+            .Include(a => a.Transaction)
+            .FirstOrDefaultAsync(a => a.Id == assignmentId && a.TransactionId == transactionId);
+        if (assignment == null) return null;
+
+        if (assignment.Transaction.Status is TransactionStatus.Closed or TransactionStatus.Cancelled or TransactionStatus.Archived)
+            throw new InvalidOperationException("لا يمكن تعديل إفادة الإحالة لمعاملة مغلقة أو ملغاة أو مؤرشفة.");
+
+        if (assignment.ReplyStatus != ReplyStatus.Replied)
+            throw new InvalidOperationException("لم يتم تسجيل إفادة لهذه الإحالة بعد، لا يمكن تعديلها.");
+
+        if (request.ReplyDate == default)
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                [nameof(ReplyAssignmentRequest.ReplyDate)] = "تاريخ إنجاز الإدارة مطلوب."
+            });
+        if (IsFutureEventDate(request.ReplyDate))
+            ThrowFutureEventDateValidation(nameof(ReplyAssignmentRequest.ReplyDate));
+        if (request.ReplyDate.Date < assignment.Transaction.IncomingDate.Date)
+            throw new InvalidOperationException("تاريخ إنجاز الإدارة لا يمكن أن يسبق تاريخ الوارد.");
+        if (request.ReplyDate.Date < assignment.AssignedDate.Date)
+            throw new InvalidOperationException("تاريخ إنجاز الإدارة لا يمكن أن يسبق تاريخ الإحالة.");
+        if (string.IsNullOrWhiteSpace(request.ReplySummary))
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                [nameof(ReplyAssignmentRequest.ReplySummary)] = "ملخص الإفادة مطلوب."
+            });
+
+        var oldValue = JsonSerializer.Serialize(new { assignment.ReplyDate, assignment.ReplySummary });
+
+        await CommitWorkflowMutationAsync(
+            () =>
+            {
+                assignment.ReplyDate = request.ReplyDate;
+                assignment.ReplySummary = request.ReplySummary;
+                return Task.CompletedTask;
+            },
+            () =>
+            {
+                _audit.TrackLog(currentUser.UserId, AuditAction.EditAssignmentReply, AssignmentEntityName, assignmentId, transactionId, oldValue,
+                    JsonSerializer.Serialize(new { ReplyDate = request.ReplyDate, request.ReplySummary }));
+                return Task.CompletedTask;
+            });
+
+        // Optional sync: if this assignment happens to have an approved DepartmentResponse,
+        // surface its id in the returned DTO — but it is never required for the edit itself.
+        var existingResponseId = await _db.DepartmentResponses
+            .Where(dr => dr.TransactionId == transactionId
+                && dr.DepartmentId == assignment.DepartmentId
+                && dr.Status == DepartmentResponseStatus.Approved)
+            .Select(dr => (int?)dr.Id)
+            .FirstOrDefaultAsync();
+
+        return MapAssignment(
+            assignment,
+            assignment.Department.Name,
+            assignment.CreatedBy.FullName,
+            departmentResponseId: existingResponseId,
             responseDate: assignment.ReplyDate,
             canAdminEdit: currentUser.Role == UserRole.Admin);
     }
