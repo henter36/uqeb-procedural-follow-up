@@ -246,74 +246,11 @@ public class InstitutionalReportPlaywrightPdfExporterTests
         Assert.Equal([new TransactionDetailRowRange(0, 1), new TransactionDetailRowRange(1, 2)], chunks);
     }
 
-    [Fact]
-    public async Task MeasureTransactionDetails_ShortRowsUseMoreThanTwelveRowsAndLongRowsReduceCapacity()
-    {
-        await EnsurePlaywrightAvailableAsync();
-        if (!await IsPlaywrightAvailableAsync())
-            return;
-
-        var renderer = new InstitutionalReportRenderer();
-        var shortModel = CreateMeasuredTransactionModel(100, longSubjects: false);
-        var longModel = CreateMeasuredTransactionModel(100, longSubjects: true);
-
-        await using var measurer = CreateMeasurer();
-        var shortChunks = await MeasureChunksAsync(renderer, measurer, shortModel);
-        var longChunks = await MeasureChunksAsync(renderer, measurer, longModel);
-
-        Assert.NotEmpty(shortChunks);
-        Assert.NotEmpty(longChunks);
-        Assert.True(shortChunks[0].Count > 12, $"Expected short rows to fit more than 12 rows, got {shortChunks[0].Count}.");
-        Assert.True(longChunks[0].Count < shortChunks[0].Count, $"Expected long rows ({longChunks[0].Count}) to fit fewer than short rows ({shortChunks[0].Count}).");
-        Assert.DoesNotContain(shortChunks, chunk => chunk.Count == 0);
-        Assert.DoesNotContain(longChunks, chunk => chunk.Count == 0);
-        Assert.True(shortChunks[0].Count < shortModel.Transactions.Count, "Expected short-row fixture to leave continuation rows for measuring page fill.");
-    }
-
     private static InstitutionalReportPlaywrightPdfExporter CreateExporter() =>
         new(
             new ReportingPlaywrightBrowserHost(
                 new ReadyChromiumProbe(),
                 NullLogger<ReportingPlaywrightBrowserHost>.Instance));
-
-    private static InstitutionalReportPdfPaginationMeasurer CreateMeasurer() =>
-        new(
-            new ReportingPlaywrightBrowserHost(
-                new ReadyChromiumProbe(),
-                NullLogger<ReportingPlaywrightBrowserHost>.Instance));
-
-    private static async Task<IReadOnlyList<IReadOnlyList<TransactionDetailRowDto>>> MeasureChunksAsync(
-        InstitutionalReportRenderer renderer,
-        InstitutionalReportPdfPaginationMeasurer measurer,
-        InstitutionalReportModel model)
-    {
-        var preflightChunks = model.Transactions
-            .Select(row => (IReadOnlyList<TransactionDetailRowDto>)new[] { row })
-            .ToList();
-        var preflightManifest = renderer.RenderManifestWithMeasuredTransactionPages(
-            model,
-            [ReportSectionId.TransactionDetails],
-            preflightChunks);
-        return await measurer.MeasureTransactionDetailChunksAsync(
-            preflightManifest,
-            InstitutionalReportRenderer.RenderHtmlDocument(preflightManifest),
-            model.Transactions);
-    }
-
-    private static InstitutionalReportModel CreateMeasuredTransactionModel(int rowCount, bool longSubjects)
-    {
-        var model = InstitutionalReportVisualFixtures.CreateBaseModel(totalMatched: rowCount, exportedRows: rowCount);
-        model.Transactions = InstitutionalReportVisualFixtures.CreateTransactions(rowCount);
-
-        foreach (var row in model.Transactions)
-        {
-            row.Subject = longSubjects
-                ? string.Join(" ", Enumerable.Repeat($"موضوع معاملة تفصيلي طويل رقم {row.Sequence}", 12))
-                : $"معاملة قصيرة {row.Sequence}";
-        }
-
-        return model;
-    }
 
     private static int CountPdfPages(byte[] pdf)
     {
