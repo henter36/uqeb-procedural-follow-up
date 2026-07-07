@@ -162,6 +162,24 @@ public class TransactionPersistenceAtomicityTests
     }
 
     [Fact]
+    public async Task CreateAsync_with_outgoing_date_different_from_incoming_date_dates_auto_referrals_with_outgoing_date()
+    {
+        var (service, db, _, _) = await CreateServiceAsync(
+            nameof(CreateAsync_with_outgoing_date_different_from_incoming_date_dates_auto_referrals_with_outgoing_date));
+
+        var request = BuildCreateRequest(10, 11);
+        request.IncomingDate = SaudiToday().AddDays(-5);
+        request.OutgoingDate = SaudiToday();
+
+        var created = await service.CreateAsync(request, userId: 1);
+
+        var assignments = await db.Assignments.Where(a => a.TransactionId == created.Id).ToListAsync();
+        Assert.Equal(2, assignments.Count);
+        Assert.All(assignments, a => Assert.Equal(request.OutgoingDate!.Value.Date, a.AssignedDate.Date));
+        Assert.All(assignments, a => Assert.NotEqual(request.IncomingDate.Date, a.AssignedDate.Date));
+    }
+
+    [Fact]
     public async Task UpdateAsync_with_outgoing_department_change_uses_single_save_changes()
     {
         var (service, db, counter, cache) = await CreateServiceAsync(nameof(UpdateAsync_with_outgoing_department_change_uses_single_save_changes));

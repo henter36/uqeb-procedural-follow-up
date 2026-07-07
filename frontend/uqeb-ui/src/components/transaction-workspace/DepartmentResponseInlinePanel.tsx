@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { departmentResponsesApi } from '../../api/services';
 import type { DepartmentResponseDto, DepartmentTransactionResponseItemDto } from '../../api/types';
-import { getApiErrorMessage } from '../../utils/apiHelpers';
+import { getApiErrorMessage, toIsoDate } from '../../utils/apiHelpers';
 import ScanAttachmentButton from '../../features/scanner/ScanAttachmentButton';
 import { Alert } from '../ui';
+import HijriDateInput from '../HijriDateInput';
 import { departmentResponseStatusLabels } from './departmentResponseStatusLabels';
 
 type DepartmentResponseInlinePanelProps = Readonly<{
@@ -34,6 +35,7 @@ export default function DepartmentResponseInlinePanel({
   const [item, setItem] = useState<DepartmentTransactionResponseItemDto | null | undefined>(initialItem);
   const [detail, setDetail] = useState<DepartmentResponseDto | null>(null);
   const [responseText, setResponseText] = useState('');
+  const [responseDate, setResponseDate] = useState('');
   const [loading, setLoading] = useState(Boolean(initialItem?.departmentResponseId));
   const [saving, setSaving] = useState(false);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
@@ -57,6 +59,7 @@ export default function DepartmentResponseInlinePanel({
         if (!active) return;
         updateDetail(null);
         setResponseText('');
+        setResponseDate('');
         setError('');
         setLoading(false);
       });
@@ -83,6 +86,7 @@ export default function DepartmentResponseInlinePanel({
 
         if (responseTextVersionRef.current === versionAtStart) {
           setResponseText(res.data.responseText);
+          setResponseDate(res.data.responseDate?.slice(0, 10) ?? '');
         }
       })
       .catch((err: unknown) => {
@@ -100,20 +104,26 @@ export default function DepartmentResponseInlinePanel({
   }, [loading]);
 
   useEffect(() => {
-    onDirtyChange(editable && responseText.trim() !== (detail?.responseText ?? '').trim());
-  }, [detail?.responseText, editable, onDirtyChange, responseText]);
+    const dirty = editable && (
+      responseText.trim() !== (detail?.responseText ?? '').trim()
+      || responseDate !== (detail?.responseDate?.slice(0, 10) ?? '')
+    );
+    onDirtyChange(dirty);
+  }, [detail?.responseText, detail?.responseDate, editable, onDirtyChange, responseText, responseDate]);
 
   async function saveDraft(): Promise<DepartmentResponseDto> {
     if (!responseText.trim()) {
       throw new Error('نص الإفادة مطلوب');
     }
 
+    const payload = { responseText, responseDate: toIsoDate(responseDate) ?? undefined };
+
     if (detail) {
-      const res = await departmentResponsesApi.update(detail.id, { responseText });
+      const res = await departmentResponsesApi.update(detail.id, payload);
       return res.data;
     }
 
-    const res = await departmentResponsesApi.create({ transactionId, responseText });
+    const res = await departmentResponsesApi.create({ transactionId, ...payload });
     return res.data;
   }
 
@@ -167,6 +177,11 @@ export default function DepartmentResponseInlinePanel({
   }
 
   async function handleSubmit() {
+    if (!responseDate) {
+      setError('تاريخ إنجاز الإدارة مطلوب قبل التقديم.');
+      return;
+    }
+
     setSaving(true);
     setError('');
     try {
@@ -286,6 +301,18 @@ export default function DepartmentResponseInlinePanel({
               }}
               placeholder="اكتب إفادة الإدارة هنا..."
             />
+          </div>
+
+          <div className="form-group">
+            <HijriDateInput
+              id="department-response-date"
+              label="تاريخ إنجاز الإدارة"
+              required
+              value={responseDate}
+              onChange={setResponseDate}
+              disallowFutureDate
+            />
+            <small className="text-muted">التاريخ الفعلي لإنجاز الإدارة لهذه الإفادة، وليس تاريخ إرسالها في النظام.</small>
           </div>
 
           <fieldset className="department-response-attachment-toolbar">

@@ -1776,7 +1776,9 @@ public class TransactionService : ITransactionService
             resolvedDates.IncomingDate,
             resolvedDates.ResponseDueDays,
             resolvedDates.ResponseDueDate,
-            resolvedDates.ClosedAt);
+            resolvedDates.ClosedAt,
+            t.RequiresResponse,
+            t.ResponseCompletedDate);
         await EnsureIncomingDateDoesNotFollowExistingTimelineAsync(
             transactionId,
             request.IsIncomingDateSpecified && request.IncomingDate.HasValue,
@@ -1899,9 +1901,20 @@ public class TransactionService : ITransactionService
                 : null;
         }
 
-        var closedAt = request.ClosedAt.HasValue
-            ? NormalizeDateOnlyUtc(request.ClosedAt.Value)
-            : transaction.ClosedAt;
+        // Must key off IsClosedAtSpecified (not ClosedAt.HasValue): an explicit
+        // { closedAt: null } to clear the close date is indistinguishable from "field
+        // omitted" if we only check HasValue, silently reverting the clear to the old value.
+        DateTime? closedAt;
+        if (request.IsClosedAtSpecified)
+        {
+            closedAt = request.ClosedAt.HasValue
+                ? NormalizeDateOnlyUtc(request.ClosedAt.Value)
+                : null;
+        }
+        else
+        {
+            closedAt = transaction.ClosedAt;
+        }
 
         return (incomingDate, responseDueDays, responseDueDate, closedAt);
     }
@@ -1910,7 +1923,9 @@ public class TransactionService : ITransactionService
         DateTime incomingDate,
         int? responseDueDays,
         DateTime? responseDueDate,
-        DateTime? closedAt)
+        DateTime? closedAt,
+        bool requiresResponse,
+        DateTime? responseCompletedDate)
     {
         if (IsFutureEventDate(incomingDate) || (closedAt.HasValue && IsFutureEventDate(closedAt.Value)))
             throw new InvalidOperationException(FutureEventDateMessage);
@@ -1918,6 +1933,9 @@ public class TransactionService : ITransactionService
             throw new InvalidOperationException("تاريخ استحقاق المعاملة لا يمكن أن يسبق تاريخ الوارد.");
         if (closedAt.HasValue && closedAt.Value.Date < incomingDate.Date)
             throw new InvalidOperationException("تاريخ إغلاق المعاملة لا يمكن أن يسبق تاريخ الوارد.");
+        if (requiresResponse && responseCompletedDate.HasValue && closedAt.HasValue
+            && closedAt.Value.Date < responseCompletedDate.Value.Date)
+            throw new InvalidOperationException("تاريخ إغلاق المعاملة لا يمكن أن يسبق تاريخ الإفادة.");
         if (responseDueDays.HasValue && responseDueDays.Value < 0)
             throw new InvalidOperationException("عدد أيام الرد لا يمكن أن يكون سالبًا.");
     }
@@ -2270,7 +2288,10 @@ public class TransactionService : ITransactionService
         if (addedDepartmentIds.Count == 0 && removedDepartmentIds.Count == 0)
             return;
 
-        var assignedDate = transaction.IncomingDate;
+        // The referral date should reflect when the transaction was actually routed out
+        // (OutgoingDate) rather than when it first arrived (IncomingDate), whenever an
+        // outgoing date has been recorded.
+        var assignedDate = transaction.OutgoingDate ?? transaction.IncomingDate;
         var dueDate = transaction.ResponseDueDate;
         var assignmentsChanged = false;
 
@@ -2312,6 +2333,7 @@ public class TransactionService : ITransactionService
                     existing.ReplyStatus = ReplyStatus.Pending;
                     existing.ReplyDate = null;
                     existing.ReplySummary = null;
+                    existing.AssignedDate = assignedDate;
                     existing.DueDate = dueDate;
                     existing.ReplyDueDays = transaction.ResponseDueDays;
                     assignmentsChanged = true;

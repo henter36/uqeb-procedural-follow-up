@@ -315,9 +315,9 @@ export const departmentResponsesApi = {
   getMyStats: () => api.get<DepartmentResponseStatsDto>('/department-responses/my-stats'),
   getPendingReview: () => api.get<DepartmentResponseSummaryDto[]>('/department-responses/pending-review'),
   getById: (id: number) => api.get<DepartmentResponseDto>(`/department-responses/${id}`),
-  create: (data: { transactionId: number; responseText: string }) =>
+  create: (data: { transactionId: number; responseText: string; responseDate?: string }) =>
     api.post<DepartmentResponseDto>('/department-responses', data),
-  update: (id: number, data: { responseText: string }) =>
+  update: (id: number, data: { responseText: string; responseDate?: string }) =>
     api.put<DepartmentResponseDto>(`/department-responses/${id}`, data),
   submit: (id: number) => api.post<DepartmentResponseDto>(`/department-responses/${id}/submit`),
   approve: (id: number) => api.post<DepartmentResponseDto>(`/department-responses/${id}/approve`),

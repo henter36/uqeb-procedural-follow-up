@@ -893,6 +893,7 @@ describe('TransactionDetailPage department user permissions', () => {
 
     await waitFor(() => expect(screen.getByRole('heading', { name: 'إفادة الإدارة' })).toBeInTheDocument());
     await user.type(screen.getByLabelText('نص الإفادة *'), 'نص الإفادة');
+    await user.type(screen.getByLabelText('تاريخ إنجاز الإدارة *'), '16/01/1448');
     await user.click(screen.getByRole('button', { name: 'إرسال الإفادة' }));
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'إرسال الإفادة' })).toBeEnabled());
@@ -1152,6 +1153,7 @@ describe('TransactionDetailPage card interaction flows', () => {
 
     await waitFor(() => expect(screen.getByLabelText('رقم التعقيب')).toBeInTheDocument());
     await user.type(screen.getByLabelText('رقم التعقيب'), 'F-NEW');
+    await user.type(screen.getByLabelText('تاريخ التعقيب *'), '16/01/1448');
     await user.click(screen.getByRole('button', { name: 'حفظ التعقيب' }));
 
     await waitFor(() => {
@@ -2616,6 +2618,7 @@ describe('TransactionDetailPage Admin/Supervisor response form', () => {
     await user.click(within(getActionBar()).getByRole('button', { name: 'تسجيل إفادة' }));
 
     const panel = screen.getByRole('region', { name: 'تسجيل إفادة' });
+    await user.type(within(panel).getByLabelText('تاريخ الإفادة *'), '16/01/1448');
     await user.type(within(panel).getByLabelText('ملخص الإفادة *'), 'ملخص الإفادة');
     await user.click(within(panel).getByRole('button', { name: 'إرسال الإفادة' }));
 

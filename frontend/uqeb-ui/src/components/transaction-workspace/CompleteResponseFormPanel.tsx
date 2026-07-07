@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
 import { transactionsApi } from '../../api/services';
 import { buildCompleteResponsePayload, getApiErrorMessage } from '../../utils/apiHelpers';
-import { FUTURE_EVENT_DATE_MESSAGE, isFutureLocalDate, todayLocalIso } from '../../utils/localDate';
+import { FUTURE_EVENT_DATE_MESSAGE, isFutureLocalDate } from '../../utils/localDate';
 import { Alert } from '../ui';
 import HijriDateInput from '../HijriDateInput';
 
@@ -31,10 +31,10 @@ export default function CompleteResponseFormPanel({
 }: CompleteResponseFormPanelProps) {
   const requiresOutgoing = responseType === 'External' || responseType === 'Both';
   const [form, setForm] = useState({
-    responseDate: todayLocalIso(),
+    responseDate: '',
     responseSummary: '',
     outgoingNumber: '',
-    outgoingDate: todayLocalIso(),
+    outgoingDate: '',
   });
   const [attachment, setAttachment] = useState<File | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -46,8 +46,10 @@ export default function CompleteResponseFormPanel({
 
   useEffect(() => {
     const dirty = Boolean(
-      form.responseSummary.trim()
+      form.responseDate
+      || form.responseSummary.trim()
       || form.outgoingNumber.trim()
+      || form.outgoingDate
       || attachment,
     );
     onDirtyChange(dirty && !responseSaved);
@@ -56,13 +58,13 @@ export default function CompleteResponseFormPanel({
   const validateBeforeSubmit = (): string | null => {
     if (isSubmitting) return '';
     if (responseSaved) return attachment ? null : '';
+    if (!form.responseDate) return 'تاريخ الإفادة مطلوب.';
     if (!form.responseSummary.trim()) return 'ملخص الإفادة مطلوب';
     if (isFutureLocalDate(form.responseDate) || isFutureLocalDate(form.outgoingDate)) {
       return FUTURE_EVENT_DATE_MESSAGE;
     }
-    if (requiresOutgoing && (!form.outgoingNumber.trim() || !form.outgoingDate)) {
-      return 'رقم الصادر وتاريخ الصادر مطلوبان لنوع الإفادة المحدد';
-    }
+    if (requiresOutgoing && !form.outgoingDate) return 'تاريخ الصادر مطلوب.';
+    if (requiresOutgoing && !form.outgoingNumber.trim()) return 'رقم الصادر مطلوب.';
     return null;
   };
 
@@ -119,10 +121,10 @@ export default function CompleteResponseFormPanel({
   const attachmentLabel = attachment ? attachment.name : 'لا يوجد';
 
   return (
-    <form onSubmit={submit} className="workspace-form complete-response-compact">
+    <form onSubmit={submit} className="workspace-form complete-response-compact" noValidate>
       {error && <Alert variant="error">{error}</Alert>}
       <p className="text-muted workspace-form-hint">
-        تسجيل الإفادة يُغلق إحالة الإدارة ويُسجَّل تاريخ الإفادة تلقائيًا.
+        تسجيل الإفادة يُغلق إحالة الإدارة. التاريخ المدخل أدناه هو تاريخ الإفادة الفعلي وسيُحفظ كما هو.
       </p>
 
       <div className="complete-response-compact-body">

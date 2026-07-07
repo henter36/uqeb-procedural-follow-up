@@ -10,6 +10,10 @@ public class DepartmentResponse
     public string ResponseText { get; set; } = string.Empty;
     public DepartmentResponseStatus Status { get; set; } = DepartmentResponseStatus.Draft;
     public int SubmittedByUserId { get; set; }
+    // The operational date the department actually completed its reply, entered by the
+    // user — distinct from SubmittedAt, which is the technical timestamp of the submit
+    // action in the system and must never be treated as the completion date.
+    public DateTime? ResponseDate { get; set; }
     public DateTime? SubmittedAt { get; set; }
     public int? ReviewedByUserId { get; set; }
     public DateTime? ReviewedAt { get; set; }

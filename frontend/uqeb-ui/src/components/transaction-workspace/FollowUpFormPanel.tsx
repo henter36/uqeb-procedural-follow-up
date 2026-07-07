@@ -91,6 +91,10 @@ function FollowUpFormPanelBody({
       setError('يجب اختيار إدارة واحدة على الأقل لإرسال التعقيب.');
       return;
     }
+    if (!form.followUpDate) {
+      setError('تاريخ التعقيب مطلوب.');
+      return;
+    }
     if (isFutureLocalDate(form.followUpDate)) {
       setError(FUTURE_EVENT_DATE_MESSAGE);
       return;
@@ -119,7 +123,7 @@ function FollowUpFormPanelBody({
   }
 
   return (
-    <form onSubmit={submit} className="workspace-form">
+    <form onSubmit={submit} className="workspace-form" noValidate>
       {error && <Alert variant="error">{error}</Alert>}
       <p className="text-muted workspace-form-hint">
         منذ آخر تعقيب: {formatDaysSince(daysSinceLastFollowUp)}
