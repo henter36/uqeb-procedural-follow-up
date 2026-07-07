@@ -227,4 +227,87 @@ public class ReportServiceDashboardSqlServerIntegrationTests
             await DropSqlDbAsync(databaseName);
         }
     }
+
+    [Fact]
+    public async Task GetDashboardAsync_and_GetPageSummaryAsync_count_response_overdue_partial_replies_and_average_completion_days()
+    {
+        if (!IsSqlServerAvailable())
+        {
+            Assert.False(IsRequired, "SQL Server report dashboard integration tests are required but the database is unavailable.");
+            return;
+        }
+
+        var (databaseName, options) = await CreateSqlDbAsync();
+        try
+        {
+            var factory = new SimpleDbContextFactory(options);
+            await using var seedDb = await factory.CreateDbContextAsync();
+            var seed = await SeedReferenceDataAsync(seedDb);
+            var departmentId = (await seedDb.Departments.FirstAsync()).Id;
+
+            // Response-required transaction whose due date is already in the past and whose
+            // response was never completed: must contribute to the response-overdue counters,
+            // not merely to "response required".
+            var responseOverdueTx = BuildTransaction(seed, "IN-RESP-OVERDUE-1", "TRK-RESP-OVERDUE-1");
+            responseOverdueTx.RequiresResponse = true;
+            responseOverdueTx.ResponseCompleted = false;
+            responseOverdueTx.ResponseDueDate = DateTime.UtcNow.Date.AddDays(-3);
+            seedDb.Transactions.Add(responseOverdueTx);
+
+            // Transaction with one department that already replied and another still pending:
+            // must contribute to PartialReplies but not to OpenAssignments alone semantics change.
+            var partiallyRepliedTx = BuildTransaction(seed, "IN-PARTIAL-1", "TRK-PARTIAL-1");
+            seedDb.Transactions.Add(partiallyRepliedTx);
+            await seedDb.SaveChangesAsync();
+            seedDb.Assignments.AddRange(
+                new Assignment
+                {
+                    TransactionId = partiallyRepliedTx.Id,
+                    DepartmentId = departmentId,
+                    AssignedDate = DateTime.UtcNow.Date.AddDays(-10),
+                    RequiresReply = true,
+                    ReplyStatus = ReplyStatus.Replied,
+                    Status = AssignmentStatus.Active,
+                    CreatedById = seed.AdminUserId,
+                    CreatedAt = DateTime.UtcNow
+                },
+                new Assignment
+                {
+                    TransactionId = partiallyRepliedTx.Id,
+                    DepartmentId = departmentId,
+                    AssignedDate = DateTime.UtcNow.Date.AddDays(-10),
+                    RequiresReply = true,
+                    ReplyStatus = ReplyStatus.Pending,
+                    Status = AssignmentStatus.Active,
+                    CreatedById = seed.AdminUserId,
+                    CreatedAt = DateTime.UtcNow
+                });
+
+            // Closed transaction with a known incoming-to-closed gap for AverageCompletionDays.
+            var closedWithKnownDurationTx = BuildTransaction(seed, "IN-DURATION-1", "TRK-DURATION-1");
+            closedWithKnownDurationTx.IncomingDate = DateTime.UtcNow.Date.AddDays(-7);
+            closedWithKnownDurationTx.Status = TransactionStatus.Closed;
+            closedWithKnownDurationTx.ClosedAt = DateTime.UtcNow.Date.AddDays(-2);
+            seedDb.Transactions.Add(closedWithKnownDurationTx);
+
+            await seedDb.SaveChangesAsync();
+
+            await using var db = await factory.CreateDbContextAsync();
+            var service = new ReportService(db, factory);
+
+            var dashboard = await service.GetDashboardAsync();
+            var pageSummary = await service.GetPageSummaryAsync();
+
+            Assert.True(dashboard.ResponseOverdueCount >= 1);
+            Assert.True(pageSummary.OverdueResponses >= 1);
+
+            Assert.True(pageSummary.PartialReplies >= 1);
+
+            Assert.Equal(5, dashboard.AverageCompletionDays);
+        }
+        finally
+        {
+            await DropSqlDbAsync(databaseName);
+        }
+    }
 }
