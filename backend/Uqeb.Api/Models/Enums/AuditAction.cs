@@ -54,4 +54,6 @@ public enum AuditAction
     GenerateRecurringTransaction = 50,
     EnableRecurringFollowUp = 51,
     EditResponse = 52,
+    EditFollowUpReply = 53,
+    EditAssignmentReply = 54,
 }

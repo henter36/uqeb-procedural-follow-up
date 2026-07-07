@@ -78,6 +78,15 @@ public class DepartmentResponseService : IDepartmentResponseService
             throw new UnauthorizedAccessException("المستخدم غير مخول بمراجعة إفادات الإدارات.");
     }
 
+    // Narrower than RequireReviewer: admin correction of an already-recorded response is
+    // restricted to Admin/Supervisor only. DataEntry can review/approve responses but must
+    // not be able to directly overwrite an approved response's text/date.
+    private static void RequireAdminOrSupervisor(ICurrentUserService currentUser)
+    {
+        if (currentUser.Role is not (UserRole.Admin or UserRole.Supervisor))
+            throw new UnauthorizedAccessException("غير مصرح بتعديل الإفادة.");
+    }
+
     private static DateTime GetSaudiToday() => DateTime.UtcNow.AddHours(3).Date;
 
     // InMemory (test) provider throws InvalidOperationException on BeginTransactionAsync.
@@ -473,12 +482,15 @@ public class DepartmentResponseService : IDepartmentResponseService
         if (request is null)
             throw new InvalidOperationException("بيانات طلب التعديل مطلوبة.");
 
-        RequireReviewer(currentUser);
+        RequireAdminOrSupervisor(currentUser);
 
         var response = await _db.DepartmentResponses
             .Include(r => r.Transaction)
             .FirstOrDefaultAsync(r => r.Id == id);
         if (response == null) return null;
+
+        if (response.Transaction.Status is TransactionStatus.Closed or TransactionStatus.Cancelled or TransactionStatus.Archived)
+            throw new InvalidOperationException("لا يمكن تعديل إفادة الإدارة لمعاملة مغلقة أو ملغاة أو مؤرشفة.");
 
         var reason = request.Reason?.Trim();
         if (string.IsNullOrWhiteSpace(reason))

@@ -52,6 +52,26 @@ public class DepartmentUserAuthorizationContractTests
     }
 
     [Fact]
+    public void DepartmentResponseAdminEdit_RequiresSupervisorOrAdminPolicy_NotTheBroaderReviewPolicy()
+    {
+        // AdminEdit lets a reviewer directly overwrite an already-recorded response's text/date.
+        // Unlike Approve/Reject/ReturnForCorrection, DataEntry must not have this power, so it
+        // must use the narrower SupervisorOrAdmin policy rather than ReviewDepartmentResponse
+        // (which includes DataEntry).
+        var method = GetControllerMethod<DepartmentResponsesController>(nameof(DepartmentResponsesController.AdminEdit));
+
+        Assert.Equal(Policies.SupervisorOrAdmin, GetMethodPolicy(method));
+    }
+
+    [Fact]
+    public void SupervisorOrAdmin_DoesNotAllowDataEntry()
+    {
+        var roles = GetPolicyRoles(Policies.SupervisorOrAdmin);
+
+        Assert.DoesNotContain(UserRole.DataEntry.ToString(), roles);
+    }
+
+    [Fact]
     public void FollowUpPrintCreateJob_RequiresCreatePolicy()
     {
         var method = GetControllerMethod<FollowUpPrintController>(nameof(FollowUpPrintController.CreateJob));

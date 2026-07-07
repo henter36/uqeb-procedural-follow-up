@@ -1058,4 +1058,100 @@ public class DepartmentResponseServiceTests
         Assert.Equal("تصحيح تاريخ الإنجاز", auditJson.RootElement.GetProperty("Reason").GetString());
         Assert.DoesNotContain("  تصحيح تاريخ الإنجاز  ", log.NewValue);
     }
+
+    [Fact]
+    public async Task AdminEditResponse_AllowsSupervisorRole()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(AdminEditResponse_AllowsSupervisorRole));
+        var service = BuildService(db);
+        var creator = new FakeUser { UserId = userId, DepartmentId = deptId, Role = UserRole.Admin };
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الرد"), creator);
+
+        var supervisor = new FakeUser { UserId = userId, Role = UserRole.Supervisor };
+        var updated = await service.AdminEditAsync(created.Id,
+            new AdminEditDepartmentResponseRequest("تصحيح من قبل مشرف", "نص معدَّل"),
+            supervisor);
+
+        Assert.NotNull(updated);
+        Assert.Equal("نص معدَّل", updated!.ResponseText);
+    }
+
+    [Fact]
+    public async Task AdminEditResponse_RejectsUnauthorizedRole()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(AdminEditResponse_RejectsUnauthorizedRole));
+        var service = BuildService(db);
+        var creator = new FakeUser { UserId = userId, DepartmentId = deptId, Role = UserRole.Admin };
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الرد"), creator);
+
+        var reader = new FakeUser { UserId = userId, Role = UserRole.Reader };
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            service.AdminEditAsync(created.Id,
+                new AdminEditDepartmentResponseRequest("محاولة غير مصرح بها", "نص"),
+                reader));
+    }
+
+    [Fact]
+    public async Task AdminEditResponse_RejectsDataEntryRole()
+    {
+        // DataEntry can review/approve/reject department responses (RequireReviewer), but
+        // must not be able to directly overwrite an already-recorded response via AdminEdit —
+        // that action is restricted to Admin/Supervisor only.
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(AdminEditResponse_RejectsDataEntryRole));
+        var service = BuildService(db);
+        var creator = new FakeUser { UserId = userId, DepartmentId = deptId, Role = UserRole.Admin };
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الرد"), creator);
+
+        var dataEntry = new FakeUser { UserId = userId, Role = UserRole.DataEntry };
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            service.AdminEditAsync(created.Id,
+                new AdminEditDepartmentResponseRequest("محاولة من مدخل بيانات", "نص"),
+                dataEntry));
+    }
+
+    [Theory]
+    [InlineData(TransactionStatus.Closed)]
+    [InlineData(TransactionStatus.Cancelled)]
+    [InlineData(TransactionStatus.Archived)]
+    public async Task AdminEditResponse_RejectsTerminalTransaction(TransactionStatus status)
+    {
+        var (db, txId, deptId, userId) = await SeedAsync($"{nameof(AdminEditResponse_RejectsTerminalTransaction)}_{status}");
+        var service = BuildService(db);
+        var creator = new FakeUser { UserId = userId, DepartmentId = deptId, Role = UserRole.Admin };
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الرد"), creator);
+
+        var tx = await db.Transactions.SingleAsync(t => t.Id == txId);
+        tx.Status = status;
+        await db.SaveChangesAsync();
+
+        var admin = new FakeUser { UserId = userId, Role = UserRole.Admin };
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.AdminEditAsync(created.Id,
+                new AdminEditDepartmentResponseRequest("محاولة تعديل معاملة منتهية", "نص"),
+                admin));
+    }
+
+    [Fact]
+    public async Task AdminEditResponse_DoesNotRequireTransactionLevelResponseCompletion()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(AdminEditResponse_DoesNotRequireTransactionLevelResponseCompletion));
+        var service = BuildService(db);
+        var creator = new FakeUser { UserId = userId, DepartmentId = deptId, Role = UserRole.Admin };
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الرد"), creator);
+
+        var tx = await db.Transactions.SingleAsync(t => t.Id == txId);
+        Assert.False(tx.ResponseCompleted);
+
+        var admin = new FakeUser { UserId = userId, Role = UserRole.Admin };
+        var updated = await service.AdminEditAsync(created.Id,
+            new AdminEditDepartmentResponseRequest("تعديل بدون اكتمال إفادة المعاملة", "نص محدث"),
+            admin);
+
+        Assert.NotNull(updated);
+        Assert.Equal("نص محدث", updated!.ResponseText);
+        tx = await db.Transactions.SingleAsync(t => t.Id == txId);
+        Assert.False(tx.ResponseCompleted);
+    }
 }

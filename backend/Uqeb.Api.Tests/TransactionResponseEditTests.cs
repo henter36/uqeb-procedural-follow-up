@@ -277,4 +277,76 @@ public class TransactionResponseEditTests
                 OutgoingDate = new DateTime(2026, 1, 12, 0, 0, 0, DateTimeKind.Utc),
             }, new TestCurrentUser(UserRole.Admin)));
     }
+
+    [Fact]
+    public async Task EditResponseAsync_allows_supervisor_role()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(EditResponseAsync_allows_supervisor_role));
+        await SeedCompletedResponseTransactionAsync(db);
+
+        var result = await service.EditResponseAsync(1, new CompleteResponseRequest
+        {
+            ResponseDate = new DateTime(2026, 1, 12, 0, 0, 0, DateTimeKind.Utc),
+            ResponseSummary = "تعديل من قبل مشرف",
+            OutgoingNumber = "OUT-3",
+            OutgoingDate = new DateTime(2026, 1, 12, 0, 0, 0, DateTimeKind.Utc),
+        }, new TestCurrentUser(UserRole.Supervisor));
+
+        Assert.NotNull(result);
+        var updated = await db.Transactions.SingleAsync(t => t.Id == 1);
+        Assert.Equal("تعديل من قبل مشرف", updated.ResponseSummary);
+    }
+
+    [Fact]
+    public async Task EditResponseAsync_rejects_missing_outgoing_number_when_response_type_requires_outgoing()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(EditResponseAsync_rejects_missing_outgoing_number_when_response_type_requires_outgoing));
+        await SeedCompletedResponseTransactionAsync(db);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.EditResponseAsync(1, new CompleteResponseRequest
+            {
+                ResponseDate = new DateTime(2026, 1, 12, 0, 0, 0, DateTimeKind.Utc),
+                ResponseSummary = "إفادة خارجية بدون رقم صادر",
+                OutgoingNumber = "   ",
+                OutgoingDate = new DateTime(2026, 1, 12, 0, 0, 0, DateTimeKind.Utc),
+            }, new TestCurrentUser(UserRole.Admin)));
+    }
+
+    [Fact]
+    public async Task EditResponseAsync_rejects_missing_outgoing_date_when_response_type_requires_outgoing()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(EditResponseAsync_rejects_missing_outgoing_date_when_response_type_requires_outgoing));
+        await SeedCompletedResponseTransactionAsync(db);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.EditResponseAsync(1, new CompleteResponseRequest
+            {
+                ResponseDate = new DateTime(2026, 1, 12, 0, 0, 0, DateTimeKind.Utc),
+                ResponseSummary = "إفادة خارجية بدون تاريخ صادر",
+                OutgoingNumber = "OUT-1",
+                OutgoingDate = null,
+            }, new TestCurrentUser(UserRole.Admin)));
+    }
+
+    [Fact]
+    public async Task EditResponseAsync_creates_audit_log_entry_with_old_and_new_values()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(EditResponseAsync_creates_audit_log_entry_with_old_and_new_values));
+        await SeedCompletedResponseTransactionAsync(db);
+
+        await service.EditResponseAsync(1, new CompleteResponseRequest
+        {
+            ResponseDate = new DateTime(2026, 1, 12, 0, 0, 0, DateTimeKind.Utc),
+            ResponseSummary = "ملخص جديد للتدقيق",
+            OutgoingNumber = "OUT-AUDIT",
+            OutgoingDate = new DateTime(2026, 1, 12, 0, 0, 0, DateTimeKind.Utc),
+        }, new TestCurrentUser(UserRole.Admin, userId: 1));
+
+        var auditLog = await db.AuditLogs.SingleAsync(a => a.Action == AuditAction.EditResponse && a.TransactionId == 1);
+        Assert.Equal(1, auditLog.UserId);
+        Assert.Contains("OUT-1", auditLog.OldValue);
+        Assert.Contains("OUT-AUDIT", auditLog.NewValue);
+        Assert.NotEqual(auditLog.OldValue, auditLog.NewValue);
+    }
 }

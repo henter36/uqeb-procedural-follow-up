@@ -62,10 +62,14 @@ export const transactionsApi = {
     api.post<FollowUp>(`/transactions/${id}/followups`, data),
   replyFollowUp: (id: number, followUpId: number, data: Record<string, unknown>) =>
     api.post(`/transactions/${id}/followups/${followUpId}/reply`, data),
+  editFollowUpReply: (id: number, followUpId: number, data: Record<string, unknown>) =>
+    api.put<FollowUp>(`/transactions/${id}/followups/${followUpId}/reply`, data),
   addAssignment: (id: number, data: Record<string, unknown>) =>
     api.post<Assignment>(`/transactions/${id}/assignments`, data),
   replyAssignment: (id: number, assignmentId: number, data: Record<string, unknown>) =>
     api.post(`/transactions/${id}/assignments/${assignmentId}/reply`, data),
+  editAssignmentReply: (id: number, assignmentId: number, data: Record<string, unknown>) =>
+    api.patch<Assignment>(`/transactions/${id}/assignments/${assignmentId}/reply`, data),
   adminEditAssignment: (id: number, assignmentId: number, data: Record<string, unknown>) =>
     api.patch<Assignment>(`/transactions/${id}/assignments/${assignmentId}`, data),
   adminEditTransactionDates: (id: number, data: Record<string, unknown>) =>

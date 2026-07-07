@@ -236,8 +236,164 @@ public class AssignmentResponseDatesTests
         Assert.Equal("Pending", result[0].ReplyStatus);
         Assert.Null(result[0].ResponseDate);
         Assert.Null(result[0].DepartmentCompletionDays);
-        // The pending response's id should still be surfaced so it remains reachable/editable.
-        Assert.NotNull(result[0].DepartmentResponseId);
+        // A response that is only submitted-for-review (not yet Approved) is not "completed":
+        // do not expose its id as an editable DepartmentResponseId, otherwise the row would
+        // look editable via the admin-edit-response endpoint before it is actually finished.
+        Assert.Null(result[0].DepartmentResponseId);
+    }
+
+    [Fact]
+    public async Task GetAssignmentsAsync_ReturnsUniqueApprovedResponseIdsForEachRepliedDepartment()
+    {
+        // Regression test for a real workspace payload where المالية showed replyStatus
+        // "Replied" with responseSummary/responseDate populated but departmentResponseId:
+        // null. Every replied row must carry its own, real, unique DepartmentResponse.Id;
+        // a row with no completed response must not expose one at all.
+        var (service, db) = await CreateServiceAsync(nameof(GetAssignmentsAsync_ReturnsUniqueApprovedResponseIdsForEachRepliedDepartment));
+        db.Departments.Add(new Department { Id = 30, Name = "الشؤون الإدارية", NameNormalized = "الشؤون الإدارية", IsActive = true });
+        var incomingDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        await SeedTransactionAsync(db, 1, incomingDate);
+
+        db.Assignments.Add(new Assignment
+        {
+            TransactionId = 1,
+            DepartmentId = 10,
+            AssignedDate = incomingDate,
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Replied,
+            ReplyDate = new DateTime(2026, 1, 10, 0, 0, 0, DateTimeKind.Utc),
+            ReplySummary = "طذطذ",
+            Status = AssignmentStatus.Completed,
+            CreatedById = 1,
+            CreatedAt = incomingDate
+        });
+        var financeResponse = new DepartmentResponse
+        {
+            TransactionId = 1,
+            DepartmentId = 10,
+            ResponseText = "طذطذ",
+            Status = DepartmentResponseStatus.Approved,
+            SubmittedByUserId = 1,
+            SubmittedAt = new DateTime(2026, 1, 10, 0, 0, 0, DateTimeKind.Utc),
+            CreatedAt = incomingDate
+        };
+        db.DepartmentResponses.Add(financeResponse);
+
+        db.Assignments.Add(new Assignment
+        {
+            TransactionId = 1,
+            DepartmentId = 20,
+            AssignedDate = incomingDate,
+            DueDate = new DateTime(2026, 1, 5, 0, 0, 0, DateTimeKind.Utc),
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Pending,
+            Status = AssignmentStatus.Active,
+            CreatedById = 1,
+            CreatedAt = incomingDate
+        });
+
+        db.Assignments.Add(new Assignment
+        {
+            TransactionId = 1,
+            DepartmentId = 30,
+            AssignedDate = incomingDate,
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Replied,
+            ReplyDate = new DateTime(2026, 1, 12, 0, 0, 0, DateTimeKind.Utc),
+            ReplySummary = "إفادة الشؤون الإدارية",
+            Status = AssignmentStatus.Completed,
+            CreatedById = 1,
+            CreatedAt = incomingDate
+        });
+        var adminAffairsResponse = new DepartmentResponse
+        {
+            TransactionId = 1,
+            DepartmentId = 30,
+            ResponseText = "إفادة الشؤون الإدارية",
+            Status = DepartmentResponseStatus.Approved,
+            SubmittedByUserId = 1,
+            SubmittedAt = new DateTime(2026, 1, 12, 0, 0, 0, DateTimeKind.Utc),
+            CreatedAt = incomingDate
+        };
+        db.DepartmentResponses.Add(adminAffairsResponse);
+        await db.SaveChangesAsync();
+
+        var result = await service.GetAssignmentsAsync(1, new TestCurrentUser(UserRole.Admin));
+
+        Assert.NotNull(result);
+        Assert.Equal(3, result.Count);
+
+        var repliedRows = result.Where(r => r.ReplyStatus == "Replied").ToList();
+        Assert.Equal(2, repliedRows.Count);
+        foreach (var row in repliedRows)
+        {
+            Assert.NotNull(row.DepartmentResponseId);
+            Assert.NotNull(row.ResponseDate);
+            Assert.NotNull(row.ReplySummary);
+        }
+
+        var financeRow = result.Single(r => r.DepartmentId == 10);
+        var adminAffairsRow = result.Single(r => r.DepartmentId == 30);
+        var pendingRow = result.Single(r => r.DepartmentId == 20);
+
+        Assert.Equal(financeResponse.Id, financeRow.DepartmentResponseId);
+        Assert.Equal(adminAffairsResponse.Id, adminAffairsRow.DepartmentResponseId);
+        Assert.NotEqual(financeRow.DepartmentResponseId, adminAffairsRow.DepartmentResponseId);
+        Assert.Null(pendingRow.DepartmentResponseId);
+
+        var realResponseIds = await db.DepartmentResponses.Select(r => r.Id).ToListAsync();
+        Assert.Contains(financeRow.DepartmentResponseId!.Value, realResponseIds);
+        Assert.Contains(adminAffairsRow.DepartmentResponseId!.Value, realResponseIds);
+    }
+
+    [Fact]
+    public async Task ReplyAssignmentAsync_creates_a_backing_department_response_so_the_row_stays_editable()
+    {
+        // Regression test for the real bug: recording a reply directly via
+        // ReplyAssignmentAsync (no prior DepartmentResponse submission/approval) must not
+        // leave the row with replyStatus=Replied and departmentResponseId=null — otherwise
+        // the admin-edit-response badge can never open for that row.
+        var (service, db) = await CreateServiceAsync(nameof(ReplyAssignmentAsync_creates_a_backing_department_response_so_the_row_stays_editable));
+        var incomingDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        await SeedTransactionAsync(db, 1, incomingDate);
+        db.Assignments.Add(new Assignment
+        {
+            Id = 501,
+            TransactionId = 1,
+            DepartmentId = 10,
+            AssignedDate = incomingDate,
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Pending,
+            Status = AssignmentStatus.Active,
+            CreatedById = 1,
+            CreatedAt = incomingDate
+        });
+        await db.SaveChangesAsync();
+        Assert.Empty(db.DepartmentResponses);
+
+        var replyDate = new DateTime(2026, 7, 7, 0, 0, 0, DateTimeKind.Utc);
+        var directReply = await service.ReplyAssignmentAsync(1, 501,
+            new ReplyAssignmentRequest { ReplyDate = replyDate, ReplySummary = "طذطذ" },
+            new TestCurrentUser(UserRole.Admin));
+
+        Assert.NotNull(directReply);
+        Assert.NotNull(directReply!.DepartmentResponseId);
+
+        var backingResponse = await db.DepartmentResponses.SingleAsync();
+        Assert.Equal(1, backingResponse.TransactionId);
+        Assert.Equal(10, backingResponse.DepartmentId);
+        Assert.Equal(DepartmentResponseStatus.Approved, backingResponse.Status);
+        Assert.Equal("طذطذ", backingResponse.ResponseText);
+        Assert.Equal(directReply.DepartmentResponseId, backingResponse.Id);
+
+        var refreshed = await service.GetAssignmentsAsync(1, new TestCurrentUser(UserRole.Admin));
+        Assert.NotNull(refreshed);
+        var row = Assert.Single(refreshed);
+        Assert.Equal("Replied", row.ReplyStatus);
+        Assert.NotNull(row.DepartmentResponseId);
+        Assert.Equal(backingResponse.Id, row.DepartmentResponseId);
+        Assert.NotNull(row.ResponseDate);
+        Assert.NotNull(row.ReplySummary);
     }
 
     [Fact]
@@ -646,5 +802,278 @@ public class AssignmentResponseDatesTests
         Assert.Equal("خ-2026/999", result.LetterNumber);
         var persisted = await db.Assignments.FirstOrDefaultAsync(a => a.TransactionId == 1 && a.DepartmentId == 10);
         Assert.Equal("خ-2026/999", persisted?.LetterNumber);
+    }
+
+    private static async Task<(Transaction Transaction, FollowUp FollowUp)> SeedRepliedFollowUpAsync(AppDbContext db, int transactionId = 1)
+    {
+        var incomingDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var t = await SeedTransactionAsync(db, transactionId, incomingDate);
+        var followUp = new FollowUp
+        {
+            TransactionId = transactionId,
+            FollowUpNumber = "111",
+            FollowUpDate = new DateTime(2026, 6, 20, 0, 0, 0, DateTimeKind.Utc),
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Replied,
+            ReplyDate = new DateTime(2026, 6, 28, 0, 0, 0, DateTimeKind.Utc),
+            ReplySummary = "jh",
+            CreatedById = 1,
+            CreatedAt = incomingDate
+        };
+        db.FollowUps.Add(followUp);
+        await db.SaveChangesAsync();
+        return (t, followUp);
+    }
+
+    [Fact]
+    public async Task EditFollowUpReplyAsync_UpdatesReplyDateAndSummaryAndLogsAudit()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(EditFollowUpReplyAsync_UpdatesReplyDateAndSummaryAndLogsAudit));
+        var (_, followUp) = await SeedRepliedFollowUpAsync(db);
+
+        var newReplyDate = new DateTime(2026, 6, 30, 0, 0, 0, DateTimeKind.Utc);
+        var result = await service.EditFollowUpReplyAsync(1, followUp.Id,
+            new ReplyFollowUpRequest { ReplyDate = newReplyDate, ReplySummary = "ملخص محدث" },
+            new TestCurrentUser(UserRole.Admin));
+
+        Assert.NotNull(result);
+        Assert.Equal(newReplyDate, result!.ReplyDate);
+        Assert.Equal("ملخص محدث", result.ReplySummary);
+        Assert.Equal("Replied", result.ReplyStatus);
+
+        var log = await db.AuditLogs.SingleAsync(a => a.Action == AuditAction.EditFollowUpReply && a.EntityId == followUp.Id);
+        Assert.Contains("jh", log.OldValue);
+        Assert.Contains("2026-06-30", log.NewValue);
+        Assert.NotEqual(log.OldValue, log.NewValue);
+    }
+
+    [Fact]
+    public async Task EditFollowUpReplyAsync_AllowsSupervisorRole()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(EditFollowUpReplyAsync_AllowsSupervisorRole));
+        var (_, followUp) = await SeedRepliedFollowUpAsync(db);
+
+        var result = await service.EditFollowUpReplyAsync(1, followUp.Id,
+            new ReplyFollowUpRequest { ReplyDate = followUp.ReplyDate!.Value, ReplySummary = "تعديل من مشرف" },
+            new TestCurrentUser(UserRole.Supervisor));
+
+        Assert.NotNull(result);
+        Assert.Equal("تعديل من مشرف", result!.ReplySummary);
+    }
+
+    [Fact]
+    public async Task EditFollowUpReplyAsync_RejectsUnauthorizedRole()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(EditFollowUpReplyAsync_RejectsUnauthorizedRole));
+        var (_, followUp) = await SeedRepliedFollowUpAsync(db);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            service.EditFollowUpReplyAsync(1, followUp.Id,
+                new ReplyFollowUpRequest { ReplyDate = followUp.ReplyDate!.Value, ReplySummary = "محاولة غير مصرح بها" },
+                new TestCurrentUser(UserRole.DataEntry)));
+    }
+
+    [Theory]
+    [InlineData(TransactionStatus.Closed)]
+    [InlineData(TransactionStatus.Cancelled)]
+    [InlineData(TransactionStatus.Archived)]
+    public async Task EditFollowUpReplyAsync_RejectsTerminalTransaction(TransactionStatus status)
+    {
+        var (service, db) = await CreateServiceAsync($"{nameof(EditFollowUpReplyAsync_RejectsTerminalTransaction)}_{status}");
+        var (transaction, followUp) = await SeedRepliedFollowUpAsync(db);
+        transaction.Status = status;
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.EditFollowUpReplyAsync(1, followUp.Id,
+                new ReplyFollowUpRequest { ReplyDate = followUp.ReplyDate!.Value, ReplySummary = "محاولة تعديل معاملة منتهية" },
+                new TestCurrentUser(UserRole.Admin)));
+    }
+
+    [Fact]
+    public async Task EditFollowUpReplyAsync_RejectsWhenNotYetReplied()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(EditFollowUpReplyAsync_RejectsWhenNotYetReplied));
+        var incomingDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        await SeedTransactionAsync(db, 1, incomingDate);
+        var followUp = new FollowUp
+        {
+            TransactionId = 1,
+            FollowUpNumber = "222",
+            FollowUpDate = new DateTime(2026, 6, 20, 0, 0, 0, DateTimeKind.Utc),
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Pending,
+            CreatedById = 1,
+            CreatedAt = incomingDate
+        };
+        db.FollowUps.Add(followUp);
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.EditFollowUpReplyAsync(1, followUp.Id,
+                new ReplyFollowUpRequest { ReplyDate = new DateTime(2026, 6, 25, 0, 0, 0, DateTimeKind.Utc), ReplySummary = "محاولة تعديل رد غير مسجل" },
+                new TestCurrentUser(UserRole.Admin)));
+    }
+
+    private static async Task<(Transaction Transaction, Assignment Assignment)> SeedRepliedAssignmentWithoutDepartmentResponseAsync(
+        AppDbContext db, int transactionId = 1, int departmentId = 10, string replySummary = "طذطذ")
+    {
+        var incomingDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var t = await SeedTransactionAsync(db, transactionId, incomingDate);
+        var assignment = new Assignment
+        {
+            TransactionId = transactionId,
+            DepartmentId = departmentId,
+            AssignedDate = incomingDate,
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Replied,
+            ReplyDate = new DateTime(2026, 7, 7, 0, 0, 0, DateTimeKind.Utc),
+            ReplySummary = replySummary,
+            Status = AssignmentStatus.Completed,
+            CreatedById = 1,
+            CreatedAt = incomingDate
+        };
+        db.Assignments.Add(assignment);
+        await db.SaveChangesAsync();
+        return (t, assignment);
+    }
+
+    [Fact]
+    public async Task EditAssignmentReplyAsync_AllowsAdminToEditByAssignmentIdWhenDepartmentResponseIdIsNull()
+    {
+        // Regression test for the real bug: المالية shows replyStatus=Replied with
+        // replySummary/replyDate populated but no DepartmentResponse row was ever created
+        // (departmentResponseId=null). The edit must key off assignment.id and must not
+        // require or create a DepartmentResponse.
+        var (service, db) = await CreateServiceAsync(nameof(EditAssignmentReplyAsync_AllowsAdminToEditByAssignmentIdWhenDepartmentResponseIdIsNull));
+        var (_, assignment) = await SeedRepliedAssignmentWithoutDepartmentResponseAsync(db);
+        Assert.Empty(db.DepartmentResponses);
+
+        var newReplyDate = new DateTime(2026, 1, 15, 0, 0, 0, DateTimeKind.Utc);
+        var result = await service.EditAssignmentReplyAsync(1, assignment.Id,
+            new ReplyAssignmentRequest { ReplyDate = newReplyDate, ReplySummary = "ملخص محدث" },
+            new TestCurrentUser(UserRole.Admin));
+
+        Assert.NotNull(result);
+        Assert.Equal(newReplyDate, result!.ReplyDate);
+        Assert.Equal("ملخص محدث", result.ReplySummary);
+        Assert.Equal("Replied", result.ReplyStatus);
+        Assert.Null(result.DepartmentResponseId);
+        Assert.Empty(db.DepartmentResponses);
+
+        var log = await db.AuditLogs.SingleAsync(a => a.Action == AuditAction.EditAssignmentReply && a.EntityId == assignment.Id);
+        Assert.Contains("2026-07-07", log.OldValue);
+        Assert.Contains("2026-01-15", log.NewValue);
+        Assert.NotEqual(log.OldValue, log.NewValue);
+    }
+
+    [Fact]
+    public async Task EditAssignmentReplyAsync_AllowsSupervisorRole()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(EditAssignmentReplyAsync_AllowsSupervisorRole));
+        var (_, assignment) = await SeedRepliedAssignmentWithoutDepartmentResponseAsync(db);
+
+        var result = await service.EditAssignmentReplyAsync(1, assignment.Id,
+            new ReplyAssignmentRequest { ReplyDate = assignment.ReplyDate!.Value, ReplySummary = "تعديل من مشرف" },
+            new TestCurrentUser(UserRole.Supervisor));
+
+        Assert.NotNull(result);
+        Assert.Equal("تعديل من مشرف", result!.ReplySummary);
+    }
+
+    [Fact]
+    public async Task EditAssignmentReplyAsync_RejectsUnauthorizedRole()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(EditAssignmentReplyAsync_RejectsUnauthorizedRole));
+        var (_, assignment) = await SeedRepliedAssignmentWithoutDepartmentResponseAsync(db);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            service.EditAssignmentReplyAsync(1, assignment.Id,
+                new ReplyAssignmentRequest { ReplyDate = assignment.ReplyDate!.Value, ReplySummary = "محاولة غير مصرح بها" },
+                new TestCurrentUser(UserRole.DataEntry)));
+    }
+
+    [Theory]
+    [InlineData(TransactionStatus.Closed)]
+    [InlineData(TransactionStatus.Cancelled)]
+    [InlineData(TransactionStatus.Archived)]
+    public async Task EditAssignmentReplyAsync_RejectsTerminalTransaction(TransactionStatus status)
+    {
+        var (service, db) = await CreateServiceAsync($"{nameof(EditAssignmentReplyAsync_RejectsTerminalTransaction)}_{status}");
+        var (transaction, assignment) = await SeedRepliedAssignmentWithoutDepartmentResponseAsync(db);
+        transaction.Status = status;
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.EditAssignmentReplyAsync(1, assignment.Id,
+                new ReplyAssignmentRequest { ReplyDate = assignment.ReplyDate!.Value, ReplySummary = "محاولة تعديل معاملة منتهية" },
+                new TestCurrentUser(UserRole.Admin)));
+    }
+
+    [Fact]
+    public async Task EditAssignmentReplyAsync_DoesNotRequireTransactionLevelResponseCompleted()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(EditAssignmentReplyAsync_DoesNotRequireTransactionLevelResponseCompleted));
+        var (transaction, assignment) = await SeedRepliedAssignmentWithoutDepartmentResponseAsync(db);
+        Assert.False(transaction.ResponseCompleted);
+
+        var result = await service.EditAssignmentReplyAsync(1, assignment.Id,
+            new ReplyAssignmentRequest { ReplyDate = assignment.ReplyDate!.Value, ReplySummary = "تعديل بدون اكتمال إفادة المعاملة" },
+            new TestCurrentUser(UserRole.Admin));
+
+        Assert.NotNull(result);
+        transaction = await db.Transactions.SingleAsync(t => t.Id == 1);
+        Assert.False(transaction.ResponseCompleted);
+    }
+
+    [Fact]
+    public async Task EditAssignmentReplyAsync_EditsCorrectRowWhenMultipleDepartmentsAreReplied()
+    {
+        // Each assignment row must be independently editable by its own assignment.id;
+        // editing one department's reply must not touch another's.
+        var (service, db) = await CreateServiceAsync(nameof(EditAssignmentReplyAsync_EditsCorrectRowWhenMultipleDepartmentsAreReplied));
+        db.Departments.Add(new Department { Id = 40, Name = "الشؤون الإدارية", NameNormalized = "الشؤون الإدارية", IsActive = true });
+        var incomingDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        await SeedTransactionAsync(db, 1, incomingDate);
+
+        var finance = new Assignment
+        {
+            TransactionId = 1, DepartmentId = 10, AssignedDate = incomingDate, RequiresReply = true,
+            ReplyStatus = ReplyStatus.Replied, ReplyDate = incomingDate, ReplySummary = "إفادة المالية",
+            Status = AssignmentStatus.Completed, CreatedById = 1, CreatedAt = incomingDate
+        };
+        var hr = new Assignment
+        {
+            TransactionId = 1, DepartmentId = 20, AssignedDate = incomingDate, RequiresReply = true,
+            ReplyStatus = ReplyStatus.Replied, ReplyDate = incomingDate, ReplySummary = "إفادة الموارد البشرية",
+            Status = AssignmentStatus.Completed, CreatedById = 1, CreatedAt = incomingDate
+        };
+        var adminAffairs = new Assignment
+        {
+            TransactionId = 1, DepartmentId = 40, AssignedDate = incomingDate, RequiresReply = true,
+            ReplyStatus = ReplyStatus.Replied, ReplyDate = incomingDate, ReplySummary = "إفادة الشؤون الإدارية",
+            Status = AssignmentStatus.Completed, CreatedById = 1, CreatedAt = incomingDate
+        };
+        db.Assignments.AddRange(finance, hr, adminAffairs);
+        await db.SaveChangesAsync();
+
+        var updatedDate = new DateTime(2026, 7, 7, 0, 0, 0, DateTimeKind.Utc);
+        var result = await service.EditAssignmentReplyAsync(1, finance.Id,
+            new ReplyAssignmentRequest { ReplyDate = updatedDate, ReplySummary = "إفادة المالية المحدثة" },
+            new TestCurrentUser(UserRole.Admin));
+
+        Assert.NotNull(result);
+        Assert.Equal("إفادة المالية المحدثة", result!.ReplySummary);
+
+        var persistedFinance = await db.Assignments.SingleAsync(a => a.Id == finance.Id);
+        var persistedHr = await db.Assignments.SingleAsync(a => a.Id == hr.Id);
+        var persistedAdminAffairs = await db.Assignments.SingleAsync(a => a.Id == adminAffairs.Id);
+
+        Assert.Equal("إفادة المالية المحدثة", persistedFinance.ReplySummary);
+        Assert.Equal(updatedDate, persistedFinance.ReplyDate);
+        Assert.Equal("إفادة الموارد البشرية", persistedHr.ReplySummary);
+        Assert.Equal(incomingDate, persistedHr.ReplyDate);
+        Assert.Equal("إفادة الشؤون الإدارية", persistedAdminAffairs.ReplySummary);
+        Assert.Equal(incomingDate, persistedAdminAffairs.ReplyDate);
     }
 }

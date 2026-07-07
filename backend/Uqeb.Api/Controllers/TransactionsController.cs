@@ -309,6 +309,29 @@ public class TransactionsController : ControllerBase
         return result == null ? NotFound() : Ok(result);
     }
 
+    [HttpPut("{id}/followups/{followUpId}/reply")]
+    [Authorize(Policy = Policies.SupervisorOrAdmin)]
+    public async Task<IActionResult> EditFollowUpReply(int id, int followUpId, [FromBody] ReplyFollowUpRequest request)
+    {
+        try
+        {
+            var result = await _transactions.EditFollowUpReplyAsync(id, followUpId, request, _currentUser);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
+        catch (FieldValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message, errors = ex.FieldErrors });
+        }
+    }
+
     [HttpGet("{id}/assignments")]
     public async Task<IActionResult> GetAssignments(int id)
     {
@@ -354,6 +377,29 @@ public class TransactionsController : ControllerBase
         catch (UnauthorizedAccessException ex)
         {
             return Forbid(ex.Message);
+        }
+        catch (FieldValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message, errors = ex.FieldErrors });
+        }
+    }
+
+    [HttpPatch("{id}/assignments/{assignmentId}/reply")]
+    [Authorize(Policy = Policies.SupervisorOrAdmin)]
+    public async Task<IActionResult> EditAssignmentReply(int id, int assignmentId, [FromBody] ReplyAssignmentRequest request)
+    {
+        try
+        {
+            var result = await _transactions.EditAssignmentReplyAsync(id, assignmentId, request, _currentUser);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
         }
         catch (FieldValidationException ex)
         {

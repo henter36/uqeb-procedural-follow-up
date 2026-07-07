@@ -34,7 +34,6 @@ import DepartmentResponseInlinePanel from '../components/transaction-workspace/D
 import FollowUpLetterFormPanel from '../components/transaction-workspace/FollowUpLetterFormPanel';
 import AdminEditAssignmentFormPanel from '../components/transaction-workspace/AdminEditAssignmentFormPanel';
 import AdminEditDatesFormPanel from '../components/transaction-workspace/AdminEditDatesFormPanel';
-import AdminEditResponseFormPanel from '../components/transaction-workspace/AdminEditResponseFormPanel';
 import AdminEditTransactionResponseFormPanel from '../components/transaction-workspace/AdminEditTransactionResponseFormPanel';
 import EnableRecurringFormPanel from '../components/transaction-workspace/EnableRecurringFormPanel';
 import { departmentResponseStatusLabels } from '../components/transaction-workspace/departmentResponseStatusLabels';
@@ -192,12 +191,13 @@ const ACTION_TITLES: Record<WorkspaceAction, string> = {
   followup: 'إضافة تعقيب',
   attachment: 'إضافة مرفق',
   'reply-assignment': 'تسجيل إفادة الإدارة',
+  'admin-edit-assignment-reply': 'تعديل إفادة الإحالة',
   'reply-followup': 'تسجيل رد على التعقيب',
+  'admin-edit-followup-reply': 'تعديل الرد',
   'complete-response': 'تسجيل إفادة',
   'follow-up-letter': 'خطاب تعقيب PDF',
   'admin-edit-assignment': 'تعديل بيانات الاحالة',
   'admin-edit-dates': 'تصحيح التواريخ الحساسة (إداري)',
-  'admin-edit-response': 'تعديل بيانات الإفادة',
   'admin-edit-transaction-response': 'تعديل الإفادة',
   'enable-recurring': 'تفعيل متابعة دورية',
 };
@@ -610,13 +610,8 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     setMessage('تم تفعيل المتابعة الدورية لهذه المعاملة.');
   };
 
-  const handleAdminEditResponseSuccess = async () => {
-    resetAndCloseAction();
-    try {
-      await loadWorkspace({ silent: true });
-    } catch {
-      setError('تم الحفظ لكن تعذر تحديث بعض الأقسام. حاول تحديث الصفحة.');
-    }
+  const handleEditAssignmentReplySuccess = async () => {
+    await handleActionSuccess('تم تحديث الإفادة بنجاح.', [() => loadWorkspace({ silent: true })]);
   };
 
   const handleEditTransactionResponseSuccess = async (updated: TransactionDetail) => {
@@ -632,6 +627,10 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
 
   const handleReplyFollowUpSuccess = async () => {
     await handleActionSuccess('تم تسجيل الرد بنجاح.', [() => loadWorkspace({ silent: true })]);
+  };
+
+  const handleEditFollowUpReplySuccess = async () => {
+    await handleActionSuccess('تم تحديث الرد بنجاح.', [() => loadWorkspace({ silent: true })]);
   };
 
   const handleCompleteResponseSuccess = async (result?: { attachmentWarning?: string }) => {
@@ -759,7 +758,10 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     ? departmentResponseStatusLabels[departmentResponseStatus] ?? departmentResponseStatus
     : undefined;
   const canShowClose = canClose && !isTerminal && (!needsResponse || tx.responseCompleted);
-  const canEditTransactionResponse = canClose && tx.responseCompleted && !isTerminal;
+  const canEditTransactionResponse =
+    (isAdmin || user?.role === 'Supervisor') &&
+    tx.responseCompleted &&
+    !isTerminal;
   const showMutationActions = canEdit && !isDepartmentUser;
   const canReply = canEdit && !isDepartmentUser;
   const openAssignmentsCount = countOpenAssignments(assignments);
@@ -800,7 +802,6 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const replyAssignmentId = actionContext.replyAssignmentId;
   const replyFollowUpId = actionContext.replyFollowUpId;
   const adminEditAssignmentId = actionContext.adminEditAssignmentId;
-  const adminEditResponseId = actionContext.adminEditResponseId;
   const existingDepartmentIds = assignments.map((a) => a.departmentId);
   const isGlobalActionOpen = activeAction !== null && GLOBAL_ACTIONS.has(activeAction);
 
@@ -1018,11 +1019,11 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
       )}
 
       <div className="transaction-sections-grid">
-        <section className="card transaction-section-card" aria-label="الاحالات والردود">
+        <section className="card transaction-section-card" aria-label="الإحالات والردود">
           <div className="section-card-header">
             <div className="section-card-title">
               <span className="section-card-icon" aria-hidden>↪</span>
-              <h3>الاحالات والردود</h3>
+              <h3>الإحالات والردود</h3>
               <span className="section-card-count">{assignments.length} احالة</span>
               <span className="section-card-meta">{assignmentCardAgeText}</span>
             </div>
@@ -1095,17 +1096,29 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
             </CardActionPanel>
           )}
 
-          {activeAction === 'admin-edit-response' && adminEditResponseId && (
+          {activeAction === 'admin-edit-assignment-reply' && replyAssignmentId && (
             <CardActionPanel
-              title={ACTION_TITLES['admin-edit-response']}
+              title={ACTION_TITLES['admin-edit-assignment-reply']}
               onClose={closeAction}
-              testId="admin-edit-response-form-panel"
+              testId="admin-edit-assignment-reply-form-panel"
             >
-              <AdminEditResponseFormPanel
-                responseId={adminEditResponseId}
+              <ReplyFormPanel
+                title={ACTION_TITLES['admin-edit-assignment-reply']}
+                dateLabel="تاريخ إنجاز الإدارة"
+                dateRequiredMessage="تاريخ إنجاز الإدارة مطلوب."
+                summaryLabel="ملخص الإفادة *"
+                submitLabel="حفظ التعديلات"
+                initialValue={(() => {
+                  const editedAssignment = assignments.find((a) => a.id === replyAssignmentId);
+                  return {
+                    replyDate: (editedAssignment?.replyDate ?? editedAssignment?.responseDate ?? '').slice(0, 10),
+                    replySummary: editedAssignment?.replySummary ?? '',
+                  };
+                })()}
                 onDirtyChange={setActionDirty}
                 onCancel={closeAction}
-                onSuccess={handleAdminEditResponseSuccess}
+                onSubmit={(payload) => transactionsApi.editAssignmentReply(+id, replyAssignmentId, payload)}
+                onSuccess={handleEditAssignmentReplySuccess}
               />
             </CardActionPanel>
           )}
@@ -1148,7 +1161,11 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                   {assignments.map((a) => {
                     const replyStatusLabel = getAssignmentReplyStatusLabel(a.replyStatus);
                     const canOpenAdminAssignmentEdit = isAdmin && a.canAdminEdit === true;
-                    const canOpenAdminResponseEdit = isAdmin && Boolean(a.departmentResponseId);
+                    const canEditAssignmentReply =
+                      (isAdmin || user?.role === 'Supervisor') &&
+                      a.replyStatus === 'Replied' &&
+                      Boolean(a.replyDate || a.responseDate || a.replySummary) &&
+                      !isTerminal;
 
                     return (
                       <tr key={a.id} className={a.isOverdue ? 'row-overdue' : ''}>
@@ -1174,12 +1191,13 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                           {renderDepartmentCompletionDays(a.departmentCompletionDays)}
                         </td>
                         <td>
-                          {canOpenAdminResponseEdit ? (
+                          {canEditAssignmentReply ? (
                             <button
                               type="button"
-                              className={`badge assignment-response-status-link ${assignmentReplyBadgeClass(a.replyStatus, a.isOverdue)}`}
-                              aria-label={`تعديل إفادة إدارة ${a.departmentName}`}
-                              onClick={() => openAction('admin-edit-response', { adminEditResponseId: a.departmentResponseId! })}
+                              className="badge badge-green badge-button"
+                              aria-label="تمت الإفادة - تعديل إفادة الإحالة"
+                              title="تمت الإفادة - تعديل إفادة الإحالة"
+                              onClick={() => openAction('admin-edit-assignment-reply', { replyAssignmentId: a.id })}
                             >
                               {replyStatusLabel}
                             </button>
@@ -1200,15 +1218,6 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                               onClick={() => openAction('reply-assignment', { replyAssignmentId: a.id })}
                             >
                               تسجيل رد
-                            </button>
-                          )}
-                          {canOpenAdminResponseEdit && (
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-outline"
-                              onClick={() => openAction('admin-edit-response', { adminEditResponseId: a.departmentResponseId! })}
-                            >
-                              تعديل الإفادة
                             </button>
                           )}
                           {a.replySummary && <div className="text-muted reply-summary">{a.replySummary}</div>}
@@ -1300,6 +1309,27 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
             </CardActionPanel>
           )}
 
+          {activeAction === 'admin-edit-followup-reply' && replyFollowUpId && (
+            <CardActionPanel
+              title={ACTION_TITLES['admin-edit-followup-reply']}
+              onClose={closeAction}
+              testId="admin-edit-followup-reply-form-panel"
+            >
+              <ReplyFormPanel
+                title="تعديل الرد"
+                submitLabel="حفظ التعديلات"
+                initialValue={{
+                  replyDate: followUps.find((f) => f.id === replyFollowUpId)?.replyDate?.slice(0, 10) ?? '',
+                  replySummary: followUps.find((f) => f.id === replyFollowUpId)?.replySummary ?? '',
+                }}
+                onDirtyChange={setActionDirty}
+                onCancel={closeAction}
+                onSubmit={(payload) => transactionsApi.editFollowUpReply(+id, replyFollowUpId, payload)}
+                onSuccess={handleEditFollowUpReplySuccess}
+              />
+            </CardActionPanel>
+          )}
+
           {followUpsLoading && <LoadingInline label="جاري تحميل التعقيبات..." />}
           {followUpsError && (
             <Alert variant="error">
@@ -1324,15 +1354,34 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
               <table className="data-table data-table-compact">
                 <thead><tr><th>الرقم</th><th>التاريخ</th><th>مرسل إلى</th><th>الرد</th><th>إجراء</th></tr></thead>
                 <tbody>
-                  {followUps.map((f) => (
+                  {followUps.map((f) => {
+                    const canEditFollowUpReply =
+                      (isAdmin || user?.role === 'Supervisor') &&
+                      f.replyStatus === 'Replied' &&
+                      Boolean(f.replyDate || f.replySummary) &&
+                      !isTerminal;
+
+                    return (
                     <tr key={f.id}>
                       <td>{f.followUpNumber || '—'}</td>
                       <td><DateDisplay date={f.followUpDate} /></td>
                       <td>{f.departments?.length > 0 ? f.departments.map((d) => d.departmentName).join('، ') : f.sentTo || '—'}</td>
                       <td>
-                        <span className={`badge ${f.replyStatus === 'Replied' ? 'badge-green' : 'badge-orange'}`}>
-                          {replyStatusLabels[f.replyStatus] || f.replyStatus}
-                        </span>
+                        {canEditFollowUpReply ? (
+                          <button
+                            type="button"
+                            className="badge badge-green badge-button"
+                            aria-label="تم الرد - تعديل الرد"
+                            title="تم الرد - تعديل الرد"
+                            onClick={() => openAction('admin-edit-followup-reply', { replyFollowUpId: f.id })}
+                          >
+                            {replyStatusLabels[f.replyStatus] || f.replyStatus}
+                          </button>
+                        ) : (
+                          <span className={`badge ${f.replyStatus === 'Replied' ? 'badge-green' : 'badge-orange'}`}>
+                            {replyStatusLabels[f.replyStatus] || f.replyStatus}
+                          </span>
+                        )}
                       </td>
                       <td>
                         {f.requiresReply && f.replyStatus !== 'Replied' && canReply && (
@@ -1347,7 +1396,8 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                         {f.replySummary && <div className="text-muted reply-summary">{f.replySummary}</div>}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1402,8 +1452,9 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                 {canEditTransactionResponse ? (
                   <button
                     type="button"
-                    className="badge badge-green assignment-response-status-link"
-                    aria-label="تعديل الإفادة المسجلة"
+                    className="badge badge-green badge-button"
+                    aria-label="تمت الإفادة - تعديل الإفادة"
+                    title="تمت الإفادة - تعديل الإفادة"
                     onClick={() => openAction('admin-edit-transaction-response')}
                   >
                     تمت الإفادة
