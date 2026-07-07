@@ -255,6 +255,70 @@ public class InstitutionalReportRendererTests
     }
 
     [Fact]
+    public void RenderManifestWithMeasuredTransactionPages_RebuildsDetailsFromMeasuredChunks()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel(totalMatched: 7, exportedRows: 7);
+        model.Transactions = InstitutionalReportVisualFixtures.CreateTransactions(7);
+        var chunks = new IReadOnlyList<TransactionDetailRowDto>[]
+        {
+            model.Transactions.Take(3).ToList(),
+            model.Transactions.Skip(3).Take(4).ToList(),
+            Array.Empty<TransactionDetailRowDto>(),
+        };
+
+        var manifest = _renderer.RenderManifestWithMeasuredTransactionPages(
+            model,
+            [ReportSectionId.Cover, ReportSectionId.TransactionDetails, ReportSectionId.ReportMetadata],
+            chunks);
+
+        var detailPages = manifest.Pages.Where(p => p.SectionId == ReportSectionId.TransactionDetails).ToList();
+
+        Assert.Equal(2, detailPages.Count);
+        Assert.DoesNotContain(detailPages, page => CountTransactionRows(page.HtmlContent) == 0);
+        Assert.All(detailPages, page => Assert.Equal("ExtraWideLandscape", page.PdfProfileName));
+        Assert.Equal(Enumerable.Range(1, manifest.TotalPages), manifest.Pages.Select(p => p.OriginalPageNumber));
+        Assert.Equal(Enumerable.Range(1, manifest.TotalPages), manifest.Pages.Select(p => p.RenderedPageNumber));
+        Assert.Contains("الصفحة 2 من 4", detailPages[0].HtmlContent);
+        Assert.Contains("الصفحة 3 من 4", detailPages[1].HtmlContent);
+    }
+
+    [Fact]
+    public void BuildExportManifest_MeasuredTransactionPages_DoesNotDuplicateFootersOrBreakSelection()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel(totalMatched: 5, exportedRows: 5);
+        model.Transactions = InstitutionalReportVisualFixtures.CreateTransactions(5);
+        var chunks = new IReadOnlyList<TransactionDetailRowDto>[]
+        {
+            model.Transactions.Take(2).ToList(),
+            model.Transactions.Skip(2).ToList(),
+        };
+        var source = _renderer.RenderManifestWithMeasuredTransactionPages(
+            model,
+            [ReportSectionId.Cover, ReportSectionId.TransactionDetails, ReportSectionId.ReportMetadata],
+            chunks);
+        var selectedPages = source.Pages
+            .Where(p => p.SectionId == ReportSectionId.TransactionDetails)
+            .Select(p => p.OriginalPageNumber)
+            .ToList();
+
+        var exportManifest = _renderer.BuildExportManifest(source, selectedPages, new ReportExportRequestDto
+        {
+            IncludePartialCover = true,
+            IncludePartialManifest = true,
+            PageNumberingMode = PageNumberingMode.Restart,
+        });
+
+        Assert.Equal(4, exportManifest.Pages.Count);
+        Assert.Equal(ReportSectionId.PartialCover, exportManifest.Pages[0].SectionId);
+        Assert.Equal(ReportSectionId.PartialManifest, exportManifest.Pages[1].SectionId);
+        Assert.Equal([1, 2, 3, 4], exportManifest.Pages.Select(p => p.RenderedPageNumber));
+        Assert.All(exportManifest.Pages, page => Assert.Equal(1, CountOccurrences(page.HtmlContent, "<footer class=\"report-footer")));
+        Assert.All(
+            exportManifest.Pages.Where(p => p.SectionId == ReportSectionId.TransactionDetails),
+            page => Assert.Equal("ExtraWideLandscape", page.PdfProfileName));
+    }
+
+    [Fact]
     public void RenderManifest_UsesTableSpecificClassesAndReadableDateOrder()
     {
         var model = InstitutionalReportVisualFixtures.CreateBaseModel();
@@ -273,6 +337,9 @@ public class InstitutionalReportRendererTests
         Assert.Contains("الفترة من 2026-01-01 إلى 2026-06-15", html);
         Assert.Contains("<dt>الفترة</dt><dd>من 2026-01-01 إلى 2026-06-15</dd>", html);
     }
+
+    private static int CountTransactionRows(string html) =>
+        html.Split("<tr><td class=\"cell--id\"", StringSplitOptions.None).Length - 1;
 
     [Fact]
     public void RenderManifest_RendersAnalyticalSectionsFromUnifiedAnalysisModel()

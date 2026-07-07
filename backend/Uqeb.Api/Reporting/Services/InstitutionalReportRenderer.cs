@@ -36,7 +36,21 @@ public sealed class InstitutionalReportRenderer
     public RenderedReportManifestDto RenderManifest(
         InstitutionalReportModel model,
         IReadOnlyList<ReportSectionId> sections,
-        bool includeTransactionDetails = true)
+        bool includeTransactionDetails = true) =>
+        RenderManifestCore(model, sections, includeTransactionDetails, measuredTransactionChunks: null);
+
+    public RenderedReportManifestDto RenderManifestWithMeasuredTransactionPages(
+        InstitutionalReportModel model,
+        IReadOnlyList<ReportSectionId> sections,
+        IReadOnlyList<IReadOnlyList<TransactionDetailRowDto>> measuredTransactionChunks,
+        bool includeTransactionDetails = true) =>
+        RenderManifestCore(model, sections, includeTransactionDetails, measuredTransactionChunks);
+
+    private RenderedReportManifestDto RenderManifestCore(
+        InstitutionalReportModel model,
+        IReadOnlyList<ReportSectionId> sections,
+        bool includeTransactionDetails,
+        IReadOnlyList<IReadOnlyList<TransactionDetailRowDto>>? measuredTransactionChunks)
     {
         var pages = new List<RenderedReportPageDto>();
         var coverPageIndex = -1;
@@ -46,7 +60,7 @@ public sealed class InstitutionalReportRenderer
             if (section == ReportSectionId.Cover)
                 coverPageIndex = pages.Count;
 
-            AppendSectionPages(model, section, includeTransactionDetails, pages);
+            AppendSectionPages(model, section, includeTransactionDetails, pages, measuredTransactionChunks);
         }
 
         AppendDetailOverflowNoticeIfNeeded(model, includeTransactionDetails, pages);
@@ -76,7 +90,8 @@ public sealed class InstitutionalReportRenderer
         InstitutionalReportModel model,
         ReportSectionId section,
         bool includeTransactionDetails,
-        List<RenderedReportPageDto> pages)
+        List<RenderedReportPageDto> pages,
+        IReadOnlyList<IReadOnlyList<TransactionDetailRowDto>>? measuredTransactionChunks = null)
     {
         switch (section)
         {
@@ -126,7 +141,7 @@ public sealed class InstitutionalReportRenderer
                 pages.Add(MakePage(section, "التوصيات وخطة الإجراءات", RenderActionPlan(model)));
                 break;
             case ReportSectionId.TransactionDetails:
-                AppendTransactionDetailPages(model, includeTransactionDetails, pages);
+                AppendTransactionDetailPages(model, includeTransactionDetails, pages, measuredTransactionChunks);
                 break;
             case ReportSectionId.Appendices:
                 pages.Add(MakePage(section, "الجداول التفصيلية والملاحق", RenderAppendices(model)));
@@ -140,10 +155,9 @@ public sealed class InstitutionalReportRenderer
         }
     }
 
-    // Layout metrics for the detail tables (see .report-table--department-transactions and
-    // .report-table--transactions in institutional-report.css). These mirror the values the CSS
-    // uses, kept as named constants (not a bare row count) so the row-per-page capacity below is
-    // derived from real page geometry rather than a hardcoded literal.
+    // Fallback layout metrics for renderer-only manifests. The PDF export path for the general
+    // TransactionDetails table replaces these pages with DOM-measured chunks before final PDF
+    // rendering; DepartmentTransactions intentionally keeps the existing computed fallback path.
     private const decimal DepartmentTransactionsRowHeightMm = 11m;
     private const decimal DepartmentTransactionsHeaderReserveMm = 12m;
     private const decimal TransactionDetailsRowHeightMm = 14m;
@@ -152,7 +166,8 @@ public sealed class InstitutionalReportRenderer
     private static void AppendTransactionDetailPages(
         InstitutionalReportModel model,
         bool includeTransactionDetails,
-        List<RenderedReportPageDto> pages)
+        List<RenderedReportPageDto> pages,
+        IReadOnlyList<IReadOnlyList<TransactionDetailRowDto>>? measuredTransactionChunks = null)
     {
         if (!includeTransactionDetails)
             return;
@@ -161,6 +176,12 @@ public sealed class InstitutionalReportRenderer
             pages.Add(MakePage(ReportSectionId.TransactionDetails, "تنبيه صفوف التفاصيل", RenderDetailTruncationNotice(model)));
 
         var isDepartmentTransactions = model.Metadata.ReportType == InstitutionalReportType.DepartmentTransactions;
+        if (!isDepartmentTransactions && measuredTransactionChunks is not null)
+        {
+            AppendMeasuredTransactionDetailPages(model, measuredTransactionChunks, pages);
+            return;
+        }
+
         var rowsPerPage = isDepartmentTransactions
             ? ComputeRowsPerPage(InstitutionalReportPdfProfiles.ExtraWideLandscape, DepartmentTransactionsRowHeightMm, DepartmentTransactionsHeaderReserveMm)
             : ComputeRowsPerPage(InstitutionalReportPdfProfiles.ExtraWideLandscape, TransactionDetailsRowHeightMm, TransactionDetailsHeaderReserveMm);
@@ -170,7 +191,7 @@ public sealed class InstitutionalReportRenderer
         {
             var html = isDepartmentTransactions
                 ? RenderDepartmentTransactionDetails(model, chunk.ToList(), isFirstPage: chunkIndex == 0)
-                : RenderTransactions(model, chunk.ToList());
+                : RenderTransactions(model, chunk.ToList(), isFirstPage: true);
             pages.Add(MakePage(ReportSectionId.TransactionDetails, "المعاملات التفصيلية", html));
             chunkIndex++;
         }
@@ -179,9 +200,26 @@ public sealed class InstitutionalReportRenderer
         {
             var emptyHtml = isDepartmentTransactions
                 ? RenderDepartmentTransactionDetails(model, [], isFirstPage: true)
-                : RenderTransactions(model, []);
+                : RenderTransactions(model, [], isFirstPage: true);
             pages.Add(MakePage(ReportSectionId.TransactionDetails, "المعاملات التفصيلية", emptyHtml));
         }
+    }
+
+    private static void AppendMeasuredTransactionDetailPages(
+        InstitutionalReportModel model,
+        IReadOnlyList<IReadOnlyList<TransactionDetailRowDto>> measuredTransactionChunks,
+        List<RenderedReportPageDto> pages)
+    {
+        var chunkIndex = 0;
+        foreach (var chunk in measuredTransactionChunks.Where(chunk => chunk.Count > 0))
+        {
+            var html = RenderTransactions(model, chunk.ToList(), isFirstPage: chunkIndex == 0);
+            pages.Add(MakePage(ReportSectionId.TransactionDetails, "المعاملات التفصيلية", html));
+            chunkIndex++;
+        }
+
+        if (chunkIndex == 0 && model.Transactions.Count == 0)
+            pages.Add(MakePage(ReportSectionId.TransactionDetails, "المعاملات التفصيلية", RenderTransactions(model, [], isFirstPage: true)));
     }
 
     /// <summary>
@@ -997,7 +1035,7 @@ public sealed class InstitutionalReportRenderer
         """;
     }
 
-    private static string RenderTransactions(InstitutionalReportModel model, List<TransactionDetailRowDto> rows)
+    private static string RenderTransactions(InstitutionalReportModel model, List<TransactionDetailRowDto> rows, bool isFirstPage)
     {
         var body = string.Join(string.Empty, rows.Select(r =>
             $"<tr><td class=\"cell--id\">{Esc(r.TrackingNumber)}</td><td class=\"cell--id\">{Esc(r.IncomingNumber)}</td><td class=\"cell--date\">{FormatDate(r.IncomingDate)}</td><td class=\"cell--subject\">{Esc(r.Subject)}</td><td>{Esc(DisplayValue(r.IncomingParty))}</td><td>{Esc(NormalizeDepartmentName(r.ResponsibleDepartment))}</td><td>{Esc(DisplayValue(r.Status))}</td><td>{Esc(DisplayValue(r.FollowUpStage))}</td><td class=\"cell--number\">{r.ElapsedDays}</td><td class=\"cell--date\">{Esc(r.DueDate ?? "—")}</td><td>{Esc(DisplayValue(r.ResponseState))}</td></tr>"));
@@ -1005,7 +1043,7 @@ public sealed class InstitutionalReportRenderer
         var pageNote = rows.Count < totalResults
             ? $" — عرض {rows.Count:N0} صف في هذه الصفحة من {model.ExportedDetailRows:N0} صفًا مصدَّرًا"
             : string.Empty;
-        var truncationNote = model.DetailRowsTruncated
+        var truncationNote = isFirstPage && model.DetailRowsTruncated
             ? $"""<div class="partial-note">إجمالي النتائج المطابقة: {totalResults:N0} — صفوف التفاصيل في هذا الملف: {model.ExportedDetailRows:N0}</div>"""
             : string.Empty;
         return $"""

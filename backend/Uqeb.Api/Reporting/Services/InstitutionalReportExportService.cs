@@ -23,6 +23,7 @@ public sealed class InstitutionalReportExportService : IInstitutionalReportExpor
 
     private readonly IInstitutionalReportBuildSupport _buildSupport;
     private readonly IInstitutionalReportPdfExporter _pdfExporter;
+    private readonly IInstitutionalReportPdfPaginationMeasurer? _pdfPaginationMeasurer;
     private readonly ReportingOptions _reportingOptions;
     private readonly IReportingExportGuard _exportGuard;
     private readonly IReportingMetrics _metrics;
@@ -37,10 +38,12 @@ public sealed class InstitutionalReportExportService : IInstitutionalReportExpor
         IReportingExportGuard exportGuard,
         IReportingMetrics metrics,
         ILogger<InstitutionalReportExportService> logger,
-        IReportingCorrelationIdProvider correlationIdProvider)
+        IReportingCorrelationIdProvider correlationIdProvider,
+        IInstitutionalReportPdfPaginationMeasurer? pdfPaginationMeasurer = null)
     {
         _buildSupport = buildSupport;
         _pdfExporter = pdfExporter;
+        _pdfPaginationMeasurer = pdfPaginationMeasurer;
         _reportingOptions = reportingOptions.Value;
         _exportGuard = exportGuard;
         _metrics = metrics;
@@ -206,6 +209,31 @@ public sealed class InstitutionalReportExportService : IInstitutionalReportExpor
             context.Model,
             context.Sections,
             includeTransactionDetails: context.IncludesDetails && context.IncludeDetailsInDocument);
+
+        if (ShouldMeasureTransactionDetailsForPdf(context))
+        {
+            var preflightChunks = context.Model.Transactions
+                .Select(row => (IReadOnlyList<TransactionDetailRowDto>)new[] { row })
+                .ToList();
+            var preflightManifest = _renderer.RenderManifestWithMeasuredTransactionPages(
+                context.Model,
+                context.Sections,
+                preflightChunks,
+                includeTransactionDetails: true);
+            var preflightHtml = InstitutionalReportRenderer.RenderHtmlDocument(preflightManifest);
+            var measuredChunks = await _pdfPaginationMeasurer!.MeasureTransactionDetailChunksAsync(
+                preflightManifest,
+                preflightHtml,
+                context.Model.Transactions,
+                ct);
+
+            manifest = _renderer.RenderManifestWithMeasuredTransactionPages(
+                context.Model,
+                context.Sections,
+                measuredChunks,
+                includeTransactionDetails: true);
+        }
+
         var selectedPages = ResolveSelectedPages(context.Request, manifest);
 
         if (selectedPages.Count == 0)
@@ -279,6 +307,14 @@ public sealed class InstitutionalReportExportService : IInstitutionalReportExpor
                 context.OverflowAction),
         };
     }
+
+    private bool ShouldMeasureTransactionDetailsForPdf(ExportDocumentContext context) =>
+        context.Options.Format == ExportFormat.Pdf
+        && context.IncludesDetails
+        && context.IncludeDetailsInDocument
+        && context.Model.Metadata.ReportType != InstitutionalReportType.DepartmentTransactions
+        && context.Model.Transactions.Count > 0
+        && _pdfPaginationMeasurer is not null;
 
     private async Task<ReportExportResultDto> ExportSplitPdfZipAsync(
         InstitutionalReportModel model,
