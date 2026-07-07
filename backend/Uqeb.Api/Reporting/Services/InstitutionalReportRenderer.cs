@@ -155,8 +155,8 @@ public sealed class InstitutionalReportRenderer
         }
     }
 
-    // Fallback layout metrics for renderer-only manifests. The PDF export path for the general
-    // TransactionDetails table replaces these pages with DOM-measured chunks before final PDF
+    // Fallback layout metrics for preview/HTML and other renderer-only manifests. Final PDF export
+    // for the general TransactionDetails table replaces these pages with DOM-measured chunks before
     // rendering; DepartmentTransactions intentionally keeps the existing computed fallback path.
     private const decimal DepartmentTransactionsRowHeightMm = 11m;
     private const decimal DepartmentTransactionsHeaderReserveMm = 12m;
@@ -182,9 +182,10 @@ public sealed class InstitutionalReportRenderer
             return;
         }
 
+        var profile = InstitutionalReportPdfProfiles.ForSection(ReportSectionId.TransactionDetails);
         var rowsPerPage = isDepartmentTransactions
-            ? ComputeRowsPerPage(InstitutionalReportPdfProfiles.ExtraWideLandscape, DepartmentTransactionsRowHeightMm, DepartmentTransactionsHeaderReserveMm)
-            : ComputeRowsPerPage(InstitutionalReportPdfProfiles.ExtraWideLandscape, TransactionDetailsRowHeightMm, TransactionDetailsHeaderReserveMm);
+            ? ComputeRowsPerPage(profile, DepartmentTransactionsRowHeightMm, DepartmentTransactionsHeaderReserveMm)
+            : ComputeRowsPerPage(profile, TransactionDetailsRowHeightMm, TransactionDetailsHeaderReserveMm);
 
         var chunkIndex = 0;
         foreach (var chunk in model.Transactions.Chunk(rowsPerPage))

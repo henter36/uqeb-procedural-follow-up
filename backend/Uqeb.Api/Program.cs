@@ -88,6 +88,7 @@ builder.Services.AddScoped<IInstitutionalReportExportService, InstitutionalRepor
 builder.Services.AddScoped<Func<IInstitutionalReportExportService>>(sp => () => sp.GetRequiredService<IInstitutionalReportExportService>());
 builder.Services.AddScoped<IInstitutionalReportNumberAllocator, InstitutionalReportNumberAllocator>();
 builder.Services.AddScoped<IReportNumberSequenceSchemaProbe, ReportNumberSequenceSchemaProbe>();
+builder.Services.AddSingleton<IReportingPlaywrightBrowserHost, ReportingPlaywrightBrowserHost>();
 builder.Services.AddSingleton<IInstitutionalReportPdfExporter, InstitutionalReportPlaywrightPdfExporter>();
 builder.Services.AddSingleton<IInstitutionalReportPdfPaginationMeasurer, InstitutionalReportPdfPaginationMeasurer>();
 builder.Services.AddSingleton<IReportingMetrics, ReportingMetrics>();

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
 using Uqeb.Api.Reporting.Rendering;
@@ -248,7 +249,7 @@ public class InstitutionalReportRendererTests
         var detailPages = manifest.Pages.Where(p => p.SectionId == ReportSectionId.TransactionDetails).ToList();
         Assert.NotEmpty(detailPages);
 
-        var firstPageRowCount = detailPages[0].HtmlContent.Split("<tr><td", StringSplitOptions.None).Length - 1;
+        var firstPageRowCount = CountTableBodyRows(detailPages[0].HtmlContent);
         Assert.True(firstPageRowCount > 6, $"Expected more than 6 rows on the first page, got {firstPageRowCount}.");
 
         Assert.All(detailPages, page => Assert.Equal("ExtraWideLandscape", page.PdfProfileName));
@@ -274,7 +275,7 @@ public class InstitutionalReportRendererTests
         var detailPages = manifest.Pages.Where(p => p.SectionId == ReportSectionId.TransactionDetails).ToList();
 
         Assert.Equal(2, detailPages.Count);
-        Assert.DoesNotContain(detailPages, page => CountTransactionRows(page.HtmlContent) == 0);
+        Assert.DoesNotContain(detailPages, page => CountTableBodyRows(page.HtmlContent) == 0);
         Assert.All(detailPages, page => Assert.Equal("ExtraWideLandscape", page.PdfProfileName));
         Assert.Equal(Enumerable.Range(1, manifest.TotalPages), manifest.Pages.Select(p => p.OriginalPageNumber));
         Assert.Equal(Enumerable.Range(1, manifest.TotalPages), manifest.Pages.Select(p => p.RenderedPageNumber));
@@ -338,8 +339,23 @@ public class InstitutionalReportRendererTests
         Assert.Contains("<dt>الفترة</dt><dd>من 2026-01-01 إلى 2026-06-15</dd>", html);
     }
 
-    private static int CountTransactionRows(string html) =>
-        html.Split("<tr><td class=\"cell--id\"", StringSplitOptions.None).Length - 1;
+    private static int CountTableBodyRows(string html)
+    {
+        var tbodyMatch = Regex.Match(
+            html,
+            "<tbody[^>]*>(.*?)</tbody>",
+            RegexOptions.Singleline | RegexOptions.IgnoreCase,
+            TimeSpan.FromMilliseconds(250));
+
+        if (!tbodyMatch.Success)
+            return 0;
+
+        return Regex.Matches(
+            tbodyMatch.Groups[1].Value,
+            "<tr\\b",
+            RegexOptions.IgnoreCase,
+            TimeSpan.FromMilliseconds(250)).Count;
+    }
 
     [Fact]
     public void RenderManifest_RendersAnalyticalSectionsFromUnifiedAnalysisModel()

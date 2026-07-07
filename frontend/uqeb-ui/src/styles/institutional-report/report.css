@@ -508,6 +508,8 @@ body {
   white-space: nowrap;
 }
 
+/* General TransactionDetails density. These values affect renderer-only fallback manifests
+   and the DOM-measured PDF pagination pass, which measures the final visual row heights. */
 .report-table--transactions {
   width: 100%;
   border-collapse: collapse;

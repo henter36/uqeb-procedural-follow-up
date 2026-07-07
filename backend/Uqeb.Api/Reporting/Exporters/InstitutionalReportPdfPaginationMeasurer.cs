@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Playwright;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
@@ -18,19 +19,32 @@ public interface IInstitutionalReportPdfPaginationMeasurer
 public sealed class InstitutionalReportPdfPaginationMeasurer : IInstitutionalReportPdfPaginationMeasurer, IAsyncDisposable
 {
     private const int MaxHtmlLength = 8 * 1024 * 1024;
-    private static readonly SemaphoreSlim BrowserGate = new(1, 1);
-
-    private readonly IReportingChromiumProbe _chromiumProbe;
-    private readonly ILogger<InstitutionalReportPdfPaginationMeasurer> _logger;
-    private IPlaywright? _playwright;
-    private IBrowser? _browser;
+    private readonly IReportingPlaywrightBrowserHost _browserHost;
+    private readonly bool _ownsBrowserHost;
 
     public InstitutionalReportPdfPaginationMeasurer(
         IReportingChromiumProbe chromiumProbe,
         ILogger<InstitutionalReportPdfPaginationMeasurer> logger)
+        : this(
+            new ReportingPlaywrightBrowserHost(
+                chromiumProbe,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<ReportingPlaywrightBrowserHost>.Instance),
+            ownsBrowserHost: true)
     {
-        _chromiumProbe = chromiumProbe;
-        _logger = logger;
+    }
+
+    [ActivatorUtilitiesConstructor]
+    public InstitutionalReportPdfPaginationMeasurer(IReportingPlaywrightBrowserHost browserHost)
+        : this(browserHost, ownsBrowserHost: false)
+    {
+    }
+
+    private InstitutionalReportPdfPaginationMeasurer(
+        IReportingPlaywrightBrowserHost browserHost,
+        bool ownsBrowserHost)
+    {
+        _browserHost = browserHost;
+        _ownsBrowserHost = ownsBrowserHost;
     }
 
     public async Task<IReadOnlyList<IReadOnlyList<TransactionDetailRowDto>>> MeasureTransactionDetailChunksAsync(
@@ -51,40 +65,16 @@ public sealed class InstitutionalReportPdfPaginationMeasurer : IInstitutionalRep
         if (preflightHtmlDocument.Length > MaxHtmlLength)
             throw new InvalidOperationException("حجم HTML الخاص بقياس PDF يتجاوز الحد المسموح.");
 
-        await EnsureChromiumReadyAsync(ct);
-
-        await BrowserGate.WaitAsync(ct);
-        try
+        return await _browserHost.RunWithPageAsync("PDF pagination measurement", async (page, token) =>
         {
-            await EnsureBrowserAsync(ct);
-            await using var context = await _browser!.NewContextAsync(new BrowserNewContextOptions
-            {
-                Locale = "ar-SA",
-            });
-            var page = await context.NewPageAsync();
-
-            await page.RouteAsync("**/*", route =>
-            {
-                var url = route.Request.Url;
-                if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
-                    || url.StartsWith("about:", StringComparison.OrdinalIgnoreCase)
-                    || url.StartsWith("blob:", StringComparison.OrdinalIgnoreCase))
-                {
-                    return route.ContinueAsync();
-                }
-
-                return route.AbortAsync();
-            });
-
             await page.SetContentAsync(preflightHtmlDocument, new PageSetContentOptions
             {
                 WaitUntil = WaitUntilState.NetworkIdle,
                 Timeout = 30_000,
             });
-            ct.ThrowIfCancellationRequested();
+            token.ThrowIfCancellationRequested();
 
-            await page.EvaluateAsync("() => document.fonts ? document.fonts.ready : Promise.resolve()");
-            ct.ThrowIfCancellationRequested();
+            await _browserHost.WaitForFontsAsync(page, token);
 
             var measurement = await page.EvaluateAsync<TransactionDetailDomMeasurement>("""
                 () => {
@@ -124,7 +114,7 @@ public sealed class InstitutionalReportPdfPaginationMeasurer : IInstitutionalRep
                   };
                 }
                 """);
-            ct.ThrowIfCancellationRequested();
+            token.ThrowIfCancellationRequested();
 
             if (measurement.RowHeights.Count != sourceRows.Count)
             {
@@ -140,16 +130,7 @@ public sealed class InstitutionalReportPdfPaginationMeasurer : IInstitutionalRep
             return ranges
                 .Select(range => (IReadOnlyList<TransactionDetailRowDto>)sourceRows.Skip(range.Start).Take(range.Count).ToList())
                 .ToList();
-        }
-        catch (PlaywrightException ex) when (IsMissingChromiumExecutable(ex))
-        {
-            _logger.LogWarning(ex, "Chromium executable is missing during PDF pagination measurement.");
-            throw CreateChromiumUnavailableException();
-        }
-        finally
-        {
-            BrowserGate.Release();
-        }
+        }, ct);
     }
 
     internal static IReadOnlyList<TransactionDetailRowRange> BuildMeasuredChunks(
@@ -191,59 +172,10 @@ public sealed class InstitutionalReportPdfPaginationMeasurer : IInstitutionalRep
         return chunks;
     }
 
-    private async Task EnsureChromiumReadyAsync(CancellationToken ct)
-    {
-        var probe = await _chromiumProbe.ProbeAsync(ct);
-        if (probe.State == ReportingChromiumProbeState.Ready)
-            return;
-
-        _logger.LogWarning(
-            "PDF pagination measurement blocked because Chromium is unavailable. ProbeState={ProbeState} Summary={Summary}",
-            probe.State,
-            probe.Summary);
-        throw CreateChromiumUnavailableException();
-    }
-
-    private static ReportingConfigurationException CreateChromiumUnavailableException() =>
-        new(
-            ReportingErrorCodes.ChromiumUnavailable,
-            "متصفح Chromium غير متاح لتصدير PDF. ثبّت Chromium عبر playwright.ps1 install chromium كما في README.");
-
-    private static bool IsMissingChromiumExecutable(PlaywrightException ex) =>
-        ex.Message.Contains("Executable doesn't exist", StringComparison.OrdinalIgnoreCase);
-
-    private async Task EnsureBrowserAsync(CancellationToken ct)
-    {
-        if (_browser is { IsConnected: true })
-            return;
-
-        try
-        {
-            _playwright ??= await Playwright.CreateAsync();
-            _browser = await _playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
-            {
-                Headless = true,
-                Args = ["--font-render-hinting=none", "--disable-dev-shm-usage"],
-            });
-            ct.ThrowIfCancellationRequested();
-        }
-        catch (PlaywrightException ex) when (IsMissingChromiumExecutable(ex))
-        {
-            _logger.LogWarning(ex, "Chromium executable is missing during pagination browser launch.");
-            throw CreateChromiumUnavailableException();
-        }
-    }
-
     public async ValueTask DisposeAsync()
     {
-        if (_browser is not null)
-        {
-            await _browser.DisposeAsync();
-            _browser = null;
-        }
-
-        _playwright?.Dispose();
-        _playwright = null;
+        if (_ownsBrowserHost && _browserHost is IAsyncDisposable disposable)
+            await disposable.DisposeAsync();
     }
 
     private sealed class TransactionDetailDomMeasurement
