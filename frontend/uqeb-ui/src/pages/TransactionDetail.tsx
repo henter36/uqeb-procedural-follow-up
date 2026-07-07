@@ -160,17 +160,22 @@ type MetricTileProps = Readonly<{
 function MetricTile({
   label, value, hint, tileClassName, valueClassName, testId,
 }: MetricTileProps) {
+  const tileClasses = ['transaction-metric-tile', tileClassName].filter(Boolean).join(' ');
+  const valueClasses = ['transaction-metric-value', valueClassName].filter(Boolean).join(' ');
+
   return (
-    <div className={`transaction-metric-tile${tileClassName ? ` ${tileClassName}` : ''}`} data-testid={testId}>
+    <div className={tileClasses} data-testid={testId}>
       <span className="transaction-metric-label">
         {label}
         {hint && (
-          <Tooltip content={hint} className="metric-hint-tooltip">
-            <span className="metric-hint-icon" aria-hidden="true">ⓘ</span>
-          </Tooltip>
+          <Tooltip
+            content={hint}
+            className="metric-hint-tooltip"
+            triggerLabel={`شرح مؤشر ${label}`}
+          />
         )}
       </span>
-      <span className={`transaction-metric-value${valueClassName ? ` ${valueClassName}` : ''}`}>{value}</span>
+      <span className={valueClasses}>{value}</span>
     </div>
   );
 }

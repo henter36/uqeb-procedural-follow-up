@@ -2318,7 +2318,24 @@
   position: relative;
   display: inline-flex;
   align-items: center;
-  outline: none;
+}
+
+.tooltip-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  cursor: help;
+  font: inherit;
+}
+
+.tooltip-trigger:focus-visible {
+  outline: 2px solid var(--color-primary, #123f32);
+  outline-offset: 2px;
+  border-radius: 999px;
 }
 
 .metric-hint-icon {
@@ -2327,7 +2344,6 @@
   justify-content: center;
   font-size: 0.7rem;
   color: var(--color-text-muted);
-  cursor: help;
 }
 
 .tooltip-bubble {
@@ -2350,8 +2366,7 @@
 }
 
 .tooltip-wrapper:hover .tooltip-bubble,
-.tooltip-wrapper:focus .tooltip-bubble,
-.tooltip-wrapper:focus-visible .tooltip-bubble {
+.tooltip-wrapper:has(.tooltip-trigger:focus-visible) .tooltip-bubble {
   opacity: 1;
   visibility: visible;
 }

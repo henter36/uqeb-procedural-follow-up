@@ -1715,8 +1715,8 @@ describe('TransactionDetailPage indicators, action grouping, card order, and nav
     const tooltip = within(tile as HTMLElement).getByRole('tooltip', { hidden: true });
     expect(tooltip).toHaveTextContent('بداية عمر المعاملة وأيام الإنجاز');
     expect(tooltip).toHaveAttribute('id');
-    const wrapper = tooltip.closest('[tabindex="0"]');
-    expect(wrapper).toHaveAttribute('aria-describedby', tooltip.getAttribute('id'));
+    const trigger = within(tile as HTMLElement).getByRole('button', { name: 'شرح مؤشر تاريخ الوارد' });
+    expect(trigger).toHaveAttribute('aria-describedby', tooltip.getAttribute('id'));
   });
 
   it('includes حالة الإجراء الحالية as one of the transaction indicator tiles', async () => {
