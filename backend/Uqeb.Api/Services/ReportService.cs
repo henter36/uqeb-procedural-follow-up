@@ -520,10 +520,13 @@ public class ReportService : IReportService
                 IsOverdueWhilePending = t.RequiresResponse && t.ResponseDueDate.HasValue
                     && !t.ResponseCompleted && t.Status != TransactionStatus.Closed
                     && t.ResponseDueDate.Value.Date < today,
-                IsOverdueAfterCompletion = t.RequiresResponse && t.ResponseDueDate.HasValue
+                IsLateClosedCompletion = t.RequiresResponse && t.ResponseDueDate.HasValue
                     && (t.ResponseCompleted || t.Status == TransactionStatus.Closed)
-                    && ((t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date)
-                        || (!t.ClosedAt.HasValue && t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date)),
+                    && t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date,
+                IsLateResponseCompletion = t.RequiresResponse && t.ResponseDueDate.HasValue
+                    && (t.ResponseCompleted || t.Status == TransactionStatus.Closed)
+                    && !t.ClosedAt.HasValue && t.ResponseCompletedDate.HasValue
+                    && t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date,
                 IsWaitingForReply = t.Status == TransactionStatus.WaitingForReply,
                 IsPartiallyReplied = t.Status == TransactionStatus.PartiallyReplied,
                 IsReadyForResponse = t.Status == TransactionStatus.ReadyForResponse,
@@ -540,7 +543,7 @@ public class ReportService : IReportService
                 TotalOpen = g.Count(x => x.IsOpen),
                 NewCount = g.Count(x => x.IsNew),
                 RequiresResponsePending = g.Count(x => x.RequiresResponsePending),
-                ResponseOverdueCount = g.Count(x => x.IsOverdueWhilePending || x.IsOverdueAfterCompletion),
+                ResponseOverdueCount = g.Count(x => x.IsOverdueWhilePending || x.IsLateClosedCompletion || x.IsLateResponseCompletion),
                 WaitingForReply = g.Count(x => x.IsWaitingForReply),
                 PartiallyReplied = g.Count(x => x.IsPartiallyReplied),
                 ReadyForResponse = g.Count(x => x.IsReadyForResponse),
@@ -548,7 +551,7 @@ public class ReportService : IReportService
                 ClosedCount = g.Count(x => x.IsClosed),
                 ClosedThisMonth = g.Count(x => x.IsClosedThisMonth),
                 ClosedWithCompletionDays = g.Count(x => x.IsClosedWithCompletionDays),
-                OverdueCount = g.Count(x => x.IsOverdueWhilePending || x.IsOverdueAfterCompletion || x.HasOverdueAssignment)
+                OverdueCount = g.Count(x => x.IsOverdueWhilePending || x.IsLateClosedCompletion || x.IsLateResponseCompletion || x.HasOverdueAssignment)
             })
             .FirstOrDefaultAsync();
 
