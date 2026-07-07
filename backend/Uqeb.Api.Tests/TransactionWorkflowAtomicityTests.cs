@@ -166,6 +166,12 @@ public class TransactionWorkflowAtomicityTests
             CategoryId = 1
         };
 
+    // Mirrors TransactionService.GetSaudiToday() (UTC+3) so this is always strictly
+    // after "today" regardless of the UTC time of day the test happens to run at;
+    // DateTime.UtcNow.Date.AddDays(1) is not always future once Saudi time has
+    // already rolled over to the next day (UTC 21:00-24:00).
+    private static DateTime DayAfterSaudiToday() => DateTime.UtcNow.AddHours(3).Date.AddDays(1);
+
     private static async Task PrepareTransactionForCloseAsync(AppDbContext db, int transactionId)
     {
         var transaction = await db.Transactions
@@ -369,7 +375,7 @@ public class TransactionWorkflowAtomicityTests
             service.AddAssignmentAsync(created!.Id, new CreateAssignmentRequest
             {
                 DepartmentId = 11,
-                AssignedDate = DateTime.UtcNow.Date.AddDays(1),
+                AssignedDate = DayAfterSaudiToday(),
                 RequiredAction = "متابعة",
                 ReplyDueDays = 5
             }, userId: 1));
@@ -416,7 +422,7 @@ public class TransactionWorkflowAtomicityTests
             service.ReplyAssignmentAsync(
                 created.Id,
                 assignment.Id,
-                new ReplyAssignmentRequest { ReplyDate = DateTime.UtcNow.Date.AddDays(1), ReplySummary = "تم" },
+                new ReplyAssignmentRequest { ReplyDate = DayAfterSaudiToday(), ReplySummary = "تم" },
                 new TestCurrentUser(1, UserRole.Admin)));
 
         Assert.Equal("لا يمكن أن يكون التاريخ بعد تاريخ اليوم.", ex.FieldErrors[nameof(ReplyAssignmentRequest.ReplyDate)]);

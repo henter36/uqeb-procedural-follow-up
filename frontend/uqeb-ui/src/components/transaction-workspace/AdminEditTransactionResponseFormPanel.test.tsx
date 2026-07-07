@@ -119,8 +119,19 @@ describe('AdminEditTransactionResponseFormPanel', () => {
       outgoingNumber: 'OUT-1',
       outgoingDate: '2026-01-10',
     });
+    const updatedTx = { ...tx, responseSummary: 'ملخص أصلي إضافة' };
+    vi.mocked(services.transactionsApi.editResponse).mockResolvedValue({ data: updatedTx } as never);
+    const onSuccess = vi.fn();
 
-    renderPanel(tx);
+    render(
+      <AdminEditTransactionResponseFormPanel
+        transactionId={1}
+        transaction={tx}
+        onDirtyChange={vi.fn()}
+        onCancel={vi.fn()}
+        onSuccess={onSuccess}
+      />,
+    );
 
     expect(screen.getByLabelText('رقم الصادر *')).toBeInTheDocument();
     const summaryField = screen.getByLabelText('ملخص الإفادة *');
@@ -128,5 +139,12 @@ describe('AdminEditTransactionResponseFormPanel', () => {
     await user.click(screen.getByRole('button', { name: 'حفظ التعديلات' }));
 
     await waitFor(() => expect(services.transactionsApi.editResponse).toHaveBeenCalledTimes(1));
+    expect(services.transactionsApi.editResponse).toHaveBeenCalledWith(1, expect.objectContaining({
+      responseSummary: 'ملخص أصلي إضافة',
+      outgoingNumber: 'OUT-1',
+    }));
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledWith(updatedTx));
+    expect(screen.queryByText('تعذر حفظ التعديلات')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });
