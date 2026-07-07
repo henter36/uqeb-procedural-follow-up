@@ -454,86 +454,52 @@ public class ReportService : IReportService
     public Task<ReportSectionCountsDto> GetPageSummaryAsync(ReportFilterRequest? filter = null) =>
         GetSectionCountsAsync(filter, DateTime.UtcNow);
 
-    private sealed record SectionCountsRow(
-        bool RequiresResponse,
-        bool ResponseCompleted,
-        bool HasOpenAssignment,
-        bool HasRepliedAssignment,
-        bool IsWaitingOrPartial,
-        bool IsOpen,
-        bool IsResponseOverdue,
-        bool IsAssignmentOverdue);
-
-    private static IQueryable<SectionCountsRow> ProjectSectionCountsRows(IQueryable<Models.Entities.Transaction> query, DateTime today) =>
-        query.Select(t => new SectionCountsRow(
-            t.RequiresResponse,
-            t.ResponseCompleted,
-            t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
-                && a.Status == AssignmentStatus.Active),
-            t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus == ReplyStatus.Replied),
-            t.Status == TransactionStatus.WaitingForReply || t.Status == TransactionStatus.PartiallyReplied,
-            t.Status != TransactionStatus.Closed
-                && t.Status != TransactionStatus.Cancelled
-                && t.Status != TransactionStatus.Archived,
-            t.RequiresResponse && t.ResponseDueDate.HasValue &&
-                ((!t.ResponseCompleted && t.Status != TransactionStatus.Closed && t.ResponseDueDate.Value.Date < today) ||
-                 ((t.ResponseCompleted || t.Status == TransactionStatus.Closed) &&
-                  ((t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date) ||
-                   (!t.ClosedAt.HasValue && t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date)))),
-            t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
-                && a.Status == AssignmentStatus.Active && a.DueDate.HasValue && a.DueDate.Value.Date < today)));
-
+    // EF Core cannot translate a Count/Sum predicate that constructs a record (or any type) and then
+    // reads a member off it (e.g. `g.Count(e => new SomeRow(...).SomeProperty)`); the query provider
+    // re-inlines the projection into the predicate and fails to simplify the resulting
+    // "new SomeRow(...).Member" expression once one of the constructor arguments is a correlated
+    // subquery (an Assignments.Any(...) call). Every Count/Sum predicate below is therefore written
+    // as a direct boolean expression over the Transaction entity (and its Assignments navigation),
+    // even where that duplicates a condition used by more than one counter.
     private async Task<ReportSectionCountsDto> GetSectionCountsAsync(ReportFilterRequest? filter, DateTime now)
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
         var today = now.Date;
         var query = ApplyReportFilter(db.Transactions.AsNoTracking(), filter);
-        var counts = await ProjectSectionCountsRows(query, today)
+        var counts = await query
             .GroupBy(_ => 1)
             .Select(g => new ReportSectionCountsDto
             {
-                ResponseRequired = g.Count(x => x.RequiresResponse && !x.ResponseCompleted),
-                OverdueResponses = g.Count(x => x.IsResponseOverdue),
-                OpenAssignments = g.Count(x => x.HasOpenAssignment),
-                PartialReplies = g.Count(x => x.HasRepliedAssignment && x.HasOpenAssignment),
-                Overdue = g.Count(x => x.IsResponseOverdue || x.IsAssignmentOverdue),
-                WaitingReply = g.Count(x => x.IsWaitingOrPartial),
-                Open = g.Count(x => x.IsOpen)
+                ResponseRequired = g.Count(t => t.RequiresResponse && !t.ResponseCompleted),
+                OverdueResponses = g.Count(t =>
+                    t.RequiresResponse && t.ResponseDueDate.HasValue &&
+                    ((!t.ResponseCompleted && t.Status != TransactionStatus.Closed && t.ResponseDueDate.Value.Date < today) ||
+                     ((t.ResponseCompleted || t.Status == TransactionStatus.Closed) &&
+                      ((t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date) ||
+                       (!t.ClosedAt.HasValue && t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date))))),
+                OpenAssignments = g.Count(t => t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
+                    && a.Status == AssignmentStatus.Active)),
+                PartialReplies = g.Count(t =>
+                    t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus == ReplyStatus.Replied) &&
+                    t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied && a.Status == AssignmentStatus.Active)),
+                Overdue = g.Count(t =>
+                    (t.RequiresResponse && t.ResponseDueDate.HasValue &&
+                     ((!t.ResponseCompleted && t.Status != TransactionStatus.Closed && t.ResponseDueDate.Value.Date < today) ||
+                      ((t.ResponseCompleted || t.Status == TransactionStatus.Closed) &&
+                       ((t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date) ||
+                        (!t.ClosedAt.HasValue && t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date)))))
+                    ||
+                    t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
+                        && a.Status == AssignmentStatus.Active && a.DueDate.HasValue && a.DueDate.Value.Date < today)),
+                WaitingReply = g.Count(t => t.Status == TransactionStatus.WaitingForReply || t.Status == TransactionStatus.PartiallyReplied),
+                Open = g.Count(t => t.Status != TransactionStatus.Closed
+                    && t.Status != TransactionStatus.Cancelled
+                    && t.Status != TransactionStatus.Archived)
             })
             .FirstOrDefaultAsync();
 
         return counts ?? new ReportSectionCountsDto();
     }
-
-    private sealed record DashboardStatsRow(
-        TransactionStatus Status,
-        bool RequiresResponse,
-        bool ResponseCompleted,
-        bool IsOpen,
-        bool IsClosedThisMonth,
-        bool IsClosedWithCompletionDays,
-        bool IsResponseOverdue,
-        bool IsAssignmentOverdue);
-
-    private static IQueryable<DashboardStatsRow> ProjectDashboardStatsRows(
-        IQueryable<Models.Entities.Transaction> query, DateTime today, DateTime monthStart) =>
-        query.Select(t => new DashboardStatsRow(
-            t.Status,
-            t.RequiresResponse,
-            t.ResponseCompleted,
-            t.Status != TransactionStatus.Closed
-                && t.Status != TransactionStatus.Cancelled
-                && t.Status != TransactionStatus.Archived,
-            t.Status == TransactionStatus.Closed
-                && t.ClosedAt.HasValue && t.ClosedAt.Value >= monthStart,
-            t.Status == TransactionStatus.Closed && t.ClosedAt.HasValue,
-            t.RequiresResponse && t.ResponseDueDate.HasValue &&
-                ((!t.ResponseCompleted && t.Status != TransactionStatus.Closed && t.ResponseDueDate.Value.Date < today) ||
-                 ((t.ResponseCompleted || t.Status == TransactionStatus.Closed) &&
-                  ((t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date) ||
-                   (!t.ClosedAt.HasValue && t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date)))),
-            t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
-                && a.Status == AssignmentStatus.Active && a.DueDate.HasValue && a.DueDate.Value.Date < today)));
 
     private async Task<DashboardAggregateStats?> LoadDashboardAggregateStatsAsync(DateTime now)
     {
@@ -541,22 +507,37 @@ public class ReportService : IReportService
         var monthStart = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
 
         await using var db = await _dbFactory.CreateDbContextAsync();
-        var stats = await ProjectDashboardStatsRows(db.Transactions.AsNoTracking(), today, monthStart)
+        var stats = await db.Transactions.AsNoTracking()
             .GroupBy(_ => 1)
             .Select(g => new DashboardAggregateStats
             {
-                TotalOpen = g.Count(x => x.IsOpen),
-                NewCount = g.Count(x => x.Status == TransactionStatus.New),
-                RequiresResponsePending = g.Count(x => x.RequiresResponse && !x.ResponseCompleted),
-                ResponseOverdueCount = g.Count(x => x.IsResponseOverdue),
-                WaitingForReply = g.Count(x => x.Status == TransactionStatus.WaitingForReply),
-                PartiallyReplied = g.Count(x => x.Status == TransactionStatus.PartiallyReplied),
-                ReadyForResponse = g.Count(x => x.Status == TransactionStatus.ReadyForResponse),
-                ResponseCompleted = g.Count(x => x.ResponseCompleted),
-                ClosedCount = g.Count(x => x.Status == TransactionStatus.Closed),
-                ClosedThisMonth = g.Count(x => x.IsClosedThisMonth),
-                ClosedWithCompletionDays = g.Count(x => x.IsClosedWithCompletionDays),
-                OverdueCount = g.Count(x => x.IsResponseOverdue || x.IsAssignmentOverdue)
+                TotalOpen = g.Count(t => t.Status != TransactionStatus.Closed
+                    && t.Status != TransactionStatus.Cancelled
+                    && t.Status != TransactionStatus.Archived),
+                NewCount = g.Count(t => t.Status == TransactionStatus.New),
+                RequiresResponsePending = g.Count(t => t.RequiresResponse && !t.ResponseCompleted),
+                ResponseOverdueCount = g.Count(t =>
+                    t.RequiresResponse && t.ResponseDueDate.HasValue &&
+                    ((!t.ResponseCompleted && t.Status != TransactionStatus.Closed && t.ResponseDueDate.Value.Date < today) ||
+                     ((t.ResponseCompleted || t.Status == TransactionStatus.Closed) &&
+                      ((t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date) ||
+                       (!t.ClosedAt.HasValue && t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date))))),
+                WaitingForReply = g.Count(t => t.Status == TransactionStatus.WaitingForReply),
+                PartiallyReplied = g.Count(t => t.Status == TransactionStatus.PartiallyReplied),
+                ReadyForResponse = g.Count(t => t.Status == TransactionStatus.ReadyForResponse),
+                ResponseCompleted = g.Count(t => t.ResponseCompleted),
+                ClosedCount = g.Count(t => t.Status == TransactionStatus.Closed),
+                ClosedThisMonth = g.Count(t => t.Status == TransactionStatus.Closed && t.ClosedAt.HasValue && t.ClosedAt.Value >= monthStart),
+                ClosedWithCompletionDays = g.Count(t => t.Status == TransactionStatus.Closed && t.ClosedAt.HasValue),
+                OverdueCount = g.Count(t =>
+                    (t.RequiresResponse && t.ResponseDueDate.HasValue &&
+                     ((!t.ResponseCompleted && t.Status != TransactionStatus.Closed && t.ResponseDueDate.Value.Date < today) ||
+                      ((t.ResponseCompleted || t.Status == TransactionStatus.Closed) &&
+                       ((t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date) ||
+                        (!t.ClosedAt.HasValue && t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date)))))
+                    ||
+                    t.Assignments.Any(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied
+                        && a.Status == AssignmentStatus.Active && a.DueDate.HasValue && a.DueDate.Value.Date < today))
             })
             .FirstOrDefaultAsync();
 
