@@ -1195,4 +1195,183 @@ public class AssignmentResponseDatesTests
         Assert.Equal("إفادة الشؤون الإدارية", persistedAdminAffairs.ReplySummary);
         Assert.Equal(incomingDate, persistedAdminAffairs.ReplyDate);
     }
+
+    // ── Procedural completion for reporting (workspace DTO wiring) ─────────────
+
+    [Fact]
+    public async Task GetBasicByIdAsync_SingleRequiredReferral_ExposesItsReplyDateAsProceduralCompletionDate()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(GetBasicByIdAsync_SingleRequiredReferral_ExposesItsReplyDateAsProceduralCompletionDate));
+        var incomingDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        await SeedTransactionAsync(db, 1, incomingDate);
+        var replyDate = new DateTime(2026, 7, 7, 0, 0, 0, DateTimeKind.Utc);
+        db.Assignments.Add(new Assignment
+        {
+            Id = 501,
+            TransactionId = 1,
+            DepartmentId = 10,
+            AssignedDate = incomingDate,
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Replied,
+            ReplyDate = replyDate,
+            Status = AssignmentStatus.Completed,
+            CreatedById = 1,
+            CreatedAt = incomingDate
+        });
+        await db.SaveChangesAsync();
+
+        var result = await service.GetBasicByIdAsync(1, new TestCurrentUser(UserRole.Admin));
+
+        Assert.NotNull(result);
+        Assert.True(result!.IsProcedurallyCompleteForReporting);
+        Assert.Equal(replyDate, result.ProceduralCompletionDateForReporting);
+        // Never implies actual closure or a formally-registered final response.
+        Assert.NotEqual("Closed", result.Status);
+        Assert.False(result.ResponseCompleted);
+    }
+
+    [Fact]
+    public async Task GetBasicByIdAsync_MultipleRequiredReferrals_ExposesLatestReplyDateAsProceduralCompletionDate()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(GetBasicByIdAsync_MultipleRequiredReferrals_ExposesLatestReplyDateAsProceduralCompletionDate));
+        var incomingDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        await SeedTransactionAsync(db, 1, incomingDate);
+        db.Assignments.AddRange(
+            new Assignment
+            {
+                Id = 501,
+                TransactionId = 1,
+                DepartmentId = 10,
+                AssignedDate = incomingDate,
+                RequiresReply = true,
+                ReplyStatus = ReplyStatus.Replied,
+                ReplyDate = new DateTime(2026, 7, 5, 0, 0, 0, DateTimeKind.Utc),
+                Status = AssignmentStatus.Completed,
+                CreatedById = 1,
+                CreatedAt = incomingDate
+            },
+            new Assignment
+            {
+                Id = 502,
+                TransactionId = 1,
+                DepartmentId = 20,
+                AssignedDate = incomingDate,
+                RequiresReply = true,
+                ReplyStatus = ReplyStatus.Replied,
+                ReplyDate = new DateTime(2026, 7, 9, 0, 0, 0, DateTimeKind.Utc),
+                Status = AssignmentStatus.Completed,
+                CreatedById = 1,
+                CreatedAt = incomingDate
+            });
+        await db.SaveChangesAsync();
+
+        var result = await service.GetBasicByIdAsync(1, new TestCurrentUser(UserRole.Admin));
+
+        Assert.NotNull(result);
+        Assert.True(result!.IsProcedurallyCompleteForReporting);
+        Assert.Equal(new DateTime(2026, 7, 9, 0, 0, 0, DateTimeKind.Utc), result.ProceduralCompletionDateForReporting);
+    }
+
+    [Fact]
+    public async Task GetBasicByIdAsync_IncompleteReferral_HasNullProceduralCompletionDate()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(GetBasicByIdAsync_IncompleteReferral_HasNullProceduralCompletionDate));
+        var incomingDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        await SeedTransactionAsync(db, 1, incomingDate);
+        db.Assignments.AddRange(
+            new Assignment
+            {
+                Id = 501,
+                TransactionId = 1,
+                DepartmentId = 10,
+                AssignedDate = incomingDate,
+                RequiresReply = true,
+                ReplyStatus = ReplyStatus.Replied,
+                ReplyDate = new DateTime(2026, 7, 5, 0, 0, 0, DateTimeKind.Utc),
+                Status = AssignmentStatus.Completed,
+                CreatedById = 1,
+                CreatedAt = incomingDate
+            },
+            new Assignment
+            {
+                Id = 502,
+                TransactionId = 1,
+                DepartmentId = 20,
+                AssignedDate = incomingDate,
+                RequiresReply = true,
+                ReplyStatus = ReplyStatus.Pending,
+                Status = AssignmentStatus.Active,
+                CreatedById = 1,
+                CreatedAt = incomingDate
+            });
+        await db.SaveChangesAsync();
+
+        var result = await service.GetBasicByIdAsync(1, new TestCurrentUser(UserRole.Admin));
+
+        Assert.NotNull(result);
+        Assert.False(result!.IsProcedurallyCompleteForReporting);
+        Assert.Null(result.ProceduralCompletionDateForReporting);
+    }
+
+    [Fact]
+    public async Task GetBasicByIdAsync_CancelledReferral_DoesNotBlockProceduralCompletion()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(GetBasicByIdAsync_CancelledReferral_DoesNotBlockProceduralCompletion));
+        var incomingDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        await SeedTransactionAsync(db, 1, incomingDate);
+        var replyDate = new DateTime(2026, 7, 7, 0, 0, 0, DateTimeKind.Utc);
+        db.Assignments.AddRange(
+            new Assignment
+            {
+                Id = 501,
+                TransactionId = 1,
+                DepartmentId = 10,
+                AssignedDate = incomingDate,
+                RequiresReply = true,
+                ReplyStatus = ReplyStatus.Replied,
+                ReplyDate = replyDate,
+                Status = AssignmentStatus.Completed,
+                CreatedById = 1,
+                CreatedAt = incomingDate
+            },
+            new Assignment
+            {
+                Id = 502,
+                TransactionId = 1,
+                DepartmentId = 20,
+                AssignedDate = incomingDate,
+                RequiresReply = true,
+                ReplyStatus = ReplyStatus.Pending,
+                ReplyDate = null,
+                Status = AssignmentStatus.Cancelled,
+                CreatedById = 1,
+                CreatedAt = incomingDate
+            });
+        await db.SaveChangesAsync();
+
+        var result = await service.GetBasicByIdAsync(1, new TestCurrentUser(UserRole.Admin));
+
+        Assert.NotNull(result);
+        Assert.True(result!.IsProcedurallyCompleteForReporting);
+        Assert.Equal(replyDate, result.ProceduralCompletionDateForReporting);
+        Assert.NotEqual("Closed", result.Status);
+        Assert.False(result.ResponseCompleted);
+    }
+
+    [Fact]
+    public async Task GetBasicByIdAsync_NoReferrals_UsesManualResponseCompletedDate()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(GetBasicByIdAsync_NoReferrals_UsesManualResponseCompletedDate));
+        var incomingDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var t = await SeedTransactionAsync(db, 1, incomingDate);
+        t.ResponseCompleted = true;
+        t.ResponseCompletedDate = new DateTime(2026, 1, 10, 0, 0, 0, DateTimeKind.Utc);
+        await db.SaveChangesAsync();
+
+        var result = await service.GetBasicByIdAsync(1, new TestCurrentUser(UserRole.Admin));
+
+        Assert.NotNull(result);
+        Assert.False(result!.IsProcedurallyCompleteForReporting);
+        Assert.Equal(t.ResponseCompletedDate, result.ProceduralCompletionDateForReporting);
+    }
 }

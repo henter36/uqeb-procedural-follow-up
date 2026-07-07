@@ -71,6 +71,17 @@ public class TransactionDetailDto : TransactionListDto
     public string ResponseType { get; set; } = string.Empty;
     public int? ResponseDueDays { get; set; }
     public DateTime? ResponseCompletedDate { get; set; }
+    /// <summary>
+    /// Reporting-only "effective response completed" date derived from department assignment
+    /// replies (see WorkflowHelper.ResolveProceduralCompletionDateForReporting). Never implies
+    /// the transaction is Closed or that ResponseCompleted has been set.
+    /// </summary>
+    public DateTime? ProceduralCompletionDateForReporting { get; set; }
+    /// <summary>
+    /// True only when the transaction has department referrals requiring a reply and all of
+    /// them have replied — i.e. procedurally done, awaiting the final response registration.
+    /// </summary>
+    public bool IsProcedurallyCompleteForReporting { get; set; }
     public string? ResponseSummary { get; set; }
     public string? Category { get; set; }
     public string? Notes { get; set; }

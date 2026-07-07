@@ -769,13 +769,10 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     ? 'عمر المعاملة: غير متاح'
     : `عمر المعاملة: ${workspaceAgeDays} يوم`;
 
-  // Derive effective close date from assignments when ClosedAt is not set
-  const requiredAssignments = assignments.filter((a) => a.requiresReply && a.status !== 'Cancelled');
-  const allRequiredHaveResponse = requiredAssignments.length > 0 && requiredAssignments.every((a) => a.responseDate != null);
-  const derivedCompletionDate: string | null = allRequiredHaveResponse
-    ? requiredAssignments.reduce<string | null>((max, a) => (!max || a.responseDate! > max ? a.responseDate! : max), null)
-    : null;
-  const effectiveCompletionDate = tx.completionDate ?? derivedCompletionDate;
+  // ProceduralCompletionDateForReporting is the backend's authoritative "all required
+  // department referrals replied" completion date — it never implies the transaction is
+  // Closed or ResponseCompleted, just that reporting can treat it as procedurally done.
+  const effectiveCompletionDate = tx.completionDate ?? tx.proceduralCompletionDateForReporting ?? null;
   const toUtcDateOnlyTime = (value: string) => {
     const date = new Date(value);
     return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
@@ -874,6 +871,15 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
             )}
           </div>
         </div>
+
+        {!isTerminal && tx.isProcedurallyCompleteForReporting && !tx.responseCompleted && (
+          <Alert variant="info">
+            <span>المعاملة مكتملة إجرائيًا وتنتظر اعتماد الإفادة النهائية.</span>
+            {tx.proceduralCompletionDateForReporting && (
+              <> {'تاريخ الإفادة المقترح: '}<DateDisplay date={tx.proceduralCompletionDateForReporting} />.</>
+            )}
+          </Alert>
+        )}
 
         <div className="transaction-metric-grid">
           <MetricTile
@@ -1010,6 +1016,11 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
             <CompleteResponseFormPanel
               transactionId={+id}
               responseType={tx.responseType}
+              suggestedResponseDate={
+                tx.isProcedurallyCompleteForReporting
+                  ? tx.proceduralCompletionDateForReporting ?? undefined
+                  : undefined
+              }
               onDirtyChange={setActionDirty}
               onCancel={closeAction}
               onSuccess={handleCompleteResponseSuccess}

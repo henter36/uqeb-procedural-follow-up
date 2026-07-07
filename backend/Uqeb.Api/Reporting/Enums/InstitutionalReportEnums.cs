@@ -91,7 +91,12 @@ public enum FollowUpStage
     PartialReply = 3,
     UnderProcessing = 4,
     Overdue = 5,
-    CompletedLate = 6
+    CompletedLate = 6,
+    /// <summary>
+    /// All required department referrals have replied, but the final response has not been
+    /// registered/approved yet — procedurally done, waiting on administrative sign-off only.
+    /// </summary>
+    PendingAdministrativeReview = 7
 }
 
 public enum RecommendationSource

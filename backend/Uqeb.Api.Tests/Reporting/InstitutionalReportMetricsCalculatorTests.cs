@@ -113,6 +113,125 @@ public class InstitutionalReportMetricsCalculatorTests
         Assert.Equal(result.OverdueCount, result.OpenOverdueCount + result.CompletedLateCount);
     }
 
+    // ── Procedural completion via department referrals ─────────────────────
+
+    [Fact]
+    public void ProceduralCompletionBeforeDueDate_IsNotOverdue_DespiteLateAdministrativeApproval()
+    {
+        // Due 2026-07-10, last department reply 2026-07-09 (on time), supervisor doesn't
+        // approve/close until 2026-07-15. The department finished on time — the transaction
+        // must not be counted as overdue just because the final sign-off is still pending.
+        var today = new DateTime(2026, 7, 20, 0, 0, 0, DateTimeKind.Utc);
+        var snapshot = new TransactionReportSnapshot
+        {
+            TransactionId = 1,
+            IncomingDate = new DateTime(2026, 6, 20, 0, 0, 0, DateTimeKind.Utc),
+            Status = TransactionStatus.ReadyForResponse,
+            IsOpen = true,
+            RequiresResponse = true,
+            ResponseDueDate = new DateTime(2026, 7, 10, 0, 0, 0, DateTimeKind.Utc),
+            ResponseCompleted = false,
+            IsProcedurallyCompleteForReporting = true,
+            ProceduralCompletionDateForReporting = new DateTime(2026, 7, 9, 0, 0, 0, DateTimeKind.Utc),
+        };
+
+        Assert.False(InstitutionalReportMetricsCalculator.IsOpenOverdue(snapshot, today));
+        Assert.False(InstitutionalReportMetricsCalculator.IsCompletedLate(snapshot));
+        Assert.False(InstitutionalReportMetricsCalculator.IsOverdue(snapshot, today));
+
+        var result = InstitutionalReportMetricsCalculator.Calculate([snapshot], today);
+        Assert.Equal(0, result.OverdueCount);
+        Assert.Equal(0, result.OpenOverdueCount);
+        Assert.Equal(0, result.CompletedLateCount);
+        Assert.Equal(1, result.PendingAdministrativeReviewCount);
+    }
+
+    [Fact]
+    public void ProceduralCompletionAfterDueDate_IsCompletedLate_ButNotOpenOverdueForever()
+    {
+        // Due 2026-07-10, last department reply 2026-07-13 — the departments themselves were
+        // 3 days late. That must be flagged as completed-late, but must stop being counted as
+        // a continuously-open-overdue item once departments finished (regardless of when the
+        // transaction is eventually formally closed).
+        var today = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc);
+        var snapshot = new TransactionReportSnapshot
+        {
+            TransactionId = 1,
+            IncomingDate = new DateTime(2026, 6, 20, 0, 0, 0, DateTimeKind.Utc),
+            Status = TransactionStatus.ReadyForResponse,
+            IsOpen = true,
+            RequiresResponse = true,
+            ResponseDueDate = new DateTime(2026, 7, 10, 0, 0, 0, DateTimeKind.Utc),
+            ResponseCompleted = false,
+            IsProcedurallyCompleteForReporting = true,
+            ProceduralCompletionDateForReporting = new DateTime(2026, 7, 13, 0, 0, 0, DateTimeKind.Utc),
+        };
+
+        Assert.False(InstitutionalReportMetricsCalculator.IsOpenOverdue(snapshot, today));
+        Assert.True(InstitutionalReportMetricsCalculator.IsCompletedLate(snapshot));
+        Assert.True(InstitutionalReportMetricsCalculator.IsOverdue(snapshot, today));
+
+        var result = InstitutionalReportMetricsCalculator.Calculate([snapshot], today);
+        Assert.Equal(1, result.OverdueCount);
+        Assert.Equal(0, result.OpenOverdueCount);
+        Assert.Equal(1, result.CompletedLateCount);
+    }
+
+    [Fact]
+    public void IncompleteReferrals_StillCountsAsOpenOverdue_NotProcedurallyComplete()
+    {
+        var today = new DateTime(2026, 7, 20, 0, 0, 0, DateTimeKind.Utc);
+        var snapshot = new TransactionReportSnapshot
+        {
+            TransactionId = 1,
+            IncomingDate = new DateTime(2026, 6, 20, 0, 0, 0, DateTimeKind.Utc),
+            Status = TransactionStatus.WaitingForReply,
+            IsOpen = true,
+            RequiresResponse = true,
+            ResponseDueDate = new DateTime(2026, 7, 10, 0, 0, 0, DateTimeKind.Utc),
+            ResponseCompleted = false,
+            IsProcedurallyCompleteForReporting = false,
+            ProceduralCompletionDateForReporting = null,
+        };
+
+        Assert.True(InstitutionalReportMetricsCalculator.IsOpenOverdue(snapshot, today));
+        Assert.True(InstitutionalReportMetricsCalculator.IsOverdue(snapshot, today));
+    }
+
+    [Fact]
+    public void AverageCompletionDaysAndOnTimeRate_PreferProceduralDateOverLateClosure()
+    {
+        // Closed on 2026-07-20 (supervisor delay), but departments finished on 2026-07-09,
+        // 3 days before the 2026-07-10 due date. Department-facing metrics must reflect the
+        // 2026-07-09 completion, not the late formal closure.
+        var today = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc);
+        var snapshot = new TransactionReportSnapshot
+        {
+            TransactionId = 1,
+            IncomingDate = new DateTime(2026, 6, 20, 0, 0, 0, DateTimeKind.Utc),
+            Status = TransactionStatus.Closed,
+            IsClosed = true,
+            RequiresResponse = true,
+            ResponseDueDate = new DateTime(2026, 7, 10, 0, 0, 0, DateTimeKind.Utc),
+            ResponseCompleted = true,
+            ClosedAt = new DateTime(2026, 7, 20, 0, 0, 0, DateTimeKind.Utc),
+            IsProcedurallyCompleteForReporting = true,
+            ProceduralCompletionDateForReporting = new DateTime(2026, 7, 9, 0, 0, 0, DateTimeKind.Utc),
+        };
+
+        var result = InstitutionalReportMetricsCalculator.Calculate([snapshot], today);
+
+        // (2026-07-09 - 2026-06-20) = 19 days, not (2026-07-20 - 2026-06-20) = 30 days.
+        Assert.Equal(19, result.AverageCompletionDays);
+        Assert.Equal(100, result.OnTimeCompletionRate);
+        // IsCompletedLate must use the same precedence (procedural date first) as the rate
+        // above — otherwise this same transaction would be "on time" in the rate but
+        // "completed late" in CompletedLateCount, purely because ClosedAt (07-20) outranked
+        // the on-time procedural date (07-09) in IsCompletedLate's own comparison.
+        Assert.False(InstitutionalReportMetricsCalculator.IsCompletedLate(snapshot));
+        Assert.Equal(0, result.CompletedLateCount);
+    }
+
     [Fact]
     public void PartialAndJointDoNotDoubleTotal()
     {

@@ -41,11 +41,12 @@ describe('CompleteResponseFormPanel', () => {
   const onSuccess = vi.fn();
   const onCancel = vi.fn();
 
-  function renderPanel(responseType = 'Internal') {
+  function renderPanel(responseType = 'Internal', suggestedResponseDate?: string) {
     return render(
       <CompleteResponseFormPanel
         transactionId={1}
         responseType={responseType}
+        suggestedResponseDate={suggestedResponseDate}
         onDirtyChange={onDirtyChange}
         onSuccess={onSuccess}
         onCancel={onCancel}
@@ -70,6 +71,97 @@ describe('CompleteResponseFormPanel', () => {
     await user.type(screen.getByLabelText('ملخص الإفادة *'), 'ملخص الإفادة');
     return user;
   }
+
+  it('prefills the response date with the suggested procedural completion date', () => {
+    renderPanel('Internal', '2026-01-09T00:00:00');
+    expect(screen.getByLabelText('تاريخ الإفادة *')).toHaveValue('20/07/1447');
+  });
+
+  it('lets the user override the suggested response date before submitting', async () => {
+    renderPanel('Internal', '2026-01-09T00:00:00');
+    const user = userEvent.setup();
+    const responseDate = screen.getByLabelText('تاريخ الإفادة *');
+    await user.clear(responseDate);
+    await user.type(responseDate, '24/07/1447');
+    await user.type(screen.getByLabelText('ملخص الإفادة *'), 'ملخص الإفادة');
+    await user.click(screen.getByRole('button', { name: 'إرسال الإفادة' }));
+
+    await waitFor(() => {
+      expect(services.transactionsApi.completeResponse).toHaveBeenCalledWith(1, expect.objectContaining({
+        responseDate: '2026-01-13T00:00:00',
+      }));
+    });
+  });
+
+  it('does not prefill the response date when there is no suggested completion date', () => {
+    renderPanel();
+    expect(screen.getByLabelText('تاريخ الإفادة *')).toHaveValue('');
+  });
+
+  it('becomes dirty when the user clears a prefilled suggested response date', async () => {
+    renderPanel('Internal', '2026-01-09T00:00:00');
+    const user = userEvent.setup();
+    onDirtyChange.mockClear();
+
+    await user.clear(screen.getByLabelText('تاريخ الإفادة *'));
+
+    await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(true));
+  });
+
+  it('returns to not-dirty when the user restores the original suggested response date', async () => {
+    renderPanel('Internal', '2026-01-09T00:00:00');
+    const user = userEvent.setup();
+    const responseDate = screen.getByLabelText('تاريخ الإفادة *');
+
+    await user.clear(responseDate);
+    await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(true));
+
+    onDirtyChange.mockClear();
+    await user.type(responseDate, '20/07/1447');
+
+    await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(false));
+  });
+
+  it('syncs the response date to a newly suggested value while untouched', () => {
+    const { rerender } = renderPanel('Internal', '2026-01-09T00:00:00');
+    expect(screen.getByLabelText('تاريخ الإفادة *')).toHaveValue('20/07/1447');
+
+    rerender(
+      <CompleteResponseFormPanel
+        transactionId={1}
+        responseType="Internal"
+        suggestedResponseDate="2026-01-13T00:00:00"
+        onDirtyChange={onDirtyChange}
+        onSuccess={onSuccess}
+        onCancel={onCancel}
+      />,
+    );
+
+    expect(screen.getByLabelText('تاريخ الإفادة *')).toHaveValue('24/07/1447');
+  });
+
+  it('does not overwrite a manually entered response date when the suggestion later changes', async () => {
+    const { rerender } = renderPanel('Internal', '2026-01-09T00:00:00');
+    const user = userEvent.setup();
+    const responseDate = screen.getByLabelText('تاريخ الإفادة *');
+
+    await user.clear(responseDate);
+    await user.type(responseDate, '26/07/1447');
+    expect(responseDate).toHaveValue('26/07/1447');
+
+    rerender(
+      <CompleteResponseFormPanel
+        transactionId={1}
+        responseType="Internal"
+        suggestedResponseDate="2026-01-13T00:00:00"
+        onDirtyChange={onDirtyChange}
+        onSuccess={onSuccess}
+        onCancel={onCancel}
+      />,
+    );
+
+    expect(screen.getByLabelText('تاريخ الإفادة *')).toHaveValue('26/07/1447');
+  });
 
   it('renders as compact editor with small textarea', () => {
     renderPanel();

@@ -2434,6 +2434,66 @@ describe('TransactionDetailPage operational workspace', () => {
     expect(within(completionMetric as HTMLElement).getByText('محسوب تلقائيًا: تاريخ الإغلاق − تاريخ الوارد')).toBeInTheDocument();
   });
 
+  it('shows a procedural-completion banner, not a closed status, when all department referrals have replied', async () => {
+    const procedurallyCompleteTransaction = {
+      ...baseTx,
+      requiresResponse: true,
+      responseCompleted: false,
+      status: 'ReadyForResponse',
+      isProcedurallyCompleteForReporting: true,
+      proceduralCompletionDateForReporting: '2026-07-09',
+    };
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: { ...defaultWorkspace, transaction: procedurallyCompleteTransaction },
+    });
+    mockApi(services.transactionsApi.getBasic).mockResolvedValue({ data: procedurallyCompleteTransaction });
+    renderDetail();
+    await waitForDetailsReady();
+
+    expect(screen.getByText('المعاملة مكتملة إجرائيًا وتنتظر اعتماد الإفادة النهائية.')).toBeInTheDocument();
+    expect(screen.queryByText('مغلقة')).not.toBeInTheDocument();
+  });
+
+  it('does not show the procedural-completion banner once the final response is registered', async () => {
+    const respondedTransaction = {
+      ...baseTx,
+      requiresResponse: true,
+      responseCompleted: true,
+      isProcedurallyCompleteForReporting: true,
+      proceduralCompletionDateForReporting: '2026-07-09',
+    };
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: { ...defaultWorkspace, transaction: respondedTransaction },
+    });
+    mockApi(services.transactionsApi.getBasic).mockResolvedValue({ data: respondedTransaction });
+    renderDetail();
+    await waitForDetailsReady();
+
+    expect(screen.queryByText('المعاملة مكتملة إجرائيًا وتنتظر اعتماد الإفادة النهائية.')).not.toBeInTheDocument();
+  });
+
+  it.each(['Cancelled', 'Archived'])(
+    'does not show the procedural-completion banner for a %s transaction',
+    async (status) => {
+      const terminalTransaction = {
+        ...baseTx,
+        requiresResponse: true,
+        responseCompleted: false,
+        status,
+        isProcedurallyCompleteForReporting: true,
+        proceduralCompletionDateForReporting: '2026-07-09',
+      };
+      mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+        data: { ...defaultWorkspace, transaction: terminalTransaction },
+      });
+      mockApi(services.transactionsApi.getBasic).mockResolvedValue({ data: terminalTransaction });
+      renderDetail();
+      await waitForDetailsReady();
+
+      expect(screen.queryByText('المعاملة مكتملة إجرائيًا وتنتظر اعتماد الإفادة النهائية.')).not.toBeInTheDocument();
+    },
+  );
+
   it('opens inline assignment form from action bar in hero area', async () => {
     const user = userEvent.setup();
     renderDetail();

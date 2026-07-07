@@ -124,6 +124,8 @@ export interface TransactionDetail extends TransactionListItem {
   responseType: string;
   responseDueDays?: number;
   responseCompletedDate?: string;
+  proceduralCompletionDateForReporting?: string | null;
+  isProcedurallyCompleteForReporting?: boolean;
   responseSummary?: string;
   category?: string;
   notes?: string;

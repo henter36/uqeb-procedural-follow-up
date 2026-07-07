@@ -14,6 +14,12 @@ export type CompleteResponseSuccessResult = Readonly<{
 type CompleteResponseFormPanelProps = Readonly<{
   transactionId: number;
   responseType: string;
+  /**
+   * The computed date all required department referrals were replied to (a single referral's
+   * date, or the latest across several) — offered as a starting value, not enforced. The user
+   * can still change it before submitting.
+   */
+  suggestedResponseDate?: string;
   onDirtyChange: (dirty: boolean) => void;
   onSuccess: (result?: CompleteResponseSuccessResult) => void;
   onCancel: () => void;
@@ -25,13 +31,15 @@ type AttachmentUploadResult = 'success' | 'partial-warning' | 'none';
 export default function CompleteResponseFormPanel({
   transactionId,
   responseType,
+  suggestedResponseDate,
   onDirtyChange,
   onSuccess,
   onCancel,
 }: CompleteResponseFormPanelProps) {
   const requiresOutgoing = responseType === 'External' || responseType === 'Both';
+  const initialResponseDate = suggestedResponseDate?.slice(0, 10) ?? '';
   const [form, setForm] = useState({
-    responseDate: '',
+    responseDate: initialResponseDate,
     responseSummary: '',
     outgoingNumber: '',
     outgoingDate: '',
@@ -42,18 +50,28 @@ export default function CompleteResponseFormPanel({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [responseSaved, setResponseSaved] = useState(false);
   const responseSavedRef = useRef(false);
+  const responseDateTouchedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // If the suggested date changes while the panel is open (e.g. a late department reply
+  // lands) and the user hasn't touched the field yet, keep it synced to the suggestion.
+  // Once the user edits the field directly, or the response is saved, this must never
+  // overwrite their input again.
+  useEffect(() => {
+    if (responseDateTouchedRef.current || responseSavedRef.current) return;
+    setForm((prev) => (prev.responseDate === initialResponseDate ? prev : { ...prev, responseDate: initialResponseDate }));
+  }, [initialResponseDate]);
 
   useEffect(() => {
     const dirty = Boolean(
-      form.responseDate
+      form.responseDate !== initialResponseDate
       || form.responseSummary.trim()
       || form.outgoingNumber.trim()
       || form.outgoingDate
       || attachment,
     );
     onDirtyChange(dirty && !responseSaved);
-  }, [form, attachment, onDirtyChange, responseSaved]);
+  }, [form, attachment, onDirtyChange, responseSaved, initialResponseDate]);
 
   const validateBeforeSubmit = (): string | null => {
     if (isSubmitting) return '';
@@ -135,7 +153,10 @@ export default function CompleteResponseFormPanel({
             required
             value={form.responseDate}
             disabled={responseSaved}
-            onChange={(responseDate) => setForm({ ...form, responseDate })}
+            onChange={(responseDate) => {
+              responseDateTouchedRef.current = true;
+              setForm({ ...form, responseDate });
+            }}
             disallowFutureDate
           />
         </div>
