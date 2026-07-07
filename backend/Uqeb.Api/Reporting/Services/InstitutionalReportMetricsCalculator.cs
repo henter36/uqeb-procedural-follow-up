@@ -30,10 +30,18 @@ public static class InstitutionalReportMetricsCalculator
         var overdueTotal = unique.Count(s => IsOverdue(s, today));
         var joint = unique.Count(s => s.IsJointDepartment);
         var partial = open.Count(s => s.IsPartialReply);
+        // Open, not yet ResponseCompleted, but every required department referral has replied —
+        // procedurally done, sitting only on the final response approval/registration.
+        var pendingAdminReview = open.Count(s => !s.ResponseCompleted && s.IsProcedurallyCompleteForReporting);
 
+        // Department performance (completion days / on-time rate) is measured against when the
+        // departments actually finished (ProceduralCompletionDateForReporting), not when a
+        // supervisor eventually got around to closing the transaction — otherwise a slow final
+        // approval would unfairly drag down department metrics for work that was done on time.
         var completionDays = closed
-            .Where(s => s.ClosedAt.HasValue)
-            .Select(s => Math.Max(0, (s.ClosedAt!.Value.Date - s.IncomingDate.Date).Days))
+            .Select(s => (s.IncomingDate, CompletionDate: s.ProceduralCompletionDateForReporting ?? s.ClosedAt))
+            .Where(x => x.CompletionDate.HasValue)
+            .Select(x => Math.Max(0, (x.CompletionDate!.Value.Date - x.IncomingDate.Date).Days))
             .ToList();
 
         var averageCompletion = completionDays.Count == 0
@@ -41,10 +49,11 @@ public static class InstitutionalReportMetricsCalculator
             : Math.Round(completionDays.Average(), 1);
 
         var measurableClosed = closed
-            .Where(s => s.ResponseDueDate.HasValue && s.ClosedAt.HasValue)
+            .Where(s => s.ResponseDueDate.HasValue && (s.ProceduralCompletionDateForReporting ?? s.ClosedAt).HasValue)
             .ToList();
 
-        var onTimeClosed = measurableClosed.Count(s => s.ClosedAt!.Value.Date <= s.ResponseDueDate!.Value.Date);
+        var onTimeClosed = measurableClosed.Count(s =>
+            (s.ProceduralCompletionDateForReporting ?? s.ClosedAt)!.Value.Date <= s.ResponseDueDate!.Value.Date);
         var onTimeRate = measurableClosed.Count == 0
             ? 0
             : Math.Round(onTimeClosed * 100.0 / measurableClosed.Count, 1);
@@ -61,6 +70,7 @@ public static class InstitutionalReportMetricsCalculator
             CompletedLateCount = completedLate,
             JointDepartmentCount = joint,
             PartialResponseCount = partial,
+            PendingAdministrativeReviewCount = pendingAdminReview,
             AverageCompletionDays = averageCompletion,
             OnTimeCompletionRate = onTimeRate,
             Snapshots = unique
@@ -120,6 +130,13 @@ public static class InstitutionalReportMetricsCalculator
         if (!snapshot.IsOpen)
             return false;
 
+        // Departments finished their part (or the transaction never had referrals and the
+        // response was registered) — a supervisor's still-pending final review must not keep
+        // this counted as an open-and-overdue item forever. IsCompletedLate below decides
+        // whether it should instead be flagged as completed-late.
+        if (snapshot.IsProcedurallyCompleteForReporting)
+            return false;
+
         if (snapshot.ResponseDueDate.HasValue && snapshot.ResponseDueDate.Value.Date < today.Date && !snapshot.ResponseCompleted)
             return true;
 
@@ -136,7 +153,8 @@ public static class InstitutionalReportMetricsCalculator
             return false;
 
         var completionDate = snapshot.ClosedAt?.Date
-            ?? (snapshot.ResponseCompleted ? snapshot.ResponseCompletedDate?.Date : null);
+            ?? (snapshot.ResponseCompleted ? snapshot.ResponseCompletedDate?.Date : null)
+            ?? (snapshot.IsProcedurallyCompleteForReporting ? snapshot.ProceduralCompletionDateForReporting : null);
 
         return completionDate.HasValue && completionDate.Value.Date > snapshot.ResponseDueDate.Value.Date;
     }
@@ -161,6 +179,8 @@ public static class InstitutionalReportMetricsCalculator
     public static List<FollowUpStage> ResolveFollowUpStages(TransactionReportSnapshot snapshot, DateTime today)
     {
         var stages = new List<FollowUpStage>();
+        if (snapshot.IsProcedurallyCompleteForReporting && !snapshot.ResponseCompleted)
+            stages.Add(FollowUpStage.PendingAdministrativeReview);
         if (IsWaitingForStatement(snapshot))
             stages.Add(FollowUpStage.WaitingForStatement);
         if (snapshot.Status == TransactionStatus.WaitingForReply || snapshot.PendingReplyAssignmentCount > 0)
@@ -182,6 +202,7 @@ public static class InstitutionalReportMetricsCalculator
         FollowUpStage.UnderProcessing => "تحت الإجراء",
         FollowUpStage.Overdue => "متأخرة",
         FollowUpStage.CompletedLate => "منجزة متأخرة",
+        FollowUpStage.PendingAdministrativeReview => "بانتظار مراجعة إدارية",
         _ => "—"
     };
 }

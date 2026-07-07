@@ -49,6 +49,7 @@ internal static class InstitutionalReportSnapshotQuery
         public ReplyStatus ReplyStatus { get; init; }
         public AssignmentStatus Status { get; init; }
         public DateTime? DueDate { get; init; }
+        public DateTime? ReplyDate { get; init; }
     }
 
     internal sealed class DepartmentRow
@@ -89,6 +90,7 @@ internal static class InstitutionalReportSnapshotQuery
             ReplyStatus = a.ReplyStatus,
             Status = a.Status,
             DueDate = a.DueDate,
+            ReplyDate = a.ReplyDate,
         }).ToList(),
         OutgoingDepartments = t.OutgoingDepartments.Select(o => new DepartmentRow
         {
@@ -306,6 +308,17 @@ internal static class InstitutionalReportSnapshotQuery
             .Select(a => a.DueDate!.Value)
             .ToList();
 
+        // Required-reply assignments across ALL statuses except Cancelled (not just Active),
+        // since a replied assignment transitions to Completed and would otherwise be invisible
+        // to the "did every required referral get a reply" check.
+        var requiredReplySignals = row.Assignments
+            .Where(a => a.RequiresReply && a.Status != AssignmentStatus.Cancelled)
+            .Select(a => new WorkflowHelper.RequiredReplySignal(a.ReplyStatus == ReplyStatus.Replied, a.ReplyDate))
+            .ToList();
+        var proceduralCompletionDate = WorkflowHelper.ResolveProceduralCompletionDateFromRequiredReplies(
+            requiredReplySignals, row.ResponseCompletedDate?.Date)?.Date;
+        var isProcedurallyComplete = requiredReplySignals.Count > 0 && proceduralCompletionDate.HasValue;
+
         var snapshot = new TransactionReportSnapshot
         {
             TransactionId = row.Id,
@@ -337,6 +350,8 @@ internal static class InstitutionalReportSnapshotQuery
             PendingReplyAssignmentCount = pendingReplyAssignments.Count,
             LastFollowUpDate = row.LastFollowUpDate?.Date,
             EarliestPendingReplyDueDate = pendingReplyDueDates.Count > 0 ? pendingReplyDueDates.Min() : null,
+            ProceduralCompletionDateForReporting = proceduralCompletionDate,
+            IsProcedurallyCompleteForReporting = isProcedurallyComplete,
             IsClosed = row.Status == TransactionStatus.Closed,
             IsOpen = InstitutionalReportMetricsCalculator.IsOpenStatus(row.Status),
             ElapsedDays = Math.Max(0, (today - row.IncomingDate.Date).Days)

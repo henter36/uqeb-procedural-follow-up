@@ -518,7 +518,8 @@ public class TransactionService : ITransactionService
                 a.ReplyStatus,
                 a.RequiresReply,
                 a.Status,
-                a.DueDate))
+                a.DueDate,
+                a.ReplyDate))
             .ToListAsync();
 
         var dto = MapToBasicDetailDto(t, assignmentRows, DateTime.UtcNow);
@@ -1815,7 +1816,7 @@ public class TransactionService : ITransactionService
 
         var assignmentRows = await _db.Assignments.AsNoTracking()
             .Where(a => a.TransactionId == transactionId)
-            .Select(a => new AssignmentSummaryRow(a.Department.Name, a.ReplyStatus, a.RequiresReply, a.Status, a.DueDate))
+            .Select(a => new AssignmentSummaryRow(a.Department.Name, a.ReplyStatus, a.RequiresReply, a.Status, a.DueDate, a.ReplyDate))
             .ToListAsync();
 
         return MapToBasicDetailDto(t, assignmentRows, DateTime.UtcNow);
@@ -2697,7 +2698,8 @@ public class TransactionService : ITransactionService
         ReplyStatus ReplyStatus,
         bool RequiresReply,
         AssignmentStatus Status,
-        DateTime? DueDate);
+        DateTime? DueDate,
+        DateTime? ReplyDate = null);
 
     private static TransactionDetailDto MapToBasicDetailDto(
         Transaction t,
@@ -2712,6 +2714,13 @@ public class TransactionService : ITransactionService
             .Select(a => new TransactionTemporalCalculator.AssignmentSummaryFacts(
                 a.ReplyStatus, a.RequiresReply, a.Status, a.DueDate))
             .ToList();
+        var requiredReplySignals = assignmentRows
+            .Where(a => a.RequiresReply && a.Status != AssignmentStatus.Cancelled)
+            .Select(a => new WorkflowHelper.RequiredReplySignal(a.ReplyStatus == ReplyStatus.Replied, a.ReplyDate))
+            .ToList();
+        var proceduralCompletionDate = WorkflowHelper.ResolveProceduralCompletionDateFromRequiredReplies(
+            requiredReplySignals, t.ResponseCompletedDate);
+        var isProcedurallyComplete = requiredReplySignals.Count > 0 && proceduralCompletionDate.HasValue;
 
         var dto = new TransactionDetailDto
         {
@@ -2738,6 +2747,8 @@ public class TransactionService : ITransactionService
             ResponseDueDays = t.ResponseDueDays,
             ResponseDueDate = t.ResponseDueDate,
             ResponseCompletedDate = t.ResponseCompletedDate,
+            ProceduralCompletionDateForReporting = proceduralCompletionDate,
+            IsProcedurallyCompleteForReporting = isProcedurallyComplete,
             ResponseSummary = t.ResponseSummary,
             Notes = t.Notes,
             IsResponseOverdue = TransactionTemporalCalculator.IsResponseOverdue(t, now),

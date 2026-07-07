@@ -43,6 +43,17 @@ public sealed class TransactionReportSnapshot
     public bool IsOverdue { get; set; }
     public bool IsOpenOverdue { get; set; }
     public bool IsCompletedLate { get; set; }
+    /// <summary>
+    /// The reporting-only "effective response completed" date derived from department
+    /// assignment replies (see <see cref="Helpers.WorkflowHelper.ResolveProceduralCompletionDateFromRequiredReplies"/>).
+    /// Never implies the transaction is Closed or ResponseCompleted.
+    /// </summary>
+    public DateTime? ProceduralCompletionDateForReporting { get; set; }
+    /// <summary>
+    /// True only when the transaction has department referrals requiring a reply and all of
+    /// them have been replied to, i.e. completion was driven by department assignments.
+    /// </summary>
+    public bool IsProcedurallyCompleteForReporting { get; set; }
     public bool IsWaitingForStatement { get; set; }
     public bool IsPartialReply { get; set; }
     public bool IsJointDepartment { get; set; }
@@ -62,6 +73,12 @@ public sealed class InstitutionalMetricsResult
     public int CompletedLateCount { get; init; }
     public int JointDepartmentCount { get; init; }
     public int PartialResponseCount { get; init; }
+    /// <summary>
+    /// Open (not yet Closed), not yet ResponseCompleted transactions whose required department
+    /// referrals have all been replied to — procedurally done, awaiting the final response
+    /// approval/registration. Distinct from ClosedCount, which stays tied to actual closure.
+    /// </summary>
+    public int PendingAdministrativeReviewCount { get; init; }
     public double AverageCompletionDays { get; init; }
     public double OnTimeCompletionRate { get; init; }
     public List<TransactionReportSnapshot> Snapshots { get; init; } = [];

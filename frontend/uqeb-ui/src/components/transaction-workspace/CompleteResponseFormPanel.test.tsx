@@ -41,11 +41,12 @@ describe('CompleteResponseFormPanel', () => {
   const onSuccess = vi.fn();
   const onCancel = vi.fn();
 
-  function renderPanel(responseType = 'Internal') {
+  function renderPanel(responseType = 'Internal', suggestedResponseDate?: string) {
     return render(
       <CompleteResponseFormPanel
         transactionId={1}
         responseType={responseType}
+        suggestedResponseDate={suggestedResponseDate}
         onDirtyChange={onDirtyChange}
         onSuccess={onSuccess}
         onCancel={onCancel}
@@ -70,6 +71,32 @@ describe('CompleteResponseFormPanel', () => {
     await user.type(screen.getByLabelText('ملخص الإفادة *'), 'ملخص الإفادة');
     return user;
   }
+
+  it('prefills the response date with the suggested procedural completion date', () => {
+    renderPanel('Internal', '2026-01-09T00:00:00');
+    expect(screen.getByLabelText('تاريخ الإفادة *')).toHaveValue('20/07/1447');
+  });
+
+  it('lets the user override the suggested response date before submitting', async () => {
+    renderPanel('Internal', '2026-01-09T00:00:00');
+    const user = userEvent.setup();
+    const responseDate = screen.getByLabelText('تاريخ الإفادة *');
+    await user.clear(responseDate);
+    await user.type(responseDate, '24/07/1447');
+    await user.type(screen.getByLabelText('ملخص الإفادة *'), 'ملخص الإفادة');
+    await user.click(screen.getByRole('button', { name: 'إرسال الإفادة' }));
+
+    await waitFor(() => {
+      expect(services.transactionsApi.completeResponse).toHaveBeenCalledWith(1, expect.objectContaining({
+        responseDate: '2026-01-13T00:00:00',
+      }));
+    });
+  });
+
+  it('does not prefill the response date when there is no suggested completion date', () => {
+    renderPanel();
+    expect(screen.getByLabelText('تاريخ الإفادة *')).toHaveValue('');
+  });
 
   it('renders as compact editor with small textarea', () => {
     renderPanel();
