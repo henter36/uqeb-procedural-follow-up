@@ -1092,6 +1092,25 @@ public class DepartmentResponseServiceTests
                 reader));
     }
 
+    [Fact]
+    public async Task AdminEditResponse_RejectsDataEntryRole()
+    {
+        // DataEntry can review/approve/reject department responses (RequireReviewer), but
+        // must not be able to directly overwrite an already-recorded response via AdminEdit —
+        // that action is restricted to Admin/Supervisor only.
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(AdminEditResponse_RejectsDataEntryRole));
+        var service = BuildService(db);
+        var creator = new FakeUser { UserId = userId, DepartmentId = deptId, Role = UserRole.Admin };
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الرد"), creator);
+
+        var dataEntry = new FakeUser { UserId = userId, Role = UserRole.DataEntry };
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            service.AdminEditAsync(created.Id,
+                new AdminEditDepartmentResponseRequest("محاولة من مدخل بيانات", "نص"),
+                dataEntry));
+    }
+
     [Theory]
     [InlineData(TransactionStatus.Closed)]
     [InlineData(TransactionStatus.Cancelled)]

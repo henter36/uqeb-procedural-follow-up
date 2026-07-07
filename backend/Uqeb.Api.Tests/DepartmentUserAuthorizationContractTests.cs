@@ -44,12 +44,31 @@ public class DepartmentUserAuthorizationContractTests
     [InlineData(nameof(DepartmentResponsesController.Approve))]
     [InlineData(nameof(DepartmentResponsesController.ReturnForCorrection))]
     [InlineData(nameof(DepartmentResponsesController.Reject))]
-    [InlineData(nameof(DepartmentResponsesController.AdminEdit))]
     public void DepartmentResponseReviewActions_RequireReviewPolicy(string actionName)
     {
         var method = GetControllerMethod<DepartmentResponsesController>(actionName);
 
         Assert.Equal(Policies.ReviewDepartmentResponse, GetMethodPolicy(method));
+    }
+
+    [Fact]
+    public void DepartmentResponseAdminEdit_RequiresSupervisorOrAdminPolicy_NotTheBroaderReviewPolicy()
+    {
+        // AdminEdit lets a reviewer directly overwrite an already-recorded response's text/date.
+        // Unlike Approve/Reject/ReturnForCorrection, DataEntry must not have this power, so it
+        // must use the narrower SupervisorOrAdmin policy rather than ReviewDepartmentResponse
+        // (which includes DataEntry).
+        var method = GetControllerMethod<DepartmentResponsesController>(nameof(DepartmentResponsesController.AdminEdit));
+
+        Assert.Equal(Policies.SupervisorOrAdmin, GetMethodPolicy(method));
+    }
+
+    [Fact]
+    public void SupervisorOrAdmin_DoesNotAllowDataEntry()
+    {
+        var roles = GetPolicyRoles(Policies.SupervisorOrAdmin);
+
+        Assert.DoesNotContain(UserRole.DataEntry.ToString(), roles);
     }
 
     [Fact]
