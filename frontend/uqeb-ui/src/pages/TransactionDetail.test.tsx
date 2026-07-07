@@ -1602,10 +1602,10 @@ describe('TransactionDetailPage current status and response workflow', () => {
     expect(screen.getAllByRole('region', { name: 'الإفادة' })).toHaveLength(1);
   });
 
-  it('lets an authorized supervisor open the completed response for editing by clicking تمت الإفادة, prefilled with the existing values', async () => {
+  it('lets an authorized supervisor open the completed response for editing by clicking تمت الإفادة, even when canClose is false, prefilled with the existing values', async () => {
     mockUseAuth.mockReturnValue({
       canEdit: true,
-      canClose: true,
+      canClose: false,
       isDepartmentUser: false,
       user: { fullName: 'مشرف', role: 'Supervisor' },
       logout: vi.fn(),
