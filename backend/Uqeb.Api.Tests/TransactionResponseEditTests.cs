@@ -394,7 +394,8 @@ public class TransactionResponseEditTests
         Assert.NotNull(result);
         var updated = await db.Transactions.SingleAsync(t => t.Id == 1);
         Assert.Equal(enteredDate, updated.ResponseCompletedDate);
-        Assert.NotEqual(DateTime.UtcNow.Date, updated.ResponseCompletedDate!.Value.Date);
+        Assert.NotNull(updated.ResponseCompletedDate);
+        Assert.NotEqual(DateTime.UtcNow.Date, updated.ResponseCompletedDate.Value.Date);
     }
 
     [Fact]
@@ -416,7 +417,8 @@ public class TransactionResponseEditTests
         Assert.NotNull(result);
         var updated = await db.Transactions.SingleAsync(t => t.Id == 1);
         Assert.Equal(enteredOutgoingDate, updated.OutgoingDate);
-        Assert.NotEqual(DateTime.UtcNow.Date, updated.OutgoingDate!.Value.Date);
+        Assert.NotNull(updated.OutgoingDate);
+        Assert.NotEqual(DateTime.UtcNow.Date, updated.OutgoingDate.Value.Date);
     }
 
     [Fact]

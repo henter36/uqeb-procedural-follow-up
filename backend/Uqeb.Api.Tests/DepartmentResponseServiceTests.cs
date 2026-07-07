@@ -1276,7 +1276,8 @@ public class DepartmentResponseServiceTests
         Assert.NotNull(submitted.SubmittedAt);
 
         var assignment = await db.Assignments.SingleAsync(a => a.TransactionId == txId && a.DepartmentId == deptId);
-        Assert.Equal(completedOn.Date, assignment.ReplyDate!.Value.Date);
+        Assert.NotNull(assignment.ReplyDate);
+        Assert.Equal(completedOn.Date, assignment.ReplyDate.Value.Date);
     }
 
     [Fact]
@@ -1302,7 +1303,8 @@ public class DepartmentResponseServiceTests
             admin);
 
         Assert.NotNull(updated);
-        Assert.Equal(corrected, updated!.ResponseDate!.Value.Date);
-        Assert.NotEqual(SeedResponseDate.Date, updated.ResponseDate!.Value.Date);
+        Assert.NotNull(updated.ResponseDate);
+        Assert.Equal(corrected, updated.ResponseDate.Value.Date);
+        Assert.NotEqual(SeedResponseDate.Date, updated.ResponseDate.Value.Date);
     }
 }

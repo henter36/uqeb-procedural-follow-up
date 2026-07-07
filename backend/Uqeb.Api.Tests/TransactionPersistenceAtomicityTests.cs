@@ -175,7 +175,8 @@ public class TransactionPersistenceAtomicityTests
 
         var assignments = await db.Assignments.Where(a => a.TransactionId == created.Id).ToListAsync();
         Assert.Equal(2, assignments.Count);
-        Assert.All(assignments, a => Assert.Equal(request.OutgoingDate!.Value.Date, a.AssignedDate.Date));
+        Assert.NotNull(request.OutgoingDate);
+        Assert.All(assignments, a => Assert.Equal(request.OutgoingDate.Value.Date, a.AssignedDate.Date));
         Assert.All(assignments, a => Assert.NotEqual(request.IncomingDate.Date, a.AssignedDate.Date));
     }
 
@@ -199,9 +200,14 @@ public class TransactionPersistenceAtomicityTests
 
         var assignments = await db.Assignments.Where(a => a.TransactionId == created.Id).ToListAsync();
         Assert.Equal(2, assignments.Count);
-        Assert.All(assignments, a => Assert.Equal(request.OutgoingDate!.Value.Date, a.AssignedDate.Date));
+        Assert.NotNull(request.OutgoingDate);
+        Assert.All(assignments, a => Assert.Equal(request.OutgoingDate.Value.Date, a.AssignedDate.Date));
         Assert.All(assignments, a => Assert.True(!a.DueDate.HasValue || a.DueDate.Value.Date >= a.AssignedDate.Date));
-        Assert.All(assignments, a => Assert.Equal(request.OutgoingDate!.Value.Date.AddDays(7), a.DueDate!.Value.Date));
+        Assert.All(assignments, a =>
+        {
+            Assert.NotNull(a.DueDate);
+            Assert.Equal(request.OutgoingDate.Value.Date.AddDays(7), a.DueDate.Value.Date);
+        });
     }
 
     [Fact]
