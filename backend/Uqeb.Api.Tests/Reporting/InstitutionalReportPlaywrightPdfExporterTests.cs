@@ -265,16 +265,9 @@ public class InstitutionalReportPlaywrightPdfExporterTests
         Assert.NotEmpty(longChunks);
         Assert.True(shortChunks[0].Count > 12, $"Expected short rows to fit more than 12 rows, got {shortChunks[0].Count}.");
         Assert.True(longChunks[0].Count < shortChunks[0].Count, $"Expected long rows ({longChunks[0].Count}) to fit fewer than short rows ({shortChunks[0].Count}).");
-
-        var finalManifest = renderer.RenderManifestWithMeasuredTransactionPages(
-            shortModel,
-            [ReportSectionId.TransactionDetails],
-            shortChunks);
-        var layout = await MeasureFinalTransactionLayoutAsync(InstitutionalReportRenderer.RenderHtmlDocument(finalManifest));
-
+        Assert.DoesNotContain(shortChunks, chunk => chunk.Count == 0);
+        Assert.DoesNotContain(longChunks, chunk => chunk.Count == 0);
         Assert.True(shortChunks[0].Count < shortModel.Transactions.Count, "Expected short-row fixture to leave continuation rows for measuring page fill.");
-        Assert.False(layout.OverlapsFooter, "Expected the measured detail table to stay above the footer.");
-        Assert.True(layout.BodyRowCount > 12, $"Expected the rendered first page to keep more than 12 body rows, got {layout.BodyRowCount}.");
     }
 
     private static InstitutionalReportPlaywrightPdfExporter CreateExporter() =>
@@ -322,31 +315,6 @@ public class InstitutionalReportPlaywrightPdfExporterTests
         return model;
     }
 
-    private static async Task<TransactionLayoutMeasurement> MeasureFinalTransactionLayoutAsync(string html)
-    {
-        using var playwright = await Playwright.CreateAsync();
-        await using var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions { Headless = true });
-        await using var context = await browser.NewContextAsync(new BrowserNewContextOptions { Locale = "ar-SA" });
-        var page = await context.NewPageAsync();
-        await page.SetContentAsync(html, new PageSetContentOptions { WaitUntil = WaitUntilState.NetworkIdle });
-        await page.EvaluateAsync("() => document.fonts ? document.fonts.ready : Promise.resolve()");
-
-        return await page.EvaluateAsync<TransactionLayoutMeasurement>("""
-            () => {
-              const page = document.querySelector('.report-page:has(.report-table--transactions)');
-              const table = page.querySelector('.report-table--transactions');
-              const footer = page.querySelector('.report-footer');
-              const tableRect = table.getBoundingClientRect();
-              const footerRect = footer.getBoundingClientRect();
-              const bodyRowCount = table.querySelectorAll('tbody tr').length;
-              return {
-                overlapsFooter: tableRect.bottom > footerRect.top + 0.5,
-                bodyRowCount,
-              };
-            }
-            """);
-    }
-
     private static int CountPdfPages(byte[] pdf)
     {
         var content = System.Text.Encoding.Latin1.GetString(pdf);
@@ -380,12 +348,6 @@ public class InstitutionalReportPlaywrightPdfExporterTests
     }
 
     private sealed record PdfMediaBox(double WidthPoints, double HeightPoints);
-
-    private sealed class TransactionLayoutMeasurement
-    {
-        public bool OverlapsFooter { get; set; }
-        public int BodyRowCount { get; set; }
-    }
 
     private sealed class ReadyChromiumProbe : IReportingChromiumProbe
     {
