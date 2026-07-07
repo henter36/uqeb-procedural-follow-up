@@ -272,6 +272,37 @@ describe('TransactionsList', () => {
     expect(regularRow?.textContent).not.toContain('دورية فقط');
   });
 
+  it('makes the subject a link to the transaction detail page alongside the view button', async () => {
+    vi.mocked(services.transactionsApi.search).mockResolvedValue({
+      data: {
+        items: [
+          {
+            id: 7,
+            incomingNumber: 'IN-7',
+            incomingDate: '2026-07-01',
+            subject: 'معاملة قابلة للنقر',
+            incomingSourceType: 'Internal',
+            incomingFrom: 'إدارة',
+            categoryName: 'تصنيف',
+            outgoingDepartmentNames: [],
+            status: 'New',
+          },
+        ],
+        totalCount: 1,
+      },
+    } as never);
+
+    render(
+      <MemoryRouter>
+        <TransactionsList />
+      </MemoryRouter>,
+    );
+
+    const subjectLink = await screen.findByRole('link', { name: 'معاملة قابلة للنقر' });
+    expect(subjectLink).toHaveAttribute('href', '/transactions/7');
+    expect(screen.getByRole('link', { name: 'عرض' })).toHaveAttribute('href', '/transactions/7');
+  });
+
   it('sends recurring filters when selected in the advanced filters panel', async () => {
     const user = userEvent.setup();
     vi.mocked(services.transactionsApi.search).mockResolvedValue({ data: { items: [], totalCount: 0 } } as never);

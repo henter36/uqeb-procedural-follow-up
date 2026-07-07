@@ -50,6 +50,7 @@ public class TransactionsControllerResponseEditTests
         public Task<PagedResult<AuditLogDto>> GetAuditLogAsync(int transactionId, int page, int pageSize, ICurrentUserService currentUser) => throw new NotImplementedException();
         public Task<TransactionDetailDto?> EnableRecurringAsync(int id, EnableRecurringForTransactionRequest request, int userId) => throw new NotImplementedException();
         public Task<bool> CanAccessTransactionAsync(int transactionId, ICurrentUserService currentUser) => throw new NotImplementedException();
+        public Task<TransactionAdjacentDto?> GetAdjacentAsync(int id, ICurrentUserService currentUser) => throw new NotImplementedException();
     }
 
     private static TransactionsController CreateController(FakeTransactionService service) =>

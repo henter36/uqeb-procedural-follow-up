@@ -14,6 +14,8 @@ type TransactionActionBarProps = Readonly<{
   activeAction: WorkspaceAction | null;
   onAction: (action: WorkspaceAction) => void;
   onCloseTransaction: () => void;
+  showEnableRecurring?: boolean;
+  showAdminEditDates?: boolean;
 }>;
 
 export default function TransactionActionBar({
@@ -29,6 +31,8 @@ export default function TransactionActionBar({
   activeAction,
   onAction,
   onCloseTransaction,
+  showEnableRecurring = false,
+  showAdminEditDates = false,
 }: TransactionActionBarProps) {
   const showMutationActions = canEdit && !isDepartmentUser;
 
@@ -38,6 +42,26 @@ export default function TransactionActionBar({
         <Link to={`/transactions/${transactionId}/edit`} className="btn btn-outline btn-sm">
           تعديل
         </Link>
+      )}
+      {showEnableRecurring && (
+        <button
+          type="button"
+          className={`btn btn-outline btn-sm${activeAction === 'enable-recurring' ? ' active' : ''}`}
+          aria-pressed={activeAction === 'enable-recurring'}
+          onClick={() => onAction('enable-recurring')}
+        >
+          تفعيل متابعة دورية لهذه المعاملة
+        </button>
+      )}
+      {showAdminEditDates && (
+        <button
+          type="button"
+          className={`btn btn-outline btn-sm${activeAction === 'admin-edit-dates' ? ' active' : ''}`}
+          aria-pressed={activeAction === 'admin-edit-dates'}
+          onClick={() => onAction('admin-edit-dates')}
+        >
+          تصحيح التواريخ إداريًا
+        </button>
       )}
       {canRegisterResponse && (
         <button

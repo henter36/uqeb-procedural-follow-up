@@ -162,6 +162,7 @@ const defaultWorkspace = {
 vi.mock('../api/services', () => ({
   transactionsApi: {
     getBasic: vi.fn(),
+    getAdjacent: vi.fn(),
     getWorkspace: vi.fn(),
     getAssignments: vi.fn(),
     getFollowUps: vi.fn(),
@@ -236,7 +237,7 @@ function getResponseCard() {
 }
 
 function getCurrentStatusCard() {
-  return screen.getByTestId('current-action-status-card');
+  return screen.getByTestId('current-action-status-tile');
 }
 
 async function waitForDetailsReady() {
@@ -259,6 +260,7 @@ function renderDetail(path = '/transactions/1') {
 function setupDefaultMocks() {
   mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({ data: defaultWorkspace });
   mockApi(services.transactionsApi.getBasic).mockResolvedValue({ data: baseTx });
+  mockApi(services.transactionsApi.getAdjacent).mockResolvedValue({ data: { previousId: null, nextId: null } });
   mockApi(services.transactionsApi.getAssignments).mockResolvedValue({ data: [sampleAssignment] });
   mockApi(services.transactionsApi.getFollowUps).mockResolvedValue({ data: [sampleFollowUp] });
   mockApi(services.transactionsApi.getAttachments).mockResolvedValue({ data: [sampleAttachment] });
@@ -386,12 +388,12 @@ describe('TransactionDetailPage three-tab layout', () => {
     });
 
     expect(screen.getByText('TRK-1')).toBeInTheDocument();
-    expect(screen.getByText('مراجعة')).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'تاريخ إنجاز الإدارة' })).toBeInTheDocument();
     const assignmentsCard = getAssignmentsCard();
     expect(within(assignmentsCard).getByText('عمر المعاملة: 1 يوم')).toBeInTheDocument();
     expect(within(assignmentsCard).getAllByText(/عمر المعاملة:/)).toHaveLength(1);
     expect(within(assignmentsCard).getByText('عمر المعاملة: 1 يوم').closest('.transaction-metric-tile')).toBeNull();
+    expect(within(assignmentsCard).queryByText('مراجعة')).not.toBeInTheDocument();
     expect(screen.getByText('F-1')).toBeInTheDocument();
     expect(screen.getByText('file.pdf')).toBeInTheDocument();
   });
@@ -524,7 +526,6 @@ describe('TransactionDetailPage three-tab layout', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('status')).toHaveTextContent('تم إضافة الاحالة بنجاح');
-      expect(screen.getByText('مراجعة')).toBeInTheDocument();
       expect(within(card).queryByTestId('assignment-form-panel')).not.toBeInTheDocument();
     });
     expect(services.transactionsApi.addAssignment).toHaveBeenCalledTimes(1);
@@ -1679,6 +1680,106 @@ describe('TransactionDetailPage current status and response workflow', () => {
     const statusCard = getCurrentStatusCard();
     expect(within(statusCard).queryByText(/الإدارات المتبقية/)).not.toBeInTheDocument();
     expect(within(statusCard).getByText('جاهزة لتسجيل الإفادة')).toBeInTheDocument();
+  });
+});
+
+describe('TransactionDetailPage indicators, action grouping, card order, and navigation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseAuth.mockReturnValue({
+      canEdit: true,
+      canClose: true,
+      isDepartmentUser: false,
+      user: { fullName: 'مختبر', role: 'Admin' },
+      logout: vi.fn(),
+      login: vi.fn(),
+      isAdmin: true,
+    });
+    setupDefaultMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    cleanup();
+  });
+
+  it('renders compact indicator boxes without long inline descriptions, with the explanation available via an accessible tooltip', async () => {
+    renderDetail();
+    await waitForDetailsReady();
+
+    expect(document.querySelector('.metric-hint')).not.toBeInTheDocument();
+
+    const incomingDateLabel = screen.getByText('تاريخ الوارد');
+    const tile = incomingDateLabel.closest('.transaction-metric-tile');
+    expect(tile).not.toBeNull();
+    const tooltip = within(tile as HTMLElement).getByRole('tooltip', { hidden: true });
+    expect(tooltip).toHaveTextContent('بداية عمر المعاملة وأيام الإنجاز');
+    expect(tooltip).toHaveAttribute('id');
+    const wrapper = tooltip.closest('[tabindex="0"]');
+    expect(wrapper).toHaveAttribute('aria-describedby', tooltip.getAttribute('id'));
+  });
+
+  it('includes حالة الإجراء الحالية as one of the transaction indicator tiles', async () => {
+    renderDetail();
+    await waitForDetailsReady();
+
+    const statusTile = getCurrentStatusCard();
+    expect(statusTile.closest('.transaction-metric-grid')).not.toBeNull();
+    expect(within(statusTile).getByText('حالة الإجراء الحالية')).toBeInTheDocument();
+    expect(within(statusTile).getByText('لا تتطلب إفادة')).toBeInTheDocument();
+  });
+
+  it('groups the recurring and admin-date-correction actions beside تعديل in the action bar', async () => {
+    renderDetail();
+    await waitForDetailsReady();
+
+    const bar = getActionBar();
+    expect(within(bar).getByRole('link', { name: 'تعديل' })).toBeInTheDocument();
+    expect(within(bar).getByRole('button', { name: 'تفعيل متابعة دورية لهذه المعاملة' })).toBeInTheDocument();
+    expect(within(bar).getByRole('button', { name: 'تصحيح التواريخ إداريًا' })).toBeInTheDocument();
+  });
+
+  it('orders التعقيبات والردود before الإفادة in the section grid', async () => {
+    renderDetail();
+    await waitForDetailsReady();
+
+    const sections = Array.from(document.querySelectorAll('.transaction-sections-grid > section'))
+      .map((section) => section.getAttribute('aria-label'));
+    const followUpsIndex = sections.indexOf('التعقيبات والردود');
+    const responseIndex = sections.indexOf('الإفادة');
+    expect(followUpsIndex).toBeGreaterThan(-1);
+    expect(responseIndex).toBeGreaterThan(-1);
+    expect(followUpsIndex).toBeLessThan(responseIndex);
+  });
+
+  it('disables previous/next transaction navigation when no adjacent transaction exists', async () => {
+    mockApi(services.transactionsApi.getAdjacent).mockResolvedValue({ data: { previousId: null, nextId: null } });
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /المعاملة السابقة/ })).toBeDisabled();
+    });
+    expect(screen.getByRole('button', { name: /المعاملة التالية/ })).toBeDisabled();
+  });
+
+  it('navigates to the next transaction when an adjacent id is available', async () => {
+    const user = userEvent.setup();
+    mockApi(services.transactionsApi.getAdjacent).mockResolvedValue({ data: { previousId: 5, nextId: 9 } });
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    const nextButton = await screen.findByRole('button', { name: /المعاملة التالية/ });
+    await waitFor(() => expect(nextButton).not.toBeDisabled());
+
+    const callsBefore = mockApi(services.transactionsApi.getWorkspace).mock.calls.length;
+    await user.click(nextButton);
+
+    await waitFor(() => {
+      expect(mockApi(services.transactionsApi.getWorkspace).mock.calls.length).toBeGreaterThan(callsBefore);
+    });
   });
 });
 

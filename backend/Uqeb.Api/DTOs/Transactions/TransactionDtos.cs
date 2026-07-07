@@ -56,6 +56,12 @@ public class TransactionListDto
     public string? RecurringRecurrenceType { get; set; }
 }
 
+public class TransactionAdjacentDto
+{
+    public int? PreviousId { get; set; }
+    public int? NextId { get; set; }
+}
+
 public class TransactionDetailDto : TransactionListDto
 {
     public string? OutgoingTo { get; set; }

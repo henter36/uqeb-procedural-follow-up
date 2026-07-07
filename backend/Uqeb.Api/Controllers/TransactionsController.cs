@@ -100,6 +100,20 @@ public class TransactionsController : ControllerBase
         }
     }
 
+    [HttpGet("{id:int}/adjacent")]
+    public async Task<IActionResult> GetAdjacent(int id)
+    {
+        try
+        {
+            var result = await _transactions.GetAdjacentAsync(id, _currentUser);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
+    }
+
     [HttpPost]
     [Authorize(Policy = Policies.CanEditTransactions)]
     public async Task<IActionResult> Create([FromBody] CreateTransactionRequest request)

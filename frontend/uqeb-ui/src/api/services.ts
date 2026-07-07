@@ -37,6 +37,7 @@ export const transactionsApi = {
     api.get<PagedResult<TransactionListItem>>('/transactions', { params }),
   getById: (id: number) => api.get<TransactionDetail>(`/transactions/${id}`),
   getBasic: (id: number) => api.get<TransactionDetail>(`/transactions/${id}/basic`),
+  getAdjacent: (id: number) => api.get<import('./types').TransactionAdjacent>(`/transactions/${id}/adjacent`),
   getWorkspace: (id: number, config?: { signal?: AbortSignal }) =>
     api.get<TransactionWorkspace>(`/transactions/${id}/workspace`, config),
   getAssignments: (id: number) => api.get<Assignment[]>(`/transactions/${id}/assignments`),

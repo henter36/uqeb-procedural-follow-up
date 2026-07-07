@@ -365,7 +365,9 @@ export default function TransactionsList() {
                   <td>{t.incomingNumber}</td>
                   <td><DateDisplay date={t.incomingDate} /></td>
                   <td>
-                    {t.subject}
+                    <Link to={`/transactions/${t.id}`} className="subject-link">
+                      {t.subject}
+                    </Link>
                     {t.recurringTemplateId && (
                       <span className="badge badge-blue badge-gap" title={t.recurringPeriodLabel || undefined}>
                         دورية

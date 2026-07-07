@@ -35,6 +35,7 @@ public interface ITransactionService
     Task<PagedResult<AuditLogDto>> GetAuditLogAsync(int transactionId, int page, int pageSize, ICurrentUserService currentUser);
     Task<TransactionDetailDto?> EnableRecurringAsync(int id, EnableRecurringForTransactionRequest request, int userId);
     Task<bool> CanAccessTransactionAsync(int transactionId, ICurrentUserService currentUser);
+    Task<TransactionAdjacentDto?> GetAdjacentAsync(int id, ICurrentUserService currentUser);
 }
 
 public class TransactionService : ITransactionService
@@ -2440,6 +2441,39 @@ public class TransactionService : ITransactionService
                     a.RequiresReply &&
                     a.Status != AssignmentStatus.Cancelled) ||
                     _db.DepartmentResponses.Any(r => r.TransactionId == t.Id && r.DepartmentId == deptId)));
+    }
+
+    // Adjacent transaction ids for the detail page's previous/next navigation. Ordered by
+    // (IncomingDate, Id) ascending, the same stable ordering as the transaction list's default
+    // sort; scoped with the same department-user visibility rule as SearchAsync so a user never
+    // navigates to a transaction they could not otherwise open.
+    public async Task<TransactionAdjacentDto?> GetAdjacentAsync(int id, ICurrentUserService currentUser)
+    {
+        var current = await _db.Transactions.AsNoTracking()
+            .Where(t => t.Id == id)
+            .Select(t => new { t.IncomingDate })
+            .FirstOrDefaultAsync();
+        if (current == null) return null;
+
+        var scoped = ApplyDepartmentUserScope(_db.Transactions.AsNoTracking(), currentUser);
+
+        var previousId = await scoped
+            .Where(t => t.IncomingDate < current.IncomingDate
+                || (t.IncomingDate == current.IncomingDate && t.Id < id))
+            .OrderByDescending(t => t.IncomingDate)
+            .ThenByDescending(t => t.Id)
+            .Select(t => (int?)t.Id)
+            .FirstOrDefaultAsync();
+
+        var nextId = await scoped
+            .Where(t => t.IncomingDate > current.IncomingDate
+                || (t.IncomingDate == current.IncomingDate && t.Id > id))
+            .OrderBy(t => t.IncomingDate)
+            .ThenBy(t => t.Id)
+            .Select(t => (int?)t.Id)
+            .FirstOrDefaultAsync();
+
+        return new TransactionAdjacentDto { PreviousId = previousId, NextId = nextId };
     }
 
     private static bool CanAccess(Transaction t, ICurrentUserService user)
