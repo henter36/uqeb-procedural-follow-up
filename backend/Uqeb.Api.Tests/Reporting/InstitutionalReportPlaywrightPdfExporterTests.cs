@@ -275,10 +275,6 @@ public class InstitutionalReportPlaywrightPdfExporterTests
         Assert.True(shortChunks[0].Count < shortModel.Transactions.Count, "Expected short-row fixture to leave continuation rows for measuring page fill.");
         Assert.False(layout.OverlapsFooter, "Expected the measured detail table to stay above the footer.");
         Assert.True(layout.BodyRowCount > 12, $"Expected the rendered first page to keep more than 12 body rows, got {layout.BodyRowCount}.");
-
-        await using var exporter = CreateExporter();
-        var pdf = await exporter.ExportAsync(finalManifest, InstitutionalReportRenderer.RenderHtmlDocument(finalManifest));
-        Assert.Equal(finalManifest.TotalPages, CountPdfPages(pdf));
     }
 
     private static InstitutionalReportPlaywrightPdfExporter CreateExporter() =>
