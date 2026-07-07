@@ -27,7 +27,7 @@ function renderCreateForm() {
 }
 
 function getIncomingSection() {
-  const heading = screen.getAllByRole('heading', { name: 'بيانات الوارد' })[0];
+  const heading = screen.getAllByRole('heading', { name: 'معلومات المعاملة الأساسية' })[0];
   return heading.closest('section') as HTMLElement;
 }
 
@@ -90,12 +90,12 @@ describe('TransactionCreate', () => {
 
     const incomingSection = getIncomingSection();
     await user.type(getFieldInSection(incomingSection, 'رقم المعاملة *'), 'IN-100');
-    await user.type(getFieldInSection(incomingSection, 'الموضوع *'), 'اختبار');
+    await user.type(getFieldInSection(incomingSection, 'الموضوع / البيان *'), 'اختبار');
     await user.click(screen.getByRole('combobox', { name: /الجهة الوارد منها/ }));
     await user.click(screen.getByRole('option', { name: /جهة خارجية أ/ }));
     await user.click(screen.getByRole('combobox', { name: /التصنيف/ }));
     await user.click(screen.getByRole('option', { name: /تصنيف عام/ }));
-    await user.type(getFieldInSection(incomingSection, 'عدد الأيام للرد *'), '7');
+    await user.type(getFieldInSection(incomingSection, 'مدة الرد بالأيام *'), '7');
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
 
     expect(screen.getByRole('alert')).toHaveTextContent('تاريخ المعاملة مطلوب.');
@@ -111,12 +111,12 @@ describe('TransactionCreate', () => {
     const routingSection = getRoutingSection();
     await user.type(getFieldInSection(incomingSection, 'رقم المعاملة *'), 'IN-100');
     await user.type(getFieldInSection(incomingSection, 'تاريخ المعاملة *'), '16/01/1448');
-    await user.type(getFieldInSection(incomingSection, 'الموضوع *'), 'اختبار');
+    await user.type(getFieldInSection(incomingSection, 'الموضوع / البيان *'), 'اختبار');
     await user.click(screen.getByRole('combobox', { name: /الجهة الوارد منها/ }));
     await user.click(screen.getByRole('option', { name: /جهة خارجية أ/ }));
     await user.click(screen.getByRole('combobox', { name: /التصنيف/ }));
     await user.click(screen.getByRole('option', { name: /تصنيف عام/ }));
-    await user.type(getFieldInSection(incomingSection, 'عدد الأيام للرد *'), '7');
+    await user.type(getFieldInSection(incomingSection, 'مدة الرد بالأيام *'), '7');
     await user.type(getFieldInSection(routingSection, 'رقم خطاب الإحالة للإدارة'), 'OUT-100');
     await user.click(screen.getByRole('button', { name: 'حفظ' }));
 
