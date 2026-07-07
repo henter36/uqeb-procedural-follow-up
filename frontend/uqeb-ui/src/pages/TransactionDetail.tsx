@@ -1151,7 +1151,11 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                   {assignments.map((a) => {
                     const replyStatusLabel = getAssignmentReplyStatusLabel(a.replyStatus);
                     const canOpenAdminAssignmentEdit = isAdmin && a.canAdminEdit === true;
-                    const canOpenAdminResponseEdit = isAdmin && Boolean(a.departmentResponseId);
+                    const canEditDepartmentResponse =
+                      (isAdmin || user?.role === 'Supervisor') &&
+                      Boolean(a.departmentResponseId) &&
+                      a.replyStatus === 'Replied' &&
+                      !isTerminal;
 
                     return (
                       <tr key={a.id} className={a.isOverdue ? 'row-overdue' : ''}>
@@ -1177,11 +1181,12 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                           {renderDepartmentCompletionDays(a.departmentCompletionDays)}
                         </td>
                         <td>
-                          {canOpenAdminResponseEdit ? (
+                          {canEditDepartmentResponse ? (
                             <button
                               type="button"
-                              className={`badge assignment-response-status-link ${assignmentReplyBadgeClass(a.replyStatus, a.isOverdue)}`}
-                              aria-label={`تعديل إفادة إدارة ${a.departmentName}`}
+                              className="badge badge-green badge-button"
+                              aria-label="تمت الإفادة - تعديل إفادة الإدارة"
+                              title="تمت الإفادة - تعديل إفادة الإدارة"
                               onClick={() => openAction('admin-edit-response', { adminEditResponseId: a.departmentResponseId! })}
                             >
                               {replyStatusLabel}
@@ -1203,15 +1208,6 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                               onClick={() => openAction('reply-assignment', { replyAssignmentId: a.id })}
                             >
                               تسجيل رد
-                            </button>
-                          )}
-                          {canOpenAdminResponseEdit && (
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-outline"
-                              onClick={() => openAction('admin-edit-response', { adminEditResponseId: a.departmentResponseId! })}
-                            >
-                              تعديل الإفادة
                             </button>
                           )}
                           {a.replySummary && <div className="text-muted reply-summary">{a.replySummary}</div>}

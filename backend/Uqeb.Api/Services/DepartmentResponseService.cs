@@ -480,6 +480,9 @@ public class DepartmentResponseService : IDepartmentResponseService
             .FirstOrDefaultAsync(r => r.Id == id);
         if (response == null) return null;
 
+        if (response.Transaction.Status is TransactionStatus.Closed or TransactionStatus.Cancelled or TransactionStatus.Archived)
+            throw new InvalidOperationException("لا يمكن تعديل إفادة الإدارة لمعاملة مغلقة أو ملغاة أو مؤرشفة.");
+
         var reason = request.Reason?.Trim();
         if (string.IsNullOrWhiteSpace(reason))
             throw new InvalidOperationException("سبب التعديل مطلوب.");
