@@ -1553,6 +1553,27 @@ describe('TransactionDetailPage card interaction flows', () => {
     expect(within(card).queryByRole('button', { name: 'تم الرد - تعديل الرد' })).not.toBeInTheDocument();
   });
 
+  it('does not make a follow-up editable when marked Replied but no reply date or summary is saved', async () => {
+    const emptyRepliedFollowUp = {
+      ...sampleFollowUp,
+      followUpNumber: '١١١',
+      replyStatus: 'Replied',
+      replyDate: undefined,
+      replySummary: undefined,
+    };
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: { ...defaultWorkspace, followUps: [emptyRepliedFollowUp] },
+    });
+    mockApi(services.transactionsApi.getFollowUps).mockResolvedValue({ data: [emptyRepliedFollowUp] });
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getFollowUpsCard();
+
+    expect(within(card).getByText('تم الرد')).toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: 'تم الرد - تعديل الرد' })).not.toBeInTheDocument();
+  });
+
   it.each(['Closed', 'Cancelled', 'Archived'])(
     'hides the follow-up reply edit affordance for %s transactions',
     async (status) => {

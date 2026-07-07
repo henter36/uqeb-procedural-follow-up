@@ -1358,6 +1358,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                     const canEditFollowUpReply =
                       (isAdmin || user?.role === 'Supervisor') &&
                       f.replyStatus === 'Replied' &&
+                      Boolean(f.replyDate || f.replySummary) &&
                       !isTerminal;
 
                     return (
