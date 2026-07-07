@@ -171,7 +171,7 @@ public class DepartmentResponsesController : ControllerBase
     }
 
     [HttpPatch("{id:int}/admin-edit")]
-    [Authorize(Policy = Policies.AdminOnly)]
+    [Authorize(Policy = Policies.ReviewDepartmentResponse)]
     public async Task<IActionResult> AdminEdit(int id, [FromBody] AdminEditDepartmentResponseRequest request)
     {
         try

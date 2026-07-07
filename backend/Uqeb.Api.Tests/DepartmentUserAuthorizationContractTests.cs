@@ -44,6 +44,7 @@ public class DepartmentUserAuthorizationContractTests
     [InlineData(nameof(DepartmentResponsesController.Approve))]
     [InlineData(nameof(DepartmentResponsesController.ReturnForCorrection))]
     [InlineData(nameof(DepartmentResponsesController.Reject))]
+    [InlineData(nameof(DepartmentResponsesController.AdminEdit))]
     public void DepartmentResponseReviewActions_RequireReviewPolicy(string actionName)
     {
         var method = GetControllerMethod<DepartmentResponsesController>(actionName);

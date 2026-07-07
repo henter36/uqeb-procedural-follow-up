@@ -197,7 +197,7 @@ const ACTION_TITLES: Record<WorkspaceAction, string> = {
   'follow-up-letter': 'خطاب تعقيب PDF',
   'admin-edit-assignment': 'تعديل بيانات الاحالة',
   'admin-edit-dates': 'تصحيح التواريخ الحساسة (إداري)',
-  'admin-edit-response': 'تعديل بيانات الإفادة',
+  'admin-edit-response': 'تعديل إفادة الإدارة',
   'admin-edit-transaction-response': 'تعديل الإفادة',
   'enable-recurring': 'تفعيل متابعة دورية',
 };
@@ -1021,11 +1021,11 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
       )}
 
       <div className="transaction-sections-grid">
-        <section className="card transaction-section-card" aria-label="الاحالات والردود">
+        <section className="card transaction-section-card" aria-label="الإحالات والردود">
           <div className="section-card-header">
             <div className="section-card-title">
               <span className="section-card-icon" aria-hidden>↪</span>
-              <h3>الاحالات والردود</h3>
+              <h3>الإحالات والردود</h3>
               <span className="section-card-count">{assignments.length} احالة</span>
               <span className="section-card-meta">{assignmentCardAgeText}</span>
             </div>

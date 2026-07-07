@@ -221,7 +221,7 @@ function getActionBarButton(name: string) {
 }
 
 function getAssignmentsCard() {
-  return screen.getByRole('region', { name: 'الاحالات والردود' });
+  return screen.getByRole('region', { name: 'الإحالات والردود' });
 }
 
 function getFollowUpsCard() {
@@ -1413,7 +1413,8 @@ describe('TransactionDetailPage card interaction flows', () => {
     expect(await screen.findByLabelText('ملخص الإفادة')).toHaveValue('نص الإفادة');
   });
 
-  it('allows editing a completed department response even when the transaction-level response is not completed', async () => {
+  it('opens the row-level department response edit form from الإحالات والردود even when tx.responseCompleted is false', async () => {
+    const user = userEvent.setup();
     const repliedAssignment = {
       ...sampleAssignment,
       replyStatus: 'Replied',
@@ -1434,9 +1435,98 @@ describe('TransactionDetailPage card interaction flows', () => {
 
     renderDetail();
     await waitForDetailsReady();
+
+    const referralsTable = screen.getByRole('region', { name: /الإحالات والردود/ });
+    const completedResponseButton = within(referralsTable).getByRole('button', {
+      name: 'تمت الإفادة - تعديل إفادة الإدارة',
+    });
+
+    await user.click(completedResponseButton);
+
+    expect(within(referralsTable).getByRole('region', { name: 'تعديل إفادة الإدارة' })).toBeInTheDocument();
+    expect(await screen.findByLabelText('ملخص الإفادة')).toHaveValue('نص الإفادة');
+  });
+
+  it('scopes each row-level edit to its own department without affecting other rows', async () => {
+    const user = userEvent.setup();
+    const legalAssignment = {
+      ...sampleAssignment,
+      id: 11,
+      departmentId: 1,
+      departmentName: 'الشؤون القانونية',
+      replyStatus: 'Replied',
+      responseDate: '2026-01-05',
+      replySummary: 'إفادة الشؤون القانونية',
+      departmentResponseId: 200,
+    };
+    const adminAssignment = {
+      ...sampleAssignment,
+      id: 12,
+      departmentId: 2,
+      departmentName: 'الشؤون الإدارية',
+      replyStatus: 'Replied',
+      responseDate: '2026-01-06',
+      replySummary: 'إفادة الشؤون الإدارية',
+      departmentResponseId: 201,
+    };
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: {
+        ...defaultWorkspace,
+        assignments: [legalAssignment, adminAssignment],
+      },
+    });
+    mockApi(services.transactionsApi.getAssignments).mockResolvedValue({
+      data: [legalAssignment, adminAssignment],
+    });
+    mockApi(services.departmentResponsesApi.getById)
+      .mockResolvedValueOnce({
+        data: {
+          id: 200,
+          transactionId: 1,
+          transactionSubject: 'موضوع',
+          internalTrackingNumber: 'TRK-1',
+          departmentId: 1,
+          departmentName: 'الشؤون القانونية',
+          responseText: 'إفادة الشؤون القانونية',
+          status: 'Approved',
+          submittedByName: 'موظف إدارة',
+          createdAt: '2026-01-01',
+          attachments: [],
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          id: 201,
+          transactionId: 1,
+          transactionSubject: 'موضوع',
+          internalTrackingNumber: 'TRK-1',
+          departmentId: 2,
+          departmentName: 'الشؤون الإدارية',
+          responseText: 'إفادة الشؤون الإدارية',
+          status: 'Approved',
+          submittedByName: 'موظف إدارة',
+          createdAt: '2026-01-01',
+          attachments: [],
+        },
+      });
+
+    renderDetail();
+    await waitForDetailsReady();
     const card = getAssignmentsCard();
 
-    expect(await within(card).findByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإدارة' })).toBeInTheDocument();
+    const legalRow = within(card).getByText('الشؤون القانونية').closest('tr')!;
+    const legalButton = within(legalRow).getByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإدارة' });
+    await user.click(legalButton);
+
+    expect(await screen.findByLabelText('ملخص الإفادة')).toHaveValue('إفادة الشؤون القانونية');
+
+    await user.click(within(card).getByRole('button', { name: 'إغلاق النموذج' }));
+
+    const adminRow = within(card).getByText('الشؤون الإدارية').closest('tr')!;
+    const adminButton = within(adminRow).getByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإدارة' });
+    await user.click(adminButton);
+
+    expect(await screen.findByLabelText('ملخص الإفادة')).toHaveValue('إفادة الشؤون الإدارية');
   });
 
   it('shows the updated department response summary in the same row after a successful admin edit', async () => {
