@@ -14,7 +14,6 @@ public sealed class InstitutionalReportRenderer
     private const string DateFormat = "yyyy-MM-dd";
     private const string DateTimeFormat = "yyyy-MM-dd HH:mm";
     private const string DefaultReportTitle = "تقرير المتابعة الإجرائية للمعاملات";
-    private const int TransactionRowsPerPdfPage = 6;
     private const string UndefinedDepartmentLabel = "غير محدد";
 
     private static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromMilliseconds(250);
@@ -141,11 +140,14 @@ public sealed class InstitutionalReportRenderer
         }
     }
 
-    // Denser layout metrics for the DepartmentTransactions detail table only (see .report-table--department-transactions
-    // in institutional-report.css). These are the same values the CSS uses, kept as named constants (not a bare row
-    // count) so the row-per-page capacity below is derived from real page geometry rather than a hardcoded literal.
+    // Layout metrics for the detail tables (see .report-table--department-transactions and
+    // .report-table--transactions in institutional-report.css). These mirror the values the CSS
+    // uses, kept as named constants (not a bare row count) so the row-per-page capacity below is
+    // derived from real page geometry rather than a hardcoded literal.
     private const decimal DepartmentTransactionsRowHeightMm = 11m;
     private const decimal DepartmentTransactionsHeaderReserveMm = 12m;
+    private const decimal TransactionDetailsRowHeightMm = 14m;
+    private const decimal TransactionDetailsHeaderReserveMm = 18m;
 
     private static void AppendTransactionDetailPages(
         InstitutionalReportModel model,
@@ -161,7 +163,7 @@ public sealed class InstitutionalReportRenderer
         var isDepartmentTransactions = model.Metadata.ReportType == InstitutionalReportType.DepartmentTransactions;
         var rowsPerPage = isDepartmentTransactions
             ? ComputeRowsPerPage(InstitutionalReportPdfProfiles.ExtraWideLandscape, DepartmentTransactionsRowHeightMm, DepartmentTransactionsHeaderReserveMm)
-            : TransactionRowsPerPdfPage;
+            : ComputeRowsPerPage(InstitutionalReportPdfProfiles.ExtraWideLandscape, TransactionDetailsRowHeightMm, TransactionDetailsHeaderReserveMm);
 
         var chunkIndex = 0;
         foreach (var chunk in model.Transactions.Chunk(rowsPerPage))
@@ -184,9 +186,9 @@ public sealed class InstitutionalReportRenderer
 
     /// <summary>
     /// Row capacity per PDF page, derived from real page-profile geometry (content height minus margins
-    /// and a header reserve) divided by the table's own row height — not a fixed literal. Only used for
-    /// the DepartmentTransactions detail table; the 5 pre-existing report types keep TransactionRowsPerPdfPage
-    /// untouched (unaffected, zero regression risk to their existing pagination/tests).
+    /// and a header reserve) divided by the table's own row height — not a fixed literal. Used for both
+    /// the DepartmentTransactions and general TransactionDetails detail tables, each with their own
+    /// row-height/header-reserve constants matching their respective table density in CSS.
     /// </summary>
     private static int ComputeRowsPerPage(PdfPageProfile profile, decimal rowHeightMm, decimal headerReserveMm)
     {

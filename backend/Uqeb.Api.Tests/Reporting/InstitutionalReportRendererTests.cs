@@ -235,6 +235,26 @@ public class InstitutionalReportRendererTests
     }
 
     [Fact]
+    public void RenderManifest_TransactionDetails_FitsMoreThanSixRowsPerPageOnExtraWideLandscape()
+    {
+        // Regression guard: general TransactionDetails pages used to hard-cap at 6 rows via a
+        // fixed constant regardless of how much room ExtraWideLandscape actually has. Row
+        // capacity must now come from real page geometry (ComputeRowsPerPage), same as the
+        // DepartmentTransactions detail table already does.
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel(totalMatched: 13, exportedRows: 13);
+
+        var manifest = _renderer.RenderManifest(model, [ReportSectionId.TransactionDetails]);
+
+        var detailPages = manifest.Pages.Where(p => p.SectionId == ReportSectionId.TransactionDetails).ToList();
+        Assert.NotEmpty(detailPages);
+
+        var firstPageRowCount = detailPages[0].HtmlContent.Split("<tr><td", StringSplitOptions.None).Length - 1;
+        Assert.True(firstPageRowCount > 6, $"Expected more than 6 rows on the first page, got {firstPageRowCount}.");
+
+        Assert.All(detailPages, page => Assert.Equal("ExtraWideLandscape", page.PdfProfileName));
+    }
+
+    [Fact]
     public void RenderManifest_UsesTableSpecificClassesAndReadableDateOrder()
     {
         var model = InstitutionalReportVisualFixtures.CreateBaseModel();
