@@ -469,10 +469,11 @@ internal static class InstitutionalReportServiceTestHelpers
                 serviceRef!,
                 pdf,
                 options,
-                exportGuard,
-                metrics,
                 NullLogger<InstitutionalReportExportService>.Instance,
-                correlationIdProvider));
+                new InstitutionalReportExportRuntimeDependencies(
+                    exportGuard,
+                    metrics,
+                    correlationIdProvider)));
 
         return serviceRef;
     }

@@ -262,11 +262,12 @@ public class InstitutionalReportExportServiceExceptionTests
             buildSupport,
             pdfExporter ?? new StubPdfExporter(),
             options,
-            exportGuard,
-            metrics,
             logger ?? NullLogger<InstitutionalReportExportService>.Instance,
-            correlationIdProvider,
-            pdfPaginationMeasurer);
+            new InstitutionalReportExportRuntimeDependencies(
+                exportGuard,
+                metrics,
+                correlationIdProvider,
+                pdfPaginationMeasurer));
     }
 
     private static InstitutionalReportModel CreateTransactionDetailsModel(int rowCount)

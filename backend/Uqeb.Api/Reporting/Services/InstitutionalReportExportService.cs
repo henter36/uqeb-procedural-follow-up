@@ -17,6 +17,26 @@ public interface IInstitutionalReportExportService
     Task<ReportExportResultDto> ExportAsync(ReportExportRequestDto request, CancellationToken ct = default);
 }
 
+public sealed class InstitutionalReportExportRuntimeDependencies
+{
+    public InstitutionalReportExportRuntimeDependencies(
+        IReportingExportGuard exportGuard,
+        IReportingMetrics metrics,
+        IReportingCorrelationIdProvider correlationIdProvider,
+        IInstitutionalReportPdfPaginationMeasurer? pdfPaginationMeasurer = null)
+    {
+        ExportGuard = exportGuard;
+        Metrics = metrics;
+        CorrelationIdProvider = correlationIdProvider;
+        PdfPaginationMeasurer = pdfPaginationMeasurer;
+    }
+
+    public IReportingExportGuard ExportGuard { get; }
+    public IReportingMetrics Metrics { get; }
+    public IReportingCorrelationIdProvider CorrelationIdProvider { get; }
+    public IInstitutionalReportPdfPaginationMeasurer? PdfPaginationMeasurer { get; }
+}
+
 public sealed class InstitutionalReportExportService : IInstitutionalReportExportService
 {
     private const string SelectedPagesField = "selectedPages";
@@ -35,20 +55,17 @@ public sealed class InstitutionalReportExportService : IInstitutionalReportExpor
         IInstitutionalReportBuildSupport buildSupport,
         IInstitutionalReportPdfExporter pdfExporter,
         IOptions<ReportingOptions> reportingOptions,
-        IReportingExportGuard exportGuard,
-        IReportingMetrics metrics,
         ILogger<InstitutionalReportExportService> logger,
-        IReportingCorrelationIdProvider correlationIdProvider,
-        IInstitutionalReportPdfPaginationMeasurer? pdfPaginationMeasurer = null)
+        InstitutionalReportExportRuntimeDependencies runtimeDependencies)
     {
         _buildSupport = buildSupport;
         _pdfExporter = pdfExporter;
-        _pdfPaginationMeasurer = pdfPaginationMeasurer;
+        _pdfPaginationMeasurer = runtimeDependencies.PdfPaginationMeasurer;
         _reportingOptions = reportingOptions.Value;
-        _exportGuard = exportGuard;
-        _metrics = metrics;
+        _exportGuard = runtimeDependencies.ExportGuard;
+        _metrics = runtimeDependencies.Metrics;
         _logger = logger;
-        _correlationIdProvider = correlationIdProvider;
+        _correlationIdProvider = runtimeDependencies.CorrelationIdProvider;
     }
 
     public async Task<ReportExportResultDto> ExportAsync(ReportExportRequestDto request, CancellationToken ct = default)

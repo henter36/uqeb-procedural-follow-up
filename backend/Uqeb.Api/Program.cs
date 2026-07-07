@@ -84,6 +84,7 @@ builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<IInstitutionalReportService, InstitutionalReportService>();
 builder.Services.AddScoped<IInstitutionalReportBuildSupport>(sp => sp.GetRequiredService<IInstitutionalReportService>() as IInstitutionalReportBuildSupport
     ?? throw new InvalidOperationException("Institutional report service must implement build support."));
+builder.Services.AddScoped<InstitutionalReportExportRuntimeDependencies>();
 builder.Services.AddScoped<IInstitutionalReportExportService, InstitutionalReportExportService>();
 builder.Services.AddScoped<Func<IInstitutionalReportExportService>>(sp => () => sp.GetRequiredService<IInstitutionalReportExportService>());
 builder.Services.AddScoped<IInstitutionalReportNumberAllocator, InstitutionalReportNumberAllocator>();

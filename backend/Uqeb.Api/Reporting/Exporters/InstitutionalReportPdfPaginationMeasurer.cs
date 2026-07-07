@@ -160,8 +160,8 @@ public sealed class InstitutionalReportPdfPaginationMeasurer : IInstitutionalRep
 
     private sealed class TransactionDetailDomMeasurement
     {
-        public double FirstAvailableRowsHeight { get; set; }
-        public double ContinuationAvailableRowsHeight { get; set; }
+        public double FirstAvailableRowsHeight { get; set; } = 0d;
+        public double ContinuationAvailableRowsHeight { get; set; } = 0d;
         public List<double> RowHeights { get; set; } = [];
     }
 }

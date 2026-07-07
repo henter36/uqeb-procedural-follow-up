@@ -14,6 +14,7 @@ public sealed class InstitutionalReportRenderer
     private const string DateFormat = "yyyy-MM-dd";
     private const string DateTimeFormat = "yyyy-MM-dd HH:mm";
     private const string DefaultReportTitle = "تقرير المتابعة الإجرائية للمعاملات";
+    private const string TransactionDetailsPageTitle = "المعاملات التفصيلية";
     private const string UndefinedDepartmentLabel = "غير محدد";
 
     private static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromMilliseconds(250);
@@ -74,13 +75,14 @@ public sealed class InstitutionalReportRenderer
             {
                 HtmlContent = WrapPage(
                     RenderCover(model),
-                    pageNumber: coverPageIndex + 1,
-                    totalPages: pages.Count,
-                    partial: false,
-                    profile: InstitutionalReportPdfProfiles.GetByName(coverPage.PdfProfileName),
-                    sectionId: coverPage.SectionId,
-                    reportTitle: model.Metadata.Title,
-                    reportId: model.Metadata.ReportNumber),
+                    new PageChromeOptions(
+                        PageNumber: coverPageIndex + 1,
+                        TotalPages: pages.Count,
+                        Partial: false,
+                        Profile: InstitutionalReportPdfProfiles.GetByName(coverPage.PdfProfileName),
+                        SectionId: coverPage.SectionId,
+                        ReportTitle: model.Metadata.Title,
+                        ReportId: model.Metadata.ReportNumber)),
             };
         }
 
@@ -194,7 +196,7 @@ public sealed class InstitutionalReportRenderer
             var html = isDepartmentTransactions
                 ? RenderDepartmentTransactionDetails(model, chunk.ToList(), isFirstPage: chunkIndex == 0)
                 : RenderTransactions(model, chunk.ToList(), isFirstPage: chunkIndex == 0);
-            pages.Add(MakePage(ReportSectionId.TransactionDetails, "المعاملات التفصيلية", html));
+            pages.Add(MakePage(ReportSectionId.TransactionDetails, TransactionDetailsPageTitle, html));
             chunkIndex++;
         }
 
@@ -203,7 +205,7 @@ public sealed class InstitutionalReportRenderer
             var emptyHtml = isDepartmentTransactions
                 ? RenderDepartmentTransactionDetails(model, [], isFirstPage: true)
                 : RenderTransactions(model, [], isFirstPage: true);
-            pages.Add(MakePage(ReportSectionId.TransactionDetails, "المعاملات التفصيلية", emptyHtml));
+            pages.Add(MakePage(ReportSectionId.TransactionDetails, TransactionDetailsPageTitle, emptyHtml));
         }
     }
 
@@ -216,12 +218,12 @@ public sealed class InstitutionalReportRenderer
         foreach (var chunk in measuredTransactionChunks.Where(chunk => chunk.Count > 0))
         {
             var html = RenderTransactions(model, chunk.ToList(), isFirstPage: chunkIndex == 0);
-            pages.Add(MakePage(ReportSectionId.TransactionDetails, "المعاملات التفصيلية", html));
+            pages.Add(MakePage(ReportSectionId.TransactionDetails, TransactionDetailsPageTitle, html));
             chunkIndex++;
         }
 
         if (chunkIndex == 0 && model.Transactions.Count == 0)
-            pages.Add(MakePage(ReportSectionId.TransactionDetails, "المعاملات التفصيلية", RenderTransactions(model, [], isFirstPage: true)));
+            pages.Add(MakePage(ReportSectionId.TransactionDetails, TransactionDetailsPageTitle, RenderTransactions(model, [], isFirstPage: true)));
     }
 
     /// <summary>
@@ -485,7 +487,16 @@ public sealed class InstitutionalReportRenderer
             SectionName = title,
             PageTitle = title,
             PdfProfileName = profile.Name,
-            HtmlContent = WrapPage(innerHtml, 1, 1, false, profile, section, title, string.Empty)
+            HtmlContent = WrapPage(
+                innerHtml,
+                new PageChromeOptions(
+                    PageNumber: 1,
+                    TotalPages: 1,
+                    Partial: false,
+                    Profile: profile,
+                    SectionId: section,
+                    ReportTitle: title,
+                    ReportId: string.Empty))
         };
     }
 
@@ -500,31 +511,35 @@ public sealed class InstitutionalReportRenderer
             PdfProfileName = InstitutionalReportPdfProfiles.StandardPortrait.Name,
             HtmlContent = WrapPage(
                 innerHtml,
-                1,
-                1,
-                partial: true,
-                profile: InstitutionalReportPdfProfiles.StandardPortrait,
-                sectionId: section,
-                reportTitle: title,
-                reportId: string.Empty)
+                new PageChromeOptions(
+                    PageNumber: 1,
+                    TotalPages: 1,
+                    Partial: true,
+                    Profile: InstitutionalReportPdfProfiles.StandardPortrait,
+                    SectionId: section,
+                    ReportTitle: title,
+                    ReportId: string.Empty))
         };
 
     private static string WrapPage(
         string content,
-        int pageNumber,
-        int totalPages,
-        bool partial,
-        PdfPageProfile profile,
-        ReportSectionId sectionId,
-        string reportTitle,
-        string reportId) =>
+        PageChromeOptions options) =>
         $"""
-        <section class="report-page report-page--{profile.CssClass}" data-page="{pageNumber}" data-profile="{profile.Name}" data-section="{Esc(reportTitle)}" data-section-id="{sectionId}">
-          {Header(partial)}
+        <section class="report-page report-page--{options.Profile.CssClass}" data-page="{options.PageNumber}" data-profile="{options.Profile.Name}" data-section="{Esc(options.ReportTitle)}" data-section-id="{options.SectionId}">
+          {Header(options.Partial)}
           <main class="report-content">{content}</main>
-          {BuildFooter(pageNumber, totalPages, partial, reportTitle, reportId)}
+          {BuildFooter(options.PageNumber, options.TotalPages, options.Partial, options.ReportTitle, options.ReportId)}
         </section>
         """;
+
+    private sealed record PageChromeOptions(
+        int PageNumber,
+        int TotalPages,
+        bool Partial,
+        PdfPageProfile Profile,
+        ReportSectionId SectionId,
+        string ReportTitle,
+        string ReportId);
 
     private static string Header(bool partial) =>
         $"""
@@ -1319,13 +1334,14 @@ public sealed class InstitutionalReportRenderer
                   <dt>تاريخ التصدير</dt><dd>{FormatDate(DateTime.UtcNow)}</dd>
                 </dl>
                 """,
-                0,
-                0,
-                partial: true,
-                profile: InstitutionalReportPdfProfiles.StandardPortrait,
-                sectionId: ReportSectionId.PartialCover,
-                reportTitle: "غلاف النسخة الجزئية",
-                reportId: source.ReportId)
+                new PageChromeOptions(
+                    PageNumber: 0,
+                    TotalPages: 0,
+                    Partial: true,
+                    Profile: InstitutionalReportPdfProfiles.StandardPortrait,
+                    SectionId: ReportSectionId.PartialCover,
+                    ReportTitle: "غلاف النسخة الجزئية",
+                    ReportId: source.ReportId))
         };
 
     private static RenderedReportPageDto CreatePartialManifestPage(RenderedReportManifestDto source, ReportExportRequestDto request, List<RenderedReportPageDto> selected) =>
@@ -1344,13 +1360,14 @@ public sealed class InstitutionalReportRenderer
                 <p>الأقسام المضمنة: {string.Join("، ", selected.Select(p => p.SectionName).Distinct())}</p>
                 {(string.IsNullOrWhiteSpace(request.Reason) ? string.Empty : $"<p>سبب الإنشاء: {Esc(request.Reason)}</p>")}
                 """,
-                0,
-                0,
-                partial: true,
-                profile: InstitutionalReportPdfProfiles.StandardPortrait,
-                sectionId: ReportSectionId.PartialManifest,
-                reportTitle: "تعريف النسخة الجزئية",
-                reportId: source.ReportId)
+                new PageChromeOptions(
+                    PageNumber: 0,
+                    TotalPages: 0,
+                    Partial: true,
+                    Profile: InstitutionalReportPdfProfiles.StandardPortrait,
+                    SectionId: ReportSectionId.PartialManifest,
+                    ReportTitle: "تعريف النسخة الجزئية",
+                    ReportId: source.ReportId))
         };
 
     private static string FormatDate(DateTime value) =>
