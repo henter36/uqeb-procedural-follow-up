@@ -224,6 +224,12 @@ public class InstitutionalReportMetricsCalculatorTests
         // (2026-07-09 - 2026-06-20) = 19 days, not (2026-07-20 - 2026-06-20) = 30 days.
         Assert.Equal(19, result.AverageCompletionDays);
         Assert.Equal(100, result.OnTimeCompletionRate);
+        // IsCompletedLate must use the same precedence (procedural date first) as the rate
+        // above — otherwise this same transaction would be "on time" in the rate but
+        // "completed late" in CompletedLateCount, purely because ClosedAt (07-20) outranked
+        // the on-time procedural date (07-09) in IsCompletedLate's own comparison.
+        Assert.False(InstitutionalReportMetricsCalculator.IsCompletedLate(snapshot));
+        Assert.Equal(0, result.CompletedLateCount);
     }
 
     [Fact]

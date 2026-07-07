@@ -872,7 +872,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
           </div>
         </div>
 
-        {tx.isProcedurallyCompleteForReporting && !tx.responseCompleted && (
+        {!isTerminal && tx.isProcedurallyCompleteForReporting && !tx.responseCompleted && (
           <Alert variant="info">
             <span>المعاملة مكتملة إجرائيًا وتنتظر اعتماد الإفادة النهائية.</span>
             {tx.proceduralCompletionDateForReporting && (

@@ -152,9 +152,13 @@ public static class InstitutionalReportMetricsCalculator
         if (!snapshot.ResponseDueDate.HasValue)
             return false;
 
-        var completionDate = snapshot.ClosedAt?.Date
+        // Must match Calculate's AverageCompletionDays/OnTimeCompletionRate precedence
+        // (procedural date first) — otherwise the same transaction could be counted as
+        // "on time" in the rate but "completed late" here whenever a late administrative
+        // ClosedAt would otherwise take priority over an on-time procedural completion.
+        var completionDate = snapshot.ProceduralCompletionDateForReporting?.Date
             ?? (snapshot.ResponseCompleted ? snapshot.ResponseCompletedDate?.Date : null)
-            ?? (snapshot.IsProcedurallyCompleteForReporting ? snapshot.ProceduralCompletionDateForReporting : null);
+            ?? snapshot.ClosedAt?.Date;
 
         return completionDate.HasValue && completionDate.Value.Date > snapshot.ResponseDueDate.Value.Date;
     }

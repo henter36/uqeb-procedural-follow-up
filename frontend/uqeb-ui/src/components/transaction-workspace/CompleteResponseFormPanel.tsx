@@ -50,11 +50,21 @@ export default function CompleteResponseFormPanel({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [responseSaved, setResponseSaved] = useState(false);
   const responseSavedRef = useRef(false);
+  const responseDateTouchedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // If the suggested date changes while the panel is open (e.g. a late department reply
+  // lands) and the user hasn't touched the field yet, keep it synced to the suggestion.
+  // Once the user edits the field directly, or the response is saved, this must never
+  // overwrite their input again.
+  useEffect(() => {
+    if (responseDateTouchedRef.current || responseSavedRef.current) return;
+    setForm((prev) => (prev.responseDate === initialResponseDate ? prev : { ...prev, responseDate: initialResponseDate }));
+  }, [initialResponseDate]);
 
   useEffect(() => {
     const dirty = Boolean(
-      (form.responseDate && form.responseDate !== initialResponseDate)
+      form.responseDate !== initialResponseDate
       || form.responseSummary.trim()
       || form.outgoingNumber.trim()
       || form.outgoingDate
@@ -143,7 +153,10 @@ export default function CompleteResponseFormPanel({
             required
             value={form.responseDate}
             disabled={responseSaved}
-            onChange={(responseDate) => setForm({ ...form, responseDate })}
+            onChange={(responseDate) => {
+              responseDateTouchedRef.current = true;
+              setForm({ ...form, responseDate });
+            }}
             disallowFutureDate
           />
         </div>

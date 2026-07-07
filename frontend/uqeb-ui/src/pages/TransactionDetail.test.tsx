@@ -2472,6 +2472,28 @@ describe('TransactionDetailPage operational workspace', () => {
     expect(screen.queryByText('المعاملة مكتملة إجرائيًا وتنتظر اعتماد الإفادة النهائية.')).not.toBeInTheDocument();
   });
 
+  it.each(['Cancelled', 'Archived'])(
+    'does not show the procedural-completion banner for a %s transaction',
+    async (status) => {
+      const terminalTransaction = {
+        ...baseTx,
+        requiresResponse: true,
+        responseCompleted: false,
+        status,
+        isProcedurallyCompleteForReporting: true,
+        proceduralCompletionDateForReporting: '2026-07-09',
+      };
+      mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+        data: { ...defaultWorkspace, transaction: terminalTransaction },
+      });
+      mockApi(services.transactionsApi.getBasic).mockResolvedValue({ data: terminalTransaction });
+      renderDetail();
+      await waitForDetailsReady();
+
+      expect(screen.queryByText('المعاملة مكتملة إجرائيًا وتنتظر اعتماد الإفادة النهائية.')).not.toBeInTheDocument();
+    },
+  );
+
   it('opens inline assignment form from action bar in hero area', async () => {
     const user = userEvent.setup();
     renderDetail();
