@@ -387,6 +387,16 @@ public class AssignmentResponseDatesTests
         Assert.Equal("طذطذ", backingResponse.ResponseText);
         Assert.Equal(directReply.DepartmentResponseId, backingResponse.Id);
 
+        // ResponseDate is the operational completion date sourced from the entered
+        // ReplyDate; SubmittedAt must remain a technical "recorded now" timestamp, not a
+        // copy of the entered date — otherwise it re-introduces the exact SubmittedAt-as-
+        // completion-date bug already fixed for the department-response submission flow.
+        Assert.Equal(replyDate.Date, backingResponse.ResponseDate);
+        Assert.NotEqual(replyDate, backingResponse.SubmittedAt);
+
+        var backingAssignment = await db.Assignments.SingleAsync(a => a.Id == 501);
+        Assert.Equal(replyDate.Date, backingAssignment.ReplyDate);
+
         var refreshed = await service.GetAssignmentsAsync(1, new TestCurrentUser(UserRole.Admin));
         Assert.NotNull(refreshed);
         var row = Assert.Single(refreshed);

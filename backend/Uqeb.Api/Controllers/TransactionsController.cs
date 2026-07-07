@@ -382,6 +382,10 @@ public class TransactionsController : ControllerBase
         {
             return BadRequest(new { message = ex.Message, errors = ex.FieldErrors });
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPatch("{id}/assignments/{assignmentId}/reply")]

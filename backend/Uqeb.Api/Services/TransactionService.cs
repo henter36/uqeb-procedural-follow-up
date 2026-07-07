@@ -1589,13 +1589,16 @@ public class TransactionService : ITransactionService
             () =>
             {
                 assignment.ReplyStatus = ReplyStatus.Replied;
-                assignment.ReplyDate = request.ReplyDate;
+                assignment.ReplyDate = request.ReplyDate.Date;
                 assignment.ReplySummary = request.ReplySummary;
                 assignment.Status = AssignmentStatus.Completed;
                 ApplyTransactionReplyStatus(assignment.Transaction);
 
                 if (existingResponseId == null)
                 {
+                    // SubmittedAt/ReviewedAt/CreatedAt are technical system timestamps for this
+                    // synthesized Approved record, not the operational completion date — that is
+                    // ResponseDate, sourced from the admin-entered ReplyDate.
                     departmentResponse = new DepartmentResponse
                     {
                         TransactionId = transactionId,
@@ -1603,10 +1606,11 @@ public class TransactionService : ITransactionService
                         ResponseText = request.ReplySummary,
                         Status = DepartmentResponseStatus.Approved,
                         SubmittedByUserId = currentUser.UserId,
-                        SubmittedAt = request.ReplyDate,
+                        SubmittedAt = DateTime.UtcNow,
                         ReviewedByUserId = currentUser.UserId,
                         ReviewedAt = DateTime.UtcNow,
                         CreatedAt = DateTime.UtcNow,
+                        ResponseDate = request.ReplyDate.Date,
                     };
                     _db.DepartmentResponses.Add(departmentResponse);
                 }
