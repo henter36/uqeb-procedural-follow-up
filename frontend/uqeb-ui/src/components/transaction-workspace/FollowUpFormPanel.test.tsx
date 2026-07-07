@@ -130,12 +130,44 @@ describe('FollowUpFormPanel', () => {
     );
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'حفظ التعقيب' })).toBeInTheDocument());
+    await user.type(screen.getByLabelText('تاريخ التعقيب *'), '16/01/1448');
     await user.click(screen.getByRole('button', { name: 'حفظ التعقيب' }));
 
     await waitFor(() => {
       expect(services.transactionsApi.addFollowUp).toHaveBeenCalledWith(1, expect.any(Object));
       expect(onSuccess).toHaveBeenCalledWith(fakeFollowUp);
     });
+  });
+
+  it('opens with an empty follow-up date and does not default to today', async () => {
+    render(
+      <FollowUpFormPanel
+        transactionId={1}
+        onDirtyChange={onDirtyChange}
+        onSuccess={onSuccess}
+        onCancel={onCancel}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByLabelText('تاريخ التعقيب *')).toHaveValue(''));
+  });
+
+  it('does not submit without a follow-up date', async () => {
+    const user = userEvent.setup();
+    render(
+      <FollowUpFormPanel
+        transactionId={1}
+        onDirtyChange={onDirtyChange}
+        onSuccess={onSuccess}
+        onCancel={onCancel}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'حفظ التعقيب' })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: 'حفظ التعقيب' }));
+
+    expect(await screen.findByText('تاريخ التعقيب مطلوب.')).toBeInTheDocument();
+    expect(services.transactionsApi.addFollowUp).not.toHaveBeenCalled();
   });
 
   it('prevents save without selected departments', async () => {
@@ -187,19 +219,16 @@ describe('FollowUpFormPanel', () => {
       />,
     );
 
-    await waitFor(() => expect(screen.getByLabelText('تاريخ التعقيب *')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText('تاريخ التعقيب *')).toHaveValue(''));
     const dateInput = screen.getByLabelText('تاريخ التعقيب *');
-    const originalDate = (dateInput as HTMLInputElement).value;
     onDirtyChange.mockClear();
 
-    await user.clear(dateInput);
     await user.type(dateInput, '24/05/1447');
 
     await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(true));
 
     onDirtyChange.mockClear();
     await user.clear(dateInput);
-    await user.type(dateInput, originalDate);
 
     await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(false));
   });

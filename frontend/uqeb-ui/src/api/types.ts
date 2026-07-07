@@ -760,6 +760,7 @@ export interface DepartmentResponseDto {
   departmentId: number;
   departmentName: string;
   responseText: string;
+  responseDate?: string;
   status: string;
   submittedByName: string;
   submittedAt?: string;

@@ -66,6 +66,7 @@ describe('CompleteResponseFormPanel', () => {
   async function fillRequiredFields() {
     renderPanel();
     const user = userEvent.setup();
+    await user.type(screen.getByLabelText('تاريخ الإفادة *'), '16/01/1448');
     await user.type(screen.getByLabelText('ملخص الإفادة *'), 'ملخص الإفادة');
     return user;
   }
@@ -78,6 +79,67 @@ describe('CompleteResponseFormPanel', () => {
     expect(screen.getByRole('button', { name: 'إلغاء' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'رفع ملف' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'مسح ضوئي' })).toBeInTheDocument();
+  });
+
+  it('opens with an empty response date and does not default to today', () => {
+    renderPanel();
+    expect(screen.getByLabelText('تاريخ الإفادة *')).toHaveValue('');
+  });
+
+  it('opens with an empty outgoing date for response types that require outgoing details', () => {
+    renderPanel('External');
+    expect(screen.getByLabelText('تاريخ الإفادة *')).toHaveValue('');
+    expect(screen.getByLabelText('تاريخ الصادر *')).toHaveValue('');
+  });
+
+  it('does not submit without a response date', async () => {
+    renderPanel();
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText('ملخص الإفادة *'), 'ملخص الإفادة');
+    await user.click(screen.getByRole('button', { name: 'إرسال الإفادة' }));
+
+    expect(await screen.findByText('تاريخ الإفادة مطلوب.')).toBeInTheDocument();
+    expect(services.transactionsApi.completeResponse).not.toHaveBeenCalled();
+  });
+
+  it('does not submit a response requiring outgoing details without an outgoing date', async () => {
+    renderPanel('External');
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText('تاريخ الإفادة *'), '16/01/1448');
+    await user.type(screen.getByLabelText('ملخص الإفادة *'), 'ملخص الإفادة');
+    await user.type(screen.getByLabelText('رقم الصادر *'), 'OUT-1');
+    await user.click(screen.getByRole('button', { name: 'إرسال الإفادة' }));
+
+    expect(await screen.findByText('تاريخ الصادر مطلوب.')).toBeInTheDocument();
+    expect(services.transactionsApi.completeResponse).not.toHaveBeenCalled();
+  });
+
+  it('does not submit a response requiring outgoing details without an outgoing number', async () => {
+    renderPanel('External');
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText('تاريخ الإفادة *'), '16/01/1448');
+    await user.type(screen.getByLabelText('ملخص الإفادة *'), 'ملخص الإفادة');
+    await user.type(screen.getByLabelText('تاريخ الصادر *'), '16/01/1448');
+    await user.click(screen.getByRole('button', { name: 'إرسال الإفادة' }));
+
+    expect(await screen.findByText('رقم الصادر مطلوب.')).toBeInTheDocument();
+    expect(services.transactionsApi.completeResponse).not.toHaveBeenCalled();
+  });
+
+  it('converts a non-today Hijri outgoing date to Gregorian ISO before submit', async () => {
+    renderPanel('External');
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText('تاريخ الإفادة *'), '16/01/1448');
+    await user.type(screen.getByLabelText('ملخص الإفادة *'), 'ملخص الإفادة');
+    await user.type(screen.getByLabelText('رقم الصادر *'), 'OUT-1');
+    await user.type(screen.getByLabelText('تاريخ الصادر *'), '16/01/1448');
+    await user.click(screen.getByRole('button', { name: 'إرسال الإفادة' }));
+
+    await waitFor(() => {
+      expect(services.transactionsApi.completeResponse).toHaveBeenCalledWith(1, expect.objectContaining({
+        outgoingDate: '2026-07-01T00:00:00',
+      }));
+    });
   });
 
   it('attachment toolbar uses fieldset not role=group', () => {

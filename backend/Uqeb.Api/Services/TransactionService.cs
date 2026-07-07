@@ -1589,13 +1589,16 @@ public class TransactionService : ITransactionService
             () =>
             {
                 assignment.ReplyStatus = ReplyStatus.Replied;
-                assignment.ReplyDate = request.ReplyDate;
+                assignment.ReplyDate = request.ReplyDate.Date;
                 assignment.ReplySummary = request.ReplySummary;
                 assignment.Status = AssignmentStatus.Completed;
                 ApplyTransactionReplyStatus(assignment.Transaction);
 
                 if (existingResponseId == null)
                 {
+                    // SubmittedAt/ReviewedAt/CreatedAt are technical system timestamps for this
+                    // synthesized Approved record, not the operational completion date — that is
+                    // ResponseDate, sourced from the admin-entered ReplyDate.
                     departmentResponse = new DepartmentResponse
                     {
                         TransactionId = transactionId,
@@ -1603,10 +1606,11 @@ public class TransactionService : ITransactionService
                         ResponseText = request.ReplySummary,
                         Status = DepartmentResponseStatus.Approved,
                         SubmittedByUserId = currentUser.UserId,
-                        SubmittedAt = request.ReplyDate,
+                        SubmittedAt = DateTime.UtcNow,
                         ReviewedByUserId = currentUser.UserId,
                         ReviewedAt = DateTime.UtcNow,
                         CreatedAt = DateTime.UtcNow,
+                        ResponseDate = request.ReplyDate.Date,
                     };
                     _db.DepartmentResponses.Add(departmentResponse);
                 }
@@ -1776,7 +1780,9 @@ public class TransactionService : ITransactionService
             resolvedDates.IncomingDate,
             resolvedDates.ResponseDueDays,
             resolvedDates.ResponseDueDate,
-            resolvedDates.ClosedAt);
+            resolvedDates.ClosedAt,
+            t.RequiresResponse,
+            t.ResponseCompletedDate);
         await EnsureIncomingDateDoesNotFollowExistingTimelineAsync(
             transactionId,
             request.IsIncomingDateSpecified && request.IncomingDate.HasValue,
@@ -1899,9 +1905,20 @@ public class TransactionService : ITransactionService
                 : null;
         }
 
-        var closedAt = request.ClosedAt.HasValue
-            ? NormalizeDateOnlyUtc(request.ClosedAt.Value)
-            : transaction.ClosedAt;
+        // Must key off IsClosedAtSpecified (not ClosedAt.HasValue): an explicit
+        // { closedAt: null } to clear the close date is indistinguishable from "field
+        // omitted" if we only check HasValue, silently reverting the clear to the old value.
+        DateTime? closedAt;
+        if (request.IsClosedAtSpecified)
+        {
+            closedAt = request.ClosedAt.HasValue
+                ? NormalizeDateOnlyUtc(request.ClosedAt.Value)
+                : null;
+        }
+        else
+        {
+            closedAt = transaction.ClosedAt;
+        }
 
         return (incomingDate, responseDueDays, responseDueDate, closedAt);
     }
@@ -1910,7 +1927,9 @@ public class TransactionService : ITransactionService
         DateTime incomingDate,
         int? responseDueDays,
         DateTime? responseDueDate,
-        DateTime? closedAt)
+        DateTime? closedAt,
+        bool requiresResponse,
+        DateTime? responseCompletedDate)
     {
         if (IsFutureEventDate(incomingDate) || (closedAt.HasValue && IsFutureEventDate(closedAt.Value)))
             throw new InvalidOperationException(FutureEventDateMessage);
@@ -1918,6 +1937,9 @@ public class TransactionService : ITransactionService
             throw new InvalidOperationException("تاريخ استحقاق المعاملة لا يمكن أن يسبق تاريخ الوارد.");
         if (closedAt.HasValue && closedAt.Value.Date < incomingDate.Date)
             throw new InvalidOperationException("تاريخ إغلاق المعاملة لا يمكن أن يسبق تاريخ الوارد.");
+        if (requiresResponse && responseCompletedDate.HasValue && closedAt.HasValue
+            && closedAt.Value.Date < responseCompletedDate.Value.Date)
+            throw new InvalidOperationException("تاريخ إغلاق المعاملة لا يمكن أن يسبق تاريخ الإفادة.");
         if (responseDueDays.HasValue && responseDueDays.Value < 0)
             throw new InvalidOperationException("عدد أيام الرد لا يمكن أن يكون سالبًا.");
     }
@@ -2270,8 +2292,17 @@ public class TransactionService : ITransactionService
         if (addedDepartmentIds.Count == 0 && removedDepartmentIds.Count == 0)
             return;
 
-        var assignedDate = transaction.IncomingDate;
-        var dueDate = transaction.ResponseDueDate;
+        // The referral date should reflect when the transaction was actually routed out
+        // (OutgoingDate) rather than when it first arrived (IncomingDate), whenever an
+        // outgoing date has been recorded.
+        var assignedDate = transaction.OutgoingDate ?? transaction.IncomingDate;
+        // Recompute the due date relative to the resolved assignedDate (matching
+        // AddAssignmentAsync's own invariant) instead of blindly reusing the transaction's
+        // IncomingDate-relative ResponseDueDate, which can precede an OutgoingDate-based
+        // assignedDate and produce DueDate < AssignedDate.
+        var dueDate = WorkflowHelper.CalculateAssignmentDueDate(assignedDate, transaction.ResponseDueDays, transaction.ResponseDueDate);
+        if (dueDate.HasValue && dueDate.Value.Date < assignedDate.Date)
+            dueDate = null;
         var assignmentsChanged = false;
 
         List<Assignment> existingAssignments;
@@ -2312,6 +2343,7 @@ public class TransactionService : ITransactionService
                     existing.ReplyStatus = ReplyStatus.Pending;
                     existing.ReplyDate = null;
                     existing.ReplySummary = null;
+                    existing.AssignedDate = assignedDate;
                     existing.DueDate = dueDate;
                     existing.ReplyDueDays = transaction.ResponseDueDays;
                     assignmentsChanged = true;

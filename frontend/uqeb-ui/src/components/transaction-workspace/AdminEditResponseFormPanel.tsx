@@ -9,14 +9,14 @@ import { AdminEditAuditHint, AdminEditFormActions, AdminEditReasonField } from '
 
 type FormState = {
   responseText: string;
-  submittedAt: string;
+  responseDate: string;
   reason: string;
 };
 
 function fromResponse(r?: DepartmentResponseDto): FormState {
   return {
     responseText: r?.responseText ?? '',
-    submittedAt: r?.submittedAt?.slice(0, 10) ?? '',
+    responseDate: r?.responseDate?.slice(0, 10) ?? '',
     reason: '',
   };
 }
@@ -45,7 +45,7 @@ export default function AdminEditResponseFormPanel({
   const [saving, setSaving] = useState(false);
 
   const dirty = form.responseText !== initialForm.responseText
-    || form.submittedAt !== initialForm.submittedAt;
+    || form.responseDate !== initialForm.responseDate;
 
   useEffect(() => {
     onDirtyChange(dirty);
@@ -86,7 +86,7 @@ export default function AdminEditResponseFormPanel({
       setError('سبب التعديل مطلوب.');
       return;
     }
-    if (isFutureLocalDate(form.submittedAt)) {
+    if (isFutureLocalDate(form.responseDate)) {
       setError(FUTURE_EVENT_DATE_MESSAGE);
       return;
     }
@@ -96,7 +96,7 @@ export default function AdminEditResponseFormPanel({
       const payload: Record<string, unknown> = {
         reason: form.reason.trim(),
         responseText: form.responseText.trim() || null,
-        submittedAt: form.submittedAt || null,
+        responseDate: form.responseDate || null,
       };
       const res = await departmentResponsesApi.adminEdit(responseId, payload);
       onSuccess(res.data);
@@ -138,8 +138,8 @@ export default function AdminEditResponseFormPanel({
           <HijriDateInput
             id="admin-resp-submitted-at"
             label="تاريخ إنجاز الإدارة"
-            value={form.submittedAt}
-            onChange={(submittedAt) => update({ submittedAt })}
+            value={form.responseDate}
+            onChange={(responseDate) => update({ responseDate })}
             disallowFutureDate
           />
           <small className="text-muted">هذا التاريخ يمثل تاريخ الإفادة/إنجاز رد الإدارة، ويستخدم في احتساب أيام إنجاز الإدارة.</small>

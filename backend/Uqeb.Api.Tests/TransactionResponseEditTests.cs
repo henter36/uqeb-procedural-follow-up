@@ -349,4 +349,119 @@ public class TransactionResponseEditTests
         Assert.Contains("OUT-AUDIT", auditLog.NewValue);
         Assert.NotEqual(auditLog.OldValue, auditLog.NewValue);
     }
+
+    private static async Task<Transaction> SeedTransactionReadyForResponseAsync(AppDbContext db, int id = 1, ResponseType responseType = ResponseType.External)
+    {
+        var incomingDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var t = new Transaction
+        {
+            Id = id,
+            InternalTrackingNumber = $"UQEB-{id}",
+            IncomingNumber = $"IN-{id}",
+            IncomingDate = incomingDate,
+            Subject = "معاملة",
+            IncomingSourceType = IncomingSourceType.External,
+            IncomingFrom = "جهة",
+            RequiresResponse = true,
+            ResponseType = responseType,
+            ResponseCompleted = false,
+            Priority = Priority.Normal,
+            Status = TransactionStatus.Assigned,
+            CreatedById = 1,
+            CreatedAt = incomingDate
+        };
+        db.Transactions.Add(t);
+        await db.SaveChangesAsync();
+        return t;
+    }
+
+    [Fact]
+    public async Task CompleteResponseAsync_persists_the_exact_entered_response_date_not_today()
+    {
+        // Regression guard: registering a response for a date other than "today" (e.g. a
+        // backfilled/late-recorded response) must save that exact date, never DateTime.UtcNow
+        // or GetSaudiToday() as a substitute.
+        var (service, db) = await CreateServiceAsync(nameof(CompleteResponseAsync_persists_the_exact_entered_response_date_not_today));
+        await SeedTransactionReadyForResponseAsync(db, responseType: ResponseType.Internal);
+
+        var enteredDate = new DateTime(2026, 1, 15, 0, 0, 0, DateTimeKind.Utc);
+        var result = await service.CompleteResponseAsync(1, new CompleteResponseRequest
+        {
+            ResponseDate = enteredDate,
+            ResponseSummary = "ملخص الإفادة",
+        }, new TestCurrentUser(UserRole.Admin));
+
+        Assert.NotNull(result);
+        var updated = await db.Transactions.SingleAsync(t => t.Id == 1);
+        Assert.Equal(enteredDate, updated.ResponseCompletedDate);
+        Assert.NotNull(updated.ResponseCompletedDate);
+        Assert.NotEqual(DateTime.UtcNow.Date, updated.ResponseCompletedDate.Value.Date);
+    }
+
+    [Fact]
+    public async Task CompleteResponseAsync_persists_the_exact_entered_outgoing_date_not_today()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(CompleteResponseAsync_persists_the_exact_entered_outgoing_date_not_today));
+        await SeedTransactionReadyForResponseAsync(db, responseType: ResponseType.External);
+
+        var enteredResponseDate = new DateTime(2026, 1, 15, 0, 0, 0, DateTimeKind.Utc);
+        var enteredOutgoingDate = new DateTime(2026, 1, 14, 0, 0, 0, DateTimeKind.Utc);
+        var result = await service.CompleteResponseAsync(1, new CompleteResponseRequest
+        {
+            ResponseDate = enteredResponseDate,
+            ResponseSummary = "ملخص الإفادة",
+            OutgoingNumber = "OUT-99",
+            OutgoingDate = enteredOutgoingDate,
+        }, new TestCurrentUser(UserRole.Admin));
+
+        Assert.NotNull(result);
+        var updated = await db.Transactions.SingleAsync(t => t.Id == 1);
+        Assert.Equal(enteredOutgoingDate, updated.OutgoingDate);
+        Assert.NotNull(updated.OutgoingDate);
+        Assert.NotEqual(DateTime.UtcNow.Date, updated.OutgoingDate.Value.Date);
+    }
+
+    [Fact]
+    public async Task CompleteResponseAsync_rejects_missing_response_date()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(CompleteResponseAsync_rejects_missing_response_date));
+        await SeedTransactionReadyForResponseAsync(db, responseType: ResponseType.Internal);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CompleteResponseAsync(1, new CompleteResponseRequest
+            {
+                ResponseDate = default,
+                ResponseSummary = "ملخص بدون تاريخ",
+            }, new TestCurrentUser(UserRole.Admin)));
+    }
+
+    [Fact]
+    public async Task CompleteResponseAsync_rejects_missing_outgoing_date_when_response_type_requires_outgoing()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(CompleteResponseAsync_rejects_missing_outgoing_date_when_response_type_requires_outgoing));
+        await SeedTransactionReadyForResponseAsync(db, responseType: ResponseType.External);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CompleteResponseAsync(1, new CompleteResponseRequest
+            {
+                ResponseDate = new DateTime(2026, 1, 15, 0, 0, 0, DateTimeKind.Utc),
+                ResponseSummary = "ملخص",
+                OutgoingNumber = "OUT-1",
+                OutgoingDate = null,
+            }, new TestCurrentUser(UserRole.Admin)));
+    }
+
+    [Fact]
+    public async Task CompleteResponseAsync_rejects_future_response_date()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(CompleteResponseAsync_rejects_future_response_date));
+        await SeedTransactionReadyForResponseAsync(db, responseType: ResponseType.Internal);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CompleteResponseAsync(1, new CompleteResponseRequest
+            {
+                ResponseDate = DateTime.UtcNow.AddDays(5),
+                ResponseSummary = "ملخص بتاريخ مستقبلي",
+            }, new TestCurrentUser(UserRole.Admin)));
+    }
 }

@@ -10,6 +10,7 @@ public record DepartmentResponseDto(
     int DepartmentId,
     string DepartmentName,
     string ResponseText,
+    DateTime? ResponseDate,
     string Status,
     string SubmittedByName,
     DateTime? SubmittedAt,
@@ -57,11 +58,13 @@ public record DepartmentResponseStatsDto(
 public record CreateDepartmentResponseRequest(
     [property: JsonRequired] int TransactionId,
     [property: JsonRequired] string ResponseText,
-    int? DepartmentId = null
+    int? DepartmentId = null,
+    DateTime? ResponseDate = null
 );
 
 public record UpdateDepartmentResponseRequest(
-    string ResponseText
+    string ResponseText,
+    DateTime? ResponseDate = null
 );
 
 public record ReviewDepartmentResponseRequest(
@@ -71,7 +74,8 @@ public record ReviewDepartmentResponseRequest(
 public record AdminEditDepartmentResponseRequest(
     [property: JsonRequired] string Reason,
     string? ResponseText = null,
-    DateTime? SubmittedAt = null
+    DateTime? SubmittedAt = null,
+    DateTime? ResponseDate = null
 );
 
 public record DepartmentTransactionResponseItemDto(

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.Transactions;
+using Uqeb.Api.Helpers;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Services;
@@ -386,6 +387,16 @@ public class AssignmentResponseDatesTests
         Assert.Equal("طذطذ", backingResponse.ResponseText);
         Assert.Equal(directReply.DepartmentResponseId, backingResponse.Id);
 
+        // ResponseDate is the operational completion date sourced from the entered
+        // ReplyDate; SubmittedAt must remain a technical "recorded now" timestamp, not a
+        // copy of the entered date — otherwise it re-introduces the exact SubmittedAt-as-
+        // completion-date bug already fixed for the department-response submission flow.
+        Assert.Equal(replyDate.Date, backingResponse.ResponseDate);
+        Assert.NotEqual(replyDate, backingResponse.SubmittedAt);
+
+        var backingAssignment = await db.Assignments.SingleAsync(a => a.Id == 501);
+        Assert.Equal(replyDate.Date, backingAssignment.ReplyDate);
+
         var refreshed = await service.GetAssignmentsAsync(1, new TestCurrentUser(UserRole.Admin));
         Assert.NotNull(refreshed);
         var row = Assert.Single(refreshed);
@@ -694,6 +705,114 @@ public class AssignmentResponseDatesTests
             }, userId: 1));
 
         Assert.Equal("تاريخ إغلاق المعاملة لا يمكن أن يسبق تاريخ الوارد.", ex.Message);
+    }
+
+    [Fact]
+    public async Task AdminEditTransactionDates_ExplicitNullClosedAt_ClearsClosedAt()
+    {
+        // Regression guard: sending { closedAt: null } to clear the close date must not
+        // silently fall back to the old ClosedAt value. IsClosedAtSpecified (not
+        // ClosedAt.HasValue) must drive whether the field is touched at all.
+        var (service, db) = await CreateServiceAsync(nameof(AdminEditTransactionDates_ExplicitNullClosedAt_ClearsClosedAt));
+        var t = await SeedTransactionAsync(db, 1, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        t.ClosedAt = new DateTime(2026, 1, 15, 0, 0, 0, DateTimeKind.Utc);
+        t.Status = TransactionStatus.Closed;
+        await db.SaveChangesAsync();
+
+        var updated = await service.AdminEditTransactionDatesAsync(1, new AdminEditTransactionDatesRequest
+        {
+            ClosedAt = null,
+            Reason = "مسح تاريخ الإغلاق",
+        }, userId: 1);
+
+        Assert.NotNull(updated);
+        var persisted = await db.Transactions.SingleAsync(x => x.Id == 1);
+        Assert.Null(persisted.ClosedAt);
+    }
+
+    [Fact]
+    public async Task AdminEditTransactionDates_Rejects_ClosedAt_Before_ResponseCompletedDate()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(AdminEditTransactionDates_Rejects_ClosedAt_Before_ResponseCompletedDate));
+        var t = await SeedTransactionAsync(db, 1, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        t.RequiresResponse = true;
+        t.ResponseCompletedDate = new DateTime(2026, 1, 20, 0, 0, 0, DateTimeKind.Utc);
+        await db.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.AdminEditTransactionDatesAsync(1, new AdminEditTransactionDatesRequest
+            {
+                ClosedAt = new DateTime(2026, 1, 10, 0, 0, 0, DateTimeKind.Utc),
+                Reason = "تصحيح تاريخ الإغلاق",
+            }, userId: 1));
+
+        Assert.Equal("تاريخ إغلاق المعاملة لا يمكن أن يسبق تاريخ الإفادة.", ex.Message);
+    }
+
+    [Fact]
+    public async Task AdminEditTransactionDates_OmittingClosedAt_PreservesExistingClosedAt()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(AdminEditTransactionDates_OmittingClosedAt_PreservesExistingClosedAt));
+        var t = await SeedTransactionAsync(db, 1, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        var originalClosedAt = new DateTime(2026, 1, 15, 0, 0, 0, DateTimeKind.Utc);
+        t.ClosedAt = originalClosedAt;
+        t.Status = TransactionStatus.Closed;
+        await db.SaveChangesAsync();
+
+        await service.AdminEditTransactionDatesAsync(1, new AdminEditTransactionDatesRequest
+        {
+            ResponseDueDays = 5,
+            Reason = "تعديل غير متعلق بالإغلاق",
+        }, userId: 1);
+
+        var persisted = await db.Transactions.SingleAsync(x => x.Id == 1);
+        Assert.Equal(originalClosedAt, persisted.ClosedAt);
+    }
+
+    [Fact]
+    public async Task AdminEditTransactionDates_MovingResponseDueDateToFuture_ClearsResponseOverdueStatus()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(AdminEditTransactionDates_MovingResponseDueDateToFuture_ClearsResponseOverdueStatus));
+        var incomingDate = DateTime.UtcNow.Date.AddDays(-30);
+        var t = await SeedTransactionAsync(db, 1, incomingDate);
+        t.ResponseDueDate = DateTime.UtcNow.Date.AddDays(-5);
+        t.ResponseDueDays = 25;
+        await db.SaveChangesAsync();
+
+        Assert.True(WorkflowHelper.IsResponseOverdue(t, DateTime.UtcNow));
+
+        var updated = await service.AdminEditTransactionDatesAsync(1, new AdminEditTransactionDatesRequest
+        {
+            ResponseDueDate = DateTime.UtcNow.Date.AddDays(10),
+            Reason = "تمديد موعد الاستحقاق",
+        }, userId: 1);
+
+        Assert.NotNull(updated);
+        Assert.False(updated.IsResponseOverdue);
+        Assert.False(updated.IsOverdue);
+    }
+
+    [Fact]
+    public async Task AdminEditTransactionDates_MovingResponseDueDateToPast_SetsResponseOverdueStatus()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(AdminEditTransactionDates_MovingResponseDueDateToPast_SetsResponseOverdueStatus));
+        var incomingDate = DateTime.UtcNow.Date.AddDays(-30);
+        var t = await SeedTransactionAsync(db, 1, incomingDate);
+        t.ResponseDueDate = DateTime.UtcNow.Date.AddDays(10);
+        t.ResponseDueDays = 40;
+        await db.SaveChangesAsync();
+
+        Assert.False(WorkflowHelper.IsResponseOverdue(t, DateTime.UtcNow));
+
+        var updated = await service.AdminEditTransactionDatesAsync(1, new AdminEditTransactionDatesRequest
+        {
+            ResponseDueDate = DateTime.UtcNow.Date.AddDays(-5),
+            Reason = "تصحيح موعد الاستحقاق إلى الماضي",
+        }, userId: 1);
+
+        Assert.NotNull(updated);
+        Assert.True(updated.IsResponseOverdue);
+        Assert.True(updated.IsOverdue);
     }
 
     [Fact]

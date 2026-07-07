@@ -12,6 +12,10 @@ namespace Uqeb.Api.Tests;
 
 public class DepartmentResponseServiceTests
 {
+    // Matches SeedAsync's IncomingDate/AssignedDate (DateTime.UtcNow), so it always
+    // satisfies ValidateResponseDateAsync's not-before-incoming/assignment checks.
+    private static readonly DateTime SeedResponseDate = DateTime.UtcNow.Date;
+
     private static AppDbContext CreateDb(string name)
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -92,7 +96,7 @@ public class DepartmentResponseServiceTests
         var user = new FakeUser { UserId = userId, DepartmentId = deptId };
 
         var dto = await service.CreateAsync(
-            new CreateDepartmentResponseRequest(txId, "نص الرد"),
+            new CreateDepartmentResponseRequest(txId, "نص الرد", ResponseDate: SeedResponseDate),
             user);
 
         Assert.Equal("Draft", dto.Status);
@@ -108,10 +112,10 @@ public class DepartmentResponseServiceTests
         var service = BuildService(db);
         var user = new FakeUser { UserId = userId, DepartmentId = deptId };
 
-        await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "أول"), user);
+        await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "أول", ResponseDate: SeedResponseDate), user);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.CreateAsync(new CreateDepartmentResponseRequest(txId, "ثانٍ"), user));
+            service.CreateAsync(new CreateDepartmentResponseRequest(txId, "ثانٍ", ResponseDate: SeedResponseDate), user));
     }
 
     [Fact]
@@ -121,7 +125,7 @@ public class DepartmentResponseServiceTests
         var service = BuildService(db);
         var user = new FakeUser { UserId = userId, DepartmentId = deptId };
 
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), user);
         var submitted = await service.SubmitAsync(created.Id, user);
 
         Assert.Equal("SubmittedForReview", submitted.Status);
@@ -136,7 +140,7 @@ public class DepartmentResponseServiceTests
         var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
         var reviewer = new FakeUser { UserId = userId, Role = UserRole.Supervisor, DepartmentId = null };
 
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), submitter);
         await service.SubmitAsync(created.Id, submitter);
         await service.ApproveAsync(created.Id, reviewer);
 
@@ -152,7 +156,7 @@ public class DepartmentResponseServiceTests
         var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
         var reviewer = new FakeUser { UserId = userId, Role = UserRole.Supervisor, DepartmentId = null };
 
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), submitter);
         await service.SubmitAsync(created.Id, submitter);
         var approved = await service.ApproveAsync(created.Id, reviewer);
 
@@ -168,7 +172,7 @@ public class DepartmentResponseServiceTests
         var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
         var reviewer = new FakeUser { UserId = userId, Role = UserRole.Supervisor, DepartmentId = null };
 
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الإفادة"), submitter);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الإفادة", ResponseDate: SeedResponseDate), submitter);
         await service.SubmitAsync(created.Id, submitter);
         await service.ApproveAsync(created.Id, reviewer);
 
@@ -264,7 +268,7 @@ public class DepartmentResponseServiceTests
         var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
         var reviewer = new FakeUser { UserId = userId, Role = UserRole.Supervisor, DepartmentId = null };
 
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), submitter);
         await service.SubmitAsync(created.Id, submitter);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -279,7 +283,7 @@ public class DepartmentResponseServiceTests
         var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
         var reviewer = new FakeUser { UserId = userId, Role = UserRole.Supervisor, DepartmentId = null };
 
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), submitter);
         await service.SubmitAsync(created.Id, submitter);
         var returned = await service.ReturnForCorrectionAsync(created.Id, new ReviewDepartmentResponseRequest("يحتاج إصلاح"), reviewer);
         Assert.Equal("ReturnedForCorrection", returned.Status);
@@ -297,7 +301,7 @@ public class DepartmentResponseServiceTests
         var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
         var reviewer = new FakeUser { UserId = userId, Role = UserRole.Supervisor, DepartmentId = null };
 
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), submitter);
         await service.SubmitAsync(created.Id, submitter);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -312,7 +316,7 @@ public class DepartmentResponseServiceTests
         var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
         var reviewer = new FakeUser { UserId = userId, Role = UserRole.Supervisor, DepartmentId = null };
 
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), submitter);
         await service.SubmitAsync(created.Id, submitter);
         var rejected = await service.RejectAsync(created.Id, new ReviewDepartmentResponseRequest("لا يفي بالمتطلبات"), reviewer);
 
@@ -327,7 +331,7 @@ public class DepartmentResponseServiceTests
         var service = BuildService(db);
         var owner = new FakeUser { UserId = userId, DepartmentId = deptId };
 
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), owner);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), owner);
 
         var anotherDeptUser = new FakeUser { UserId = userId, DepartmentId = deptId + 999 };
         var result = await service.GetByIdAsync(created.Id, anotherDeptUser);
@@ -342,7 +346,7 @@ public class DepartmentResponseServiceTests
         var service = BuildService(db);
         var user = new FakeUser { UserId = userId, DepartmentId = deptId };
 
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), user);
         await service.SubmitAsync(created.Id, user);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -357,7 +361,7 @@ public class DepartmentResponseServiceTests
         var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
         var admin = new FakeUser { UserId = userId, Role = UserRole.Admin };
 
-        await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "مسودة"), submitter);
+        await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "مسودة", ResponseDate: SeedResponseDate), submitter);
         var pending = await service.GetPendingReviewAsync(admin);
         Assert.Empty(pending);
 
@@ -373,7 +377,7 @@ public class DepartmentResponseServiceTests
         var service = BuildService(db);
         var user = new FakeUser { UserId = userId, DepartmentId = deptId };
 
-        await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user);
+        await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), user);
 
         var log = await db.AuditLogs.FirstOrDefaultAsync(l => l.Action == AuditAction.DepartmentResponseCreated);
         Assert.NotNull(log);
@@ -388,7 +392,7 @@ public class DepartmentResponseServiceTests
         var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
         var reviewer = new FakeUser { UserId = userId, Role = UserRole.Supervisor, DepartmentId = null };
 
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), submitter);
         await service.SubmitAsync(created.Id, submitter);
         await service.ApproveAsync(created.Id, reviewer);
 
@@ -404,7 +408,7 @@ public class DepartmentResponseServiceTests
         var user = new FakeUser { UserId = userId, DepartmentId = null };
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
-            service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user));
+            service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), user));
     }
 
     [Fact]
@@ -413,7 +417,7 @@ public class DepartmentResponseServiceTests
         var (db, txId, deptId, userId) = await SeedAsync(nameof(GetMyDepartmentResponsesAsync_DepartmentUserWithNullDept_ReturnsEmpty));
         var service = BuildService(db);
         var owner = new FakeUser { UserId = userId, DepartmentId = deptId };
-        await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), owner);
+        await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), owner);
 
         var noDeptUser = new FakeUser { UserId = userId, DepartmentId = null };
         var result = await service.GetMyDepartmentResponsesAsync(noDeptUser);
@@ -435,7 +439,7 @@ public class DepartmentResponseServiceTests
         Assert.True(itemsBefore[0].CanCreateResponse);
 
         // Create a response
-        await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user);
+        await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), user);
 
         var itemsAfter = await service.GetDepartmentTransactionsAsync(user);
         Assert.Single(itemsAfter);
@@ -477,7 +481,7 @@ public class DepartmentResponseServiceTests
         var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
         var deptUser = new FakeUser { UserId = userId, Role = UserRole.DepartmentUser };
 
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), submitter);
         await service.SubmitAsync(created.Id, submitter);
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
@@ -492,7 +496,7 @@ public class DepartmentResponseServiceTests
         var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
         var deptUser = new FakeUser { UserId = userId, Role = UserRole.DepartmentUser };
 
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), submitter);
         await service.SubmitAsync(created.Id, submitter);
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
@@ -507,7 +511,7 @@ public class DepartmentResponseServiceTests
         var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
         var deptUser = new FakeUser { UserId = userId, Role = UserRole.DepartmentUser };
 
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), submitter);
         await service.SubmitAsync(created.Id, submitter);
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
@@ -522,7 +526,7 @@ public class DepartmentResponseServiceTests
         var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
         var admin = new FakeUser { UserId = userId, Role = UserRole.Admin };
 
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), submitter);
         await service.SubmitAsync(created.Id, submitter);
         var approved = await service.ApproveAsync(created.Id, admin);
 
@@ -537,7 +541,7 @@ public class DepartmentResponseServiceTests
         var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
         var dataEntry = new FakeUser { UserId = userId, Role = UserRole.DataEntry };
 
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), submitter);
         await service.SubmitAsync(created.Id, submitter);
         var approved = await service.ApproveAsync(created.Id, dataEntry);
 
@@ -552,7 +556,7 @@ public class DepartmentResponseServiceTests
         var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
         var dataEntry = new FakeUser { UserId = userId, Role = UserRole.DataEntry };
 
-        await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), submitter);
         await service.SubmitAsync((await service.GetMyDepartmentResponsesAsync(submitter))[0].Id, submitter);
 
         var pending = await service.GetPendingReviewAsync(dataEntry);
@@ -584,7 +588,7 @@ public class DepartmentResponseServiceTests
         var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
         var reviewer = new FakeUser { UserId = userId, Role = UserRole.Supervisor };
 
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), submitter);
         await service.SubmitAsync(created.Id, submitter);
         await service.ReturnForCorrectionAsync(created.Id, new ReviewDepartmentResponseRequest("يحتاج إصلاح"), reviewer);
 
@@ -605,7 +609,7 @@ public class DepartmentResponseServiceTests
         var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
         var reviewer = new FakeUser { UserId = userId, Role = UserRole.Supervisor };
 
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), submitter);
         await service.SubmitAsync(created.Id, submitter);
         await service.ReturnForCorrectionAsync(created.Id, new ReviewDepartmentResponseRequest("ملاحظة"), reviewer);
         await service.SubmitAsync(created.Id, submitter);
@@ -626,7 +630,7 @@ public class DepartmentResponseServiceTests
         var service = BuildService(db);
         var user = new FakeUser { UserId = userId, DepartmentId = deptId };
 
-        var dto = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user);
+        var dto = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), user);
 
         var log = await db.AuditLogs.FirstOrDefaultAsync(l => l.Action == AuditAction.DepartmentResponseCreated);
         Assert.NotNull(log);
@@ -648,7 +652,7 @@ public class DepartmentResponseServiceTests
             var service = BuildService(db, BuildConfig(tmpDir));
             var user = new FakeUser { UserId = userId, DepartmentId = deptId };
 
-            var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user);
+            var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), user);
 
             // Upload a real file
             var fileContent = System.Text.Encoding.UTF8.GetBytes("محتوى الملف الأصلي");
@@ -703,7 +707,7 @@ public class DepartmentResponseServiceTests
         var admin = new FakeUser { UserId = userId, Role = UserRole.Admin, DepartmentId = null };
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), admin));
+            service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), admin));
     }
 
     [Fact]
@@ -752,7 +756,7 @@ public class DepartmentResponseServiceTests
         var service = BuildService(db);
         var user = new FakeUser { UserId = userId, DepartmentId = deptId };
 
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), user);
 
         // FormFile length > 10 MB without allocating the full buffer
         const long oversizeBytes = 10L * 1024 * 1024 + 1;
@@ -777,7 +781,7 @@ public class DepartmentResponseServiceTests
             var service = BuildService(db, BuildConfig(tmpDir));
             var user = new FakeUser { UserId = userId, DepartmentId = deptId };
 
-            var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user);
+            var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), user);
 
             const long exactBytes = 10L * 1024 * 1024;
             var fileContent = new byte[exactBytes];
@@ -840,7 +844,7 @@ public class DepartmentResponseServiceTests
         var service = BuildService(db);
         var user = new FakeUser { UserId = userId, DepartmentId = deptId };
 
-        await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user);
+        await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), user);
 
         var stats = await service.GetMyStatsAsync(user);
 
@@ -857,7 +861,7 @@ public class DepartmentResponseServiceTests
         var service = BuildService(db);
         var user = new FakeUser { UserId = userId, DepartmentId = deptId };
 
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), user);
         await service.SubmitAsync(created.Id, user);
 
         var stats = await service.GetMyStatsAsync(user);
@@ -876,7 +880,7 @@ public class DepartmentResponseServiceTests
         var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
         var reviewer = new FakeUser { UserId = userId, Role = UserRole.Supervisor };
 
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), submitter);
         await service.SubmitAsync(created.Id, submitter);
         await service.ApproveAsync(created.Id, reviewer);
 
@@ -901,7 +905,7 @@ public class DepartmentResponseServiceTests
         var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
         var reviewer = new FakeUser { UserId = userId, Role = UserRole.Supervisor };
 
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), submitter);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), submitter);
         await service.SubmitAsync(created.Id, submitter);
         await service.ReturnForCorrectionAsync(created.Id, new ReviewDepartmentResponseRequest("يحتاج مراجعة"), reviewer);
 
@@ -920,7 +924,7 @@ public class DepartmentResponseServiceTests
         var service = BuildService(db);
         var owner = new FakeUser { UserId = userId, DepartmentId = deptId };
 
-        await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), owner);
+        await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), owner);
 
         var otherDeptUser = new FakeUser { UserId = userId, DepartmentId = deptId + 999 };
         var stats = await service.GetMyStatsAsync(otherDeptUser);
@@ -966,7 +970,7 @@ public class DepartmentResponseServiceTests
             Status = AssignmentStatus.Active, CreatedById = userId,
         });
         await db.SaveChangesAsync();
-        await service.CreateAsync(new CreateDepartmentResponseRequest(txB.Id, "نص ب"), submitter);
+        await service.CreateAsync(new CreateDepartmentResponseRequest(txB.Id, "نص ب", ResponseDate: SeedResponseDate), submitter);
 
         // Tx-C: completed assignment + approved response (historical — must be excluded)
         var txC = new Transaction {
@@ -1028,7 +1032,7 @@ public class DepartmentResponseServiceTests
         var (db, txId, deptId, userId) = await SeedAsync(nameof(AdminEditResponse_Rejects_EmptyReason));
         var service = BuildService(db);
         var user = new FakeUser { UserId = userId, DepartmentId = deptId, Role = UserRole.Admin };
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الرد"), user);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الرد", ResponseDate: SeedResponseDate), user);
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.AdminEditAsync(created.Id, new AdminEditDepartmentResponseRequest("   ", "نص مصحح"), user));
@@ -1042,7 +1046,7 @@ public class DepartmentResponseServiceTests
         var (db, txId, deptId, userId) = await SeedAsync(nameof(AdminEditResponse_Trims_Reason_InAuditLog));
         var service = BuildService(db);
         var user = new FakeUser { UserId = userId, DepartmentId = deptId, Role = UserRole.Admin };
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الرد"), user);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الرد", ResponseDate: SeedResponseDate), user);
 
         await service.AdminEditAsync(created.Id,
             new AdminEditDepartmentResponseRequest("  تصحيح تاريخ الإنجاز  ", "نص مصحح"),
@@ -1065,7 +1069,7 @@ public class DepartmentResponseServiceTests
         var (db, txId, deptId, userId) = await SeedAsync(nameof(AdminEditResponse_AllowsSupervisorRole));
         var service = BuildService(db);
         var creator = new FakeUser { UserId = userId, DepartmentId = deptId, Role = UserRole.Admin };
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الرد"), creator);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الرد", ResponseDate: SeedResponseDate), creator);
 
         var supervisor = new FakeUser { UserId = userId, Role = UserRole.Supervisor };
         var updated = await service.AdminEditAsync(created.Id,
@@ -1082,7 +1086,7 @@ public class DepartmentResponseServiceTests
         var (db, txId, deptId, userId) = await SeedAsync(nameof(AdminEditResponse_RejectsUnauthorizedRole));
         var service = BuildService(db);
         var creator = new FakeUser { UserId = userId, DepartmentId = deptId, Role = UserRole.Admin };
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الرد"), creator);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الرد", ResponseDate: SeedResponseDate), creator);
 
         var reader = new FakeUser { UserId = userId, Role = UserRole.Reader };
 
@@ -1101,7 +1105,7 @@ public class DepartmentResponseServiceTests
         var (db, txId, deptId, userId) = await SeedAsync(nameof(AdminEditResponse_RejectsDataEntryRole));
         var service = BuildService(db);
         var creator = new FakeUser { UserId = userId, DepartmentId = deptId, Role = UserRole.Admin };
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الرد"), creator);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الرد", ResponseDate: SeedResponseDate), creator);
 
         var dataEntry = new FakeUser { UserId = userId, Role = UserRole.DataEntry };
 
@@ -1120,7 +1124,7 @@ public class DepartmentResponseServiceTests
         var (db, txId, deptId, userId) = await SeedAsync($"{nameof(AdminEditResponse_RejectsTerminalTransaction)}_{status}");
         var service = BuildService(db);
         var creator = new FakeUser { UserId = userId, DepartmentId = deptId, Role = UserRole.Admin };
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الرد"), creator);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الرد", ResponseDate: SeedResponseDate), creator);
 
         var tx = await db.Transactions.SingleAsync(t => t.Id == txId);
         tx.Status = status;
@@ -1139,7 +1143,7 @@ public class DepartmentResponseServiceTests
         var (db, txId, deptId, userId) = await SeedAsync(nameof(AdminEditResponse_DoesNotRequireTransactionLevelResponseCompletion));
         var service = BuildService(db);
         var creator = new FakeUser { UserId = userId, DepartmentId = deptId, Role = UserRole.Admin };
-        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الرد"), creator);
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص الرد", ResponseDate: SeedResponseDate), creator);
 
         var tx = await db.Transactions.SingleAsync(t => t.Id == txId);
         Assert.False(tx.ResponseCompleted);
@@ -1153,5 +1157,154 @@ public class DepartmentResponseServiceTests
         Assert.Equal("نص محدث", updated!.ResponseText);
         tx = await db.Transactions.SingleAsync(t => t.Id == txId);
         Assert.False(tx.ResponseCompleted);
+    }
+
+    // ─── ResponseDate vs SubmittedAt (operational completion date) ─────────────
+
+    [Fact]
+    public async Task Submit_RejectsMissingResponseDate()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(Submit_RejectsMissingResponseDate));
+        var service = BuildService(db);
+        var user = new FakeUser { UserId = userId, DepartmentId = deptId };
+
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.SubmitAsync(created.Id, user));
+        Assert.Equal("تاريخ إنجاز الإدارة مطلوب قبل التقديم.", ex.Message);
+    }
+
+    [Fact]
+    public async Task Create_RejectsFutureResponseDate()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(Create_RejectsFutureResponseDate));
+        var service = BuildService(db);
+        var user = new FakeUser { UserId = userId, DepartmentId = deptId };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateAsync(
+                new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: DateTime.UtcNow.AddDays(2)),
+                user));
+    }
+
+    [Fact]
+    public async Task UpdateAsync_RejectsFutureResponseDate()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(UpdateAsync_RejectsFutureResponseDate));
+        var service = BuildService(db);
+        var user = new FakeUser { UserId = userId, DepartmentId = deptId };
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpdateAsync(created.Id,
+                new UpdateDepartmentResponseRequest("نص", ResponseDate: DateTime.UtcNow.AddDays(2)),
+                user));
+        Assert.Equal("لا يمكن أن يكون التاريخ بعد تاريخ اليوم.", ex.Message);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_RejectsResponseDateBeforeIncomingDate()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(UpdateAsync_RejectsResponseDateBeforeIncomingDate));
+        var service = BuildService(db);
+        var user = new FakeUser { UserId = userId, DepartmentId = deptId };
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص"), user);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpdateAsync(created.Id,
+                new UpdateDepartmentResponseRequest("نص", ResponseDate: DateTime.UtcNow.AddDays(-30)),
+                user));
+        Assert.Equal("تاريخ إنجاز الإدارة لا يمكن أن يسبق تاريخ الوارد.", ex.Message);
+    }
+
+    [Fact]
+    public async Task AdminEditResponse_InvalidSubmittedAt_UsesSubmissionDateLabel()
+    {
+        // SubmittedAt is a technical/legacy submission timestamp, not the operational
+        // completion date — its validation message must not say "تاريخ إنجاز الإدارة"
+        // (that label belongs to ResponseDate) or it misleads whoever reads the error.
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(AdminEditResponse_InvalidSubmittedAt_UsesSubmissionDateLabel));
+        var service = BuildService(db);
+        var creator = new FakeUser { UserId = userId, DepartmentId = deptId, Role = UserRole.Admin };
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), creator);
+
+        var admin = new FakeUser { UserId = userId, Role = UserRole.Admin };
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.AdminEditAsync(created.Id,
+                new AdminEditDepartmentResponseRequest("تصحيح", SubmittedAt: DateTime.UtcNow.AddDays(-30)),
+                admin));
+        Assert.Equal("تاريخ إرسال إفادة الإدارة لا يمكن أن يسبق تاريخ الوارد.", ex.Message);
+    }
+
+    [Fact]
+    public async Task AdminEditResponse_InvalidResponseDate_UsesCompletionDateLabel()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(AdminEditResponse_InvalidResponseDate_UsesCompletionDateLabel));
+        var service = BuildService(db);
+        var creator = new FakeUser { UserId = userId, DepartmentId = deptId, Role = UserRole.Admin };
+        var created = await service.CreateAsync(new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: SeedResponseDate), creator);
+
+        var admin = new FakeUser { UserId = userId, Role = UserRole.Admin };
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.AdminEditAsync(created.Id,
+                new AdminEditDepartmentResponseRequest("تصحيح", ResponseDate: DateTime.UtcNow.AddDays(-30)),
+                admin));
+        Assert.Equal("تاريخ إنجاز الإدارة لا يمكن أن يسبق تاريخ الوارد.", ex.Message);
+    }
+
+    [Fact]
+    public async Task Approve_UsesResponseDate_NotSubmittedAt_ForAssignmentReplyDate()
+    {
+        // The operational completion date the department entered can legitimately differ
+        // from when they got around to clicking submit in the system days later; ReplyDate
+        // must reflect the former, not SubmittedAt/DateTime.UtcNow.
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(Approve_UsesResponseDate_NotSubmittedAt_ForAssignmentReplyDate));
+        var service = BuildService(db);
+        var submitter = new FakeUser { UserId = userId, DepartmentId = deptId };
+        var reviewer = new FakeUser { UserId = userId, Role = UserRole.Supervisor, DepartmentId = null };
+
+        var completedOn = SeedResponseDate;
+        var created = await service.CreateAsync(
+            new CreateDepartmentResponseRequest(txId, "نص", ResponseDate: completedOn),
+            submitter);
+        var submitted = await service.SubmitAsync(created.Id, submitter);
+        await service.ApproveAsync(created.Id, reviewer);
+
+        // SubmittedAt (the technical submit timestamp) is not asserted equal to completedOn:
+        // it is whatever moment SubmitAsync ran at, which is a different concern entirely.
+        Assert.NotNull(submitted.SubmittedAt);
+
+        var assignment = await db.Assignments.SingleAsync(a => a.TransactionId == txId && a.DepartmentId == deptId);
+        Assert.NotNull(assignment.ReplyDate);
+        Assert.Equal(completedOn.Date, assignment.ReplyDate.Value.Date);
+    }
+
+    [Fact]
+    public async Task AdminEditResponse_CanCorrectResponseDate()
+    {
+        var (db, txId, deptId, userId) = await SeedAsync(nameof(AdminEditResponse_CanCorrectResponseDate));
+        var tx = await db.Transactions.SingleAsync(t => t.Id == txId);
+        tx.IncomingDate = DateTime.UtcNow.AddDays(-5);
+        var assignment = await db.Assignments.SingleAsync(a => a.TransactionId == txId);
+        assignment.AssignedDate = DateTime.UtcNow.AddDays(-5);
+        await db.SaveChangesAsync();
+
+        var service = BuildService(db);
+        var creator = new FakeUser { UserId = userId, DepartmentId = deptId, Role = UserRole.Admin };
+        var created = await service.CreateAsync(
+            new CreateDepartmentResponseRequest(txId, "نص الرد", ResponseDate: SeedResponseDate),
+            creator);
+
+        var admin = new FakeUser { UserId = userId, Role = UserRole.Admin };
+        var corrected = DateTime.UtcNow.AddDays(-2).Date;
+        var updated = await service.AdminEditAsync(created.Id,
+            new AdminEditDepartmentResponseRequest("تصحيح تاريخ إنجاز الإدارة", ResponseDate: corrected),
+            admin);
+
+        Assert.NotNull(updated);
+        Assert.NotNull(updated.ResponseDate);
+        Assert.Equal(corrected, updated.ResponseDate.Value.Date);
+        Assert.NotEqual(SeedResponseDate.Date, updated.ResponseDate.Value.Date);
     }
 }

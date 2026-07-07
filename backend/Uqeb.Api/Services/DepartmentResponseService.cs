@@ -89,6 +89,29 @@ public class DepartmentResponseService : IDepartmentResponseService
 
     private static DateTime GetSaudiToday() => DateTime.UtcNow.AddHours(3).Date;
 
+    private async Task ValidateResponseDateAsync(
+        int transactionId,
+        int departmentId,
+        DateTime incomingDate,
+        DateTime responseDate,
+        string fieldLabel = "تاريخ إنجاز الإدارة")
+    {
+        if (responseDate.Date > GetSaudiToday())
+            throw new InvalidOperationException(FutureEventDateMessage);
+        if (responseDate.Date < incomingDate.Date)
+            throw new InvalidOperationException($"{fieldLabel} لا يمكن أن يسبق تاريخ الوارد.");
+
+        var assignedDate = await _db.Assignments
+            .AsNoTracking()
+            .Where(a => a.TransactionId == transactionId && a.DepartmentId == departmentId)
+            .OrderByDescending(a => a.Status == AssignmentStatus.Active)
+            .ThenByDescending(a => a.AssignedDate)
+            .Select(a => (DateTime?)a.AssignedDate)
+            .FirstOrDefaultAsync();
+        if (assignedDate.HasValue && responseDate.Date < assignedDate.Value.Date)
+            throw new InvalidOperationException($"{fieldLabel} لا يمكن أن يسبق تاريخ الإحالة.");
+    }
+
     // InMemory (test) provider throws InvalidOperationException on BeginTransactionAsync.
     // Production (SQL Server) supports transactions fully.
     private async Task<IDbContextTransaction?> TryBeginTransactionAsync()
@@ -282,8 +305,10 @@ public class DepartmentResponseService : IDepartmentResponseService
 
     public async Task<DepartmentResponseDto> CreateAsync(CreateDepartmentResponseRequest request, ICurrentUserService currentUser)
     {
-        if (!await _db.Transactions.AnyAsync(t => t.Id == request.TransactionId))
-            throw new InvalidOperationException("المعاملة غير موجودة.");
+        var transaction = await _db.Transactions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(t => t.Id == request.TransactionId)
+            ?? throw new InvalidOperationException("المعاملة غير موجودة.");
 
         var deptId = ResolveDepartmentIdForCreate(request, currentUser);
 
@@ -299,11 +324,19 @@ public class DepartmentResponseService : IDepartmentResponseService
         if (alreadyExists)
             throw new InvalidOperationException("يوجد رد إدارة مسبق لهذه المعاملة من إدارتك.");
 
+        DateTime? responseDate = null;
+        if (request.ResponseDate.HasValue)
+        {
+            responseDate = DateTime.SpecifyKind(request.ResponseDate.Value.Date, DateTimeKind.Utc);
+            await ValidateResponseDateAsync(request.TransactionId, deptId, transaction.IncomingDate, responseDate.Value);
+        }
+
         var response = new DepartmentResponse
         {
             TransactionId = request.TransactionId,
             DepartmentId = deptId,
             ResponseText = request.ResponseText,
+            ResponseDate = responseDate,
             Status = DepartmentResponseStatus.Draft,
             SubmittedByUserId = currentUser.UserId,
             CreatedAt = DateTime.UtcNow,
@@ -343,6 +376,7 @@ public class DepartmentResponseService : IDepartmentResponseService
     public async Task<DepartmentResponseDto> UpdateAsync(int id, UpdateDepartmentResponseRequest request, ICurrentUserService currentUser)
     {
         var response = await _db.DepartmentResponses
+            .Include(r => r.Transaction)
             .FirstOrDefaultAsync(r => r.Id == id)
             ?? throw new InvalidOperationException(ResponseNotFoundMessage);
 
@@ -350,6 +384,12 @@ public class DepartmentResponseService : IDepartmentResponseService
         RequireEditableStatus(response);
 
         response.ResponseText = request.ResponseText;
+        if (request.ResponseDate.HasValue)
+        {
+            var responseDate = DateTime.SpecifyKind(request.ResponseDate.Value.Date, DateTimeKind.Utc);
+            await ValidateResponseDateAsync(response.TransactionId, response.DepartmentId, response.Transaction.IncomingDate, responseDate);
+            response.ResponseDate = responseDate;
+        }
         response.UpdatedAt = DateTime.UtcNow;
 
         _audit.TrackLog(currentUser.UserId, AuditAction.DepartmentResponseUpdated, DepartmentResponseEntityName, id, response.TransactionId, null, null);
@@ -371,6 +411,9 @@ public class DepartmentResponseService : IDepartmentResponseService
 
         if (string.IsNullOrWhiteSpace(response.ResponseText))
             throw new InvalidOperationException("نص الرد مطلوب قبل التقديم.");
+
+        if (!response.ResponseDate.HasValue)
+            throw new InvalidOperationException("تاريخ إنجاز الإدارة مطلوب قبل التقديم.");
 
         var previousStatus = response.Status;
         response.Status = DepartmentResponseStatus.SubmittedForReview;
@@ -496,32 +539,34 @@ public class DepartmentResponseService : IDepartmentResponseService
         if (string.IsNullOrWhiteSpace(reason))
             throw new InvalidOperationException("سبب التعديل مطلوب.");
 
-        var oldSnapshot = new { response.ResponseText, response.SubmittedAt };
+        var oldSnapshot = new { response.ResponseText, response.SubmittedAt, response.ResponseDate };
 
         if (request.ResponseText is not null)
             response.ResponseText = request.ResponseText.Trim();
+        // Legacy correction path retained for historical data recorded before ResponseDate
+        // existed; new corrections should target ResponseDate below, not SubmittedAt, since
+        // SubmittedAt is the technical submission timestamp, not the operational completion date.
         if (request.SubmittedAt.HasValue)
         {
             var submittedAt = DateTime.SpecifyKind(request.SubmittedAt.Value.Date, DateTimeKind.Utc);
-            if (submittedAt.Date > GetSaudiToday())
-                throw new InvalidOperationException(FutureEventDateMessage);
-            if (submittedAt.Date < response.Transaction.IncomingDate.Date)
-                throw new InvalidOperationException("تاريخ إنجاز الإدارة لا يمكن أن يسبق تاريخ الوارد.");
-            var assignedDate = await _db.Assignments
-                .AsNoTracking()
-                .Where(a => a.TransactionId == response.TransactionId && a.DepartmentId == response.DepartmentId)
-                .OrderByDescending(a => a.Status == AssignmentStatus.Active)
-                .ThenByDescending(a => a.AssignedDate)
-                .Select(a => (DateTime?)a.AssignedDate)
-                .FirstOrDefaultAsync();
-            if (assignedDate.HasValue && submittedAt.Date < assignedDate.Value.Date)
-                throw new InvalidOperationException("تاريخ إنجاز الإدارة لا يمكن أن يسبق تاريخ الإحالة.");
+            await ValidateResponseDateAsync(
+                response.TransactionId,
+                response.DepartmentId,
+                response.Transaction.IncomingDate,
+                submittedAt,
+                fieldLabel: "تاريخ إرسال إفادة الإدارة");
             response.SubmittedAt = submittedAt;
+        }
+        if (request.ResponseDate.HasValue)
+        {
+            var responseDate = DateTime.SpecifyKind(request.ResponseDate.Value.Date, DateTimeKind.Utc);
+            await ValidateResponseDateAsync(response.TransactionId, response.DepartmentId, response.Transaction.IncomingDate, responseDate);
+            response.ResponseDate = responseDate;
         }
         response.UpdatedAt = DateTime.UtcNow;
 
-        var oldValue = System.Text.Json.JsonSerializer.Serialize(new { oldSnapshot.ResponseText, oldSnapshot.SubmittedAt, Reason = reason });
-        var newValue = System.Text.Json.JsonSerializer.Serialize(new { response.ResponseText, response.SubmittedAt, Reason = reason });
+        var oldValue = System.Text.Json.JsonSerializer.Serialize(new { oldSnapshot.ResponseText, oldSnapshot.SubmittedAt, oldSnapshot.ResponseDate, Reason = reason });
+        var newValue = System.Text.Json.JsonSerializer.Serialize(new { response.ResponseText, response.SubmittedAt, response.ResponseDate, Reason = reason });
         _audit.TrackLog(currentUser.UserId, AuditAction.AdminEditDepartmentResponse, DepartmentResponseEntityName, id, response.TransactionId, oldValue, newValue);
         await _db.SaveChangesAsync();
 
@@ -717,7 +762,10 @@ public class DepartmentResponseService : IDepartmentResponseService
         if (assignment == null)
             return;
 
-        var replyDate = (response.SubmittedAt ?? response.ReviewedAt ?? DateTime.UtcNow).Date;
+        // ResponseDate is the operational completion date entered by the department and
+        // is the only source used going forward. The SubmittedAt/ReviewedAt/UtcNow chain is
+        // a restricted legacy fallback for responses recorded before ResponseDate existed.
+        var replyDate = (response.ResponseDate ?? response.SubmittedAt ?? response.ReviewedAt ?? DateTime.UtcNow).Date;
         if (replyDate < assignment.AssignedDate.Date)
         {
             // The supervisor cannot edit assignment dates; if an admin later moved AssignedDate
@@ -740,6 +788,7 @@ public class DepartmentResponseService : IDepartmentResponseService
         r.DepartmentId,
         r.Department.Name,
         r.ResponseText,
+        r.ResponseDate,
         r.Status.ToString(),
         r.SubmittedBy.FullName,
         r.SubmittedAt,
