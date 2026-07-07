@@ -1402,8 +1402,9 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                 {canEditTransactionResponse ? (
                   <button
                     type="button"
-                    className="badge badge-green assignment-response-status-link"
-                    aria-label="تعديل الإفادة المسجلة"
+                    className="badge badge-green badge-button"
+                    aria-label="تعديل الإفادة"
+                    title="تعديل الإفادة"
                     onClick={() => openAction('admin-edit-transaction-response')}
                   >
                     تمت الإفادة

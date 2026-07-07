@@ -778,6 +778,21 @@
   color: #5b21b6;
 }
 
+.badge-button {
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.badge-button:hover {
+  filter: brightness(0.97);
+}
+
+.badge-button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 /* ── Alerts ── */
 .alert {
   padding: var(--space-3) var(--space-4);

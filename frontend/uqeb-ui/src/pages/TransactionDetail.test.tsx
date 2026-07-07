@@ -1578,7 +1578,7 @@ describe('TransactionDetailPage current status and response workflow', () => {
     await waitForDetailsReady();
 
     const responseCard = getResponseCard();
-    const editButton = within(responseCard).getByRole('button', { name: 'تعديل الإفادة المسجلة' });
+    const editButton = within(responseCard).getByRole('button', { name: 'تعديل الإفادة' });
     expect(editButton).toHaveTextContent('تمت الإفادة');
 
     await user.click(editButton);
@@ -1600,6 +1600,44 @@ describe('TransactionDetailPage current status and response workflow', () => {
       expect(within(getResponseCard()).getByText('ملخص محدث')).toBeInTheDocument();
     });
     expect(screen.getAllByRole('region', { name: 'الإفادة' })).toHaveLength(1);
+  });
+
+  it('closes the edit response form on cancel without saving or changing the displayed response', async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(globalThis, 'confirm').mockReturnValue(true);
+    const completedTx = {
+      ...baseTx,
+      requiresResponse: true,
+      responseType: 'External',
+      responseCompleted: true,
+      responseCompletedDate: '2026-01-10',
+      responseSummary: 'ملخص أصلي',
+      outgoingNumber: 'OUT-1',
+      outgoingDate: '2026-01-10',
+    };
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: { ...defaultWorkspace, transaction: completedTx },
+    });
+    mockApi(services.transactionsApi.getBasic).mockResolvedValue({ data: completedTx });
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    const responseCard = getResponseCard();
+    const editButton = within(responseCard).getByRole('button', { name: 'تعديل الإفادة' });
+    await user.click(editButton);
+
+    const panel = within(responseCard).getByTestId('admin-edit-transaction-response-form-panel');
+    const summaryField = await within(panel).findByLabelText('ملخص الإفادة *');
+    await user.clear(summaryField);
+    await user.type(summaryField, 'مسودة لن تُحفظ');
+    await user.click(within(panel).getByRole('button', { name: 'إلغاء' }));
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(services.transactionsApi.editResponse).not.toHaveBeenCalled();
+    expect(within(responseCard).queryByTestId('admin-edit-transaction-response-form-panel')).not.toBeInTheDocument();
+    expect(within(responseCard).getByText('ملخص أصلي')).toBeInTheDocument();
+    expect(within(responseCard).getByRole('button', { name: 'تعديل الإفادة' })).toBeInTheDocument();
   });
 
   it('renders the completed response status as plain text for users without edit permission', async () => {
@@ -1631,7 +1669,7 @@ describe('TransactionDetailPage current status and response workflow', () => {
 
     const responseCard = getResponseCard();
     expect(within(responseCard).getByText('تمت الإفادة')).toBeInTheDocument();
-    expect(within(responseCard).queryByRole('button', { name: 'تعديل الإفادة المسجلة' })).not.toBeInTheDocument();
+    expect(within(responseCard).queryByRole('button', { name: 'تعديل الإفادة' })).not.toBeInTheDocument();
   });
 
   it.each(['Closed', 'Cancelled', 'Archived'])(
@@ -1657,7 +1695,7 @@ describe('TransactionDetailPage current status and response workflow', () => {
 
       const responseCard = getResponseCard();
       expect(within(responseCard).getByText('تمت الإفادة')).toBeInTheDocument();
-      expect(within(responseCard).queryByRole('button', { name: 'تعديل الإفادة المسجلة' })).not.toBeInTheDocument();
+      expect(within(responseCard).queryByRole('button', { name: 'تعديل الإفادة' })).not.toBeInTheDocument();
     },
   );
 
