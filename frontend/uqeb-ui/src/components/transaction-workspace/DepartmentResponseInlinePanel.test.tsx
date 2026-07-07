@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { AxiosResponse } from 'axios';
 import DepartmentResponseInlinePanel from './DepartmentResponseInlinePanel';
 import * as services from '../../api/services';
 import type { DepartmentResponseDto, DepartmentTransactionResponseItemDto } from '../../api/types';
@@ -14,6 +15,16 @@ vi.mock('../../api/services', () => ({
     uploadAttachment: vi.fn(),
   },
 }));
+
+function mockAxiosResponse<T>(data: T): AxiosResponse<T> {
+  return {
+    data,
+    status: 200,
+    statusText: 'OK',
+    headers: {},
+    config: { headers: {} } as AxiosResponse<T>['config'],
+  };
+}
 
 function buildResponse(overrides: Partial<DepartmentResponseDto> = {}): DepartmentResponseDto {
   return {
@@ -65,8 +76,8 @@ describe('DepartmentResponseInlinePanel', () => {
   });
 
   it('does not submit without a completion date', async () => {
-    vi.mocked(services.departmentResponsesApi.create).mockResolvedValue({ data: buildResponse() } as never);
-    vi.mocked(services.departmentResponsesApi.submit).mockResolvedValue({ data: buildResponse({ status: 'SubmittedForReview' }) } as never);
+    vi.mocked(services.departmentResponsesApi.create).mockResolvedValue(mockAxiosResponse(buildResponse()));
+    vi.mocked(services.departmentResponsesApi.submit).mockResolvedValue(mockAxiosResponse(buildResponse({ status: 'SubmittedForReview' })));
     const user = userEvent.setup();
     renderPanel();
 
@@ -80,8 +91,8 @@ describe('DepartmentResponseInlinePanel', () => {
 
   it('sends the entered completion date, not left empty, when submitting', async () => {
     const created = buildResponse();
-    vi.mocked(services.departmentResponsesApi.create).mockResolvedValue({ data: created } as never);
-    vi.mocked(services.departmentResponsesApi.submit).mockResolvedValue({ data: buildResponse({ status: 'SubmittedForReview' }) } as never);
+    vi.mocked(services.departmentResponsesApi.create).mockResolvedValue(mockAxiosResponse(created));
+    vi.mocked(services.departmentResponsesApi.submit).mockResolvedValue(mockAxiosResponse(buildResponse({ status: 'SubmittedForReview' })));
     const user = userEvent.setup();
     renderPanel();
 
@@ -100,7 +111,7 @@ describe('DepartmentResponseInlinePanel', () => {
 
   it('loads the existing completion date when editing a returned-for-correction response', async () => {
     const existing = buildResponse({ id: 42, status: 'ReturnedForCorrection', responseDate: '2026-06-20T00:00:00Z' });
-    vi.mocked(services.departmentResponsesApi.getById).mockResolvedValue({ data: existing } as never);
+    vi.mocked(services.departmentResponsesApi.getById).mockResolvedValue(mockAxiosResponse(existing));
 
     renderPanel({
       transactionId: 1,

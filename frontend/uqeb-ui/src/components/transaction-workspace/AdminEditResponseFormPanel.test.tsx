@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { AxiosResponse } from 'axios';
 import AdminEditResponseFormPanel from './AdminEditResponseFormPanel';
 import * as services from '../../api/services';
 import type { DepartmentResponseDto } from '../../api/types';
@@ -11,6 +12,16 @@ vi.mock('../../api/services', () => ({
     adminEdit: vi.fn(),
   },
 }));
+
+function mockAxiosResponse<T>(data: T): AxiosResponse<T> {
+  return {
+    data,
+    status: 200,
+    statusText: 'OK',
+    headers: {},
+    config: { headers: {} } as AxiosResponse<T>['config'],
+  };
+}
 
 const response: DepartmentResponseDto = {
   id: 100,
@@ -50,7 +61,7 @@ describe('AdminEditResponseFormPanel', () => {
   });
 
   it('AdminEditResponseFormPanel_Loads_Response_When_InitialResponse_Not_Provided', async () => {
-    vi.mocked(services.departmentResponsesApi.getById).mockResolvedValue({ data: response } as never);
+    vi.mocked(services.departmentResponsesApi.getById).mockResolvedValue(mockAxiosResponse(response));
 
     renderPanel();
 
@@ -60,7 +71,7 @@ describe('AdminEditResponseFormPanel', () => {
   });
 
   it('AdminEditResponseFormPanel_Shows_Loading_While_Fetching', () => {
-    vi.mocked(services.departmentResponsesApi.getById).mockReturnValue(new Promise(() => {}) as never);
+    vi.mocked(services.departmentResponsesApi.getById).mockReturnValue(new Promise<AxiosResponse<DepartmentResponseDto>>(() => {}));
 
     renderPanel();
 
@@ -78,7 +89,7 @@ describe('AdminEditResponseFormPanel', () => {
   });
 
   it('sends the corrected value as responseDate, not submittedAt', async () => {
-    vi.mocked(services.departmentResponsesApi.adminEdit).mockResolvedValue({ data: response } as never);
+    vi.mocked(services.departmentResponsesApi.adminEdit).mockResolvedValue(mockAxiosResponse(response));
     const user = userEvent.setup();
 
     renderPanel(response);

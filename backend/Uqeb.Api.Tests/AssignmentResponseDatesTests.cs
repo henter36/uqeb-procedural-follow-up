@@ -778,7 +778,7 @@ public class AssignmentResponseDatesTests
         }, userId: 1);
 
         Assert.NotNull(updated);
-        Assert.False(updated!.IsResponseOverdue);
+        Assert.False(updated.IsResponseOverdue);
         Assert.False(updated.IsOverdue);
     }
 
@@ -801,7 +801,7 @@ public class AssignmentResponseDatesTests
         }, userId: 1);
 
         Assert.NotNull(updated);
-        Assert.True(updated!.IsResponseOverdue);
+        Assert.True(updated.IsResponseOverdue);
         Assert.True(updated.IsOverdue);
     }
 
