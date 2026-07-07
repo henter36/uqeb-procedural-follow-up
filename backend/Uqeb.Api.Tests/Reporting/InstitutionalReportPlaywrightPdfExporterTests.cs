@@ -254,8 +254,8 @@ public class InstitutionalReportPlaywrightPdfExporterTests
             return;
 
         var renderer = new InstitutionalReportRenderer();
-        var shortModel = CreateMeasuredTransactionModel(40, longSubjects: false);
-        var longModel = CreateMeasuredTransactionModel(40, longSubjects: true);
+        var shortModel = CreateMeasuredTransactionModel(100, longSubjects: false);
+        var longModel = CreateMeasuredTransactionModel(100, longSubjects: true);
 
         await using var measurer = CreateMeasurer();
         var shortChunks = await MeasureChunksAsync(renderer, measurer, shortModel);
