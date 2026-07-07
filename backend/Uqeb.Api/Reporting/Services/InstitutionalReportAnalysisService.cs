@@ -576,11 +576,14 @@ internal static class InstitutionalReportAnalysisService
         var topDepartment = departments.OrderByDescending(d => d.OverdueCount).ThenByDescending(d => d.OpenCount).FirstOrDefault();
         if (topDepartment is not null && topDepartment.OverdueCount > 0)
         {
+            var departmentText = IsUndefinedDepartmentName(topDepartment.DepartmentName)
+                ? "معاملات بلا إدارة مختصة محددة"
+                : topDepartment.DepartmentName;
             insights.Add(new ExecutiveInsightDto
             {
                 Code = "EXEC_DEPARTMENT_CONCENTRATION",
-                Text = $"تركز أعلى عدد من حالات التأخر في {topDepartment.DepartmentName} بعدد {topDepartment.OverdueCount:N0} معاملة متأخرة.",
-                Evidence = $"department={topDepartment.DepartmentName};overdue={topDepartment.OverdueCount}",
+                Text = $"تركز أعلى عدد من حالات التأخر في {departmentText} بعدد {topDepartment.OverdueCount:N0} معاملة متأخرة.",
+                Evidence = $"department={departmentText};overdue={topDepartment.OverdueCount}",
                 Severity = topDepartment.HasSmallSample ? AnalyticalSeverity.Medium : AnalyticalSeverity.High
             });
         }
@@ -817,7 +820,7 @@ internal static class InstitutionalReportAnalysisService
         {
             ("missing_category", "تصنيف مفقود", s => string.IsNullOrWhiteSpace(s.CategoryName), "CategoryId/Category", "استكمال تصنيف المعاملة.", AnalyticalSeverity.Medium),
             ("missing_external_party", "جهة واردة مفقودة", s => string.IsNullOrWhiteSpace(s.IncomingParty), "IncomingFromPartyId/IncomingFrom", "ربط الجهة الواردة أو توثيقها.", AnalyticalSeverity.Medium),
-            ("missing_responsible_department", "إدارة مسؤولة مفقودة", s => string.IsNullOrWhiteSpace(s.ResponsibleDepartment), "Assignments/OutgoingDepartments", "تحديد الإدارة المسؤولة.", AnalyticalSeverity.High),
+            ("missing_responsible_department", "معاملات بلا إدارة مختصة", s => IsUndefinedDepartmentName(s.ResponsibleDepartment), "Assignments/OutgoingDepartments", "تحديد الإدارة المختصة.", AnalyticalSeverity.High),
             ("missing_due_date", "مهلة رد مفقودة", s => s.RequiresResponse && !s.ResponseDueDate.HasValue && !s.EarliestPendingReplyDueDate.HasValue, "ResponseDueDate/AssignmentDueDate", "إدخال تاريخ المهلة عند اشتراط الرد.", AnalyticalSeverity.Medium),
             ("partial_outgoing_data", "بيانات صادر غير مكتملة", s => !string.IsNullOrWhiteSpace(s.OutgoingNumber) && !s.OutgoingDate.HasValue, "OutgoingNumber/OutgoingDate", "استكمال تاريخ الصادر.", AnalyticalSeverity.Low),
             ("invalid_date_sequence", "تسلسل تواريخ غير منطقي", s => s.ClosedAt.HasValue && s.ClosedAt.Value.Date < s.IncomingDate.Date, "IncomingDate/ClosedAt", "مراجعة تواريخ الوارد والإغلاق.", AnalyticalSeverity.High),
@@ -890,7 +893,10 @@ internal static class InstitutionalReportAnalysisService
         }
 
         var topDepartment = departments.FirstOrDefault();
-        if (topDepartment is not null && topDepartment.OverdueCount > 0 && !topDepartment.HasSmallSample)
+        if (topDepartment is not null
+            && topDepartment.OverdueCount > 0
+            && !topDepartment.HasSmallSample
+            && !IsUndefinedDepartmentName(topDepartment.DepartmentName))
         {
             findings.Add(new SignificantFindingDto
             {
@@ -954,7 +960,7 @@ internal static class InstitutionalReportAnalysisService
                 SourceFindingCode = finding.Code,
                 Priority = finding.Severity >= AnalyticalSeverity.High ? "high" : "medium",
                 RecommendationText = RecommendationText(finding.Code),
-                ResponsibleScope = string.IsNullOrWhiteSpace(finding.AffectedScope) ? "إدارة المتابعة" : finding.AffectedScope,
+                ResponsibleScope = ResponsibleScope(finding.AffectedScope),
                 SuggestedDueDays = finding.Severity >= AnalyticalSeverity.High ? 2 : 7,
                 EvidenceSummary = finding.Evidence
             });
@@ -1004,6 +1010,9 @@ internal static class InstitutionalReportAnalysisService
         "DATA_QUALITY_ISSUE" => "استكمال حقول جودة البيانات المحددة في قسم جودة البيانات لضمان دقة المؤشرات القادمة.",
         _ => "مراجعة النتيجة المرتبطة واتخاذ إجراء تشغيلي موثق."
     };
+
+    private static string ResponsibleScope(string? value) =>
+        IsUndefinedDepartmentName(value) ? "مالك البيانات" : value!.Trim();
 
     private static List<TimeSeriesPointDto> BuildTimeSeries(IReadOnlyList<TransactionReportSnapshot> snapshots, ReportTimeGrouping grouping)
     {
@@ -1262,6 +1271,12 @@ internal static class InstitutionalReportAnalysisService
 
     private static string BlankToUnknown(string? value) =>
         string.IsNullOrWhiteSpace(value) ? "غير محدد" : value.Trim();
+
+    private static bool IsUndefinedDepartmentName(string? value)
+    {
+        var normalized = (value ?? string.Empty).Trim();
+        return normalized.Length == 0 || normalized is "—" or "-" or "غير محدد" or "غير محددة";
+    }
 
     private static DateTime PeriodStart(DateTime value, ReportTimeGrouping grouping)
     {

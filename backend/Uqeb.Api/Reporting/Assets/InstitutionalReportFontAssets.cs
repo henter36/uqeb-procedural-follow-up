@@ -8,23 +8,23 @@ public static class InstitutionalReportFontAssets
 {
     public static string BuildFontFaceCss()
     {
-        var regular = LoadFontDataUri("NotoSansArabic-Regular.woff2", "woff2");
-        var bold = LoadFontDataUri("NotoSansArabic-Bold.woff2", "woff2");
+        var regular = LoadFontDataUri("NotoSansArabic-Regular.ttf", "truetype");
+        var bold = LoadFontDataUri("NotoSansArabic-Bold.ttf", "truetype");
 
         return $$"""
             @font-face {
               font-family: 'Uqeb Report Arabic';
-              src: url('{{regular}}') format('woff2');
+              src: url('{{regular}}') format('truetype');
               font-weight: 400;
               font-style: normal;
-              font-display: swap;
+              font-display: block;
             }
             @font-face {
               font-family: 'Uqeb Report Arabic';
-              src: url('{{bold}}') format('woff2');
+              src: url('{{bold}}') format('truetype');
               font-weight: 700;
               font-style: normal;
-              font-display: swap;
+              font-display: block;
             }
             """;
     }

@@ -71,7 +71,7 @@ public class InstitutionalReportRendererTests
     }
 
     [Fact]
-    public void BuildExportManifest_PreservesOperationalMetadata_WithOriginalNumbering()
+    public void BuildExportManifest_OriginalNumberingStillUsesFinalExportPageCount()
     {
         var source = CreateSourceManifest(4);
         source.TotalMatchedRows = 100;
@@ -88,8 +88,9 @@ public class InstitutionalReportRendererTests
         Assert.Equal(source.TemplateVersion, result.TemplateVersion);
         Assert.Equal(source.ReportTitle, result.ReportTitle);
         Assert.Equal(source.ReportId, result.ReportId);
-        Assert.Equal(2, result.Pages[0].RenderedPageNumber);
-        Assert.Equal(3, result.Pages[1].RenderedPageNumber);
+        Assert.Equal(2, result.TotalPages);
+        Assert.Equal([1, 2], result.Pages.Select(p => p.RenderedPageNumber));
+        Assert.All(result.Pages, page => Assert.Contains(" من 2", page.HtmlContent));
     }
 
     [Fact]
@@ -320,6 +321,42 @@ public class InstitutionalReportRendererTests
     }
 
     [Fact]
+    public void RenderManifest_ReportMetadataShowsFinalTotalPages()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        var manifest = _renderer.RenderManifest(model,
+        [
+            ReportSectionId.Cover,
+            ReportSectionId.TransactionDetails,
+            ReportSectionId.ReportMetadata,
+        ]);
+
+        var metadata = Assert.Single(manifest.Pages, p => p.SectionId == ReportSectionId.ReportMetadata);
+        Assert.Equal(manifest.TotalPages, manifest.Pages.Count);
+        Assert.Contains($"<dt>إجمالي الصفحات</dt><dd>{manifest.TotalPages:N0}</dd>", metadata.HtmlContent);
+    }
+
+    [Fact]
+    public void BuildExportManifest_ReportMetadataUsesSelectedExportPageCount()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        var source = _renderer.RenderManifest(model,
+        [
+            ReportSectionId.Cover,
+            ReportSectionId.TransactionDetails,
+            ReportSectionId.ReportMetadata,
+        ]);
+        var metadataOriginalPage = source.Pages.Single(p => p.SectionId == ReportSectionId.ReportMetadata).OriginalPageNumber;
+
+        var exportManifest = _renderer.BuildExportManifest(source, [metadataOriginalPage], new ReportExportRequestDto());
+
+        var metadata = Assert.Single(exportManifest.Pages);
+        Assert.Equal(1, exportManifest.TotalPages);
+        Assert.Contains("<dt>إجمالي الصفحات</dt><dd>1</dd>", metadata.HtmlContent);
+        Assert.Contains("الصفحة 1 من 1", metadata.HtmlContent);
+    }
+
+    [Fact]
     public void RenderManifest_UsesTableSpecificClassesAndReadableDateOrder()
     {
         var model = InstitutionalReportVisualFixtures.CreateBaseModel();
@@ -422,6 +459,16 @@ public class InstitutionalReportRendererTests
             SuggestedDueDays = 5,
             Status = "Proposed",
         });
+        model.Analysis.Recommendations.Add(new AnalyticalRecommendationDto
+        {
+            RecommendationId = "REC-EXTERNAL-CODE",
+            SourceFindingCode = "EXTERNAL_PENDING_RESPONSES",
+            Priority = "medium",
+            RecommendationText = "متابعة الردود المنتظرة.",
+            ResponsibleScope = "إدارة المتابعة",
+            SuggestedDueDays = 5,
+            Status = "Proposed",
+        });
         model.IntegrityWarnings.Add(new IntegrityWarningDto
         {
             Code = "CASES_CRITICAL",
@@ -440,13 +487,56 @@ public class InstitutionalReportRendererTests
         Assert.Contains("مقترحة", html);
         Assert.Contains("جودة البيانات", html);
         Assert.Contains("متابعة الردود الخارجية", html);
+        Assert.Contains("معاملات منتظرة من جهة خارجية", html);
         Assert.Contains("مراجعة الحالات الحرجة", html);
         Assert.DoesNotContain(">medium<", html);
         Assert.DoesNotContain(">high<", html);
         Assert.DoesNotContain("Proposed", html);
         Assert.DoesNotContain("ISSUE_QUALITY_DATA", html);
         Assert.DoesNotContain("RESPONSES_PENDING_EXTERNAL", html);
+        Assert.DoesNotContain("EXTERNAL_PENDING_RESPONSES", html);
         Assert.DoesNotContain("CASES_CRITICAL", html);
+    }
+
+    [Fact]
+    public void RenderManifest_RecommendationsClassifyUndefinedOwnerAsDataQuality()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        model.Recommendations =
+        [
+            new RecommendationRowDto
+            {
+                Priority = "medium",
+                Observation = "توجد معاملات بلا إدارة",
+                RequiredAction = "استكمال بيانات الإدارة المختصة.",
+                ResponsibleDepartment = "—",
+                SourceLabel = "DATA_QUALITY_ISSUE",
+            },
+        ];
+        model.Analysis.Recommendations =
+        [
+            new AnalyticalRecommendationDto
+            {
+                Priority = "medium",
+                SourceFindingCode = "DATA_QUALITY_ISSUE",
+                RecommendationText = "استكمال بيانات الإدارة المختصة.",
+                ResponsibleScope = "غير محدد",
+                SuggestedDueDays = 10,
+                Status = "proposed",
+            },
+        ];
+
+        var manifest = _renderer.RenderManifest(model,
+        [
+            ReportSectionId.ExecutiveRecommendations,
+            ReportSectionId.RecommendationsAndActionPlan,
+        ]);
+        var html = InstitutionalReportRenderer.RenderHtmlDocument(manifest);
+
+        Assert.Contains("ملاحظة جودة بيانات: معاملات بلا إدارة مختصة", html);
+        Assert.Contains("<td>مالك البيانات</td>", html);
+        Assert.DoesNotContain("الإدارة: غير محدد", html);
+        Assert.DoesNotContain("<td>غير محدد</td>", html);
     }
 
     [Fact]

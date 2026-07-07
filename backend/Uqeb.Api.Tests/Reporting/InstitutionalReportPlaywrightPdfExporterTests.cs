@@ -64,6 +64,10 @@ public class InstitutionalReportPlaywrightPdfExporterTests
         Assert.Equal(0x44, pdf[2]);
         Assert.Equal(0x46, pdf[3]);
         Assert.True(pdf.Length > 2_000);
+
+        var pdfTextLayer = System.Text.Encoding.Latin1.GetString(pdf);
+        Assert.Contains("/ToUnicode", pdfTextLayer);
+        Assert.DoesNotContain("\uFFFE", pdfTextLayer);
     }
 
     [Fact]

@@ -68,6 +68,25 @@ public sealed class InstitutionalReportRenderer
 
         model.Metadata.TotalPages = pages.Count;
 
+        var metadataPageIndex = pages.FindIndex(p => p.SectionId == ReportSectionId.ReportMetadata);
+        if (metadataPageIndex >= 0)
+        {
+            var metadataPage = pages[metadataPageIndex];
+            pages[metadataPageIndex] = metadataPage with
+            {
+                HtmlContent = WrapPage(
+                    RenderMetadata(model),
+                    new PageChromeOptions(
+                        PageNumber: metadataPageIndex + 1,
+                        TotalPages: pages.Count,
+                        Partial: false,
+                        Profile: InstitutionalReportPdfProfiles.GetByName(metadataPage.PdfProfileName),
+                        SectionId: metadataPage.SectionId,
+                        ReportTitle: model.Metadata.Title,
+                        ReportId: model.Metadata.ReportNumber)),
+            };
+        }
+
         if (coverPageIndex >= 0)
         {
             var coverPage = pages[coverPageIndex];
@@ -394,8 +413,6 @@ public sealed class InstitutionalReportRenderer
 
         ApplyFinalPageNumbering(
             pages,
-            request.PageNumberingMode ?? PageNumberingMode.Restart,
-            source.TotalPages,
             isPartial,
             EffectiveReportTitle(source.ReportTitle),
             source.ReportId);
@@ -431,8 +448,6 @@ public sealed class InstitutionalReportRenderer
 
     private static void ApplyFinalPageNumbering(
         List<RenderedReportPageDto> pages,
-        PageNumberingMode numberingMode,
-        int originalTotalPages,
         bool isPartial,
         string reportTitle,
         string reportId)
@@ -440,26 +455,15 @@ public sealed class InstitutionalReportRenderer
         for (var i = 0; i < pages.Count; i++)
         {
             var page = pages[i];
-            var isSupplementary = page.SectionId is ReportSectionId.PartialCover or ReportSectionId.PartialManifest;
-
-            int renderedNumber;
-            int footerTotal;
-
-            if (numberingMode == PageNumberingMode.Restart || isSupplementary)
-            {
-                renderedNumber = i + 1;
-                footerTotal = pages.Count;
-            }
-            else
-            {
-                renderedNumber = page.OriginalPageNumber;
-                footerTotal = originalTotalPages;
-            }
+            var renderedNumber = i + 1;
+            var footerTotal = pages.Count;
 
             pages[i] = page with
             {
                 RenderedPageNumber = renderedNumber,
-                HtmlContent = InjectFooter(page.HtmlContent, renderedNumber, footerTotal, isPartial, reportTitle, reportId)
+                HtmlContent = UpdateMetadataTotalPages(
+                    InjectFooter(page.HtmlContent, renderedNumber, footerTotal, isPartial, reportTitle, reportId),
+                    footerTotal)
             };
         }
     }
@@ -585,6 +589,20 @@ public sealed class InstitutionalReportRenderer
         """;
     }
 
+    private static string UpdateMetadataTotalPages(string html, int totalPages)
+    {
+        const string marker = "<dt>إجمالي الصفحات</dt><dd>";
+        var start = html.IndexOf(marker, StringComparison.Ordinal);
+        if (start < 0)
+            return html;
+
+        start += marker.Length;
+        var end = html.IndexOf("</dd>", start, StringComparison.Ordinal);
+        return end < 0
+            ? html
+            : string.Concat(html.AsSpan(0, start), totalPages.ToString("N0", CultureInfo.InvariantCulture), html.AsSpan(end));
+    }
+
     private static string EffectiveReportTitle(string? reportTitle) =>
         string.IsNullOrWhiteSpace(reportTitle)
             ? DefaultReportTitle
@@ -593,45 +611,15 @@ public sealed class InstitutionalReportRenderer
     private static string RenderCover(InstitutionalReportModel model)
     {
         var m = model.Metadata;
-        var partialBadge = model.DetailRowsTruncated
-            ? """<span class="cover-badge">نسخة ملخصة — التفاصيل مقتطعة</span>"""
-            : string.Empty;
-        var scopeNote = string.IsNullOrWhiteSpace(m.DepartmentName)
-            ? string.Empty
-            : $"""<dt>النطاق</dt><dd>{Esc(m.DepartmentName)}</dd>""";
-        var confidentiality = string.IsNullOrWhiteSpace(m.ConfidentialityLabel)
-            ? string.Empty
-            : $"""<dt>مستوى السرية</dt><dd>{Esc(m.ConfidentialityLabel)}</dd>""";
-        var totalPages = Math.Max(1, m.TotalPages);
-        var approvalStatus = DisplayValue(model.Analysis.Methodology.ApprovalStatus);
         return $"""
         <div class="cover">
           <div class="cover-main">
-            <div style="font-size:13px;color:var(--report-secondary);font-weight:700;">{Esc(m.OrganizationName)}</div>
             <h1 class="cover-title">{Esc(m.Title)}</h1>
-            <div class="cover-type">{Esc(m.ReportTypeName)}</div>
             <div class="cover-period">الفترة من {FormatDate(m.PeriodFrom)} إلى {FormatDate(m.PeriodTo)}</div>
-            {partialBadge}
             <dl class="info-card">
               <dt>رقم التقرير</dt><dd>{Esc(m.ReportNumber)}</dd>
               <dt>تاريخ الإصدار</dt><dd>{FormatDate(m.IssueDate)}</dd>
-              {scopeNote}
-              {confidentiality}
-              <dt>حالة التقرير</dt><dd>{Esc(approvalStatus)}</dd>
-              <dt>إجمالي الصفحات</dt><dd>{totalPages}</dd>
             </dl>
-            <div class="verification-block">
-              <div style="font-size:11px;color:var(--report-secondary);line-height:1.7;">
-                معرف التحقق: {Esc(m.VerificationId)}<br/>
-                وقت الإنشاء: {FormatDateTime(m.GeneratedAt)}<br/>
-                إجمالي النتائج المطابقة: {model.TotalMatchedRows:N0}<br/>
-                البصمة: {Esc(m.FileFingerprint ?? "—")}
-              </div>
-            </div>
-          </div>
-          <div class="cover-accent">
-            <div style="font-size:14px;opacity:.9;">{Esc(m.OrganizationName)}</div>
-            <div style="margin-top:24px;font-size:28px;font-weight:800;line-height:1.5;">{Esc(m.Title)}</div>
           </div>
         </div>
         """;
@@ -991,7 +979,7 @@ public sealed class InstitutionalReportRenderer
               <h3 style="margin:8px 0 6px;font-size:14px;color:var(--report-primary);">{Esc(r.Observation)}</h3>
               <p style="margin:0 0 8px;">{Esc(r.RequiredAction)}</p>
               <div style="font-size:11px;color:var(--report-secondary);">
-                الإدارة: {Esc(NormalizeDepartmentName(r.ResponsibleDepartment))} — المصدر: {Esc(DisplayValue(r.SourceLabel))} — الموعد: {Esc(r.TargetDate ?? "—")}
+                {Esc(RecommendationOwnerLabel(r.ResponsibleDepartment))} — المصدر: {Esc(DisplayValue(r.SourceLabel))} — الموعد: {Esc(r.TargetDate ?? "—")}
               </div>
             </article>
             """));
@@ -1007,7 +995,7 @@ public sealed class InstitutionalReportRenderer
             $"""
             <tr>
               <td>{Esc(DisplayValue(r.Priority))}</td><td>{Esc(DisplayValue(r.SourceFindingCode))}</td><td>{Esc(DisplayValue(r.RecommendationText))}</td>
-              <td>{Esc(NormalizeDepartmentName(r.ResponsibleScope))}</td><td class="cell--number">{r.SuggestedDueDays}</td><td>{Esc(DisplayValue(r.Status))}</td>
+              <td>{Esc(ResponsibleScopeLabel(r.ResponsibleScope))}</td><td class="cell--number">{r.SuggestedDueDays}</td><td>{Esc(DisplayValue(r.Status))}</td>
             </tr>
             """));
         return $"""
@@ -1117,10 +1105,12 @@ public sealed class InstitutionalReportRenderer
         return $"""
         <h2 class="section-title">بيانات التقرير والفلاتر</h2>
         <dl class="info-card">
-          <dt>رقم التقرير</dt><dd>{Esc(model.Metadata.ReportNumber)}</dd>
-          <dt>نوع التقرير</dt><dd>{Esc(model.Metadata.ReportTypeName)}</dd>
-          <dt>الفترة</dt><dd>من {FormatDate(model.Metadata.PeriodFrom)} إلى {FormatDate(model.Metadata.PeriodTo)}</dd>
-          <dt>تاريخ الإنشاء</dt><dd>{FormatDateTime(model.Metadata.GeneratedAt)}</dd>
+              <dt>رقم التقرير</dt><dd>{Esc(model.Metadata.ReportNumber)}</dd>
+              <dt>نوع التقرير</dt><dd>{Esc(model.Metadata.ReportTypeName)}</dd>
+              <dt>الفترة</dt><dd>من {FormatDate(model.Metadata.PeriodFrom)} إلى {FormatDate(model.Metadata.PeriodTo)}</dd>
+          <dt>معرف التحقق</dt><dd>{Esc(model.Metadata.VerificationId)}</dd>
+          <dt>وقت الإنشاء</dt><dd>{FormatDateTime(model.Metadata.GeneratedAt)}</dd>
+          <dt>حالة التقرير</dt><dd>{Esc(DisplayValue(model.Analysis.Methodology.ApprovalStatus))}</dd>
           <dt>إجمالي النتائج المطابقة</dt><dd>{model.TotalMatchedRows:N0}</dd>
           <dt>صفوف التفاصيل المحمّلة</dt><dd>{model.Transactions.Count:N0}</dd>
           <dt>صفوف التفاصيل المصدرة</dt><dd>{model.ExportedDetailRows:N0}</dd>
@@ -1259,6 +1249,14 @@ public sealed class InstitutionalReportRenderer
     private static string NormalizeDepartmentName(string? value) =>
         IsUndefinedDepartment(value) ? UndefinedDepartmentLabel : DisplayValue(value);
 
+    private static string ResponsibleScopeLabel(string? value) =>
+        IsUndefinedDepartment(value) ? "مالك البيانات" : DisplayValue(value);
+
+    private static string RecommendationOwnerLabel(string? value) =>
+        IsUndefinedDepartment(value)
+            ? "ملاحظة جودة بيانات: معاملات بلا إدارة مختصة"
+            : $"الإدارة: {DisplayValue(value)}";
+
     private static string DisplayValue(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -1279,6 +1277,7 @@ public sealed class InstitutionalReportRenderer
             "CRITICAL" => "حرجة",
             "INFO" or "INFORMATIONAL" => "معلوماتية",
             "ISSUE QUALITY DATA" => "جودة البيانات",
+            "EXTERNAL PENDING RESPONSES" => "معاملات منتظرة من جهة خارجية",
             "RESPONSES PENDING EXTERNAL" => "متابعة الردود الخارجية",
             "CASES CRITICAL" or "CRITICAL CASES" => "مراجعة الحالات الحرجة",
             "OVERDUE RATE INCREASED" => "ارتفاع نسبة التأخر",
