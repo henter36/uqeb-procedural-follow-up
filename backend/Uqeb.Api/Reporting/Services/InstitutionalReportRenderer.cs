@@ -78,6 +78,7 @@ public sealed class InstitutionalReportRenderer
                     totalPages: pages.Count,
                     partial: false,
                     profile: InstitutionalReportPdfProfiles.GetByName(coverPage.PdfProfileName),
+                    sectionId: coverPage.SectionId,
                     reportTitle: model.Metadata.Title,
                     reportId: model.Metadata.ReportNumber),
             };
@@ -192,7 +193,7 @@ public sealed class InstitutionalReportRenderer
         {
             var html = isDepartmentTransactions
                 ? RenderDepartmentTransactionDetails(model, chunk.ToList(), isFirstPage: chunkIndex == 0)
-                : RenderTransactions(model, chunk.ToList(), isFirstPage: true);
+                : RenderTransactions(model, chunk.ToList(), isFirstPage: chunkIndex == 0);
             pages.Add(MakePage(ReportSectionId.TransactionDetails, "المعاملات التفصيلية", html));
             chunkIndex++;
         }
@@ -484,7 +485,7 @@ public sealed class InstitutionalReportRenderer
             SectionName = title,
             PageTitle = title,
             PdfProfileName = profile.Name,
-            HtmlContent = WrapPage(innerHtml, 1, 1, false, profile, title, string.Empty)
+            HtmlContent = WrapPage(innerHtml, 1, 1, false, profile, section, title, string.Empty)
         };
     }
 
@@ -503,6 +504,7 @@ public sealed class InstitutionalReportRenderer
                 1,
                 partial: true,
                 profile: InstitutionalReportPdfProfiles.StandardPortrait,
+                sectionId: section,
                 reportTitle: title,
                 reportId: string.Empty)
         };
@@ -513,10 +515,11 @@ public sealed class InstitutionalReportRenderer
         int totalPages,
         bool partial,
         PdfPageProfile profile,
+        ReportSectionId sectionId,
         string reportTitle,
         string reportId) =>
         $"""
-        <section class="report-page report-page--{profile.CssClass}" data-page="{pageNumber}" data-profile="{profile.Name}" data-section="{Esc(reportTitle)}">
+        <section class="report-page report-page--{profile.CssClass}" data-page="{pageNumber}" data-profile="{profile.Name}" data-section="{Esc(reportTitle)}" data-section-id="{sectionId}">
           {Header(partial)}
           <main class="report-content">{content}</main>
           {BuildFooter(pageNumber, totalPages, partial, reportTitle, reportId)}
@@ -1320,6 +1323,7 @@ public sealed class InstitutionalReportRenderer
                 0,
                 partial: true,
                 profile: InstitutionalReportPdfProfiles.StandardPortrait,
+                sectionId: ReportSectionId.PartialCover,
                 reportTitle: "غلاف النسخة الجزئية",
                 reportId: source.ReportId)
         };
@@ -1344,6 +1348,7 @@ public sealed class InstitutionalReportRenderer
                 0,
                 partial: true,
                 profile: InstitutionalReportPdfProfiles.StandardPortrait,
+                sectionId: ReportSectionId.PartialManifest,
                 reportTitle: "تعريف النسخة الجزئية",
                 reportId: source.ReportId)
         };

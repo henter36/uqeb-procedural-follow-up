@@ -64,7 +64,13 @@ public sealed class ReportingPlaywrightBrowserHost : IReportingPlaywrightBrowser
 
     public async Task WaitForFontsAsync(IPage page, CancellationToken ct = default)
     {
-        await page.EvaluateAsync("() => document.fonts ? document.fonts.ready : Promise.resolve()");
+        await page.EvaluateAsync("""
+            async () => {
+              if (document.fonts) {
+                await document.fonts.ready;
+              }
+            }
+            """);
         ct.ThrowIfCancellationRequested();
     }
 
@@ -103,6 +109,12 @@ public sealed class ReportingPlaywrightBrowserHost : IReportingPlaywrightBrowser
 
         try
         {
+            if (_browser is not null)
+            {
+                await _browser.DisposeAsync();
+                _browser = null;
+            }
+
             _playwright ??= await Playwright.CreateAsync();
             _browser = await _playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
             {

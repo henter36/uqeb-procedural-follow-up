@@ -55,10 +55,13 @@ public sealed class InstitutionalReportPdfPaginationMeasurer : IInstitutionalRep
 
             var measurement = await page.EvaluateAsync<TransactionDetailDomMeasurement>("""
                 () => {
-                  const tables = Array.from(document.querySelectorAll('.report-table--transactions'));
-                  const pages = tables
-                    .map(table => ({ table, page: table.closest('.report-page') }))
-                    .filter(item => item.page);
+                  const pages = Array.from(document.querySelectorAll('.report-page'))
+                    .filter(page => page.dataset.sectionId === 'TransactionDetails')
+                    .map(page => ({
+                      page,
+                      table: page.querySelector('.report-table--transactions')
+                    }))
+                    .filter(item => item.table);
 
                   const measurePage = (item) => {
                     const page = item.page;

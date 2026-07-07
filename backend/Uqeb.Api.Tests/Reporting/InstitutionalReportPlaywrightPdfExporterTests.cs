@@ -246,6 +246,38 @@ public class InstitutionalReportPlaywrightPdfExporterTests
         Assert.Equal([new TransactionDetailRowRange(0, 1), new TransactionDetailRowRange(1, 2)], chunks);
     }
 
+    [Fact]
+    public async Task MeasureTransactionDetailChunksAsync_IgnoresCriticalCasesTransactionTable()
+    {
+        await EnsurePlaywrightAvailableAsync();
+        if (!await IsPlaywrightAvailableAsync())
+            return;
+
+        var renderer = new InstitutionalReportRenderer();
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel(totalMatched: 12, exportedRows: 12);
+        model.Transactions = InstitutionalReportVisualFixtures.CreateTransactions(12);
+        var sourceRows = model.Transactions;
+        var manifest = renderer.RenderManifest(model,
+        [
+            ReportSectionId.CriticalCases,
+            ReportSectionId.TransactionDetails,
+        ]);
+        var html = InstitutionalReportRenderer.RenderHtmlDocument(manifest);
+
+        Assert.Equal(2, CountOccurrences(html, "report-table--transactions"));
+        Assert.Contains("data-section-id=\"CriticalCases\"", html);
+        Assert.Contains("data-section-id=\"TransactionDetails\"", html);
+
+        await using var measurer = new InstitutionalReportPdfPaginationMeasurer(
+            new ReportingPlaywrightBrowserHost(
+                new ReadyChromiumProbe(),
+                NullLogger<ReportingPlaywrightBrowserHost>.Instance));
+
+        var chunks = await measurer.MeasureTransactionDetailChunksAsync(manifest, html, sourceRows);
+
+        Assert.Equal(sourceRows.Count, chunks.Sum(chunk => chunk.Count));
+    }
+
     private static InstitutionalReportPlaywrightPdfExporter CreateExporter() =>
         new(
             new ReportingPlaywrightBrowserHost(
