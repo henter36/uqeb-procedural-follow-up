@@ -193,6 +193,7 @@ const ACTION_TITLES: Record<WorkspaceAction, string> = {
   attachment: 'إضافة مرفق',
   'reply-assignment': 'تسجيل إفادة الإدارة',
   'reply-followup': 'تسجيل رد على التعقيب',
+  'admin-edit-followup-reply': 'تعديل الرد',
   'complete-response': 'تسجيل إفادة',
   'follow-up-letter': 'خطاب تعقيب PDF',
   'admin-edit-assignment': 'تعديل بيانات الاحالة',
@@ -632,6 +633,10 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
 
   const handleReplyFollowUpSuccess = async () => {
     await handleActionSuccess('تم تسجيل الرد بنجاح.', [() => loadWorkspace({ silent: true })]);
+  };
+
+  const handleEditFollowUpReplySuccess = async () => {
+    await handleActionSuccess('تم تحديث الرد بنجاح.', [() => loadWorkspace({ silent: true })]);
   };
 
   const handleCompleteResponseSuccess = async (result?: { attachmentWarning?: string }) => {
@@ -1299,6 +1304,27 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
             </CardActionPanel>
           )}
 
+          {activeAction === 'admin-edit-followup-reply' && replyFollowUpId && (
+            <CardActionPanel
+              title={ACTION_TITLES['admin-edit-followup-reply']}
+              onClose={closeAction}
+              testId="admin-edit-followup-reply-form-panel"
+            >
+              <ReplyFormPanel
+                title="تعديل الرد"
+                submitLabel="حفظ التعديلات"
+                initialValue={{
+                  replyDate: followUps.find((f) => f.id === replyFollowUpId)?.replyDate?.slice(0, 10) ?? '',
+                  replySummary: followUps.find((f) => f.id === replyFollowUpId)?.replySummary ?? '',
+                }}
+                onDirtyChange={setActionDirty}
+                onCancel={closeAction}
+                onSubmit={(payload) => transactionsApi.editFollowUpReply(+id, replyFollowUpId, payload)}
+                onSuccess={handleEditFollowUpReplySuccess}
+              />
+            </CardActionPanel>
+          )}
+
           {followUpsLoading && <LoadingInline label="جاري تحميل التعقيبات..." />}
           {followUpsError && (
             <Alert variant="error">
@@ -1323,15 +1349,33 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
               <table className="data-table data-table-compact">
                 <thead><tr><th>الرقم</th><th>التاريخ</th><th>مرسل إلى</th><th>الرد</th><th>إجراء</th></tr></thead>
                 <tbody>
-                  {followUps.map((f) => (
+                  {followUps.map((f) => {
+                    const canEditFollowUpReply =
+                      (isAdmin || user?.role === 'Supervisor') &&
+                      f.replyStatus === 'Replied' &&
+                      !isTerminal;
+
+                    return (
                     <tr key={f.id}>
                       <td>{f.followUpNumber || '—'}</td>
                       <td><DateDisplay date={f.followUpDate} /></td>
                       <td>{f.departments?.length > 0 ? f.departments.map((d) => d.departmentName).join('، ') : f.sentTo || '—'}</td>
                       <td>
-                        <span className={`badge ${f.replyStatus === 'Replied' ? 'badge-green' : 'badge-orange'}`}>
-                          {replyStatusLabels[f.replyStatus] || f.replyStatus}
-                        </span>
+                        {canEditFollowUpReply ? (
+                          <button
+                            type="button"
+                            className="badge badge-green badge-button"
+                            aria-label="تم الرد - تعديل الرد"
+                            title="تم الرد - تعديل الرد"
+                            onClick={() => openAction('admin-edit-followup-reply', { replyFollowUpId: f.id })}
+                          >
+                            {replyStatusLabels[f.replyStatus] || f.replyStatus}
+                          </button>
+                        ) : (
+                          <span className={`badge ${f.replyStatus === 'Replied' ? 'badge-green' : 'badge-orange'}`}>
+                            {replyStatusLabels[f.replyStatus] || f.replyStatus}
+                          </span>
+                        )}
                       </td>
                       <td>
                         {f.requiresReply && f.replyStatus !== 'Replied' && canReply && (
@@ -1346,7 +1390,8 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                         {f.replySummary && <div className="text-muted reply-summary">{f.replySummary}</div>}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

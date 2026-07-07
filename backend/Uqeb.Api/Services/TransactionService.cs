@@ -28,6 +28,7 @@ public interface ITransactionService
     Task<List<FollowUpDepartmentOptionDto>?> GetFollowUpDepartmentsAsync(int transactionId, ICurrentUserService currentUser);
     Task<FollowUpDto> AddFollowUpAsync(int transactionId, CreateFollowUpRequest request, int userId);
     Task<FollowUpDto?> ReplyFollowUpAsync(int transactionId, int followUpId, ReplyFollowUpRequest request, int userId);
+    Task<FollowUpDto?> EditFollowUpReplyAsync(int transactionId, int followUpId, ReplyFollowUpRequest request, ICurrentUserService currentUser);
     Task<AssignmentDto> AddAssignmentAsync(int transactionId, CreateAssignmentRequest request, int userId);
     Task<AssignmentDto?> ReplyAssignmentAsync(int transactionId, int assignmentId, ReplyAssignmentRequest request, ICurrentUserService currentUser);
     Task<AssignmentDto?> AdminEditAssignmentAsync(int transactionId, int assignmentId, AdminEditAssignmentRequest request, int userId);
@@ -622,10 +623,14 @@ public class TransactionService : ITransactionService
                 // (set once ApproveAsync clamps/records it); DepartmentResponse rows can be
                 // drafts, rejected, or resubmitted, so joining on them directly for the date
                 // both used the wrong field and risked duplicate/non-deterministic rows.
+                // Only an Approved response is a "completed" one — surfacing a Draft/Submitted/
+                // Rejected/ReturnedForCorrection id here would let a row that isn't actually
+                // finished look editable via the admin-edit-response endpoint.
                 DepartmentResponseId = _db.DepartmentResponses
-                    .Where(dr => dr.TransactionId == a.TransactionId && dr.DepartmentId == a.DepartmentId)
-                    .OrderByDescending(dr => dr.Status == DepartmentResponseStatus.Approved)
-                    .ThenByDescending(dr => dr.Id)
+                    .Where(dr => dr.TransactionId == a.TransactionId
+                        && dr.DepartmentId == a.DepartmentId
+                        && dr.Status == DepartmentResponseStatus.Approved)
+                    .OrderByDescending(dr => dr.Id)
                     .Select(dr => (int?)dr.Id)
                     .FirstOrDefault()
             }
@@ -1414,6 +1419,58 @@ public class TransactionService : ITransactionService
         return await MapFollowUpDtoAsync(followUpId);
     }
 
+    public async Task<FollowUpDto?> EditFollowUpReplyAsync(int transactionId, int followUpId, ReplyFollowUpRequest request, ICurrentUserService currentUser)
+    {
+        if (currentUser.Role != UserRole.Admin && currentUser.Role != UserRole.Supervisor)
+            throw new UnauthorizedAccessException("لا تملك صلاحية تعديل رد التعقيب");
+
+        var followUp = await _db.FollowUps
+            .Include(f => f.Transaction)
+            .FirstOrDefaultAsync(f => f.Id == followUpId && f.TransactionId == transactionId);
+        if (followUp == null) return null;
+
+        if (followUp.Transaction.Status is TransactionStatus.Closed or TransactionStatus.Cancelled or TransactionStatus.Archived)
+            throw new InvalidOperationException("لا يمكن تعديل رد تعقيب لمعاملة مغلقة أو ملغاة أو مؤرشفة.");
+
+        if (followUp.ReplyStatus != ReplyStatus.Replied)
+            throw new InvalidOperationException("لم يتم تسجيل رد لهذا التعقيب بعد، لا يمكن تعديله.");
+
+        if (request.ReplyDate == default)
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                [nameof(ReplyFollowUpRequest.ReplyDate)] = "تاريخ رد التعقيب مطلوب."
+            });
+        if (IsFutureEventDate(request.ReplyDate))
+            ThrowFutureEventDateValidation(nameof(ReplyFollowUpRequest.ReplyDate));
+        if (request.ReplyDate.Date < followUp.Transaction.IncomingDate.Date)
+            throw new InvalidOperationException("تاريخ رد التعقيب لا يمكن أن يسبق تاريخ الوارد.");
+        if (request.ReplyDate.Date < followUp.FollowUpDate.Date)
+            throw new InvalidOperationException("تاريخ رد التعقيب لا يمكن أن يسبق تاريخ التعقيب.");
+        if (string.IsNullOrWhiteSpace(request.ReplySummary))
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                [nameof(ReplyFollowUpRequest.ReplySummary)] = "ملخص الرد مطلوب."
+            });
+
+        var oldValue = JsonSerializer.Serialize(new { followUp.ReplyDate, followUp.ReplySummary });
+
+        await CommitWorkflowMutationAsync(
+            () =>
+            {
+                followUp.ReplyDate = request.ReplyDate;
+                followUp.ReplySummary = request.ReplySummary;
+                return Task.CompletedTask;
+            },
+            () =>
+            {
+                _audit.TrackLog(currentUser.UserId, AuditAction.EditFollowUpReply, "FollowUp", followUpId, transactionId, oldValue,
+                    JsonSerializer.Serialize(new { ReplyDate = request.ReplyDate, request.ReplySummary }));
+                return Task.CompletedTask;
+            });
+
+        return await MapFollowUpDtoAsync(followUpId);
+    }
+
     public async Task<AssignmentDto> AddAssignmentAsync(int transactionId, CreateAssignmentRequest request, int userId)
     {
         if (request is null)
@@ -1514,6 +1571,19 @@ public class TransactionService : ITransactionService
         if (request.ReplyDate.Date < assignment.AssignedDate.Date)
             throw new InvalidOperationException("تاريخ إنجاز الإدارة لا يمكن أن يسبق تاريخ الإحالة.");
 
+        // Recording a reply directly here (outside the department-user submission/approval
+        // workflow) must still leave behind an Approved DepartmentResponse row. Without one,
+        // the assignment shows as "Replied" with no editable DepartmentResponseId, so admins
+        // can never correct it later via the admin-edit-response endpoint.
+        var existingResponseId = await _db.DepartmentResponses
+            .Where(dr => dr.TransactionId == transactionId
+                && dr.DepartmentId == assignment.DepartmentId
+                && dr.Status == DepartmentResponseStatus.Approved)
+            .Select(dr => (int?)dr.Id)
+            .FirstOrDefaultAsync();
+
+        DepartmentResponse? departmentResponse = null;
+
         await CommitWorkflowMutationAsync(
             () =>
             {
@@ -1522,6 +1592,24 @@ public class TransactionService : ITransactionService
                 assignment.ReplySummary = request.ReplySummary;
                 assignment.Status = AssignmentStatus.Completed;
                 ApplyTransactionReplyStatus(assignment.Transaction);
+
+                if (existingResponseId == null)
+                {
+                    departmentResponse = new DepartmentResponse
+                    {
+                        TransactionId = transactionId,
+                        DepartmentId = assignment.DepartmentId,
+                        ResponseText = request.ReplySummary,
+                        Status = DepartmentResponseStatus.Approved,
+                        SubmittedByUserId = currentUser.UserId,
+                        SubmittedAt = request.ReplyDate,
+                        ReviewedByUserId = currentUser.UserId,
+                        ReviewedAt = DateTime.UtcNow,
+                        CreatedAt = DateTime.UtcNow,
+                    };
+                    _db.DepartmentResponses.Add(departmentResponse);
+                }
+
                 return Task.CompletedTask;
             },
             () =>
@@ -1530,7 +1618,13 @@ public class TransactionService : ITransactionService
                 return Task.CompletedTask;
             });
 
-        return MapAssignment(assignment, assignment.Department.Name, assignment.CreatedBy.FullName);
+        return MapAssignment(
+            assignment,
+            assignment.Department.Name,
+            assignment.CreatedBy.FullName,
+            departmentResponseId: departmentResponse?.Id ?? existingResponseId,
+            responseDate: assignment.ReplyDate,
+            canAdminEdit: currentUser.Role == UserRole.Admin);
     }
 
     public async Task<AssignmentDto?> AdminEditAssignmentAsync(

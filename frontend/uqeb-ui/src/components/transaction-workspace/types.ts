@@ -4,6 +4,7 @@ export type WorkspaceAction =
   | 'attachment'
   | 'reply-assignment'
   | 'reply-followup'
+  | 'admin-edit-followup-reply'
   | 'complete-response'
   | 'follow-up-letter'
   | 'admin-edit-assignment'

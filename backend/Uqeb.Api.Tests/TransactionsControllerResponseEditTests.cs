@@ -43,6 +43,7 @@ public class TransactionsControllerResponseEditTests
         public Task<List<FollowUpDepartmentOptionDto>?> GetFollowUpDepartmentsAsync(int transactionId, ICurrentUserService currentUser) => throw new NotImplementedException();
         public Task<FollowUpDto> AddFollowUpAsync(int transactionId, CreateFollowUpRequest request, int userId) => throw new NotImplementedException();
         public Task<FollowUpDto?> ReplyFollowUpAsync(int transactionId, int followUpId, ReplyFollowUpRequest request, int userId) => throw new NotImplementedException();
+        public Task<FollowUpDto?> EditFollowUpReplyAsync(int transactionId, int followUpId, ReplyFollowUpRequest request, ICurrentUserService currentUser) => throw new NotImplementedException();
         public Task<AssignmentDto> AddAssignmentAsync(int transactionId, CreateAssignmentRequest request, int userId) => throw new NotImplementedException();
         public Task<AssignmentDto?> ReplyAssignmentAsync(int transactionId, int assignmentId, ReplyAssignmentRequest request, ICurrentUserService currentUser) => throw new NotImplementedException();
         public Task<AssignmentDto?> AdminEditAssignmentAsync(int transactionId, int assignmentId, AdminEditAssignmentRequest request, int userId) => throw new NotImplementedException();

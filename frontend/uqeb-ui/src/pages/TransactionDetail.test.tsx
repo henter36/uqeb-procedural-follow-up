@@ -173,6 +173,7 @@ vi.mock('../api/services', () => ({
     uploadAttachment: vi.fn(),
     replyAssignment: vi.fn(),
     replyFollowUp: vi.fn(),
+    editFollowUpReply: vi.fn(),
     completeResponse: vi.fn(),
     editResponse: vi.fn(),
     adminEditAssignment: vi.fn(),
@@ -1348,6 +1349,112 @@ describe('TransactionDetailPage card interaction flows', () => {
     expect(within(card).getByTestId('admin-edit-response-form-panel')).toBeInTheDocument();
     expect(await screen.findByLabelText('ملخص الإفادة')).toHaveValue('نص الإفادة');
   });
+
+  it('renders the row-level edit button for a real-world replied المالية row with populated response fields', async () => {
+    const financeRow = {
+      ...sampleAssignment,
+      departmentName: 'المالية',
+      replyStatus: 'Replied',
+      replyDate: '2026-07-07T00:00:00',
+      replySummary: 'طذطذ',
+      responseDate: '2026-07-07T00:00:00',
+      departmentResponseId: 1001,
+      canAdminEdit: true,
+    };
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: { ...defaultWorkspace, assignments: [financeRow] },
+    });
+    mockApi(services.transactionsApi.getAssignments).mockResolvedValue({ data: [financeRow] });
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getAssignmentsCard();
+    const row = within(card).getByText('المالية').closest('tr')!;
+
+    expect(within(row).getByRole('button', { name: 'تمت الإفادة - تعديل إفادة الإدارة' })).toBeInTheDocument();
+  });
+
+  it('lets Admin open and prefill the follow-up reply edit form from a real-world replied follow-up row', async () => {
+    const user = userEvent.setup();
+    const repliedFollowUp = {
+      ...sampleFollowUp,
+      followUpNumber: '١١١',
+      replyStatus: 'Replied',
+      replyDate: '2026-06-28T00:00:00',
+      replySummary: 'jh',
+    };
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: { ...defaultWorkspace, followUps: [repliedFollowUp] },
+    });
+    mockApi(services.transactionsApi.getFollowUps).mockResolvedValue({ data: [repliedFollowUp] });
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getFollowUpsCard();
+
+    const replyButton = within(card).getByRole('button', { name: 'تم الرد - تعديل الرد' });
+    expect(replyButton).toHaveTextContent('تم الرد');
+    expect(within(card).queryByRole('button', { name: 'تعديل الرد' })).not.toBeInTheDocument();
+
+    await user.click(replyButton);
+
+    const panel = within(card).getByTestId('admin-edit-followup-reply-form-panel');
+    expect(within(panel).getByLabelText(/ملخص الرد/)).toHaveValue('jh');
+  });
+
+  it('renders read-only تم الرد for unauthorized users and hides the edit button', async () => {
+    mockUseAuth.mockReturnValue({
+      canEdit: false,
+      canClose: false,
+      isDepartmentUser: false,
+      user: { fullName: 'قارئ', role: 'Reader' },
+      logout: vi.fn(),
+      login: vi.fn(),
+      isAdmin: false,
+    });
+    const repliedFollowUp = {
+      ...sampleFollowUp,
+      followUpNumber: '١١١',
+      replyStatus: 'Replied',
+      replyDate: '2026-06-28T00:00:00',
+      replySummary: 'jh',
+    };
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: { ...defaultWorkspace, followUps: [repliedFollowUp] },
+    });
+    mockApi(services.transactionsApi.getFollowUps).mockResolvedValue({ data: [repliedFollowUp] });
+
+    renderDetail();
+    await waitForDetailsReady();
+    const card = getFollowUpsCard();
+
+    expect(within(card).getByText('تم الرد')).toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: 'تم الرد - تعديل الرد' })).not.toBeInTheDocument();
+  });
+
+  it.each(['Closed', 'Cancelled', 'Archived'])(
+    'hides the follow-up reply edit affordance for %s transactions',
+    async (status) => {
+      const repliedFollowUp = {
+        ...sampleFollowUp,
+        followUpNumber: '١١١',
+        replyStatus: 'Replied',
+        replyDate: '2026-06-28T00:00:00',
+        replySummary: 'jh',
+      };
+      mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+        data: { ...defaultWorkspace, transaction: { ...baseTx, status }, followUps: [repliedFollowUp] },
+      });
+      mockApi(services.transactionsApi.getFollowUps).mockResolvedValue({ data: [repliedFollowUp] });
+
+      renderDetail();
+      await waitForDetailsReady();
+      const card = getFollowUpsCard();
+
+      expect(within(card).getByText('تم الرد')).toBeInTheDocument();
+      expect(within(card).queryByRole('button', { name: 'تم الرد - تعديل الرد' })).not.toBeInTheDocument();
+    },
+  );
 
   it('does not render a separate تعديل الإفادة button next to the department response badge', async () => {
     const repliedAssignment = {

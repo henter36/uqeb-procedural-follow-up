@@ -11,6 +11,7 @@ type ReplyFormPanelProps = Readonly<{
   dateRequiredMessage?: string;
   summaryLabel?: string;
   submitLabel?: string;
+  initialValue?: { replyDate: string; replySummary: string };
   onDirtyChange: (dirty: boolean) => void;
   onSubmit: (payload: ReturnType<typeof buildReplyPayload>) => Promise<unknown>;
   onSuccess: () => void;
@@ -24,18 +25,20 @@ export default function ReplyFormPanel({
   dateRequiredMessage = 'تاريخ الرد مطلوب.',
   summaryLabel = 'ملخص الرد *',
   submitLabel = 'حفظ الرد',
+  initialValue,
   onDirtyChange,
   onSubmit,
   onSuccess,
   onCancel,
 }: ReplyFormPanelProps) {
-  const [form, setForm] = useState({ replyDate: '', replySummary: '' });
+  const [initialForm] = useState(initialValue ?? { replyDate: '', replySummary: '' });
+  const [form, setForm] = useState(initialForm);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    onDirtyChange(Boolean(form.replyDate || form.replySummary.trim()));
-  }, [form.replyDate, form.replySummary, onDirtyChange]);
+    onDirtyChange(form.replyDate !== initialForm.replyDate || form.replySummary !== initialForm.replySummary);
+  }, [form.replyDate, form.replySummary, initialForm, onDirtyChange]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
