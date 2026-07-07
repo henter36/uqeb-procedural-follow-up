@@ -122,8 +122,36 @@ public class InstitutionalReportsController : ControllerBase
     }
 
     [HttpGet("templates")]
-    public Task<List<ReportTemplateDto>> GetTemplates(CancellationToken ct) =>
-        _service.GetTemplatesAsync(ct);
+    public async Task<IActionResult> GetTemplates(CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await _service.GetTemplatesAsync(ct));
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            var correlationId = HttpContext.Items[CorrelationIdMiddleware.ItemKey] as string;
+
+            _logger.LogError(
+                ex,
+                "Institutional report templates fetch failed. ExceptionType={ExceptionType} CorrelationId={CorrelationId}",
+                ex.GetType().Name,
+                correlationId);
+
+            return StatusCode(
+                StatusCodes.Status500InternalServerError,
+                new
+                {
+                    errorCode = "institutional_report_templates_failed",
+                    message = "تعذر تحميل قوالب التقارير.",
+                    correlationId,
+                });
+        }
+    }
 
     [HttpPost("templates")]
     public async Task<IActionResult> SaveTemplate([FromBody] SaveReportTemplateRequestDto request, CancellationToken ct)

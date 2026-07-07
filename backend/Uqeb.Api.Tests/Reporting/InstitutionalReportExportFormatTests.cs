@@ -92,6 +92,38 @@ public class InstitutionalReportsControllerExportTests
         Assert.Equal("corr-chromium", doc.RootElement.GetProperty("correlationId").GetString());
     }
 
+    [Fact]
+    public async Task GetTemplates_ReturnsStructuredJson_WhenUnexpectedFailureOccurs()
+    {
+        var service = new ThrowingInstitutionalReportService
+        {
+            ExceptionToThrow = new InvalidOperationException("boom"),
+        };
+        var controller = CreateController(service, "corr-templates-500");
+
+        var result = await controller.GetTemplates(CancellationToken.None);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status500InternalServerError, objectResult.StatusCode);
+        using var doc = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(objectResult.Value));
+        Assert.Equal("institutional_report_templates_failed", doc.RootElement.GetProperty("errorCode").GetString());
+        Assert.Equal("تعذر تحميل قوالب التقارير.", doc.RootElement.GetProperty("message").GetString());
+        Assert.Equal("corr-templates-500", doc.RootElement.GetProperty("correlationId").GetString());
+    }
+
+    [Fact]
+    public async Task GetTemplates_ReturnsOk_WithEmptyList_WhenNoTemplatesExist()
+    {
+        var service = new ThrowingInstitutionalReportService();
+        var controller = CreateController(service);
+
+        var result = await controller.GetTemplates(CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var templates = Assert.IsAssignableFrom<List<ReportTemplateDto>>(okResult.Value);
+        Assert.Empty(templates);
+    }
+
     private static InstitutionalReportsController CreateController(
         IInstitutionalReportService service,
         string? correlationId = null)
@@ -128,7 +160,9 @@ public class InstitutionalReportsControllerExportTests
             });
 
         public Task<List<ReportTemplateDto>> GetTemplatesAsync(CancellationToken ct = default) =>
-            Task.FromResult(new List<ReportTemplateDto>());
+            ExceptionToThrow is not null
+                ? throw ExceptionToThrow
+                : Task.FromResult(new List<ReportTemplateDto>());
 
         public Task<ReportTemplateDto> SaveTemplateAsync(SaveReportTemplateRequestDto request, CancellationToken ct = default) =>
             throw new NotSupportedException();
