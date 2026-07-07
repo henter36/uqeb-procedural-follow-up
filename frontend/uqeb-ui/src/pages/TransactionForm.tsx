@@ -437,8 +437,8 @@ function RecurringFollowUpSection({
 
   return (
     <FormSection title="إعدادات المتابعة الدورية">
-      <div className="transaction-form-grid">
-        <div className="form-group transaction-form-field transaction-form-field--wide">
+      <div className="transaction-form-grid transaction-form-grid--recurring">
+        <div className="form-group transaction-form-field transaction-form-field--full">
           <label className="checkbox-label">
             <input
               type="checkbox"
@@ -449,12 +449,12 @@ function RecurringFollowUpSection({
           </label>
         </div>
         {!form.enableRecurringFollowUp ? (
-          <p className="transaction-form-helper transaction-form-field transaction-form-field--wide">
+          <p className="transaction-form-section-note transaction-form-field transaction-form-field--full">
             لم يتم تفعيل المتابعة الدورية لهذه المعاملة.
           </p>
         ) : (
           <>
-            <div className={formGroupClass('recurringRecurrenceType', 'transaction-form-field transaction-form-field--compact')}>
+            <div className={formGroupClass('recurringRecurrenceType', 'transaction-form-field transaction-form-field--medium')}>
               <label htmlFor="recurring-recurrence-type">نوع التكرار *</label>
               <select
                 id="recurring-recurrence-type"
@@ -468,7 +468,7 @@ function RecurringFollowUpSection({
                 <span id={fieldErrorId('recurringRecurrenceType')} className="field-error">{fieldError('recurringRecurrenceType')}</span>
               )}
             </div>
-            <div className="form-group transaction-form-field transaction-form-field--compact">
+            <div className="form-group transaction-form-field transaction-form-field--medium transaction-form-computed-hint">
               <span className="form-label">نهاية الفترة الأولى المتوقعة</span>
               <p className="transaction-form-readonly-value">{expectedPeriodEnd ? formatHijri(expectedPeriodEnd) : '—'}</p>
             </div>
@@ -495,7 +495,7 @@ function RecurringFollowUpSection({
                 </label>
               </div>
             </div>
-            <p className="transaction-form-helper transaction-form-field transaction-form-field--wide">
+            <p className="transaction-form-section-note transaction-form-field transaction-form-field--full">
               يتم إنشاء المعاملة التالية وفق إعدادات المتابعة الدورية.
             </p>
           </>
@@ -747,11 +747,6 @@ export default function TransactionForm({ mode }: Props) {
               onPartyChange={(id) => setForm({ ...form, incomingFromPartyId: id, incomingFromDepartmentId: '' })}
               onDepartmentChange={(id) => setForm({ ...form, incomingFromDepartmentId: id, incomingFromPartyId: '' })}
             />
-            <div className={formGroupClass('subject', 'transaction-form-field transaction-form-field--wide transaction-subject-field')}>
-              <label htmlFor="transaction-subject">الموضوع / البيان *</label>
-              <input id="transaction-subject" {...fieldProps('subject')} value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
-              {fieldError('subject') && <span id={fieldErrorId('subject')} className="field-error">{fieldError('subject')}</span>}
-            </div>
             <div className={formGroupClass('categoryId', 'transaction-form-field transaction-form-field--medium')}>
               <SearchableSelect
                 label="التصنيف"
@@ -774,6 +769,11 @@ export default function TransactionForm({ mode }: Props) {
               </select>
               {fieldError('priority') && <span id={fieldErrorId('priority')} className="field-error">{fieldError('priority')}</span>}
             </div>
+            <div className={formGroupClass('subject', 'transaction-form-field transaction-form-field--wide transaction-form-field--full transaction-subject-field')}>
+              <label htmlFor="transaction-subject">الموضوع / البيان *</label>
+              <input id="transaction-subject" {...fieldProps('subject')} value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
+              {fieldError('subject') && <span id={fieldErrorId('subject')} className="field-error">{fieldError('subject')}</span>}
+            </div>
             <div className={formGroupClass('responseType', 'transaction-form-field transaction-form-field--medium')}>
               <label htmlFor="transaction-response-type">نوع الإفادة *</label>
               <select id="transaction-response-type" {...fieldProps('responseType')} value={form.responseType} onChange={(e) => setForm({ ...form, responseType: e.target.value })}>
@@ -791,11 +791,12 @@ export default function TransactionForm({ mode }: Props) {
               <input id="transaction-response-due-days" {...fieldProps('responseDueDays')} type="number" min="1" value={form.responseDueDays}
                 onChange={(e) => setForm({ ...form, responseDueDays: e.target.value })} />
               {fieldError('responseDueDays') && <span id={fieldErrorId('responseDueDays')} className="field-error">{fieldError('responseDueDays')}</span>}
-              {computedResponseDueDate && (
-                <small className="transaction-form-helper">
-                  تاريخ الرد المطلوب: {formatHijri(computedResponseDueDate)}
-                </small>
-              )}
+            </div>
+            <div className="form-group transaction-form-field transaction-form-field--medium transaction-form-computed-hint">
+              <span className="form-label">تاريخ الرد المطلوب:</span>
+              <p className="transaction-form-readonly-value">
+                {computedResponseDueDate ? formatHijri(computedResponseDueDate) : '—'}
+              </p>
             </div>
             {mode === 'edit' && (
               <p className="text-muted transaction-edit-response-hint">لتسجيل الإفادة استخدم إجراء «تسجيل الإفادة» من صفحة تفاصيل المعاملة.</p>
@@ -808,7 +809,7 @@ export default function TransactionForm({ mode }: Props) {
           description={OUTGOING_HINT}
         >
           <div className="transaction-form-grid transaction-form-grid--routing">
-            <div className={formGroupClass('outgoingDepartmentIds', 'transaction-form-field transaction-form-field--wide')}>
+            <div className={formGroupClass('outgoingDepartmentIds', 'transaction-form-field transaction-form-field--wide transaction-form-field--full')}>
               <MultiSelect
                 label="الإدارات المحال لها"
                 required={isRoutingRequired}
@@ -821,12 +822,12 @@ export default function TransactionForm({ mode }: Props) {
               />
               {fieldError('outgoingDepartmentIds') && <span id={fieldErrorId('outgoingDepartmentIds')} className="field-error">{fieldError('outgoingDepartmentIds')}</span>}
             </div>
-            <div className={formGroupClass('outgoingNumber', 'transaction-form-field transaction-form-field--compact')}>
+            <div className={formGroupClass('outgoingNumber', 'transaction-form-field transaction-form-field--medium')}>
               <label htmlFor="outgoing-number">رقم خطاب الإحالة للإدارة</label>
               <input id="outgoing-number" {...fieldProps('outgoingNumber')} value={form.outgoingNumber} onChange={(e) => setForm({ ...form, outgoingNumber: e.target.value })} />
               {fieldError('outgoingNumber') && <span id={fieldErrorId('outgoingNumber')} className="field-error">{fieldError('outgoingNumber')}</span>}
             </div>
-            <div className={formGroupClass('outgoingDate', 'transaction-form-field transaction-form-field--compact')}>
+            <div className={formGroupClass('outgoingDate', 'transaction-form-field transaction-form-field--medium')}>
               <HijriDateInput
                 id="outgoing-date"
                 label="تاريخ الإحالة"
@@ -852,7 +853,7 @@ export default function TransactionForm({ mode }: Props) {
 
         <FormSection title="الملاحظات">
           <div className="transaction-form-grid">
-            <div className="form-group transaction-form-field transaction-form-field--wide">
+            <div className="form-group transaction-form-field transaction-form-field--full">
               <textarea
                 rows={3}
                 value={form.notes}
