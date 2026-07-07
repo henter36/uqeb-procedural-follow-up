@@ -759,7 +759,10 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     ? departmentResponseStatusLabels[departmentResponseStatus] ?? departmentResponseStatus
     : undefined;
   const canShowClose = canClose && !isTerminal && (!needsResponse || tx.responseCompleted);
-  const canEditTransactionResponse = canClose && tx.responseCompleted && !isTerminal;
+  const canEditTransactionResponse =
+    (isAdmin || user?.role === 'Supervisor') &&
+    tx.responseCompleted &&
+    !isTerminal;
   const showMutationActions = canEdit && !isDepartmentUser;
   const canReply = canEdit && !isDepartmentUser;
   const openAssignmentsCount = countOpenAssignments(assignments);
@@ -1403,8 +1406,8 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
                   <button
                     type="button"
                     className="badge badge-green badge-button"
-                    aria-label="تعديل الإفادة"
-                    title="تعديل الإفادة"
+                    aria-label="تمت الإفادة - تعديل الإفادة"
+                    title="تمت الإفادة - تعديل الإفادة"
                     onClick={() => openAction('admin-edit-transaction-response')}
                   >
                     تمت الإفادة
