@@ -169,12 +169,58 @@ public class InstitutionalReportExportServiceExceptionTests
         Assert.Equal(0, lifecycle.CancelledCount);
     }
 
+    [Fact]
+    public async Task ExportAsync_PdfMeasuredPagination_ResolvesSelectedPagesAfterMeasuredManifest()
+    {
+        var model = CreateTransactionDetailsModel(rowCount: 3);
+        var pdfExporter = new RecordingPdfExporter();
+        var measurer = new StubMeasuredPaginationMeasurer(
+        [
+            [model.Transactions[0]],
+            [model.Transactions[1]],
+            [model.Transactions[2]],
+        ]);
+        var service = CreateService(
+            new SuccessfulBuildSupport(model),
+            new RecordingLifecycleObserver(),
+            pdfExporter: pdfExporter,
+            pdfPaginationMeasurer: measurer);
+        var request = new ReportExportRequestDto
+        {
+            ExportFormat = ExportFormat.Pdf,
+            ExportMode = ExportMode.SelectedPages,
+            SelectedPageNumbers = [3],
+            BuildRequest = new ReportBuildRequestDto
+            {
+                ReportType = InstitutionalReportType.ExecutiveComprehensive,
+                SectionIds = [ReportSectionId.TransactionDetails],
+            },
+        };
+
+        var result = await service.ExportAsync(request);
+
+        Assert.Equal(1, measurer.CallCount);
+        Assert.NotNull(pdfExporter.Manifest);
+        var exportedPage = Assert.Single(pdfExporter.Manifest.Pages);
+        Assert.Equal(3, exportedPage.OriginalPageNumber);
+        Assert.Equal(ReportSectionId.TransactionDetails, exportedPage.SectionId);
+        Assert.Contains("INT-0003", pdfExporter.HtmlDocument);
+        Assert.DoesNotContain("INT-0001", pdfExporter.HtmlDocument);
+        Assert.DoesNotContain("INT-0002", pdfExporter.HtmlDocument);
+        Assert.Equal(1, CountOccurrences(pdfExporter.HtmlDocument, "<footer class=\"report-footer"));
+        Assert.DoesNotContain("<tbody></tbody>", pdfExporter.HtmlDocument);
+        var resultPage = Assert.Single(result.Manifest!.Pages);
+        Assert.Equal(3, resultPage.OriginalPageNumber);
+    }
+
     private static InstitutionalReportExportService CreateService(
         IInstitutionalReportBuildSupport buildSupport,
         RecordingLifecycleObserver lifecycle,
         ReportingOptions? reportingOptions = null,
         ILogger<InstitutionalReportExportService>? logger = null,
-        string? correlationId = null)
+        string? correlationId = null,
+        IInstitutionalReportPdfExporter? pdfExporter = null,
+        IInstitutionalReportPdfPaginationMeasurer? pdfPaginationMeasurer = null)
     {
         var options = Options.Create(reportingOptions ?? new ReportingOptions { MaxPdfDetailRows = 10_000 });
         var metrics = new ReportingMetrics();
@@ -214,13 +260,60 @@ public class InstitutionalReportExportServiceExceptionTests
 
         return new InstitutionalReportExportService(
             buildSupport,
-            new StubPdfExporter(),
+            pdfExporter ?? new StubPdfExporter(),
             options,
-            exportGuard,
-            metrics,
             logger ?? NullLogger<InstitutionalReportExportService>.Instance,
-            correlationIdProvider);
+            new InstitutionalReportExportRuntimeDependencies(
+                exportGuard,
+                metrics,
+                correlationIdProvider,
+                pdfPaginationMeasurer));
     }
+
+    private static InstitutionalReportModel CreateTransactionDetailsModel(int rowCount)
+    {
+        var issueDate = new DateTime(2026, 6, 15, 0, 0, 0, DateTimeKind.Utc);
+        return new InstitutionalReportModel
+        {
+            TotalMatchedRows = rowCount,
+            ExportedDetailRows = rowCount,
+            DetailPartsCount = 1,
+            Metadata = new ReportMetadataDto
+            {
+                ReportNumber = "REP-2026-SELECT",
+                ReportType = InstitutionalReportType.ExecutiveComprehensive,
+                ReportTypeName = "التقرير التنفيذي الشامل",
+                Title = "تقرير اختبار اختيار الصفحات",
+                IssueDate = issueDate,
+                PeriodFrom = new DateTime(2026, 1, 1),
+                PeriodTo = new DateTime(2026, 6, 15),
+                GeneratedAt = issueDate,
+                TotalMatchingTransactions = rowCount,
+                IncludedTransactionCount = rowCount,
+                DetailRowLimit = 500,
+            },
+            Transactions = Enumerable.Range(1, rowCount)
+                .Select(i => new TransactionDetailRowDto
+                {
+                    Sequence = i,
+                    TransactionId = i,
+                    TrackingNumber = $"INT-{i:D4}",
+                    IncomingNumber = $"IN-{i:D4}",
+                    IncomingDate = issueDate.AddDays(-i),
+                    Subject = $"معاملة اختبار {i}",
+                    IncomingParty = "جهة حكومية",
+                    ResponsibleDepartment = "إدارة الاختبار",
+                    Status = "مفتوحة",
+                    FollowUpStage = "بانتظار رد",
+                    ElapsedDays = i,
+                    ResponseState = "بانتظار",
+                })
+                .ToList(),
+        };
+    }
+
+    private static int CountOccurrences(string source, string value) =>
+        source.Split(value, StringSplitOptions.None).Length - 1;
 
     private sealed class ThrowingBuildSupport(Exception exception) : IInstitutionalReportBuildSupport
     {
@@ -257,6 +350,18 @@ public class InstitutionalReportExportServiceExceptionTests
             ReportAssemblyOptions options) =>
             Task.FromException<InstitutionalReportModel>(
                 new InvalidOperationException("unreachable"));
+    }
+
+    private sealed class SuccessfulBuildSupport(InstitutionalReportModel model) : IInstitutionalReportBuildSupport
+    {
+        public Task<int> CountMatchingTransactionsAsync(ReportBuildRequestDto request, CancellationToken ct) =>
+            Task.FromResult(model.TotalMatchedRows);
+
+        public Task<InstitutionalReportModel> BuildInternalAsync(
+            ReportBuildRequestDto request,
+            CancellationToken ct,
+            ReportAssemblyOptions options) =>
+            Task.FromResult(model);
     }
 
     private sealed class RecordingLifecycleObserver : IReportingExportLifecycleObserver
@@ -326,6 +431,38 @@ public class InstitutionalReportExportServiceExceptionTests
             string htmlDocument,
             CancellationToken ct = default) =>
             Task.FromResult("%PDF-1.4"u8.ToArray());
+    }
+
+    private sealed class RecordingPdfExporter : IInstitutionalReportPdfExporter
+    {
+        public RenderedReportManifestDto? Manifest { get; private set; }
+        public string HtmlDocument { get; private set; } = string.Empty;
+
+        public Task<byte[]> ExportAsync(
+            RenderedReportManifestDto manifest,
+            string htmlDocument,
+            CancellationToken ct = default)
+        {
+            Manifest = manifest;
+            HtmlDocument = htmlDocument;
+            return Task.FromResult("%PDF-1.4"u8.ToArray());
+        }
+    }
+
+    private sealed class StubMeasuredPaginationMeasurer(
+        IReadOnlyList<IReadOnlyList<TransactionDetailRowDto>> chunks) : IInstitutionalReportPdfPaginationMeasurer
+    {
+        public int CallCount { get; private set; }
+
+        public Task<IReadOnlyList<IReadOnlyList<TransactionDetailRowDto>>> MeasureTransactionDetailChunksAsync(
+            RenderedReportManifestDto preflightManifest,
+            string preflightHtmlDocument,
+            IReadOnlyList<TransactionDetailRowDto> sourceRows,
+            CancellationToken ct = default)
+        {
+            CallCount++;
+            return Task.FromResult(chunks);
+        }
     }
 
     private sealed class RecordingLogger<T> : ILogger<T>

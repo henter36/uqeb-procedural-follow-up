@@ -262,10 +262,11 @@ public class InstitutionalReportReadOnlySqlServerIntegrationTests
                 serviceRef!,
                 pdfExporter,
                 reportingOptions,
-                exportGuard,
-                metrics,
                 NullLogger<InstitutionalReportExportService>.Instance,
-                correlationIdProvider));
+                new InstitutionalReportExportRuntimeDependencies(
+                    exportGuard,
+                    metrics,
+                    correlationIdProvider)));
 
         return serviceRef;
     }

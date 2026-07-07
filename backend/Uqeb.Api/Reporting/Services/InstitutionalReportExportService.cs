@@ -17,12 +17,33 @@ public interface IInstitutionalReportExportService
     Task<ReportExportResultDto> ExportAsync(ReportExportRequestDto request, CancellationToken ct = default);
 }
 
+public sealed class InstitutionalReportExportRuntimeDependencies
+{
+    public InstitutionalReportExportRuntimeDependencies(
+        IReportingExportGuard exportGuard,
+        IReportingMetrics metrics,
+        IReportingCorrelationIdProvider correlationIdProvider,
+        IInstitutionalReportPdfPaginationMeasurer? pdfPaginationMeasurer = null)
+    {
+        ExportGuard = exportGuard;
+        Metrics = metrics;
+        CorrelationIdProvider = correlationIdProvider;
+        PdfPaginationMeasurer = pdfPaginationMeasurer;
+    }
+
+    public IReportingExportGuard ExportGuard { get; }
+    public IReportingMetrics Metrics { get; }
+    public IReportingCorrelationIdProvider CorrelationIdProvider { get; }
+    public IInstitutionalReportPdfPaginationMeasurer? PdfPaginationMeasurer { get; }
+}
+
 public sealed class InstitutionalReportExportService : IInstitutionalReportExportService
 {
     private const string SelectedPagesField = "selectedPages";
 
     private readonly IInstitutionalReportBuildSupport _buildSupport;
     private readonly IInstitutionalReportPdfExporter _pdfExporter;
+    private readonly IInstitutionalReportPdfPaginationMeasurer? _pdfPaginationMeasurer;
     private readonly ReportingOptions _reportingOptions;
     private readonly IReportingExportGuard _exportGuard;
     private readonly IReportingMetrics _metrics;
@@ -34,18 +55,17 @@ public sealed class InstitutionalReportExportService : IInstitutionalReportExpor
         IInstitutionalReportBuildSupport buildSupport,
         IInstitutionalReportPdfExporter pdfExporter,
         IOptions<ReportingOptions> reportingOptions,
-        IReportingExportGuard exportGuard,
-        IReportingMetrics metrics,
         ILogger<InstitutionalReportExportService> logger,
-        IReportingCorrelationIdProvider correlationIdProvider)
+        InstitutionalReportExportRuntimeDependencies runtimeDependencies)
     {
         _buildSupport = buildSupport;
         _pdfExporter = pdfExporter;
+        _pdfPaginationMeasurer = runtimeDependencies.PdfPaginationMeasurer;
         _reportingOptions = reportingOptions.Value;
-        _exportGuard = exportGuard;
-        _metrics = metrics;
+        _exportGuard = runtimeDependencies.ExportGuard;
+        _metrics = runtimeDependencies.Metrics;
         _logger = logger;
-        _correlationIdProvider = correlationIdProvider;
+        _correlationIdProvider = runtimeDependencies.CorrelationIdProvider;
     }
 
     public async Task<ReportExportResultDto> ExportAsync(ReportExportRequestDto request, CancellationToken ct = default)
@@ -206,6 +226,31 @@ public sealed class InstitutionalReportExportService : IInstitutionalReportExpor
             context.Model,
             context.Sections,
             includeTransactionDetails: context.IncludesDetails && context.IncludeDetailsInDocument);
+
+        if (ShouldMeasureTransactionDetailsForPdf(context))
+        {
+            var preflightChunks = context.Model.Transactions
+                .Select(row => (IReadOnlyList<TransactionDetailRowDto>)new[] { row })
+                .ToList();
+            var preflightManifest = _renderer.RenderManifestWithMeasuredTransactionPages(
+                context.Model,
+                context.Sections,
+                preflightChunks,
+                includeTransactionDetails: true);
+            var preflightHtml = InstitutionalReportRenderer.RenderHtmlDocument(preflightManifest);
+            var measuredChunks = await _pdfPaginationMeasurer!.MeasureTransactionDetailChunksAsync(
+                preflightManifest,
+                preflightHtml,
+                context.Model.Transactions,
+                ct);
+
+            manifest = _renderer.RenderManifestWithMeasuredTransactionPages(
+                context.Model,
+                context.Sections,
+                measuredChunks,
+                includeTransactionDetails: true);
+        }
+
         var selectedPages = ResolveSelectedPages(context.Request, manifest);
 
         if (selectedPages.Count == 0)
@@ -279,6 +324,14 @@ public sealed class InstitutionalReportExportService : IInstitutionalReportExpor
                 context.OverflowAction),
         };
     }
+
+    private bool ShouldMeasureTransactionDetailsForPdf(ExportDocumentContext context) =>
+        context.Options.Format == ExportFormat.Pdf
+        && context.IncludesDetails
+        && context.IncludeDetailsInDocument
+        && context.Model.Metadata.ReportType != InstitutionalReportType.DepartmentTransactions
+        && context.Model.Transactions.Count > 0
+        && _pdfPaginationMeasurer is not null;
 
     private async Task<ReportExportResultDto> ExportSplitPdfZipAsync(
         InstitutionalReportModel model,
