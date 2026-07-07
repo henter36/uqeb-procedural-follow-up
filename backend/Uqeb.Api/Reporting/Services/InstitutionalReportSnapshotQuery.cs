@@ -311,10 +311,8 @@ internal static class InstitutionalReportSnapshotQuery
         // Required-reply assignments across ALL statuses except Cancelled (not just Active),
         // since a replied assignment transitions to Completed and would otherwise be invisible
         // to the "did every required referral get a reply" check.
-        var requiredReplySignals = row.Assignments
-            .Where(a => a.RequiresReply && a.Status != AssignmentStatus.Cancelled)
-            .Select(a => new WorkflowHelper.RequiredReplySignal(a.ReplyStatus == ReplyStatus.Replied, a.ReplyDate))
-            .ToList();
+        var requiredReplySignals = WorkflowHelper.BuildRequiredReplySignals(
+            row.Assignments, a => a.RequiresReply, a => a.Status, a => a.ReplyStatus, a => a.ReplyDate);
         var proceduralCompletionDate = WorkflowHelper.ResolveProceduralCompletionDateFromRequiredReplies(
             requiredReplySignals, row.ResponseCompletedDate?.Date)?.Date;
         var isProcedurallyComplete = requiredReplySignals.Count > 0 && proceduralCompletionDate.HasValue;

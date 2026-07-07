@@ -1314,6 +1314,51 @@ public class AssignmentResponseDatesTests
     }
 
     [Fact]
+    public async Task GetBasicByIdAsync_CancelledReferral_DoesNotBlockProceduralCompletion()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(GetBasicByIdAsync_CancelledReferral_DoesNotBlockProceduralCompletion));
+        var incomingDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        await SeedTransactionAsync(db, 1, incomingDate);
+        var replyDate = new DateTime(2026, 7, 7, 0, 0, 0, DateTimeKind.Utc);
+        db.Assignments.AddRange(
+            new Assignment
+            {
+                Id = 501,
+                TransactionId = 1,
+                DepartmentId = 10,
+                AssignedDate = incomingDate,
+                RequiresReply = true,
+                ReplyStatus = ReplyStatus.Replied,
+                ReplyDate = replyDate,
+                Status = AssignmentStatus.Completed,
+                CreatedById = 1,
+                CreatedAt = incomingDate
+            },
+            new Assignment
+            {
+                Id = 502,
+                TransactionId = 1,
+                DepartmentId = 20,
+                AssignedDate = incomingDate,
+                RequiresReply = true,
+                ReplyStatus = ReplyStatus.Pending,
+                ReplyDate = null,
+                Status = AssignmentStatus.Cancelled,
+                CreatedById = 1,
+                CreatedAt = incomingDate
+            });
+        await db.SaveChangesAsync();
+
+        var result = await service.GetBasicByIdAsync(1, new TestCurrentUser(UserRole.Admin));
+
+        Assert.NotNull(result);
+        Assert.True(result!.IsProcedurallyCompleteForReporting);
+        Assert.Equal(replyDate, result.ProceduralCompletionDateForReporting);
+        Assert.NotEqual("Closed", result.Status);
+        Assert.False(result.ResponseCompleted);
+    }
+
+    [Fact]
     public async Task GetBasicByIdAsync_NoReferrals_UsesManualResponseCompletedDate()
     {
         var (service, db) = await CreateServiceAsync(nameof(GetBasicByIdAsync_NoReferrals_UsesManualResponseCompletedDate));

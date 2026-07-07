@@ -123,11 +123,25 @@ public static class WorkflowHelper
         return requiredReplySignals.Max(s => s.ReplyDate!.Value);
     }
 
-    private static IReadOnlyList<RequiredReplySignal> RequiredReplySignalsFor(Transaction t) =>
-        t.Assignments
-            .Where(a => a.RequiresReply && a.Status != AssignmentStatus.Cancelled)
-            .Select(a => new RequiredReplySignal(a.ReplyStatus == ReplyStatus.Replied, a.ReplyDate))
+    /// <summary>
+    /// Shape-agnostic extraction of the "required, non-cancelled referral" rule shared by the
+    /// Transaction entity (workspace/mutation layer), TransactionService's flattened
+    /// AssignmentSummaryRow projection, and the institutional report's AssignmentRow snapshot
+    /// row — three different row shapes that all carry the same four facts.
+    /// </summary>
+    public static IReadOnlyList<RequiredReplySignal> BuildRequiredReplySignals<T>(
+        IEnumerable<T> rows,
+        Func<T, bool> requiresReply,
+        Func<T, AssignmentStatus> status,
+        Func<T, ReplyStatus> replyStatus,
+        Func<T, DateTime?> replyDate) =>
+        rows
+            .Where(row => requiresReply(row) && status(row) != AssignmentStatus.Cancelled)
+            .Select(row => new RequiredReplySignal(replyStatus(row) == ReplyStatus.Replied, replyDate(row)))
             .ToList();
+
+    private static IReadOnlyList<RequiredReplySignal> RequiredReplySignalsFor(Transaction t) =>
+        BuildRequiredReplySignals(t.Assignments, a => a.RequiresReply, a => a.Status, a => a.ReplyStatus, a => a.ReplyDate);
 
     /// <summary>
     /// Entity-typed convenience wrapper over <see cref="ResolveProceduralCompletionDateFromRequiredReplies"/>

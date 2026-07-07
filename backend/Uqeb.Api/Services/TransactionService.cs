@@ -2714,10 +2714,8 @@ public class TransactionService : ITransactionService
             .Select(a => new TransactionTemporalCalculator.AssignmentSummaryFacts(
                 a.ReplyStatus, a.RequiresReply, a.Status, a.DueDate))
             .ToList();
-        var requiredReplySignals = assignmentRows
-            .Where(a => a.RequiresReply && a.Status != AssignmentStatus.Cancelled)
-            .Select(a => new WorkflowHelper.RequiredReplySignal(a.ReplyStatus == ReplyStatus.Replied, a.ReplyDate))
-            .ToList();
+        var requiredReplySignals = WorkflowHelper.BuildRequiredReplySignals(
+            assignmentRows, a => a.RequiresReply, a => a.Status, a => a.ReplyStatus, a => a.ReplyDate);
         var proceduralCompletionDate = WorkflowHelper.ResolveProceduralCompletionDateFromRequiredReplies(
             requiredReplySignals, t.ResponseCompletedDate);
         var isProcedurallyComplete = requiredReplySignals.Count > 0 && proceduralCompletionDate.HasValue;
