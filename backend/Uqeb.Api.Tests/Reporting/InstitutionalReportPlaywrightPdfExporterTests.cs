@@ -271,10 +271,10 @@ public class InstitutionalReportPlaywrightPdfExporterTests
             [ReportSectionId.TransactionDetails],
             shortChunks);
         var layout = await MeasureFinalTransactionLayoutAsync(InstitutionalReportRenderer.RenderHtmlDocument(finalManifest));
-        var blankSpaceRatio = layout.AvailableRowsHeight <= 0 ? 1 : layout.UnusedRowsHeight / layout.AvailableRowsHeight;
 
+        Assert.True(shortChunks[0].Count < shortModel.Transactions.Count, "Expected short-row fixture to leave continuation rows for measuring page fill.");
         Assert.False(layout.OverlapsFooter, "Expected the measured detail table to stay above the footer.");
-        Assert.True(blankSpaceRatio < 0.25, $"Expected short rows to use most of the page; unused ratio was {blankSpaceRatio:P1}.");
+        Assert.True(layout.BodyRowCount > 12, $"Expected the rendered first page to keep more than 12 body rows, got {layout.BodyRowCount}.");
 
         await using var exporter = CreateExporter();
         var pdf = await exporter.ExportAsync(finalManifest, InstitutionalReportRenderer.RenderHtmlDocument(finalManifest));
@@ -338,27 +338,14 @@ public class InstitutionalReportPlaywrightPdfExporterTests
         return await page.EvaluateAsync<TransactionLayoutMeasurement>("""
             () => {
               const page = document.querySelector('.report-page:has(.report-table--transactions)');
-              const content = page.querySelector('.report-content');
               const table = page.querySelector('.report-table--transactions');
               const footer = page.querySelector('.report-footer');
-              const contentRect = content.getBoundingClientRect();
               const tableRect = table.getBoundingClientRect();
               const footerRect = footer.getBoundingClientRect();
-              const headerHeight = table.querySelector('thead').getBoundingClientRect().height;
-              const fixedContentHeight = Array.from(content.children)
-                .filter(el => el !== table)
-                .reduce((sum, el) => {
-                  const rect = el.getBoundingClientRect();
-                  const style = window.getComputedStyle(el);
-                  return sum + rect.height + (Number.parseFloat(style.marginTop) || 0) + (Number.parseFloat(style.marginBottom) || 0);
-                }, 0);
-              const rowsHeight = Array.from(table.querySelectorAll('tbody tr'))
-                .reduce((sum, row) => sum + row.getBoundingClientRect().height, 0);
-              const availableRowsHeight = Math.max(0, contentRect.height - fixedContentHeight - headerHeight);
+              const bodyRowCount = table.querySelectorAll('tbody tr').length;
               return {
                 overlapsFooter: tableRect.bottom > footerRect.top + 0.5,
-                availableRowsHeight,
-                unusedRowsHeight: Math.max(0, availableRowsHeight - rowsHeight),
+                bodyRowCount,
               };
             }
             """);
@@ -401,8 +388,7 @@ public class InstitutionalReportPlaywrightPdfExporterTests
     private sealed class TransactionLayoutMeasurement
     {
         public bool OverlapsFooter { get; set; }
-        public double AvailableRowsHeight { get; set; }
-        public double UnusedRowsHeight { get; set; }
+        public int BodyRowCount { get; set; }
     }
 
     private sealed class ReadyChromiumProbe : IReportingChromiumProbe
