@@ -31,6 +31,12 @@ function mockReferenceData() {
   vi.mocked(services.categoriesApi.getAll).mockResolvedValue({ data: categories } as never);
 }
 
+type CreateTransactionResult = Awaited<ReturnType<typeof services.transactionsApi.create>>;
+
+function createTransactionResult(data: unknown): CreateTransactionResult {
+  return { data } as CreateTransactionResult;
+}
+
 function renderCreateForm() {
   return render(
     <MemoryRouter initialEntries={['/transactions/new']}>
@@ -623,7 +629,7 @@ describe('TransactionForm searchable selects', () => {
 
   it('SaveAndOpenAttachments_CreatesTransactionAndNavigatesToAttachmentsTab', async () => {
     const user = userEvent.setup();
-    vi.mocked(services.transactionsApi.create).mockResolvedValue({ data: { id: 99 } } as never);
+    vi.mocked(services.transactionsApi.create).mockResolvedValue(createTransactionResult({ id: 99 }));
 
     renderCreateForm();
     await waitForFormReady();
