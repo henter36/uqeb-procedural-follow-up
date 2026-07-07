@@ -81,8 +81,10 @@ public sealed class InstitutionalReportPdfPaginationMeasurer : IInstitutionalRep
                 WaitUntil = WaitUntilState.NetworkIdle,
                 Timeout = 30_000,
             });
+            ct.ThrowIfCancellationRequested();
 
             await page.EvaluateAsync("() => document.fonts ? document.fonts.ready : Promise.resolve()");
+            ct.ThrowIfCancellationRequested();
 
             var measurement = await page.EvaluateAsync<TransactionDetailDomMeasurement>("""
                 () => {
@@ -122,6 +124,7 @@ public sealed class InstitutionalReportPdfPaginationMeasurer : IInstitutionalRep
                   };
                 }
                 """);
+            ct.ThrowIfCancellationRequested();
 
             if (measurement.RowHeights.Count != sourceRows.Count)
             {
