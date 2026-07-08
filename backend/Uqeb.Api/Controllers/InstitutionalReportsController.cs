@@ -201,6 +201,9 @@ public class InstitutionalReportsController : ControllerBase
             ? PermissionCode.ReportsExportExcel
             : PermissionCode.ReportsExportPdf;
 
+        if (User.HasClaim(PermissionClaims.PermissionClaimType, requiredPermission.ToString()))
+            return true;
+
         var permissions = HttpContext.RequestServices.GetRequiredService<IUserPermissionService>();
         return await permissions.HasPermissionAsync(userId, requiredPermission, ct);
     }
