@@ -2,6 +2,8 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
+using Uqeb.Api.Authorization;
+using Uqeb.Api.Models.Enums;
 
 namespace Uqeb.Api.Tests;
 
@@ -19,6 +21,13 @@ internal static class TestJwtHelper
             new(ClaimTypes.Name, "integration-test-user"),
             new(ClaimTypes.Role, role),
         };
+
+        if (Enum.TryParse<UserRole>(role, ignoreCase: true, out var parsedRole))
+        {
+            claims.AddRange(RolePermissionDefaults
+                .GetPermissions(parsedRole)
+                .Select(permission => new Claim(PermissionClaims.PermissionClaimType, permission.ToString())));
+        }
 
         if (departmentId.HasValue)
             claims.Add(new Claim("departmentId", departmentId.Value.ToString()));
