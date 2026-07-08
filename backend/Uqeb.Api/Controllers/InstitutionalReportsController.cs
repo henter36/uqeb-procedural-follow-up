@@ -201,22 +201,9 @@ public class InstitutionalReportsController : ControllerBase
             ? PermissionCode.ReportsExportExcel
             : PermissionCode.ReportsExportPdf;
 
-        if (HasPermissionClaim(PermissionCode.ReportsBuild) && HasPermissionClaim(requiredPermission))
-            return true;
-
         var permissions = HttpContext.RequestServices.GetRequiredService<IUserPermissionService>();
         return
-            await HasPermissionAsync(permissions, userId, PermissionCode.ReportsBuild, ct) &&
-            await HasPermissionAsync(permissions, userId, requiredPermission, ct);
+            await permissions.HasPermissionAsync(userId, PermissionCode.ReportsBuild, ct) &&
+            await permissions.HasPermissionAsync(userId, requiredPermission, ct);
     }
-
-    private bool HasPermissionClaim(PermissionCode permission) =>
-        User.HasClaim(PermissionClaims.PermissionClaimType, permission.ToString());
-
-    private async Task<bool> HasPermissionAsync(
-        IUserPermissionService permissions,
-        int userId,
-        PermissionCode permission,
-        CancellationToken ct) =>
-        HasPermissionClaim(permission) || await permissions.HasPermissionAsync(userId, permission, ct);
 }

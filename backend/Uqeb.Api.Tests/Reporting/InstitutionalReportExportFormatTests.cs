@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Security.Claims;
 using Uqeb.Api.Authorization;
@@ -132,6 +133,9 @@ public class InstitutionalReportsControllerExportTests
     {
         var httpContext = new DefaultHttpContext
         {
+            RequestServices = new ServiceCollection()
+                .AddSingleton<IUserPermissionService, TestRolePermissionService>()
+                .BuildServiceProvider(),
             User = new ClaimsPrincipal(new ClaimsIdentity(
             [
                 new Claim(ClaimTypes.NameIdentifier, "1"),

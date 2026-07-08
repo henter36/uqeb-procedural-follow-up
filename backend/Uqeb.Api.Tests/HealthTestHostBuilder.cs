@@ -5,7 +5,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Uqeb.Api.Authorization;
 using Uqeb.Api.Data;
+using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Services;
 using Uqeb.Api.Services.Health;
 
@@ -57,6 +59,7 @@ internal static class HealthTestHostBuilder
             services.RemoveAll<IHealthDatabaseProbe>();
             services.RemoveAll<IDeploymentFollowUpPrintHealthContributor>();
             services.RemoveAll<ISecurityAuditService>();
+            services.RemoveAll<IUserPermissionService>();
 
             services.AddDbContextFactory<AppDbContext>(options =>
                 options.UseInMemoryDatabase(databaseName));
@@ -65,10 +68,34 @@ internal static class HealthTestHostBuilder
             services.AddScoped<IHealthDatabaseProbe, SuccessfulHealthDatabaseProbe>();
             services.AddSingleton<IDeploymentFollowUpPrintHealthContributor, PassingFollowUpPrintHealthContributor>();
             services.AddSingleton<ISecurityAuditService, NoOpSecurityAuditService>();
+            services.AddSingleton<IUserPermissionService, TestRolePermissionService>();
 
             configureServices?.Invoke(services);
         });
     }
+}
+
+internal sealed class TestRolePermissionService : IUserPermissionService
+{
+    public Task<bool> HasPermissionAsync(int userId, PermissionCode permission, CancellationToken ct = default) =>
+        Task.FromResult(GetUserPermissions(userId).Contains(permission));
+
+    public Task<IReadOnlySet<PermissionCode>> GetUserPermissionsAsync(int userId, CancellationToken ct = default) =>
+        Task.FromResult(GetUserPermissions(userId));
+
+    private static IReadOnlySet<PermissionCode> GetUserPermissions(int userId) =>
+        RolePermissionDefaults.GetPermissions(RoleForUserId(userId));
+
+    private static UserRole RoleForUserId(int userId) =>
+        userId switch
+        {
+            1 => UserRole.Admin,
+            2 => UserRole.Supervisor,
+            3 => UserRole.DataEntry,
+            4 => UserRole.DepartmentUser,
+            5 => UserRole.Reader,
+            _ => UserRole.Reader,
+        };
 }
 
 internal sealed class PassingFollowUpPrintHealthContributor : IDeploymentFollowUpPrintHealthContributor

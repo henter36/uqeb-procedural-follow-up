@@ -13,9 +13,6 @@ public sealed class RequirePermissionAttribute : Attribute, IAsyncAuthorizationF
 
     public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
     {
-        if (context.HttpContext.User.HasClaim(PermissionClaims.PermissionClaimType, _permission.ToString()))
-            return;
-
         var userIdValue = context.HttpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
 
         if (!int.TryParse(userIdValue, out var userId))
