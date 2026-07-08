@@ -15,6 +15,43 @@ export interface SystemVersionInfo {
   environment: string;
 }
 
+export type DataQualityIssue = {
+  id: string;
+  issueKey: string;
+  ruleCode: string;
+  severity: number;
+  severityLabel: string;
+  category: string;
+  issueType: string;
+  transactionId?: number;
+  trackingNumber?: string;
+  incomingNumber?: string;
+  subject?: string;
+  departmentName?: string;
+  fieldName: string;
+  currentValue?: string;
+  daysValue?: number;
+  primaryDate?: string;
+  comparedDate?: string;
+  impact: string;
+  suggestedAction: string;
+  isReviewed: boolean;
+  reviewedAtUtc?: string;
+  reviewedByName?: string;
+  reviewNote?: string;
+};
+
+export type DataQualitySummary = {
+  totalIssues: number;
+  criticalCount: number;
+  highCount: number;
+  mediumCount: number;
+  lowCount: number;
+  affectedTransactions: number;
+  generatedAtUtc: string;
+  issues: DataQualityIssue[];
+};
+
 export interface Category {
   id: number;
   name: string;

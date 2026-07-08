@@ -35,6 +35,10 @@ const permissionGroupDefinitions: readonly PermissionGroupDefinition[] = [
     ['ReportsExportExcel', 'تصدير Excel'],
     ['ReportsTemplatesManage', 'إدارة القوالب'],
   ]],
+  ['جودة البيانات', [
+    ['DataQualityView', 'عرض'],
+    ['DataQualityReview', 'تعليم المراجعة'],
+  ]],
   ['طباعة التعقيب', [
     ['FollowUpPrintView', 'عرض'],
     ['FollowUpPrintCreate', 'إنشاء'],

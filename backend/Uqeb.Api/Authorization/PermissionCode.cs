@@ -33,5 +33,8 @@ public enum PermissionCode
     UserPermissionsManage = 702,
 
     SystemSettingsView = 800,
-    SystemSettingsManage = 801
+    SystemSettingsManage = 801,
+
+    DataQualityView = 900,
+    DataQualityReview = 901
 }

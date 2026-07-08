@@ -15,6 +15,7 @@ using Uqeb.Api.Middleware;
 using Uqeb.Api.HostedServices;
 using Uqeb.Api.Reporting.Exporters;
 using Uqeb.Api.Reporting.Configuration;
+using Uqeb.Api.Reporting.DataQuality;
 using Uqeb.Api.Reporting.Operations;
 using Uqeb.Api.Reporting.Services;
 using Uqeb.Api.Services;
@@ -71,6 +72,7 @@ if (!useInMemoryDatabase)
 }
 
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserPermissionService, UserPermissionService>();
@@ -82,6 +84,7 @@ builder.Services.AddScoped<IAttachmentService, AttachmentService>();
 builder.Services.AddScoped<IDepartmentResponseService, DepartmentResponseService>();
 builder.Services.AddScoped<IRecurringTransactionTemplateService, RecurringTransactionTemplateService>();
 builder.Services.AddScoped<IReportService, ReportService>();
+builder.Services.AddScoped<IDataQualityService, DataQualityService>();
 builder.Services.AddScoped<IInstitutionalReportService, InstitutionalReportService>();
 builder.Services.AddScoped<IInstitutionalReportBuildSupport>(sp => sp.GetRequiredService<IInstitutionalReportService>() as IInstitutionalReportBuildSupport
     ?? throw new InvalidOperationException("Institutional report service must implement build support."));

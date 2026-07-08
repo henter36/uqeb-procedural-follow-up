@@ -34,6 +34,7 @@ export function buildNavSections(institutionalReportsEnabled = isInstitutionalRe
         { path: '/', label: 'لوحة المتابعة', icon: IconDashboard, hideForDepartmentUser: true, permission: 'DashboardView' },
         { path: '/transactions', label: 'المعاملات', icon: IconTransactions, matchPrefix: true, hideForDepartmentUser: true, permission: 'TransactionsView' },
         { path: '/reports', label: 'التقارير', icon: IconReports, hideForDepartmentUser: true, permission: 'ReportsView' },
+        { path: '/data-quality', label: 'جودة البيانات', icon: IconReports, hideForDepartmentUser: true, permission: 'DataQualityView' },
         ...(institutionalReportsEnabled
           ? [{ path: '/report-builder', label: 'منشئ التقارير', icon: IconReports, adminOnly: true, permission: 'ReportsBuild' } satisfies NavItem]
           : []),
@@ -93,6 +94,7 @@ export function getRouteMeta(pathname: string, search: string): RouteMeta {
     '/transactions/new': { title: 'إضافة معاملة', breadcrumbs: [{ label: 'المعاملات', path: '/transactions' }, { label: 'إضافة معاملة' }] },
     '/transactions/import': { title: 'استيراد المعاملات', breadcrumbs: [{ label: 'المعاملات', path: '/transactions' }, { label: 'استيراد' }] },
     '/reports': { title: 'التقارير', breadcrumbs: [{ label: 'التقارير' }] },
+    '/data-quality': { title: 'جودة البيانات', breadcrumbs: [{ label: 'جودة البيانات' }] },
     '/letter-template': { title: 'قوالب خطاب التعقيب', breadcrumbs: [{ label: 'قوالب خطاب التعقيب' }] },
     '/follow-up-print/eligible': { title: 'المعاملات المستحقة للتعقيب', breadcrumbs: [{ label: 'طباعة التعقيب' }, { label: 'المستحقة' }] },
     '/follow-up-print/jobs': { title: 'مهام طباعة التعقيب', breadcrumbs: [{ label: 'طباعة التعقيب' }, { label: 'المهام' }] },

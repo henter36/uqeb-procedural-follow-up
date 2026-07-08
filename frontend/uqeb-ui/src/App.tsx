@@ -23,6 +23,7 @@ import DepartmentTransactionsPage from './pages/DepartmentTransactionsPage';
 import DepartmentResponseReviewPage from './pages/DepartmentResponseReviewPage';
 import RecurringTemplatesPage from './pages/RecurringTemplatesPage';
 import UserPermissionsPage from './pages/UserPermissionsPage';
+import DataQualityPage from './pages/DataQualityPage';
 import { institutionalReportsEnabled } from './config/institutionalReportsRuntime';
 import { PendingPrintSummaryProvider } from './context/PendingPrintSummaryContext';
 
@@ -80,6 +81,14 @@ export default function App() {
               element={(
                 <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']} requiredPermission="ReportsView">
                   <Reports />
+                </ProtectedRoute>
+              )}
+            />
+            <Route
+              path="data-quality"
+              element={(
+                <ProtectedRoute requiredPermission="DataQualityView">
+                  <DataQualityPage />
                 </ProtectedRoute>
               )}
             />
