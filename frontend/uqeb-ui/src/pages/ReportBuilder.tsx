@@ -277,6 +277,15 @@ export default function ReportBuilderPage() {
   const canExportPdf = usePermission('ReportsExportPdf');
   const canExportExcel = usePermission('ReportsExportExcel');
   const canExportReports = isAdmin || canExportPdf || canExportExcel;
+  const allowedExportFormats = useMemo(
+    () => Object.entries(exportFormatLabels).filter(([value]) => {
+      const format = Number(value);
+      if (format === ExportFormat.Pdf) return canExportPdf || isAdmin;
+      if (format === ExportFormat.Xlsx) return canExportExcel || isAdmin;
+      return false;
+    }),
+    [canExportExcel, canExportPdf, isAdmin],
+  );
   const [reportType, setReportType] = useState<typeof InstitutionalReportType[keyof typeof InstitutionalReportType]>(
     InstitutionalReportType.ExecutiveComprehensive,
   );
@@ -496,6 +505,12 @@ export default function ReportBuilderPage() {
     setError,
     setErrorCorrelationId,
   });
+
+  useEffect(() => {
+    if (allowedExportFormats.length === 0) return;
+    if (allowedExportFormats.some(([value]) => Number(value) === exportFormat)) return;
+    setExportFormat(Number(allowedExportFormats[0][0]) as typeof exportFormat);
+  }, [allowedExportFormats, exportFormat, setExportFormat]);
 
   const applyTemplate = useCallback((template: ReportTemplate) => {
     const filters: Partial<ReportTemplate['defaultFilters']> = template.defaultFilters ?? {};
@@ -1310,7 +1325,7 @@ export default function ReportBuilderPage() {
             value={exportFormat}
             onChange={(e) => setExportFormat(Number(e.target.value) as typeof exportFormat)}
           >
-            {Object.entries(exportFormatLabels).map(([value, label]) => (
+            {allowedExportFormats.map(([value, label]) => (
               <option key={value} value={value}>{label}</option>
             ))}
           </select>

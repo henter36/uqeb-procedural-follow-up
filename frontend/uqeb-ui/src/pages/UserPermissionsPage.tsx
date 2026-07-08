@@ -2,79 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { usersApi } from '../api/services';
 import type { User } from '../api/types';
 import type { PermissionCode } from '../auth/permissions';
+import { keepKnownPermissions, permissionGroups } from '../auth/permissionGroups';
 import { PageHeader } from '../components/ui';
-
-type PermissionEntry = [PermissionCode, string];
-
-const permissionGroups: { title: string; permissions: PermissionEntry[] }[] = [
-  {
-    title: 'لوحة المتابعة',
-    permissions: [['DashboardView', 'عرض']],
-  },
-  {
-    title: 'المعاملات',
-    permissions: [
-      ['TransactionsView', 'عرض'],
-      ['TransactionsCreate', 'إنشاء'],
-      ['TransactionsEdit', 'تعديل'],
-      ['TransactionsCancel', 'إلغاء/إغلاق'],
-      ['TransactionsExport', 'تصدير'],
-      ['TransactionDetailsView', 'عرض التفاصيل'],
-      ['TransactionAssignmentsCreate', 'إنشاء الإحالات'],
-      ['TransactionResponsesEdit', 'تعديل الردود'],
-      ['TransactionAttachmentsManage', 'إدارة المرفقات'],
-    ],
-  },
-  {
-    title: 'التقارير',
-    permissions: [
-      ['ReportsView', 'عرض'],
-      ['ReportsBuild', 'إنشاء تقرير'],
-      ['ReportsExportPdf', 'تصدير PDF'],
-      ['ReportsExportExcel', 'تصدير Excel'],
-      ['ReportsTemplatesManage', 'إدارة القوالب'],
-    ],
-  },
-  {
-    title: 'طباعة التعقيب',
-    permissions: [
-      ['FollowUpPrintView', 'عرض'],
-      ['FollowUpPrintCreate', 'إنشاء'],
-      ['FollowUpPrintExport', 'تصدير/طباعة'],
-    ],
-  },
-  {
-    title: 'البيانات المرجعية',
-    permissions: [
-      ['LookupsView', 'عرض'],
-      ['LookupsManage', 'إدارة'],
-    ],
-  },
-  {
-    title: 'المستخدمون والصلاحيات',
-    permissions: [
-      ['UsersView', 'عرض المستخدمين'],
-      ['UsersManage', 'إدارة المستخدمين'],
-      ['UserPermissionsManage', 'إدارة الصلاحيات'],
-    ],
-  },
-  {
-    title: 'إعدادات النظام',
-    permissions: [
-      ['SystemSettingsView', 'عرض'],
-      ['SystemSettingsManage', 'إدارة'],
-    ],
-  },
-];
-
-const knownPermissions = new Set<PermissionCode>(
-  permissionGroups.flatMap((group) => group.permissions.map(([permission]) => permission)),
-);
-
-function keepKnownPermissions(values: readonly string[]): PermissionCode[] {
-  return values.filter((value): value is PermissionCode =>
-    knownPermissions.has(value as PermissionCode));
-}
 
 export default function UserPermissionsPage() {
   const [users, setUsers] = useState<User[]>([]);
@@ -187,12 +116,12 @@ export default function UserPermissionsPage() {
           <section key={group.title} className="card">
             <h3 className="card-title">{group.title}</h3>
             <div className="checkbox-grid">
-              {group.permissions.map(([permission, label]) => (
-                <label key={permission} className="checkbox-row">
+              {group.permissions.map(({ code, label }) => (
+                <label key={code} className="checkbox-row">
                   <input
                     type="checkbox"
-                    checked={selectedPermissions.has(permission)}
-                    onChange={() => togglePermission(permission)}
+                    checked={selectedPermissions.has(code)}
+                    onChange={() => togglePermission(code)}
                   />
                   <span>{label}</span>
                 </label>

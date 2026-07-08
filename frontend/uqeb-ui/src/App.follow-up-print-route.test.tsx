@@ -3,6 +3,14 @@ import { cleanup, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { Outlet } from 'react-router-dom';
 import App from './App';
+import { authApi } from './api/services';
+
+vi.mock('./api/services', async (importOriginal) => ({
+  ...await importOriginal<typeof import('./api/services')>(),
+  authApi: {
+    getMyPermissions: vi.fn(),
+  },
+}));
 
 vi.mock('./components/Layout', () => ({
   default: () => <Outlet />,
@@ -51,6 +59,9 @@ describe('App follow-up print route permissions', () => {
     localStorage.clear();
     window.history.pushState({}, '', '/follow-up-print/pending');
     setUser('DataEntry');
+    vi.mocked(authApi.getMyPermissions).mockResolvedValue({
+      data: ['FollowUpPrintView'],
+    } as unknown as Awaited<ReturnType<typeof authApi.getMyPermissions>>);
   });
 
   afterEach(() => {
@@ -58,10 +69,10 @@ describe('App follow-up print route permissions', () => {
     localStorage.clear();
   });
 
-  it('allows DataEntry users to open the pending follow-up print screen', () => {
+  it('allows DataEntry users to open the pending follow-up print screen', async () => {
     render(<App />);
 
-    expect(screen.getByText('pending-screen')).toBeInTheDocument();
+    expect(await screen.findByText('pending-screen')).toBeInTheDocument();
   });
 
   it.each([
@@ -69,14 +80,17 @@ describe('App follow-up print route permissions', () => {
     ['/follow-up-print/eligible', 'eligible-print-screen'],
     ['/follow-up-print/jobs', 'print-jobs-screen'],
     ['/follow-up-print/pending', 'pending-screen'],
-  ])('blocks DepartmentUser from %s', (path, blockedText) => {
+  ])('blocks DepartmentUser from %s', async (path, blockedText) => {
     window.history.pushState({}, '', path);
     localStorage.clear();
     setUser('DepartmentUser');
+    vi.mocked(authApi.getMyPermissions).mockResolvedValue({
+      data: ['TransactionResponsesEdit'],
+    } as unknown as Awaited<ReturnType<typeof authApi.getMyPermissions>>);
 
     render(<App />);
 
     expect(screen.queryByText(blockedText)).not.toBeInTheDocument();
-    expect(screen.getByText('dashboard-screen')).toBeInTheDocument();
+    expect(await screen.findByText('ليست لديك صلاحية الوصول لهذه الشاشة.')).toBeInTheDocument();
   });
 });

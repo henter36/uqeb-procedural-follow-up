@@ -17,11 +17,18 @@ public class DepartmentUserAuthorizationContractTests
     [InlineData(nameof(TransactionsController.ReplyFollowUp))]
     [InlineData(nameof(TransactionsController.PreviewFollowUpLetter))]
     [InlineData(nameof(TransactionsController.DownloadFollowUpLetterPdf))]
-    public void TransactionMutationActions_RequireCanEditTransactions(string actionName)
+    public void TransactionMutationActions_RequirePermission(string actionName)
     {
         var method = GetControllerMethod<TransactionsController>(actionName);
 
-        Assert.Equal(Policies.CanEditTransactions, GetMethodPolicy(method));
+        Assert.Contains(
+            method.GetCustomAttributes(typeof(RequirePermissionAttribute), inherit: false)
+                .Cast<RequirePermissionAttribute>(),
+            permission => GetPermission(permission) is
+                PermissionCode.TransactionsEdit or
+                PermissionCode.TransactionAssignmentsCreate or
+                PermissionCode.TransactionResponsesEdit or
+                PermissionCode.TransactionsExport);
     }
 
     [Fact]

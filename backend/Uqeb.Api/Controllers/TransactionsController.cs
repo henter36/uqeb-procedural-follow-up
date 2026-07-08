@@ -120,7 +120,6 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost]
-    [Authorize(Policy = Policies.CanEditTransactions)]
     [RequirePermission(PermissionCode.TransactionsCreate)]
     public async Task<IActionResult> Create([FromBody] CreateTransactionRequest request)
     {
@@ -148,7 +147,6 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    [Authorize(Policy = Policies.CanEditTransactions)]
     [RequirePermission(PermissionCode.TransactionsEdit)]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateTransactionRequest request)
     {
@@ -172,7 +170,6 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id}/cancel")]
-    [Authorize(Policy = "SupervisorOrAdmin")]
     [RequirePermission(PermissionCode.TransactionsCancel)]
     public async Task<IActionResult> Cancel(int id)
     {
@@ -187,7 +184,6 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id}/archive")]
-    [Authorize(Policy = "SupervisorOrAdmin")]
     [RequirePermission(PermissionCode.TransactionsCancel)]
     public async Task<IActionResult> Archive(int id)
     {
@@ -202,7 +198,6 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id:int}/complete-response")]
-    [Authorize(Policy = "SupervisorOrAdmin")]
     [RequirePermission(PermissionCode.TransactionResponsesEdit)]
     public async Task<IActionResult> CompleteResponse(int id, [FromBody] CompleteResponseRequest request)
     {
@@ -227,7 +222,6 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPut("{id:int}/response")]
-    [Authorize(Policy = "SupervisorOrAdmin")]
     [RequirePermission(PermissionCode.TransactionResponsesEdit)]
     public async Task<IActionResult> EditResponse(int id, [FromBody] CompleteResponseRequest request)
     {
@@ -252,7 +246,6 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id}/close")]
-    [Authorize(Policy = "CanCloseTransactions")]
     [RequirePermission(PermissionCode.TransactionsCancel)]
     public async Task<IActionResult> Close(int id)
     {
@@ -301,7 +294,6 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id}/followups")]
-    [Authorize(Policy = Policies.CanEditTransactions)]
     [RequirePermission(PermissionCode.TransactionsEdit)]
     public async Task<IActionResult> AddFollowUp(int id, [FromBody] CreateFollowUpRequest request)
     {
@@ -317,7 +309,6 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id}/followups/{followUpId}/reply")]
-    [Authorize(Policy = Policies.CanEditTransactions)]
     [RequirePermission(PermissionCode.TransactionResponsesEdit)]
     public async Task<IActionResult> ReplyFollowUp(int id, int followUpId, [FromBody] ReplyFollowUpRequest request)
     {
@@ -326,7 +317,6 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPut("{id}/followups/{followUpId}/reply")]
-    [Authorize(Policy = Policies.SupervisorOrAdmin)]
     [RequirePermission(PermissionCode.TransactionResponsesEdit)]
     public async Task<IActionResult> EditFollowUpReply(int id, int followUpId, [FromBody] ReplyFollowUpRequest request)
     {
@@ -365,7 +355,6 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id}/assignments")]
-    [Authorize(Policy = Policies.CanEditTransactions)]
     [RequirePermission(PermissionCode.TransactionAssignmentsCreate)]
     public async Task<IActionResult> AddAssignment(int id, [FromBody] CreateAssignmentRequest request)
     {
@@ -385,7 +374,6 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id}/assignments/{assignmentId}/reply")]
-    [Authorize(Policy = Policies.CanEditTransactions)]
     [RequirePermission(PermissionCode.TransactionResponsesEdit)]
     public async Task<IActionResult> ReplyAssignment(int id, int assignmentId, [FromBody] ReplyAssignmentRequest request)
     {
@@ -409,7 +397,6 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPatch("{id}/assignments/{assignmentId}/reply")]
-    [Authorize(Policy = Policies.SupervisorOrAdmin)]
     [RequirePermission(PermissionCode.TransactionResponsesEdit)]
     public async Task<IActionResult> EditAssignmentReply(int id, int assignmentId, [FromBody] ReplyAssignmentRequest request)
     {
@@ -433,7 +420,6 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPatch("{id}/assignments/{assignmentId}")]
-    [Authorize(Policy = Policies.AdminOnly)]
     [RequirePermission(PermissionCode.TransactionAssignmentsCreate)]
     public async Task<IActionResult> AdminEditAssignment(int id, int assignmentId, [FromBody] AdminEditAssignmentRequest request)
     {
@@ -451,7 +437,6 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPatch("{id}/dates")]
-    [Authorize(Policy = Policies.AdminOnly)]
     [RequirePermission(PermissionCode.TransactionsEdit)]
     public async Task<IActionResult> AdminEditTransactionDates(int id, [FromBody] AdminEditTransactionDatesRequest request)
     {
@@ -468,7 +453,6 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id}/enable-recurring")]
-    [Authorize(Policy = Policies.CanEditTransactions)]
     [RequirePermission(PermissionCode.TransactionsEdit)]
     public async Task<IActionResult> EnableRecurring(int id, [FromBody] EnableRecurringForTransactionRequest request)
     {
@@ -505,7 +489,6 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id}/attachments")]
-    [Authorize(Policy = Policies.CanEditTransactions)]
     [RequirePermission(PermissionCode.TransactionAttachmentsManage)]
     [RequestSizeLimit(50_000_000)]
     public async Task<IActionResult> UploadAttachment(int id, IFormFile file, [FromForm] string? attachmentType)
@@ -559,7 +542,6 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id}/follow-up-letter/preview")]
-    [Authorize(Policy = Policies.CanEditTransactions)]
     [RequirePermission(PermissionCode.TransactionsEdit)]
     public async Task<IActionResult> PreviewFollowUpLetter(int id, [FromBody] FollowUpLetterRequest? request)
     {
@@ -572,7 +554,6 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("{id}/follow-up-letter/pdf")]
-    [Authorize(Policy = Policies.CanEditTransactions)]
     [RequirePermission(PermissionCode.TransactionsExport)]
     public async Task<IActionResult> DownloadFollowUpLetterPdf(int id, [FromBody] FollowUpLetterRequest? request)
     {
@@ -586,7 +567,6 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("import/excel/preview")]
-    [Authorize(Policy = Policies.AdminOnly)]
     [RequirePermission(PermissionCode.TransactionsCreate)]
     [RequestSizeLimit(MaxExcelImportFileBytes)]
     public async Task<IActionResult> PreviewExcelImport(IFormFile file, CancellationToken cancellationToken)
@@ -607,7 +587,6 @@ public class TransactionsController : ControllerBase
     }
 
     [HttpPost("import/excel/commit")]
-    [Authorize(Policy = Policies.AdminOnly)]
     [RequirePermission(PermissionCode.TransactionsCreate)]
     [RequestSizeLimit(MaxExcelImportFileBytes)]
     public async Task<IActionResult> CommitExcelImport(IFormFile file, CancellationToken cancellationToken)

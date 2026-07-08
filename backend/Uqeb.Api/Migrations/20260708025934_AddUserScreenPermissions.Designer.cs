@@ -1681,6 +1681,8 @@ namespace Uqeb.Api.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CreatedById");
+
                     b.HasIndex("UserId", "PermissionCode")
                         .IsUnique();
 
@@ -2249,6 +2251,11 @@ namespace Uqeb.Api.Migrations
 
             modelBuilder.Entity("Uqeb.Api.Models.Entities.UserPermission", b =>
                 {
+                    b.HasOne("Uqeb.Api.Models.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedById")
+                        .OnDelete(DeleteBehavior.NoAction);
+
                     b.HasOne("Uqeb.Api.Models.Entities.User", "User")
                         .WithMany()
                         .HasForeignKey("UserId")

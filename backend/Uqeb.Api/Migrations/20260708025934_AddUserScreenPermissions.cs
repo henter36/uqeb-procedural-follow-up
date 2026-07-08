@@ -34,10 +34,22 @@ namespace Uqeb.Api.Migrations
                 });
 
             migrationBuilder.CreateIndex(
+                name: "IX_UserPermissions_CreatedById",
+                table: "UserPermissions",
+                column: "CreatedById");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_UserPermissions_UserId_PermissionCode",
                 table: "UserPermissions",
                 columns: new[] { "UserId", "PermissionCode" },
                 unique: true);
+
+            migrationBuilder.AddForeignKey(
+                name: "FK_UserPermissions_Users_CreatedById",
+                table: "UserPermissions",
+                column: "CreatedById",
+                principalTable: "Users",
+                principalColumn: "Id");
         }
 
         /// <inheritdoc />

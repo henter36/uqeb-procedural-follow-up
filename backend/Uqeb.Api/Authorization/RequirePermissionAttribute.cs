@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 
@@ -11,20 +10,21 @@ public sealed class RequirePermissionAttribute : Attribute, IAsyncAuthorizationF
 
     public RequirePermissionAttribute(PermissionCode permission) => _permission = permission;
 
-    public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
+    public Task OnAuthorizationAsync(AuthorizationFilterContext context)
     {
-        var userIdValue = context.HttpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var user = context.HttpContext.User;
 
-        if (!int.TryParse(userIdValue, out var userId))
+        if (user.Identity?.IsAuthenticated != true)
         {
             context.Result = new UnauthorizedResult();
-            return;
+            return Task.CompletedTask;
         }
 
-        var service = context.HttpContext.RequestServices.GetRequiredService<IUserPermissionService>();
-        var allowed = await service.HasPermissionAsync(userId, _permission, context.HttpContext.RequestAborted);
+        var allowed = user.HasClaim(PermissionClaims.PermissionClaimType, _permission.ToString());
 
         if (!allowed)
             context.Result = new ForbidResult();
+
+        return Task.CompletedTask;
     }
 }

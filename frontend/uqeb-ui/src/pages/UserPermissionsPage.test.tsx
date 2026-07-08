@@ -3,6 +3,11 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import UserPermissionsPage from './UserPermissionsPage';
 import { usersApi } from '../api/services';
+import { keepKnownPermissions } from '../auth/permissionGroups';
+
+type UsersResponse = Awaited<ReturnType<typeof usersApi.getAll>>;
+type PermissionsResponse = Awaited<ReturnType<typeof usersApi.getPermissions>>;
+type ReplacePermissionsResponse = Awaited<ReturnType<typeof usersApi.replacePermissions>>;
 
 vi.mock('../api/services', () => ({
   usersApi: {
@@ -23,9 +28,9 @@ describe('UserPermissionsPage', () => {
         role: 'Reader',
         isActive: true,
       }],
-    } as never);
-    vi.mocked(usersApi.getPermissions).mockResolvedValue({ data: ['ReportsView'] } as never);
-    vi.mocked(usersApi.replacePermissions).mockResolvedValue({} as never);
+    } as unknown as UsersResponse);
+    vi.mocked(usersApi.getPermissions).mockResolvedValue({ data: ['ReportsView'] } as unknown as PermissionsResponse);
+    vi.mocked(usersApi.replacePermissions).mockResolvedValue({} as unknown as ReplacePermissionsResponse);
   });
 
   afterEach(() => {
@@ -53,7 +58,7 @@ describe('UserPermissionsPage', () => {
   it('does not save unknown permission values returned by the API', async () => {
     vi.mocked(usersApi.getPermissions).mockResolvedValue({
       data: ['ReportsExportPdf', 'NotAPermission'],
-    } as never);
+    } as unknown as PermissionsResponse);
     render(<UserPermissionsPage />);
 
     await waitFor(() => {
@@ -72,5 +77,9 @@ describe('UserPermissionsPage', () => {
         expect.not.arrayContaining(['NotAPermission']),
       );
     });
+  });
+
+  it('uses the shared permission catalog for validation', () => {
+    expect(keepKnownPermissions(['ReportsView', 'NotAPermission'])).toEqual(['ReportsView']);
   });
 });

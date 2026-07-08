@@ -19,11 +19,9 @@ export default function ProtectedRoute({ children, requiredRoles, requiredPermis
 
   const roleAllowed = !requiredRoles?.length || requiredRoles.includes(user.role);
   const permissionAllowed = !requiredPermission || hasPermission(requiredPermission);
-  const allowed = requiredPermission
-    ? permissionAllowed || Boolean(requiredRoles?.includes(user.role))
-    : roleAllowed;
+  const allowed = requiredPermission ? permissionAllowed : roleAllowed;
 
-  if (!allowed && requiredRoles?.length && !roleAllowed) {
+  if (!requiredPermission && !allowed && requiredRoles?.length && !roleAllowed) {
     return <Navigate to="/" replace />;
   }
 

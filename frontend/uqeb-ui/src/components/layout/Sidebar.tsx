@@ -29,7 +29,6 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   }, [collapsed]);
 
   const isVisible = (item: NavItem) => {
-    const permitted = item.permission ? hasPermission(item.permission) : false;
     const hasRoleGate =
       item.adminOnly ||
       item.supervisorOnly ||
@@ -43,9 +42,9 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
       (!item.departmentUserOnly || isDepartmentUser) &&
       (!item.departmentResponseReviewOnly || canReviewDepartmentResponse);
 
-    if (item.hideForDepartmentUser && isDepartmentUser && !permitted) return false;
-    if (item.permission && !permitted && (!hasRoleGate || !roleGateAllowed)) return false;
-    if (hasRoleGate && !roleGateAllowed && !permitted) return false;
+    if (item.permission && !hasPermission(item.permission)) return false;
+    if (item.hideForDepartmentUser && isDepartmentUser) return false;
+    if (hasRoleGate && !roleGateAllowed) return false;
     return true;
   };
 

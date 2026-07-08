@@ -47,7 +47,6 @@ public class UsersController : ControllerBase
     }
 
     [HttpPost]
-    [Authorize(Policy = Policies.CanManageUsers)]
     [RequirePermission(PermissionCode.UsersManage)]
     public async Task<IActionResult> Create([FromBody] CreateUserRequest request)
     {
@@ -66,7 +65,6 @@ public class UsersController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    [Authorize(Policy = Policies.CanManageUsers)]
     [RequirePermission(PermissionCode.UsersManage)]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateUserRequest request)
     {
@@ -91,7 +89,6 @@ public class UsersController : ControllerBase
     }
 
     [HttpPost("{id}/reset-password")]
-    [Authorize(Policy = Policies.CanManageUsers)]
     [RequirePermission(PermissionCode.UsersManage)]
     public async Task<IActionResult> ResetPassword(int id, [FromBody] ResetPasswordRequest request)
     {
@@ -106,7 +103,6 @@ public class UsersController : ControllerBase
 [ApiController]
 [Route("api/departments")]
 [Authorize]
-[RequirePermission(PermissionCode.LookupsView)]
 public class DepartmentsController : ControllerBase
 {
     private readonly IDepartmentService _departments;
@@ -127,6 +123,7 @@ public class DepartmentsController : ControllerBase
     }
 
     [HttpGet]
+    [RequirePermission(PermissionCode.LookupsView)]
     public async Task<IActionResult> GetAll(
         [FromQuery] bool activeOnly = true,
         [FromQuery] ReferenceDataListRequest? list = null,
@@ -148,10 +145,12 @@ public class DepartmentsController : ControllerBase
     }
 
     [HttpGet("lookup")]
+    [RequirePermission(PermissionCode.LookupsView)]
     public async Task<IActionResult> Lookup([FromQuery] LookupRequest request, CancellationToken cancellationToken) =>
         Ok(await _departments.LookupAsync(request, cancellationToken));
 
     [HttpGet("{id}")]
+    [RequirePermission(PermissionCode.LookupsView)]
     public async Task<IActionResult> GetById(int id)
     {
         var dept = await _departments.GetByIdAsync(id);
@@ -203,7 +202,6 @@ public class DepartmentsController : ControllerBase
 [ApiController]
 [Route("api/external-parties")]
 [Authorize]
-[RequirePermission(PermissionCode.LookupsView)]
 public class ExternalPartiesController : ControllerBase
 {
     private readonly IExternalPartyService _parties;
@@ -224,6 +222,7 @@ public class ExternalPartiesController : ControllerBase
     }
 
     [HttpGet]
+    [RequirePermission(PermissionCode.LookupsView)]
     public async Task<IActionResult> GetAll(
         [FromQuery] bool activeOnly = true,
         [FromQuery] ReferenceDataListRequest? list = null,
@@ -245,10 +244,12 @@ public class ExternalPartiesController : ControllerBase
     }
 
     [HttpGet("lookup")]
+    [RequirePermission(PermissionCode.LookupsView)]
     public async Task<IActionResult> Lookup([FromQuery] LookupRequest request, CancellationToken cancellationToken) =>
         Ok(await _parties.LookupAsync(request, cancellationToken));
 
     [HttpGet("{id}")]
+    [RequirePermission(PermissionCode.LookupsView)]
     public async Task<IActionResult> GetById(int id)
     {
         var party = await _parties.GetByIdAsync(id);

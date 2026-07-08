@@ -8,8 +8,8 @@ public static class RolePermissionDefaults
         role switch
         {
             UserRole.Admin => Enum.GetValues<PermissionCode>().ToHashSet(),
-            UserRole.Supervisor =>
-            [
+            UserRole.Supervisor => new HashSet<PermissionCode>
+            {
                 PermissionCode.DashboardView,
                 PermissionCode.TransactionsView,
                 PermissionCode.TransactionsCreate,
@@ -27,9 +27,9 @@ public static class RolePermissionDefaults
                 PermissionCode.FollowUpPrintCreate,
                 PermissionCode.FollowUpPrintExport,
                 PermissionCode.LookupsView,
-            ],
-            UserRole.DataEntry =>
-            [
+            },
+            UserRole.DataEntry => new HashSet<PermissionCode>
+            {
                 PermissionCode.DashboardView,
                 PermissionCode.TransactionsView,
                 PermissionCode.TransactionsCreate,
@@ -45,20 +45,20 @@ public static class RolePermissionDefaults
                 PermissionCode.FollowUpPrintCreate,
                 PermissionCode.FollowUpPrintExport,
                 PermissionCode.LookupsView,
-            ],
-            UserRole.DepartmentUser =>
-            [
+            },
+            UserRole.DepartmentUser => new HashSet<PermissionCode>
+            {
                 PermissionCode.TransactionDetailsView,
                 PermissionCode.TransactionResponsesEdit,
                 PermissionCode.TransactionAttachmentsManage,
-            ],
-            UserRole.Reader =>
-            [
+            },
+            UserRole.Reader => new HashSet<PermissionCode>
+            {
                 PermissionCode.DashboardView,
                 PermissionCode.TransactionsView,
                 PermissionCode.TransactionDetailsView,
                 PermissionCode.LookupsView,
-            ],
+            },
             _ => new HashSet<PermissionCode>(),
         };
 }

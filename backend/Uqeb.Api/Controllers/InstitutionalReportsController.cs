@@ -7,7 +7,6 @@ using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
 using Uqeb.Api.Reporting.Operations;
 using Uqeb.Api.Reporting.Services;
-using System.Security.Claims;
 
 namespace Uqeb.Api.Controllers;
 
@@ -191,19 +190,16 @@ public class InstitutionalReportsController : ControllerBase
             Status = StatusCodes.Status400BadRequest
         });
 
-    private async Task<bool> HasExportPermissionAsync(ReportExportRequestDto request, CancellationToken ct)
+    private Task<bool> HasExportPermissionAsync(ReportExportRequestDto request, CancellationToken ct)
     {
-        var userIdValue = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (!int.TryParse(userIdValue, out var userId))
-            return false;
+        _ = ct;
 
         var requiredPermission = (request.ExportFormat ?? ExportFormat.Pdf) == ExportFormat.Xlsx
             ? PermissionCode.ReportsExportExcel
             : PermissionCode.ReportsExportPdf;
 
-        var permissions = HttpContext.RequestServices.GetRequiredService<IUserPermissionService>();
-        return
-            await permissions.HasPermissionAsync(userId, PermissionCode.ReportsBuild, ct) &&
-            await permissions.HasPermissionAsync(userId, requiredPermission, ct);
+        return Task.FromResult(
+            User.HasClaim(PermissionClaims.PermissionClaimType, PermissionCode.ReportsBuild.ToString()) &&
+            User.HasClaim(PermissionClaims.PermissionClaimType, requiredPermission.ToString()));
     }
 }

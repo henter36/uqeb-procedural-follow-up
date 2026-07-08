@@ -36,8 +36,6 @@ public class UserPermissionsTests
     public async Task RequirePermissionAttribute_UserWithoutPermission_Forbids()
     {
         await using var db = CreateDb(nameof(RequirePermissionAttribute_UserWithoutPermission_Forbids));
-        db.Users.Add(CreateUser(2, UserRole.DepartmentUser));
-        await db.SaveChangesAsync();
 
         var context = CreateAuthorizationContext(db, userId: 2);
         var attribute = new RequirePermissionAttribute(PermissionCode.ReportsExportPdf);
@@ -51,11 +49,8 @@ public class UserPermissionsTests
     public async Task RequirePermissionAttribute_UserWithPermission_Allows()
     {
         await using var db = CreateDb(nameof(RequirePermissionAttribute_UserWithPermission_Allows));
-        db.Users.Add(CreateUser(2, UserRole.DepartmentUser));
-        db.UserPermissions.Add(new UserPermission { UserId = 2, PermissionCode = PermissionCode.ReportsExportPdf });
-        await db.SaveChangesAsync();
 
-        var context = CreateAuthorizationContext(db, userId: 2);
+        var context = CreateAuthorizationContext(db, userId: 2, PermissionCode.ReportsExportPdf);
         var attribute = new RequirePermissionAttribute(PermissionCode.ReportsExportPdf);
 
         await attribute.OnAuthorizationAsync(context);
@@ -195,7 +190,10 @@ public class UserPermissionsTests
         IsActive = true,
     };
 
-    private static AuthorizationFilterContext CreateAuthorizationContext(AppDbContext db, int userId)
+    private static AuthorizationFilterContext CreateAuthorizationContext(
+        AppDbContext db,
+        int userId,
+        params PermissionCode[] permissions)
     {
         var services = new ServiceCollection()
             .AddScoped(_ => db)
@@ -205,7 +203,7 @@ public class UserPermissionsTests
         var httpContext = new DefaultHttpContext
         {
             RequestServices = services,
-            User = CreatePrincipal(userId),
+            User = CreatePrincipal(userId, permissions),
         };
 
         return new AuthorizationFilterContext(
@@ -227,8 +225,11 @@ public class UserPermissionsTests
         return controller;
     }
 
-    private static ClaimsPrincipal CreatePrincipal(int userId) =>
+    private static ClaimsPrincipal CreatePrincipal(int userId, params PermissionCode[] permissions) =>
         new(new ClaimsIdentity(
-            [new Claim(ClaimTypes.NameIdentifier, userId.ToString())],
+            [
+                new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
+                .. permissions.Select(permission => new Claim(PermissionClaims.PermissionClaimType, permission.ToString())),
+            ],
             authenticationType: "Test"));
 }
