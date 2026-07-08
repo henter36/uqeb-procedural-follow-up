@@ -13,7 +13,7 @@ namespace Uqeb.Api.Controllers;
 
 [ApiController]
 [Route("api/users")]
-[Authorize(Policy = Policies.CanManageUsers)]
+[Authorize]
 public class UsersController : ControllerBase
 {
     private readonly IUserService _users;
@@ -26,6 +26,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpGet]
+    [RequirePermission(PermissionCode.UsersView)]
     public async Task<IActionResult> GetAll([FromQuery] ReferenceDataListRequest? list, CancellationToken cancellationToken)
     {
         if (Request.IsPagedReferenceDataRequest())
@@ -38,6 +39,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpGet("{id}")]
+    [RequirePermission(PermissionCode.UsersView)]
     public async Task<IActionResult> GetById(int id)
     {
         var user = await _users.GetByIdAsync(id);
@@ -45,6 +47,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpPost]
+    [RequirePermission(PermissionCode.UsersManage)]
     public async Task<IActionResult> Create([FromBody] CreateUserRequest request)
     {
         try
@@ -62,6 +65,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpPut("{id}")]
+    [RequirePermission(PermissionCode.UsersManage)]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateUserRequest request)
     {
         try
@@ -85,6 +89,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpPost("{id}/reset-password")]
+    [RequirePermission(PermissionCode.UsersManage)]
     public async Task<IActionResult> ResetPassword(int id, [FromBody] ResetPasswordRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.NewPassword))
@@ -118,6 +123,7 @@ public class DepartmentsController : ControllerBase
     }
 
     [HttpGet]
+    [RequirePermission(PermissionCode.LookupsView)]
     public async Task<IActionResult> GetAll(
         [FromQuery] bool activeOnly = true,
         [FromQuery] ReferenceDataListRequest? list = null,
@@ -139,10 +145,12 @@ public class DepartmentsController : ControllerBase
     }
 
     [HttpGet("lookup")]
+    [RequirePermission(PermissionCode.LookupsView)]
     public async Task<IActionResult> Lookup([FromQuery] LookupRequest request, CancellationToken cancellationToken) =>
         Ok(await _departments.LookupAsync(request, cancellationToken));
 
     [HttpGet("{id}")]
+    [RequirePermission(PermissionCode.LookupsView)]
     public async Task<IActionResult> GetById(int id)
     {
         var dept = await _departments.GetByIdAsync(id);
@@ -150,7 +158,7 @@ public class DepartmentsController : ControllerBase
     }
 
     [HttpPost]
-    [Authorize(Policy = Policies.AdminOnly)]
+    [RequirePermission(PermissionCode.LookupsManage)]
     public async Task<IActionResult> Create([FromBody] CreateDepartmentRequest request)
     {
         try
@@ -170,7 +178,7 @@ public class DepartmentsController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    [Authorize(Policy = Policies.AdminOnly)]
+    [RequirePermission(PermissionCode.LookupsManage)]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateDepartmentRequest request)
     {
         try
@@ -214,6 +222,7 @@ public class ExternalPartiesController : ControllerBase
     }
 
     [HttpGet]
+    [RequirePermission(PermissionCode.LookupsView)]
     public async Task<IActionResult> GetAll(
         [FromQuery] bool activeOnly = true,
         [FromQuery] ReferenceDataListRequest? list = null,
@@ -235,10 +244,12 @@ public class ExternalPartiesController : ControllerBase
     }
 
     [HttpGet("lookup")]
+    [RequirePermission(PermissionCode.LookupsView)]
     public async Task<IActionResult> Lookup([FromQuery] LookupRequest request, CancellationToken cancellationToken) =>
         Ok(await _parties.LookupAsync(request, cancellationToken));
 
     [HttpGet("{id}")]
+    [RequirePermission(PermissionCode.LookupsView)]
     public async Task<IActionResult> GetById(int id)
     {
         var party = await _parties.GetByIdAsync(id);
@@ -246,7 +257,7 @@ public class ExternalPartiesController : ControllerBase
     }
 
     [HttpPost]
-    [Authorize(Policy = Policies.AdminOnly)]
+    [RequirePermission(PermissionCode.LookupsManage)]
     public async Task<IActionResult> Create([FromBody] CreateExternalPartyRequest request)
     {
         try
@@ -266,7 +277,7 @@ public class ExternalPartiesController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    [Authorize(Policy = Policies.AdminOnly)]
+    [RequirePermission(PermissionCode.LookupsManage)]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateExternalPartyRequest request)
     {
         try

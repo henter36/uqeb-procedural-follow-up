@@ -73,6 +73,7 @@ if (!useInMemoryDatabase)
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IUserPermissionService, UserPermissionService>();
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<ITrackingNumberService, TrackingNumberService>();
 builder.Services.AddScoped<ITransactionService, TransactionService>();

@@ -10,7 +10,7 @@ namespace Uqeb.Api.Controllers;
 // Policies.ViewOperationalDashboard for why — so it never sees cross-department counts here.
 [ApiController]
 [Route("api/dashboard")]
-[Authorize(Policy = Policies.ViewOperationalDashboard)]
+[RequirePermission(PermissionCode.DashboardView)]
 public class DashboardController : ControllerBase
 {
     private readonly IReportService _reports;

@@ -4,6 +4,7 @@ using Uqeb.Api.Authorization;
 using Uqeb.Api.Helpers;
 using Uqeb.Api.Middleware;
 using Uqeb.Api.Reporting.DTOs;
+using Uqeb.Api.Reporting.Enums;
 using Uqeb.Api.Reporting.Operations;
 using Uqeb.Api.Reporting.Services;
 
@@ -11,7 +12,8 @@ namespace Uqeb.Api.Controllers;
 
 [ApiController]
 [Route("api/institutional-reports")]
-[Authorize(Policy = Policies.AdminOnly)]
+[Authorize]
+[RequirePermission(PermissionCode.ReportsView)]
 public class InstitutionalReportsController : ControllerBase
 {
     private readonly IInstitutionalReportService _service;
@@ -26,6 +28,7 @@ public class InstitutionalReportsController : ControllerBase
     }
 
     [HttpPost("preview")]
+    [RequirePermission(PermissionCode.ReportsBuild)]
     public async Task<IActionResult> Preview([FromBody] ReportBuildRequestDto request, CancellationToken ct)
     {
         try
@@ -68,6 +71,9 @@ public class InstitutionalReportsController : ControllerBase
 
         try
         {
+            if (!await HasExportPermissionAsync(request, ct))
+                return Forbid();
+
             var result = await _service.ExportAsync(request, ct);
             return File(result.Content, result.ContentType, result.FileName);
         }
@@ -122,6 +128,7 @@ public class InstitutionalReportsController : ControllerBase
     }
 
     [HttpGet("templates")]
+    [RequirePermission(PermissionCode.ReportsTemplatesManage)]
     public async Task<IActionResult> GetTemplates(CancellationToken ct)
     {
         try
@@ -154,6 +161,7 @@ public class InstitutionalReportsController : ControllerBase
     }
 
     [HttpPost("templates")]
+    [RequirePermission(PermissionCode.ReportsTemplatesManage)]
     public async Task<IActionResult> SaveTemplate([FromBody] SaveReportTemplateRequestDto request, CancellationToken ct)
     {
         try
@@ -167,6 +175,7 @@ public class InstitutionalReportsController : ControllerBase
     }
 
     [HttpDelete("templates/{id:int}")]
+    [RequirePermission(PermissionCode.ReportsTemplatesManage)]
     public async Task<IActionResult> DeleteTemplate(int id, CancellationToken ct)
     {
         await _service.DeleteTemplateAsync(id, ct);
@@ -180,4 +189,17 @@ public class InstitutionalReportsController : ControllerBase
             Title = ex.Message,
             Status = StatusCodes.Status400BadRequest
         });
+
+    private Task<bool> HasExportPermissionAsync(ReportExportRequestDto request, CancellationToken ct)
+    {
+        _ = ct;
+
+        var requiredPermission = (request.ExportFormat ?? ExportFormat.Pdf) == ExportFormat.Xlsx
+            ? PermissionCode.ReportsExportExcel
+            : PermissionCode.ReportsExportPdf;
+
+        return Task.FromResult(
+            User.HasClaim(PermissionClaims.PermissionClaimType, PermissionCode.ReportsBuild.ToString()) &&
+            User.HasClaim(PermissionClaims.PermissionClaimType, requiredPermission.ToString()));
+    }
 }

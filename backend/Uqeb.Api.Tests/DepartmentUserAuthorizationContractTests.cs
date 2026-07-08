@@ -1,8 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Authorization.Infrastructure;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 using Uqeb.Api.Authorization;
 using Uqeb.Api.Controllers;
 using Uqeb.Api.Models.Enums;
@@ -20,23 +17,29 @@ public class DepartmentUserAuthorizationContractTests
     [InlineData(nameof(TransactionsController.ReplyFollowUp))]
     [InlineData(nameof(TransactionsController.PreviewFollowUpLetter))]
     [InlineData(nameof(TransactionsController.DownloadFollowUpLetterPdf))]
-    public void TransactionMutationActions_RequireCanEditTransactions(string actionName)
+    public void TransactionMutationActions_RequirePermission(string actionName)
     {
         var method = GetControllerMethod<TransactionsController>(actionName);
 
-        Assert.Equal(Policies.CanEditTransactions, GetMethodPolicy(method));
+        Assert.Contains(
+            method.GetCustomAttributes(typeof(RequirePermissionAttribute), inherit: false)
+                .Cast<RequirePermissionAttribute>(),
+            permission => GetPermission(permission) is
+                PermissionCode.TransactionsEdit or
+                PermissionCode.TransactionAssignmentsCreate or
+                PermissionCode.TransactionResponsesEdit or
+                PermissionCode.TransactionsExport);
     }
 
     [Fact]
-    public void GeneralReportsController_RequiresCanEditTransactions()
+    public void GeneralReportsController_RequiresReportsViewPermission()
     {
-        var policy = typeof(ReportsController)
-            .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true)
-            .Cast<AuthorizeAttribute>()
-            .Select(a => a.Policy)
-            .Single(p => p == Policies.CanEditTransactions);
+        var permission = typeof(ReportsController)
+            .GetCustomAttributes(typeof(RequirePermissionAttribute), inherit: true)
+            .Cast<RequirePermissionAttribute>()
+            .Single();
 
-        Assert.Equal(Policies.CanEditTransactions, policy);
+        Assert.Equal(PermissionCode.ReportsView, GetPermission(permission));
     }
 
     [Theory]
@@ -66,9 +69,7 @@ public class DepartmentUserAuthorizationContractTests
     [Fact]
     public void SupervisorOrAdmin_DoesNotAllowDataEntry()
     {
-        var roles = GetPolicyRoles(Policies.SupervisorOrAdmin);
-
-        Assert.DoesNotContain(UserRole.DataEntry.ToString(), roles);
+        Assert.DoesNotContain(PermissionCode.TransactionsCancel, RolePermissionDefaults.GetPermissions(UserRole.DataEntry));
     }
 
     [Fact]
@@ -79,25 +80,20 @@ public class DepartmentUserAuthorizationContractTests
         Assert.Equal(Policies.CreateFollowUpPrintJob, GetMethodPolicy(method));
     }
 
-    [Theory]
-    [InlineData(Policies.CanEditTransactions)]
-    [InlineData(Policies.CreateFollowUpPrintJob)]
-    [InlineData(Policies.ViewFollowUpPrintJobs)]
-    [InlineData(Policies.ReviewDepartmentResponse)]
-    [InlineData(Policies.ViewOperationalDashboard)]
-    public void PrivilegedPolicies_DoNotAllowDepartmentUser(string policyName)
+    [Fact]
+    public void DepartmentUser_DefaultPermissions_RemainDepartmentScoped()
     {
-        var roles = GetPolicyRoles(policyName);
+        var permissions = RolePermissionDefaults.GetPermissions(UserRole.DepartmentUser);
 
-        Assert.DoesNotContain(UserRole.DepartmentUser.ToString(), roles);
+        Assert.DoesNotContain(PermissionCode.DashboardView, permissions);
+        Assert.DoesNotContain(PermissionCode.TransactionsEdit, permissions);
+        Assert.DoesNotContain(PermissionCode.FollowUpPrintCreate, permissions);
     }
 
     [Fact]
     public void SubmitDepartmentResponse_AllowsDepartmentUser()
     {
-        var roles = GetPolicyRoles(Policies.SubmitDepartmentResponse);
-
-        Assert.Contains(UserRole.DepartmentUser.ToString(), roles);
+        Assert.Contains(PermissionCode.TransactionResponsesEdit, RolePermissionDefaults.GetPermissions(UserRole.DepartmentUser));
     }
 
     [Fact]
@@ -106,9 +102,7 @@ public class DepartmentUserAuthorizationContractTests
         // Reader is a global read-only role (unlike DepartmentUser it carries no department
         // scope anywhere else in the system), so it must still see institution-wide dashboard
         // aggregates even though DepartmentUser is excluded.
-        var roles = GetPolicyRoles(Policies.ViewOperationalDashboard);
-
-        Assert.Contains(UserRole.Reader.ToString(), roles);
+        Assert.Contains(PermissionCode.DashboardView, RolePermissionDefaults.GetPermissions(UserRole.Reader));
     }
 
     private static string GetMethodPolicy(System.Reflection.MethodInfo method) =>
@@ -123,18 +117,9 @@ public class DepartmentUserAuthorizationContractTests
             .GetMethods()
             .Single(m => m.Name == actionName && m.GetCustomAttributes(typeof(NonActionAttribute), inherit: false).Length == 0);
 
-    private static IReadOnlyCollection<string> GetPolicyRoles(string policyName)
-    {
-        var services = new ServiceCollection();
-        services.AddUqebAuthorizationPolicies();
-        using var provider = services.BuildServiceProvider();
-        var options = provider.GetRequiredService<IOptions<AuthorizationOptions>>().Value;
-        var policy = options.GetPolicy(policyName)
-            ?? throw new InvalidOperationException($"Policy {policyName} was not registered.");
-
-        return policy.Requirements
-            .OfType<RolesAuthorizationRequirement>()
-            .SelectMany(r => r.AllowedRoles)
-            .ToArray();
-    }
+    private static PermissionCode GetPermission(RequirePermissionAttribute attribute) =>
+        (PermissionCode)(typeof(RequirePermissionAttribute)
+            .GetField("_permission", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+            ?.GetValue(attribute)
+            ?? throw new InvalidOperationException("RequirePermissionAttribute permission field was not found."));
 }

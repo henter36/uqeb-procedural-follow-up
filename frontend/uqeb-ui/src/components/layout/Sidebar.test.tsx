@@ -125,6 +125,7 @@ describe('Sidebar', () => {
         fullName: 'موظف إدارة',
         role: 'DepartmentUser',
       },
+      permissions: ['TransactionResponsesEdit'],
     });
 
     renderSidebar();

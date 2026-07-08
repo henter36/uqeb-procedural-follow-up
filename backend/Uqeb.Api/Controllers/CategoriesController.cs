@@ -32,6 +32,7 @@ public class CategoriesController : ControllerBase
     }
 
     [HttpGet]
+    [RequirePermission(PermissionCode.LookupsView)]
     public async Task<IActionResult> GetAll(
         [FromQuery] bool activeOnly = true,
         [FromQuery] ReferenceDataListRequest? list = null,
@@ -53,10 +54,12 @@ public class CategoriesController : ControllerBase
     }
 
     [HttpGet("lookup")]
+    [RequirePermission(PermissionCode.LookupsView)]
     public async Task<IActionResult> Lookup([FromQuery] LookupRequest request, CancellationToken cancellationToken) =>
         Ok(await _categories.LookupAsync(request, cancellationToken));
 
     [HttpGet("{id}")]
+    [RequirePermission(PermissionCode.LookupsView)]
     public async Task<IActionResult> GetById(int id)
     {
         var cat = await _categories.GetByIdAsync(id);
@@ -64,7 +67,7 @@ public class CategoriesController : ControllerBase
     }
 
     [HttpPost]
-    [Authorize(Policy = Policies.AdminOnly)]
+    [RequirePermission(PermissionCode.LookupsManage)]
     public async Task<IActionResult> Create([FromBody] CreateCategoryRequest request)
     {
         try
@@ -84,7 +87,7 @@ public class CategoriesController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    [Authorize(Policy = Policies.AdminOnly)]
+    [RequirePermission(PermissionCode.LookupsManage)]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateCategoryRequest request)
     {
         try

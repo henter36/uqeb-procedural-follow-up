@@ -1,11 +1,15 @@
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using System.Security.Claims;
+using Uqeb.Api.Authorization;
 using Uqeb.Api.Data;
+using Uqeb.Api.Models.Enums;
 using Uqeb.Api.Services;
 using Uqeb.Api.Services.Health;
 
@@ -57,6 +61,7 @@ internal static class HealthTestHostBuilder
             services.RemoveAll<IHealthDatabaseProbe>();
             services.RemoveAll<IDeploymentFollowUpPrintHealthContributor>();
             services.RemoveAll<ISecurityAuditService>();
+            services.RemoveAll<IUserPermissionService>();
 
             services.AddDbContextFactory<AppDbContext>(options =>
                 options.UseInMemoryDatabase(databaseName));
@@ -65,10 +70,52 @@ internal static class HealthTestHostBuilder
             services.AddScoped<IHealthDatabaseProbe, SuccessfulHealthDatabaseProbe>();
             services.AddSingleton<IDeploymentFollowUpPrintHealthContributor, PassingFollowUpPrintHealthContributor>();
             services.AddSingleton<ISecurityAuditService, NoOpSecurityAuditService>();
+            services.AddSingleton<IUserPermissionService, TestRolePermissionService>();
 
             configureServices?.Invoke(services);
         });
     }
+}
+
+internal sealed class TestRolePermissionService : IUserPermissionService
+{
+    private readonly IHttpContextAccessor _httpContextAccessor;
+
+    public TestRolePermissionService(IHttpContextAccessor httpContextAccessor) =>
+        _httpContextAccessor = httpContextAccessor;
+
+    public Task<bool> HasPermissionAsync(int userId, PermissionCode permission, CancellationToken ct = default) =>
+        Task.FromResult(GetUserPermissions(userId).Contains(permission));
+
+    public Task<IReadOnlySet<PermissionCode>> GetUserPermissionsAsync(int userId, CancellationToken ct = default) =>
+        Task.FromResult(GetUserPermissions(userId));
+
+    private IReadOnlySet<PermissionCode> GetUserPermissions(int userId)
+    {
+        var user = _httpContextAccessor.HttpContext?.User;
+        var currentUserId = user?.FindFirstValue(ClaimTypes.NameIdentifier);
+        var currentRole = user?.FindFirstValue(ClaimTypes.Role);
+
+        if (int.TryParse(currentUserId, out var parsedUserId)
+            && parsedUserId == userId
+            && Enum.TryParse<UserRole>(currentRole, ignoreCase: true, out var role))
+        {
+            return RolePermissionDefaults.GetPermissions(role);
+        }
+
+        return RolePermissionDefaults.GetPermissions(RoleForUserId(userId));
+    }
+
+    private static UserRole RoleForUserId(int userId) =>
+        userId switch
+        {
+            1 => UserRole.Admin,
+            2 => UserRole.Supervisor,
+            3 => UserRole.DataEntry,
+            4 => UserRole.DepartmentUser,
+            5 => UserRole.Reader,
+            _ => UserRole.Reader,
+        };
 }
 
 internal sealed class PassingFollowUpPrintHealthContributor : IDeploymentFollowUpPrintHealthContributor

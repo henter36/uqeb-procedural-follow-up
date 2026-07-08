@@ -56,4 +56,5 @@ public enum AuditAction
     EditResponse = 52,
     EditFollowUpReply = 53,
     EditAssignmentReply = 54,
+    UpdateUserPermissions = 55,
 }

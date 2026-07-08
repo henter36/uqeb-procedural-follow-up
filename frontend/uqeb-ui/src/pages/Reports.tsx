@@ -19,6 +19,7 @@ import { responseTimingBadgeClass } from '../utils/responseTiming';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { downloadBlob } from '../utils/downloadBlob';
 import { getAnalyticsStatusText, getAnalyticsViewState } from '../utils/reportsAnalytics';
+import { usePermission } from '../auth/usePermission';
 
 const TIMING_REPORT_TABS: ReportTab[] = ['response-required', 'overdue-responses', 'waiting', 'open'];
 
@@ -126,6 +127,8 @@ function TableSkeleton({ rows = 5, columns = 8 }: TableSkeletonProps) {
 }
 
 export default function ReportsPage() {
+  const canExportExcel = usePermission('ReportsExportExcel');
+  const canExportPdf = usePermission('ReportsExportPdf');
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = parseReportTab(searchParams.get('tab'));
   const [tabStates, setTabStates] = useState<Record<ReportTab, TabState>>(() =>
@@ -610,7 +613,7 @@ export default function ReportsPage() {
     <div>
       <PageHeader
         title="التقارير"
-        actions={(
+        actions={(canExportExcel ? (
           <div className="btn-group">
             <button
               type="button"
@@ -629,7 +632,7 @@ export default function ReportsPage() {
               تصدير جميع النتائج
             </button>
           </div>
-        )}
+        ) : null)}
       />
 
       <div className="card filter-card mb-4">
@@ -791,22 +794,26 @@ export default function ReportsPage() {
             >
               {analyticsLoading ? 'جاري التحديث...' : 'تحديث التحليلات'}
             </button>
-            <button
-              type="button"
-              className="btn btn-outline"
-              disabled={analyticsLoading || exporting}
-              onClick={() => exportDepartmentReport('excel')}
-            >
-              تصدير Excel
-            </button>
-            <button
-              type="button"
-              className="btn btn-outline"
-              disabled={analyticsLoading || exporting}
-              onClick={() => exportDepartmentReport('pdf')}
-            >
-              تصدير PDF
-            </button>
+            {canExportExcel && (
+              <button
+                type="button"
+                className="btn btn-outline"
+                disabled={analyticsLoading || exporting}
+                onClick={() => exportDepartmentReport('excel')}
+              >
+                تصدير Excel
+              </button>
+            )}
+            {canExportPdf && (
+              <button
+                type="button"
+                className="btn btn-outline"
+                disabled={analyticsLoading || exporting}
+                onClick={() => exportDepartmentReport('pdf')}
+              >
+                تصدير PDF
+              </button>
+            )}
           </div>
         </div>
         <output className="text-muted mb-2" aria-live="polite">

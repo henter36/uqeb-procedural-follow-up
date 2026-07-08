@@ -11,7 +11,7 @@ namespace Uqeb.Api.Controllers;
 [ApiController]
 [Route("api/reports")]
 [Authorize]
-[Authorize(Policy = Policies.CanEditTransactions)]
+[RequirePermission(PermissionCode.ReportsView)]
 public class ReportsController : ControllerBase
 {
     private const string ExcelContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -115,6 +115,7 @@ public class ReportsController : ControllerBase
         Ok(await _reports.GetDepartmentIncomingClosedAsync(filter));
 
     [HttpGet("department-incoming-closed/export-excel")]
+    [RequirePermission(PermissionCode.ReportsExportExcel)]
     public async Task<IActionResult> ExportDepartmentIncomingClosedExcel([FromQuery] ReportFilterRequest filter)
     {
         var bytes = await _reports.ExportDepartmentIncomingClosedExcelAsync(filter);
@@ -123,6 +124,7 @@ public class ReportsController : ControllerBase
     }
 
     [HttpGet("department-incoming-closed/export-pdf")]
+    [RequirePermission(PermissionCode.ReportsExportPdf)]
     public async Task<IActionResult> ExportDepartmentIncomingClosedPdf([FromQuery] ReportFilterRequest filter)
     {
         var bytes = await _reports.ExportDepartmentIncomingClosedPdfAsync(filter);
@@ -151,6 +153,7 @@ public class ReportsController : ControllerBase
     }
 
     [HttpGet("recurring-obligations/export-excel")]
+    [RequirePermission(PermissionCode.ReportsExportExcel)]
     public async Task<IActionResult> ExportRecurringObligationsExcel([FromQuery] RecurringObligationsReportFilterRequest filter)
     {
         var bytes = await _reports.ExportRecurringObligationsExcelAsync(filter);
@@ -163,6 +166,7 @@ public class ReportsController : ControllerBase
         Ok(await _reports.GetDepartmentObligationSnapshotAsync(filter));
 
     [HttpGet("department-obligation-snapshot/export-excel")]
+    [RequirePermission(PermissionCode.ReportsExportExcel)]
     public async Task<IActionResult> ExportDepartmentObligationSnapshotExcel([FromQuery] DepartmentObligationSnapshotFilterRequest filter)
     {
         var bytes = await _reports.ExportDepartmentObligationSnapshotExcelAsync(filter);
@@ -171,6 +175,7 @@ public class ReportsController : ControllerBase
     }
 
     [HttpGet("export/{reportType}")]
+    [RequirePermission(PermissionCode.ReportsExportExcel)]
     public async Task<IActionResult> Export(string reportType, [FromQuery] ReportFilterRequest filter, [FromQuery] bool currentPageOnly = false, [FromQuery] int page = 1, [FromQuery] int pageSize = 5)
     {
         var pagedFilter = new ReportPagedFilterRequest

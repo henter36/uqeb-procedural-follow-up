@@ -33,6 +33,7 @@ import {
 import { useReportBuilderExport } from './useReportBuilderExport';
 import { ReportPreviewDocument } from './ReportPreviewDocument';
 import { useAuth } from '../context/useAuth';
+import { usePermission } from '../auth/usePermission';
 import '../styles/institutional-report.css';
 
 const REPORT_TYPES = [
@@ -272,6 +273,25 @@ function getReportThumbClass(options: { isActive: boolean; isSelected: boolean }
 
 export default function ReportBuilderPage() {
   const { isAdmin } = useAuth();
+  const canBuildReports = usePermission('ReportsBuild');
+  const canExportPdf = usePermission('ReportsExportPdf');
+  const canExportExcel = usePermission('ReportsExportExcel');
+  const canExportReports = isAdmin || canExportPdf || canExportExcel;
+  const allowedExportFormats = useMemo(
+    () => Object.entries(exportFormatLabels).filter(([value]) => {
+      const format = Number(value);
+      if (
+        format === ExportFormat.Pdf ||
+        format === ExportFormat.Docx ||
+        format === ExportFormat.Html
+      ) {
+        return canExportPdf || isAdmin;
+      }
+      if (format === ExportFormat.Xlsx) return canExportExcel || isAdmin;
+      return false;
+    }),
+    [canExportExcel, canExportPdf, isAdmin],
+  );
   const [reportType, setReportType] = useState<typeof InstitutionalReportType[keyof typeof InstitutionalReportType]>(
     InstitutionalReportType.ExecutiveComprehensive,
   );
@@ -492,6 +512,12 @@ export default function ReportBuilderPage() {
     setErrorCorrelationId,
   });
 
+  useEffect(() => {
+    if (allowedExportFormats.length === 0) return;
+    if (allowedExportFormats.some(([value]) => Number(value) === exportFormat)) return;
+    setExportFormat(Number(allowedExportFormats[0][0]) as typeof exportFormat);
+  }, [allowedExportFormats, exportFormat, setExportFormat]);
+
   const applyTemplate = useCallback((template: ReportTemplate) => {
     const filters: Partial<ReportTemplate['defaultFilters']> = template.defaultFilters ?? {};
     const templateSectionIds = Array.isArray(template.sectionIds) ? template.sectionIds : [];
@@ -704,7 +730,7 @@ export default function ReportBuilderPage() {
       ? 'نطاق الصفحات'
       : 'تحديد الصور المصغرة';
 
-  if (!isAdmin)
+  if (!isAdmin && !canBuildReports)
     return <Navigate to="/" replace />;
 
   return (
@@ -719,9 +745,11 @@ export default function ReportBuilderPage() {
           <button type="button" className="btn btn-secondary" onClick={loadPreview} disabled={loading}>
             {loading ? 'جاري التوليد...' : 'معاينة التقرير'}
           </button>
-          <button type="button" className="btn btn-primary" onClick={openExportDialog} disabled={!manifest}>
-            تصدير
-          </button>
+          {canExportReports && (
+            <button type="button" className="btn btn-primary" onClick={openExportDialog} disabled={!manifest}>
+              تصدير
+            </button>
+          )}
         </div>
       </div>
 
@@ -1303,7 +1331,7 @@ export default function ReportBuilderPage() {
             value={exportFormat}
             onChange={(e) => setExportFormat(Number(e.target.value) as typeof exportFormat)}
           >
-            {Object.entries(exportFormatLabels).map(([value, label]) => (
+            {allowedExportFormats.map(([value, label]) => (
               <option key={value} value={value}>{label}</option>
             ))}
           </select>

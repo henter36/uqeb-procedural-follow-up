@@ -1,6 +1,9 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Security.Claims;
+using Uqeb.Api.Authorization;
 using Uqeb.Api.Controllers;
 using Uqeb.Api.Helpers;
 using Uqeb.Api.Middleware;
@@ -128,7 +131,19 @@ public class InstitutionalReportsControllerExportTests
         IInstitutionalReportService service,
         string? correlationId = null)
     {
-        var httpContext = new DefaultHttpContext();
+        var httpContext = new DefaultHttpContext
+        {
+            RequestServices = new ServiceCollection()
+                .AddSingleton<IUserPermissionService, TestRolePermissionService>()
+                .BuildServiceProvider(),
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+            [
+                new Claim(ClaimTypes.NameIdentifier, "1"),
+                new Claim(PermissionClaims.PermissionClaimType, PermissionCode.ReportsBuild.ToString()),
+                new Claim(PermissionClaims.PermissionClaimType, PermissionCode.ReportsExportPdf.ToString()),
+                new Claim(PermissionClaims.PermissionClaimType, PermissionCode.ReportsExportExcel.ToString()),
+            ], authenticationType: "Test")),
+        };
         if (correlationId is not null)
             httpContext.Items[CorrelationIdMiddleware.ItemKey] = correlationId;
 

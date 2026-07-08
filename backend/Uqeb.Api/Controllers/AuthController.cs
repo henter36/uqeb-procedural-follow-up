@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using System.Security.Claims;
+using Uqeb.Api.Authorization;
 using Uqeb.Api.DTOs.Auth;
 using Uqeb.Api.Services;
 
@@ -40,5 +42,19 @@ public class AuthController : ControllerBase
 
         await _securityAudit.RecordLoginAttemptAsync(result.Username, null, true, null, HttpContext);
         return Ok(result);
+    }
+
+    [Authorize]
+    [HttpGet("me/permissions")]
+    public async Task<ActionResult<IReadOnlyList<string>>> GetMyPermissions(
+        [FromServices] IUserPermissionService permissionService,
+        CancellationToken cancellationToken)
+    {
+        var userIdValue = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!int.TryParse(userIdValue, out var userId))
+            return Unauthorized();
+
+        var permissions = await permissionService.GetUserPermissionsAsync(userId, cancellationToken);
+        return permissions.Select(x => x.ToString()).OrderBy(x => x).ToList();
     }
 }

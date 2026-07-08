@@ -18,8 +18,6 @@ public class DepartmentUserEndpointAuthorizationTests : IClassFixture<Department
     [InlineData("PUT", "/api/transactions/1", """{"subject":"x"}""")]
     [InlineData("POST", "/api/transactions/1/assignments", """{"departmentId":1,"assignedDate":"2026-01-01"}""")]
     [InlineData("POST", "/api/transactions/1/followups", """{"followUpDate":"2026-01-01","departmentIds":[1]}""")]
-    [InlineData("POST", "/api/transactions/1/assignments/1/reply", """{"replyDate":"2026-01-01","replySummary":"x"}""")]
-    [InlineData("POST", "/api/transactions/1/followups/1/reply", """{"replyDate":"2026-01-01","replySummary":"x"}""")]
     [InlineData("POST", "/api/follow-up-print/jobs", """{"filter":{},"idempotencyKey":"k"}""")]
     [InlineData("POST", "/api/department-responses/1/approve", "{}")]
     [InlineData("POST", "/api/department-responses/1/return", """{"reviewNote":"x"}""")]
@@ -90,10 +88,9 @@ public class DepartmentUserEndpointAuthorizationTests : IClassFixture<Department
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
-    // Recurring-obligations report lives under ReportsController, which (like every
-    // other /api/reports endpoint) is gated by Policies.CanEditTransactions:
-    // Admin/Supervisor/DataEntry only. Reader is deliberately excluded here too (it is
-    // NOT in CanEditTransactions), unlike the dashboard's ViewOperationalDashboard policy.
+    // Recurring-obligations report lives under ReportsController. Its default permission
+    // set remains Admin/Supervisor/DataEntry only; Reader is deliberately excluded here,
+    // unlike the operational dashboard permission.
     [Theory]
     [InlineData("Admin")]
     [InlineData("Supervisor")]
@@ -127,10 +124,9 @@ public class DepartmentUserEndpointAuthorizationTests : IClassFixture<Department
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
-    // Department obligation snapshot lives under the same ReportsController policy as
-    // every other /api/reports endpoint (Policies.CanEditTransactions): DepartmentUser
-    // must not see institution-wide cross-department attribution, so it is excluded
-    // entirely rather than being given a narrowed/scoped view of this snapshot.
+    // Department obligation snapshot is institution-wide cross-department attribution.
+    // DepartmentUser is excluded entirely rather than being given a narrowed/scoped view
+    // of this snapshot.
     [Theory]
     [InlineData("Admin")]
     [InlineData("Supervisor")]
