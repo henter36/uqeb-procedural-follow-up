@@ -2,11 +2,11 @@ import { Navigate } from 'react-router-dom';
 import type { PermissionCode } from '../auth/permissions';
 import { useAuth } from '../context/useAuth';
 
-type ProtectedRouteProps = {
+type ProtectedRouteProps = Readonly<{
   children: React.ReactNode;
-  requiredRoles?: string[];
+  requiredRoles?: readonly string[];
   requiredPermission?: PermissionCode;
-};
+}>;
 
 export default function ProtectedRoute({ children, requiredRoles, requiredPermission }: ProtectedRouteProps) {
   const auth = useAuth();
