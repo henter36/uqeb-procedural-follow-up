@@ -64,6 +64,12 @@ public class InstitutionalReportPlaywrightPdfExporterTests
         Assert.Equal(0x44, pdf[2]);
         Assert.Equal(0x46, pdf[3]);
         Assert.True(pdf.Length > 2_000);
+
+        var pdfTextLayer = System.Text.Encoding.Latin1.GetString(pdf);
+        Assert.Contains("/ToUnicode", pdfTextLayer);
+        Assert.False(
+            ContainsPdfTextStringUtf16LeBom(pdf),
+            "PDF should not contain a UTF-16LE BOM in literal or hex text strings.");
     }
 
     [Fact]
@@ -127,7 +133,7 @@ public class InstitutionalReportPlaywrightPdfExporterTests
 
         Assert.DoesNotContain("qr-box", html);
         Assert.DoesNotContain(">QR", html);
-        Assert.Contains("معرف التحقق", html);
+        Assert.DoesNotContain("معرف التحقق", html);
         Assert.Equal(1, CountOccurrences(html, "<footer class=\"report-footer"));
 
         await using var exporter = CreateExporter();
@@ -284,11 +290,7 @@ public class InstitutionalReportPlaywrightPdfExporterTests
                 new ReadyChromiumProbe(),
                 NullLogger<ReportingPlaywrightBrowserHost>.Instance));
 
-    private static int CountPdfPages(byte[] pdf)
-    {
-        var content = System.Text.Encoding.Latin1.GetString(pdf);
-        return Regex.Matches(content, @"/Type\s*/Page(?!s)\b").Count;
-    }
+    private static int CountPdfPages(byte[] pdf) => ExtractMediaBoxes(pdf).Count;
 
     private static IReadOnlyList<PdfMediaBox> ExtractMediaBoxes(byte[] pdf)
     {
@@ -306,6 +308,21 @@ public class InstitutionalReportPlaywrightPdfExporterTests
 
     private static int CountOccurrences(string source, string value) =>
         source.Split(value, StringSplitOptions.None).Length - 1;
+
+    private static bool ContainsPdfTextStringUtf16LeBom(byte[] source)
+    {
+        for (var i = 0; i <= source.Length - 3; i++)
+        {
+            if (source[i] == (byte)'(' && source[i + 1] == 0xFF && source[i + 2] == 0xFE)
+                return true;
+        }
+
+        var content = System.Text.Encoding.Latin1.GetString(source);
+        if (content.Contains("<FFFE", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
+    }
 
     private static string WritePdfArtifact(string fileName, byte[] pdf)
     {

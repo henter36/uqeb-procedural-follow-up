@@ -25,7 +25,7 @@ public class InstitutionalReportRendererCultureTests
 
         Assert.Contains("2026-06-01", html);
         Assert.Contains("2026-06-24", html);
-        Assert.Contains("2026-06-24 09:30", html);
+        Assert.DoesNotContain("2026-06-24 09:30", html);
         Assert.DoesNotContain("1447", html);
     }
 

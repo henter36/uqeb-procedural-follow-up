@@ -27,7 +27,7 @@ public class InstitutionalReportRendererCoverTests
     }
 
     [Fact]
-    public void RenderManifest_CoverShowsFinalTotalPages_NotZero()
+    public void RenderManifest_CoverUsesQuietOfficialFieldsOnly()
     {
         var model = BuildModel();
         var manifest = _renderer.RenderManifest(model,
@@ -38,16 +38,22 @@ public class InstitutionalReportRendererCoverTests
 
         Assert.Equal(2, manifest.TotalPages);
         var cover = Assert.Single(manifest.Pages, p => p.SectionId == ReportSectionId.Cover);
-        Assert.Contains("إجمالي الصفحات", cover.HtmlContent);
-        Assert.Contains(">2<", cover.HtmlContent);
+        Assert.Contains("تقرير اختبار", cover.HtmlContent);
+        Assert.Contains("الفترة من 2026-01-01 إلى 2026-06-01", cover.HtmlContent);
+        Assert.Contains("رقم التقرير", cover.HtmlContent);
+        Assert.Contains("تاريخ الإصدار", cover.HtmlContent);
+        Assert.DoesNotContain("إجمالي الصفحات", cover.HtmlContent);
+        Assert.DoesNotContain("معرف التحقق", cover.HtmlContent);
+        Assert.DoesNotContain("البصمة", cover.HtmlContent);
+        Assert.DoesNotContain("cover-accent", cover.HtmlContent);
         Assert.DoesNotContain("0 من 0", cover.HtmlContent);
     }
 
     [Fact]
-    public void RenderManifest_SinglePageReport_ShowsOneOnCover()
+    public void RenderManifest_MetadataShowsSinglePageCount()
     {
         var model = BuildModel();
-        var manifest = _renderer.RenderManifest(model, [ReportSectionId.Cover]);
+        var manifest = _renderer.RenderManifest(model, [ReportSectionId.ReportMetadata]);
 
         Assert.Equal(1, manifest.TotalPages);
         var cover = Assert.Single(manifest.Pages);

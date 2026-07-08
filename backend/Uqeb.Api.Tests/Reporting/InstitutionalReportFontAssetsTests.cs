@@ -11,7 +11,8 @@ public class InstitutionalReportFontAssetsTests
         var css = InstitutionalReportFontAssets.BuildFontFaceCss();
 
         Assert.Contains("font-family: 'Uqeb Report Arabic'", css);
-        Assert.Contains("data:font/woff2;base64,", css);
+        Assert.Contains("data:font/truetype;base64,", css);
+        Assert.Contains("format('truetype')", css);
         Assert.DoesNotContain("url('')", css);
     }
 
@@ -21,7 +22,7 @@ public class InstitutionalReportFontAssetsTests
         var baseDir = AppContext.BaseDirectory;
         var fontsDir = Path.Combine(baseDir, "Reporting", "Assets", "Fonts");
 
-        Assert.True(File.Exists(Path.Combine(fontsDir, "NotoSansArabic-Regular.woff2")));
-        Assert.True(File.Exists(Path.Combine(fontsDir, "NotoSansArabic-Bold.woff2")));
+        Assert.True(File.Exists(Path.Combine(fontsDir, "NotoSansArabic-Regular.ttf")));
+        Assert.True(File.Exists(Path.Combine(fontsDir, "NotoSansArabic-Bold.ttf")));
     }
 }
