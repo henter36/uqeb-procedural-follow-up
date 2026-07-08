@@ -1114,7 +1114,7 @@ public sealed class InstitutionalReportRenderer
         var filterSummary = BuildFilterSummary(model.Filters);
         return $"""
         <h2 class="section-title">بيانات التقرير والفلاتر</h2>
-        <dl class="info-card">
+        <dl class="info-card info-card--metadata">
               <dt>رقم التقرير</dt><dd>{Esc(model.Metadata.ReportNumber)}</dd>
               <dt>نوع التقرير</dt><dd>{Esc(model.Metadata.ReportTypeName)}</dd>
               <dt>الفترة</dt><dd>من {FormatDate(model.Metadata.PeriodFrom)} إلى {FormatDate(model.Metadata.PeriodTo)}</dd>

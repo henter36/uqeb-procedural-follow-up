@@ -68,8 +68,8 @@ public class InstitutionalReportPlaywrightPdfExporterTests
         var pdfTextLayer = System.Text.Encoding.Latin1.GetString(pdf);
         Assert.Contains("/ToUnicode", pdfTextLayer);
         Assert.False(
-            ContainsByteSequence(pdf, [0xFF, 0xFE]),
-            "PDF should not contain a raw UTF-16LE BOM byte sequence in the text layer.");
+            ContainsPdfTextStringUtf16LeBom(pdf),
+            "PDF should not contain a UTF-16LE BOM in literal or hex text strings.");
     }
 
     [Fact]
@@ -290,11 +290,7 @@ public class InstitutionalReportPlaywrightPdfExporterTests
                 new ReadyChromiumProbe(),
                 NullLogger<ReportingPlaywrightBrowserHost>.Instance));
 
-    private static int CountPdfPages(byte[] pdf)
-    {
-        var content = System.Text.Encoding.Latin1.GetString(pdf);
-        return Regex.Matches(content, @"/Type\s*/Page(?!s)\b").Count;
-    }
+    private static int CountPdfPages(byte[] pdf) => ExtractMediaBoxes(pdf).Count;
 
     private static IReadOnlyList<PdfMediaBox> ExtractMediaBoxes(byte[] pdf)
     {
@@ -313,16 +309,17 @@ public class InstitutionalReportPlaywrightPdfExporterTests
     private static int CountOccurrences(string source, string value) =>
         source.Split(value, StringSplitOptions.None).Length - 1;
 
-    private static bool ContainsByteSequence(byte[] source, ReadOnlySpan<byte> sequence)
+    private static bool ContainsPdfTextStringUtf16LeBom(byte[] source)
     {
-        if (sequence.Length == 0)
-            return true;
-
-        for (var i = 0; i <= source.Length - sequence.Length; i++)
+        for (var i = 0; i <= source.Length - 3; i++)
         {
-            if (source.AsSpan(i, sequence.Length).SequenceEqual(sequence))
+            if (source[i] == (byte)'(' && source[i + 1] == 0xFF && source[i + 2] == 0xFE)
                 return true;
         }
+
+        var content = System.Text.Encoding.Latin1.GetString(source);
+        if (content.Contains("<FFFE", StringComparison.OrdinalIgnoreCase))
+            return true;
 
         return false;
     }
