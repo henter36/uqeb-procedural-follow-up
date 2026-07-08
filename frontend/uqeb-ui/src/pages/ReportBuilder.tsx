@@ -280,7 +280,13 @@ export default function ReportBuilderPage() {
   const allowedExportFormats = useMemo(
     () => Object.entries(exportFormatLabels).filter(([value]) => {
       const format = Number(value);
-      if (format === ExportFormat.Pdf) return canExportPdf || isAdmin;
+      if (
+        format === ExportFormat.Pdf ||
+        format === ExportFormat.Docx ||
+        format === ExportFormat.Html
+      ) {
+        return canExportPdf || isAdmin;
+      }
       if (format === ExportFormat.Xlsx) return canExportExcel || isAdmin;
       return false;
     }),

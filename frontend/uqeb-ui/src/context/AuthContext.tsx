@@ -30,7 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser((current) => current ? { ...current, permissions: nextPermissions } : current);
       })
       .catch(() => {
-        if (active) setPermissions([]);
+        // Keep last-known permissions on transient refresh failures.
       });
 
     return () => {

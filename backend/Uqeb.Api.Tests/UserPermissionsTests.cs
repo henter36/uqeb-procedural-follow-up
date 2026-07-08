@@ -49,6 +49,9 @@ public class UserPermissionsTests
     public async Task RequirePermissionAttribute_UserWithPermission_Allows()
     {
         await using var db = CreateDb(nameof(RequirePermissionAttribute_UserWithPermission_Allows));
+        db.Users.Add(CreateUser(2, UserRole.DepartmentUser));
+        db.UserPermissions.Add(new UserPermission { UserId = 2, PermissionCode = PermissionCode.ReportsExportPdf });
+        await db.SaveChangesAsync();
 
         var context = CreateAuthorizationContext(db, userId: 2, PermissionCode.ReportsExportPdf);
         var attribute = new RequirePermissionAttribute(PermissionCode.ReportsExportPdf);
@@ -56,6 +59,21 @@ public class UserPermissionsTests
         await attribute.OnAuthorizationAsync(context);
 
         Assert.Null(context.Result);
+    }
+
+    [Fact]
+    public async Task RequirePermissionAttribute_StaleJwtClaimWithoutDatabasePermission_Forbids()
+    {
+        await using var db = CreateDb(nameof(RequirePermissionAttribute_StaleJwtClaimWithoutDatabasePermission_Forbids));
+        db.Users.Add(CreateUser(2, UserRole.DepartmentUser));
+        await db.SaveChangesAsync();
+
+        var context = CreateAuthorizationContext(db, userId: 2, PermissionCode.ReportsExportPdf);
+        var attribute = new RequirePermissionAttribute(PermissionCode.ReportsExportPdf);
+
+        await attribute.OnAuthorizationAsync(context);
+
+        Assert.IsType<ForbidResult>(context.Result);
     }
 
     [Fact]
