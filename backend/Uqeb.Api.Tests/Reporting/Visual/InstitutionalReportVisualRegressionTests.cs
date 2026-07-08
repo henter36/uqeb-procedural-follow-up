@@ -327,7 +327,8 @@ public class InstitutionalReportStylesTests
         Assert.Contains("--report-primary", css);
         Assert.Contains("@font-face", css);
         Assert.Contains("Uqeb Report Arabic", css);
-        Assert.Contains("data:font/woff2;base64,", css);
+        Assert.Contains("data:font/truetype;base64,", css);
+        Assert.Contains("format('truetype')", css);
     }
 
     [Fact]
