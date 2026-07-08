@@ -10,66 +10,55 @@ export type PermissionGroup = {
   permissions: PermissionEntry[];
 };
 
-export const permissionGroups: PermissionGroup[] = [
-  {
-    title: 'لوحة المتابعة',
-    permissions: [{ code: 'DashboardView', label: 'عرض' }],
-  },
-  {
-    title: 'المعاملات',
-    permissions: [
-      { code: 'TransactionsView', label: 'عرض' },
-      { code: 'TransactionsCreate', label: 'إنشاء' },
-      { code: 'TransactionsEdit', label: 'تعديل' },
-      { code: 'TransactionsCancel', label: 'إلغاء/إغلاق' },
-      { code: 'TransactionsExport', label: 'تصدير' },
-      { code: 'TransactionDetailsView', label: 'عرض التفاصيل' },
-      { code: 'TransactionAssignmentsCreate', label: 'إنشاء الإحالات' },
-      { code: 'TransactionResponsesEdit', label: 'تعديل الردود' },
-      { code: 'TransactionAttachmentsManage', label: 'إدارة المرفقات' },
-    ],
-  },
-  {
-    title: 'التقارير',
-    permissions: [
-      { code: 'ReportsView', label: 'عرض' },
-      { code: 'ReportsBuild', label: 'إنشاء تقرير' },
-      { code: 'ReportsExportPdf', label: 'تصدير PDF' },
-      { code: 'ReportsExportExcel', label: 'تصدير Excel' },
-      { code: 'ReportsTemplatesManage', label: 'إدارة القوالب' },
-    ],
-  },
-  {
-    title: 'طباعة التعقيب',
-    permissions: [
-      { code: 'FollowUpPrintView', label: 'عرض' },
-      { code: 'FollowUpPrintCreate', label: 'إنشاء' },
-      { code: 'FollowUpPrintExport', label: 'تصدير/طباعة' },
-    ],
-  },
-  {
-    title: 'البيانات المرجعية',
-    permissions: [
-      { code: 'LookupsView', label: 'عرض' },
-      { code: 'LookupsManage', label: 'إدارة' },
-    ],
-  },
-  {
-    title: 'المستخدمون والصلاحيات',
-    permissions: [
-      { code: 'UsersView', label: 'عرض المستخدمين' },
-      { code: 'UsersManage', label: 'إدارة المستخدمين' },
-      { code: 'UserPermissionsManage', label: 'إدارة الصلاحيات' },
-    ],
-  },
-  {
-    title: 'إعدادات النظام',
-    permissions: [
-      { code: 'SystemSettingsView', label: 'عرض' },
-      { code: 'SystemSettingsManage', label: 'إدارة' },
-    ],
-  },
+type PermissionGroupDefinition = readonly [
+  title: string,
+  permissions: readonly (readonly [PermissionCode, string])[],
 ];
+
+const permissionGroupDefinitions: readonly PermissionGroupDefinition[] = [
+  ['لوحة المتابعة', [['DashboardView', 'عرض']]],
+  ['المعاملات', [
+    ['TransactionsView', 'عرض'],
+    ['TransactionsCreate', 'إنشاء'],
+    ['TransactionsEdit', 'تعديل'],
+    ['TransactionsCancel', 'إلغاء/إغلاق'],
+    ['TransactionsExport', 'تصدير'],
+    ['TransactionDetailsView', 'عرض التفاصيل'],
+    ['TransactionAssignmentsCreate', 'إنشاء الإحالات'],
+    ['TransactionResponsesEdit', 'تعديل الردود'],
+    ['TransactionAttachmentsManage', 'إدارة المرفقات'],
+  ]],
+  ['التقارير', [
+    ['ReportsView', 'عرض'],
+    ['ReportsBuild', 'إنشاء تقرير'],
+    ['ReportsExportPdf', 'تصدير PDF'],
+    ['ReportsExportExcel', 'تصدير Excel'],
+    ['ReportsTemplatesManage', 'إدارة القوالب'],
+  ]],
+  ['طباعة التعقيب', [
+    ['FollowUpPrintView', 'عرض'],
+    ['FollowUpPrintCreate', 'إنشاء'],
+    ['FollowUpPrintExport', 'تصدير/طباعة'],
+  ]],
+  ['البيانات المرجعية', [
+    ['LookupsView', 'عرض'],
+    ['LookupsManage', 'إدارة'],
+  ]],
+  ['المستخدمون والصلاحيات', [
+    ['UsersView', 'عرض المستخدمين'],
+    ['UsersManage', 'إدارة المستخدمين'],
+    ['UserPermissionsManage', 'إدارة الصلاحيات'],
+  ]],
+  ['إعدادات النظام', [
+    ['SystemSettingsView', 'عرض'],
+    ['SystemSettingsManage', 'إدارة'],
+  ]],
+];
+
+export const permissionGroups: PermissionGroup[] = permissionGroupDefinitions.map(([title, permissions]) => ({
+  title,
+  permissions: permissions.map(([code, label]) => ({ code, label })),
+}));
 
 export const knownPermissions = new Set<PermissionCode>(
   permissionGroups.flatMap((group) => group.permissions.map((permission) => permission.code)),
