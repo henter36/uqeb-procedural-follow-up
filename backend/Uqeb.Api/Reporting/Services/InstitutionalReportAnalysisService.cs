@@ -576,7 +576,7 @@ internal static class InstitutionalReportAnalysisService
         var topDepartment = departments.OrderByDescending(d => d.OverdueCount).ThenByDescending(d => d.OpenCount).FirstOrDefault();
         if (topDepartment is not null && topDepartment.OverdueCount > 0)
         {
-            var departmentText = IsUndefinedDepartmentName(topDepartment.DepartmentName)
+            var departmentText = ReportDepartmentNameNormalizer.IsUndefined(topDepartment.DepartmentName)
                 ? "معاملات بلا إدارة مختصة محددة"
                 : topDepartment.DepartmentName;
             insights.Add(new ExecutiveInsightDto
@@ -820,7 +820,7 @@ internal static class InstitutionalReportAnalysisService
         {
             ("missing_category", "تصنيف مفقود", s => string.IsNullOrWhiteSpace(s.CategoryName), "CategoryId/Category", "استكمال تصنيف المعاملة.", AnalyticalSeverity.Medium),
             ("missing_external_party", "جهة واردة مفقودة", s => string.IsNullOrWhiteSpace(s.IncomingParty), "IncomingFromPartyId/IncomingFrom", "ربط الجهة الواردة أو توثيقها.", AnalyticalSeverity.Medium),
-            ("missing_responsible_department", "معاملات بلا إدارة مختصة", s => IsUndefinedDepartmentName(s.ResponsibleDepartment), "Assignments/OutgoingDepartments", "تحديد الإدارة المختصة.", AnalyticalSeverity.High),
+            ("missing_responsible_department", "معاملات بلا إدارة مختصة", s => ReportDepartmentNameNormalizer.IsUndefined(s.ResponsibleDepartment), "Assignments/OutgoingDepartments", "تحديد الإدارة المختصة.", AnalyticalSeverity.High),
             ("missing_due_date", "مهلة رد مفقودة", s => s.RequiresResponse && !s.ResponseDueDate.HasValue && !s.EarliestPendingReplyDueDate.HasValue, "ResponseDueDate/AssignmentDueDate", "إدخال تاريخ المهلة عند اشتراط الرد.", AnalyticalSeverity.Medium),
             ("partial_outgoing_data", "بيانات صادر غير مكتملة", s => !string.IsNullOrWhiteSpace(s.OutgoingNumber) && !s.OutgoingDate.HasValue, "OutgoingNumber/OutgoingDate", "استكمال تاريخ الصادر.", AnalyticalSeverity.Low),
             ("invalid_date_sequence", "تسلسل تواريخ غير منطقي", s => s.ClosedAt.HasValue && s.ClosedAt.Value.Date < s.IncomingDate.Date, "IncomingDate/ClosedAt", "مراجعة تواريخ الوارد والإغلاق.", AnalyticalSeverity.High),
@@ -896,7 +896,7 @@ internal static class InstitutionalReportAnalysisService
         if (topDepartment is not null
             && topDepartment.OverdueCount > 0
             && !topDepartment.HasSmallSample
-            && !IsUndefinedDepartmentName(topDepartment.DepartmentName))
+            && !ReportDepartmentNameNormalizer.IsUndefined(topDepartment.DepartmentName))
         {
             findings.Add(new SignificantFindingDto
             {
@@ -1012,7 +1012,7 @@ internal static class InstitutionalReportAnalysisService
     };
 
     private static string ResponsibleScope(string? value) =>
-        IsUndefinedDepartmentName(value) ? "مالك البيانات" : value!.Trim();
+        ReportDepartmentNameNormalizer.DataQualityOwnerOrDepartment(value);
 
     private static List<TimeSeriesPointDto> BuildTimeSeries(IReadOnlyList<TransactionReportSnapshot> snapshots, ReportTimeGrouping grouping)
     {
@@ -1271,12 +1271,6 @@ internal static class InstitutionalReportAnalysisService
 
     private static string BlankToUnknown(string? value) =>
         string.IsNullOrWhiteSpace(value) ? "غير محدد" : value.Trim();
-
-    private static bool IsUndefinedDepartmentName(string? value)
-    {
-        var normalized = (value ?? string.Empty).Trim();
-        return normalized.Length == 0 || normalized is "—" or "-" or "غير محدد" or "غير محددة";
-    }
 
     private static DateTime PeriodStart(DateTime value, ReportTimeGrouping grouping)
     {

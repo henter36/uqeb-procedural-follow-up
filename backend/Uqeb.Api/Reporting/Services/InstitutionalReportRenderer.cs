@@ -15,8 +15,6 @@ public sealed class InstitutionalReportRenderer
     private const string DateTimeFormat = "yyyy-MM-dd HH:mm";
     private const string DefaultReportTitle = "تقرير المتابعة الإجرائية للمعاملات";
     private const string TransactionDetailsPageTitle = "المعاملات التفصيلية";
-    private const string UndefinedDepartmentLabel = "غير محدد";
-
     private static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromMilliseconds(250);
 
     private static readonly Regex JavascriptProtocolRegex = new(
@@ -458,12 +456,21 @@ public sealed class InstitutionalReportRenderer
             var renderedNumber = i + 1;
             var footerTotal = pages.Count;
 
+            var html = InjectFooter(
+                page.HtmlContent,
+                renderedNumber,
+                footerTotal,
+                isPartial,
+                reportTitle,
+                reportId);
+
+            if (page.SectionId == ReportSectionId.ReportMetadata)
+                html = UpdateMetadataTotalPages(html, footerTotal);
+
             pages[i] = page with
             {
                 RenderedPageNumber = renderedNumber,
-                HtmlContent = UpdateMetadataTotalPages(
-                    InjectFooter(page.HtmlContent, renderedNumber, footerTotal, isPartial, reportTitle, reportId),
-                    footerTotal)
+                HtmlContent = html
             };
         }
     }
@@ -591,16 +598,19 @@ public sealed class InstitutionalReportRenderer
 
     private static string UpdateMetadataTotalPages(string html, int totalPages)
     {
-        const string marker = "<dt>إجمالي الصفحات</dt><dd>";
-        var start = html.IndexOf(marker, StringComparison.Ordinal);
-        if (start < 0)
+        const string marker = "data-report-total-pages=\"true\">";
+        var markerIndex = html.IndexOf(marker, StringComparison.Ordinal);
+        if (markerIndex < 0)
             return html;
 
-        start += marker.Length;
-        var end = html.IndexOf("</dd>", start, StringComparison.Ordinal);
-        return end < 0
+        var valueStart = markerIndex + marker.Length;
+        var valueEnd = html.IndexOf("</dd>", valueStart, StringComparison.Ordinal);
+        return valueEnd < 0
             ? html
-            : string.Concat(html.AsSpan(0, start), totalPages.ToString("N0", CultureInfo.InvariantCulture), html.AsSpan(end));
+            : string.Concat(
+                html.AsSpan(0, valueStart),
+                totalPages.ToString("N0", CultureInfo.InvariantCulture),
+                html.AsSpan(valueEnd));
     }
 
     private static string EffectiveReportTitle(string? reportTitle) =>
@@ -800,7 +810,7 @@ public sealed class InstitutionalReportRenderer
             </tr>
             """;
         }));
-        var undefinedDepartmentNote = model.DepartmentPerformance.Any(d => IsUndefinedDepartment(d.DepartmentName) || d.DepartmentId == 0)
+        var undefinedDepartmentNote = model.DepartmentPerformance.Any(d => ReportDepartmentNameNormalizer.IsUndefined(d.DepartmentName) || d.DepartmentId == 0)
             ? """<div class="partial-note">ملاحظة جودة بيانات: توجد معاملات بلا إدارة مختصة محددة. صف "غير محدد" يعرض حجم السجلات غير المصنفة ولا يُستخدم كتقييم تنفيذي لإدارة بعينها.</div>"""
             : string.Empty;
         var totals = model.DepartmentPerformance.Aggregate(
@@ -1114,7 +1124,7 @@ public sealed class InstitutionalReportRenderer
           <dt>إجمالي النتائج المطابقة</dt><dd>{model.TotalMatchedRows:N0}</dd>
           <dt>صفوف التفاصيل المحمّلة</dt><dd>{model.Transactions.Count:N0}</dd>
           <dt>صفوف التفاصيل المصدرة</dt><dd>{model.ExportedDetailRows:N0}</dd>
-          <dt>إجمالي الصفحات</dt><dd>{model.Metadata.TotalPages:N0}</dd>
+          <dt>إجمالي الصفحات</dt><dd data-report-total-pages="true">{model.Metadata.TotalPages:N0}</dd>
           <dt>هل التفاصيل مقتطعة</dt><dd>{(model.DetailRowsTruncated ? "نعم" : "لا")}</dd>
           <dt>عدد أجزاء PDF</dt><dd>{(model.DetailPartsCount > 0 ? model.DetailPartsCount.ToString() : "—")}</dd>
           <dt>إصدار القالب</dt><dd>{Esc(InstitutionalReportStyles.TemplateVersion)}</dd>
@@ -1240,20 +1250,14 @@ public sealed class InstitutionalReportRenderer
         return "مؤشرات المتابعة";
     }
 
-    private static bool IsUndefinedDepartment(string? value)
-    {
-        var normalized = (value ?? string.Empty).Trim();
-        return normalized.Length == 0 || normalized is "—" or "-" or "غير محددة" or "غير محدد";
-    }
-
     private static string NormalizeDepartmentName(string? value) =>
-        IsUndefinedDepartment(value) ? UndefinedDepartmentLabel : DisplayValue(value);
+        ReportDepartmentNameNormalizer.IsUndefined(value) ? ReportDepartmentNameNormalizer.UndefinedDepartmentLabel : DisplayValue(value);
 
     private static string ResponsibleScopeLabel(string? value) =>
-        IsUndefinedDepartment(value) ? "مالك البيانات" : DisplayValue(value);
+        ReportDepartmentNameNormalizer.IsUndefined(value) ? "مالك البيانات" : DisplayValue(value);
 
     private static string RecommendationOwnerLabel(string? value) =>
-        IsUndefinedDepartment(value)
+        ReportDepartmentNameNormalizer.IsUndefined(value)
             ? "ملاحظة جودة بيانات: معاملات بلا إدارة مختصة"
             : $"الإدارة: {DisplayValue(value)}";
 

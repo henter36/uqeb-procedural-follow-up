@@ -67,7 +67,9 @@ public class InstitutionalReportPlaywrightPdfExporterTests
 
         var pdfTextLayer = System.Text.Encoding.Latin1.GetString(pdf);
         Assert.Contains("/ToUnicode", pdfTextLayer);
-        Assert.DoesNotContain("\uFFFE", pdfTextLayer);
+        Assert.False(
+            ContainsByteSequence(pdf, [0xFF, 0xFE]),
+            "PDF should not contain a raw UTF-16LE BOM byte sequence in the text layer.");
     }
 
     [Fact]
@@ -131,7 +133,7 @@ public class InstitutionalReportPlaywrightPdfExporterTests
 
         Assert.DoesNotContain("qr-box", html);
         Assert.DoesNotContain(">QR", html);
-        Assert.Contains("معرف التحقق", html);
+        Assert.DoesNotContain("معرف التحقق", html);
         Assert.Equal(1, CountOccurrences(html, "<footer class=\"report-footer"));
 
         await using var exporter = CreateExporter();
@@ -310,6 +312,20 @@ public class InstitutionalReportPlaywrightPdfExporterTests
 
     private static int CountOccurrences(string source, string value) =>
         source.Split(value, StringSplitOptions.None).Length - 1;
+
+    private static bool ContainsByteSequence(byte[] source, ReadOnlySpan<byte> sequence)
+    {
+        if (sequence.Length == 0)
+            return true;
+
+        for (var i = 0; i <= source.Length - sequence.Length; i++)
+        {
+            if (source.AsSpan(i, sequence.Length).SequenceEqual(sequence))
+                return true;
+        }
+
+        return false;
+    }
 
     private static string WritePdfArtifact(string fileName, byte[] pdf)
     {

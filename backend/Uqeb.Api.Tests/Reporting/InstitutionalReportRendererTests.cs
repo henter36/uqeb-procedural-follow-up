@@ -333,7 +333,7 @@ public class InstitutionalReportRendererTests
 
         var metadata = Assert.Single(manifest.Pages, p => p.SectionId == ReportSectionId.ReportMetadata);
         Assert.Equal(manifest.TotalPages, manifest.Pages.Count);
-        Assert.Contains($"<dt>إجمالي الصفحات</dt><dd>{manifest.TotalPages:N0}</dd>", metadata.HtmlContent);
+        Assert.Contains($"""<dd data-report-total-pages="true">{manifest.TotalPages:N0}</dd>""", metadata.HtmlContent);
     }
 
     [Fact]
@@ -352,8 +352,30 @@ public class InstitutionalReportRendererTests
 
         var metadata = Assert.Single(exportManifest.Pages);
         Assert.Equal(1, exportManifest.TotalPages);
-        Assert.Contains("<dt>إجمالي الصفحات</dt><dd>1</dd>", metadata.HtmlContent);
+        Assert.Contains("""<dd data-report-total-pages="true">1</dd>""", metadata.HtmlContent);
         Assert.Contains("الصفحة 1 من 1", metadata.HtmlContent);
+    }
+
+    [Fact]
+    public void BuildExportManifest_MetadataTotalPagesUpdateDoesNotDependOnLocalizedLabel()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        var source = _renderer.RenderManifest(model,
+        [
+            ReportSectionId.Cover,
+            ReportSectionId.ReportMetadata,
+        ]);
+        var metadataIndex = source.Pages.FindIndex(p => p.SectionId == ReportSectionId.ReportMetadata);
+        source.Pages[metadataIndex] = source.Pages[metadataIndex] with
+        {
+            HtmlContent = source.Pages[metadataIndex].HtmlContent.Replace("إجمالي الصفحات", "عدد صفحات الملف", StringComparison.Ordinal),
+        };
+
+        var exportManifest = _renderer.BuildExportManifest(source, [source.Pages[metadataIndex].OriginalPageNumber], new ReportExportRequestDto());
+
+        var metadata = Assert.Single(exportManifest.Pages);
+        Assert.Contains("عدد صفحات الملف", metadata.HtmlContent);
+        Assert.Contains("""<dd data-report-total-pages="true">1</dd>""", metadata.HtmlContent);
     }
 
     [Fact]
