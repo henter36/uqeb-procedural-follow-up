@@ -33,6 +33,7 @@ import {
 import { useReportBuilderExport } from './useReportBuilderExport';
 import { ReportPreviewDocument } from './ReportPreviewDocument';
 import { useAuth } from '../context/useAuth';
+import { usePermission } from '../auth/usePermission';
 import '../styles/institutional-report.css';
 
 const REPORT_TYPES = [
@@ -272,6 +273,10 @@ function getReportThumbClass(options: { isActive: boolean; isSelected: boolean }
 
 export default function ReportBuilderPage() {
   const { isAdmin } = useAuth();
+  const canBuildReports = usePermission('ReportsBuild');
+  const canExportPdf = usePermission('ReportsExportPdf');
+  const canExportExcel = usePermission('ReportsExportExcel');
+  const canExportReports = isAdmin || canExportPdf || canExportExcel;
   const [reportType, setReportType] = useState<typeof InstitutionalReportType[keyof typeof InstitutionalReportType]>(
     InstitutionalReportType.ExecutiveComprehensive,
   );
@@ -704,7 +709,7 @@ export default function ReportBuilderPage() {
       ? 'نطاق الصفحات'
       : 'تحديد الصور المصغرة';
 
-  if (!isAdmin)
+  if (!isAdmin && !canBuildReports)
     return <Navigate to="/" replace />;
 
   return (
@@ -719,9 +724,11 @@ export default function ReportBuilderPage() {
           <button type="button" className="btn btn-secondary" onClick={loadPreview} disabled={loading}>
             {loading ? 'جاري التوليد...' : 'معاينة التقرير'}
           </button>
-          <button type="button" className="btn btn-primary" onClick={openExportDialog} disabled={!manifest}>
-            تصدير
-          </button>
+          {canExportReports && (
+            <button type="button" className="btn btn-primary" onClick={openExportDialog} disabled={!manifest}>
+              تصدير
+            </button>
+          )}
         </div>
       </div>
 

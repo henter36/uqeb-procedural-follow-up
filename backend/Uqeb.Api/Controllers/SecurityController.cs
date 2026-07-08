@@ -8,7 +8,8 @@ namespace Uqeb.Api.Controllers;
 
 [ApiController]
 [Route("api/security")]
-[Authorize(Policy = Policies.AdminOnly)]
+[Authorize]
+[RequirePermission(PermissionCode.SystemSettingsView)]
 public class SecurityController : ControllerBase
 {
     private readonly ISecurityAuditService _security;

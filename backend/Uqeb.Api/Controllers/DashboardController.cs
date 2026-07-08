@@ -11,6 +11,7 @@ namespace Uqeb.Api.Controllers;
 [ApiController]
 [Route("api/dashboard")]
 [Authorize(Policy = Policies.ViewOperationalDashboard)]
+[RequirePermission(PermissionCode.DashboardView)]
 public class DashboardController : ControllerBase
 {
     private readonly IReportService _reports;

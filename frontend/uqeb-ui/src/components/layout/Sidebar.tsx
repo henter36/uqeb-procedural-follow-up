@@ -16,7 +16,10 @@ type SidebarProps = Readonly<{
 }>;
 
 export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
-  const { isAdmin, canClose, canOperateFollowUpPrint, isDepartmentUser, canReviewDepartmentResponse } = useAuth();
+  const auth = useAuth();
+  const { isAdmin, canClose, canOperateFollowUpPrint, isDepartmentUser, canReviewDepartmentResponse } = auth;
+  const hasPermission = auth.hasPermission ?? ((permission: Parameters<NonNullable<typeof auth.hasPermission>>[0]) =>
+    auth.user?.role === 'Admin' || auth.permissions?.includes(permission) || false);
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(() => getStorageItem(SIDEBAR_KEY) === 'true');
   const { pendingTotal } = usePendingPrintSummary(canOperateFollowUpPrint);
@@ -26,12 +29,17 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   }, [collapsed]);
 
   const isVisible = (item: NavItem) => {
-    if (item.adminOnly && !isAdmin) return false;
-    if (item.supervisorOnly && !canClose) return false;
-    if (item.followUpPrintOnly && !canOperateFollowUpPrint) return false;
-    if (item.departmentUserOnly && !isDepartmentUser) return false;
-    if (item.departmentResponseReviewOnly && !canReviewDepartmentResponse) return false;
-    if (item.hideForDepartmentUser && isDepartmentUser) return false;
+    const permitted = item.permission ? hasPermission(item.permission) : false;
+    const roleAllowed =
+      (!item.adminOnly || isAdmin) &&
+      (!item.supervisorOnly || canClose) &&
+      (!item.followUpPrintOnly || canOperateFollowUpPrint) &&
+      (!item.departmentUserOnly || isDepartmentUser) &&
+      (!item.departmentResponseReviewOnly || canReviewDepartmentResponse) &&
+      (!item.hideForDepartmentUser || !isDepartmentUser);
+
+    if (!roleAllowed && !permitted) return false;
+    if (item.permission && !permitted && !roleAllowed) return false;
     return true;
   };
 

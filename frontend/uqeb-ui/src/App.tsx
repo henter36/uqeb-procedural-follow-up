@@ -22,6 +22,7 @@ import TransactionImport from './pages/TransactionImport';
 import DepartmentTransactionsPage from './pages/DepartmentTransactionsPage';
 import DepartmentResponseReviewPage from './pages/DepartmentResponseReviewPage';
 import RecurringTemplatesPage from './pages/RecurringTemplatesPage';
+import UserPermissionsPage from './pages/UserPermissionsPage';
 import { institutionalReportsEnabled } from './config/institutionalReportsRuntime';
 import { PendingPrintSummaryProvider } from './context/PendingPrintSummaryContext';
 
@@ -44,7 +45,7 @@ export default function App() {
             <Route
               path="transactions"
               element={(
-                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']}>
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']} requiredPermission="TransactionsView">
                   <TransactionsList />
                 </ProtectedRoute>
               )}
@@ -52,7 +53,7 @@ export default function App() {
             <Route
               path="transactions/import"
               element={(
-                <ProtectedRoute requiredRoles={['Admin']}>
+                <ProtectedRoute requiredRoles={['Admin']} requiredPermission="TransactionsCreate">
                   <TransactionImport />
                 </ProtectedRoute>
               )}
@@ -60,16 +61,16 @@ export default function App() {
             <Route
               path="transactions/new"
               element={(
-                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']}>
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']} requiredPermission="TransactionsCreate">
                   <TransactionForm mode="create" />
                 </ProtectedRoute>
               )}
             />
-            <Route path="transactions/:id" element={<TransactionDetail />} />
+            <Route path="transactions/:id" element={<ProtectedRoute requiredPermission="TransactionDetailsView"><TransactionDetail /></ProtectedRoute>} />
             <Route
               path="transactions/:id/edit"
               element={(
-                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']}>
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']} requiredPermission="TransactionsEdit">
                   <TransactionForm mode="edit" />
                 </ProtectedRoute>
               )}
@@ -77,7 +78,7 @@ export default function App() {
             <Route
               path="reports"
               element={(
-                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']}>
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']} requiredPermission="ReportsView">
                   <Reports />
                 </ProtectedRoute>
               )}
@@ -86,7 +87,7 @@ export default function App() {
               <Route
                 path="report-builder"
                 element={(
-                  <ProtectedRoute requiredRoles={['Admin']}>
+                  <ProtectedRoute requiredRoles={['Admin']} requiredPermission="ReportsBuild">
                     <ReportBuilder />
                   </ProtectedRoute>
                 )}
@@ -95,7 +96,7 @@ export default function App() {
             <Route
               path="letter-template"
               element={(
-                <ProtectedRoute requiredRoles={['Admin', 'Supervisor']}>
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor']} requiredPermission="ReportsTemplatesManage">
                   <LetterTemplatePage />
                 </ProtectedRoute>
               )}
@@ -103,7 +104,7 @@ export default function App() {
             <Route
               path="follow-up-print/eligible"
               element={(
-                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']}>
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']} requiredPermission="FollowUpPrintCreate">
                   <FollowUpPrintEligiblePage />
                 </ProtectedRoute>
               )}
@@ -111,7 +112,7 @@ export default function App() {
             <Route
               path="follow-up-print/jobs"
               element={(
-                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']}>
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']} requiredPermission="FollowUpPrintView">
                   <FollowUpPrintJobsPage />
                 </ProtectedRoute>
               )}
@@ -119,7 +120,7 @@ export default function App() {
             <Route
               path="follow-up-print/jobs/:id"
               element={(
-                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']}>
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']} requiredPermission="FollowUpPrintView">
                   <FollowUpPrintJobDetailPage />
                 </ProtectedRoute>
               )}
@@ -127,7 +128,7 @@ export default function App() {
             <Route
               path="follow-up-print/pending"
               element={(
-                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']}>
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']} requiredPermission="FollowUpPrintView">
                   <FollowUpPrintPendingPage />
                 </ProtectedRoute>
               )}
@@ -135,7 +136,7 @@ export default function App() {
             <Route
               path="follow-up-print/parts/:jobId/:partNumber/print"
               element={(
-                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']}>
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']} requiredPermission="FollowUpPrintExport">
                   <FollowUpPrintPartPage />
                 </ProtectedRoute>
               )}
@@ -143,15 +144,23 @@ export default function App() {
             <Route
               path="users"
               element={(
-                <ProtectedRoute requiredRoles={['Admin']}>
+                <ProtectedRoute requiredRoles={['Admin']} requiredPermission="UsersView">
                   <UsersPage />
+                </ProtectedRoute>
+              )}
+            />
+            <Route
+              path="users/permissions"
+              element={(
+                <ProtectedRoute requiredRoles={['Admin']} requiredPermission="UserPermissionsManage">
+                  <UserPermissionsPage />
                 </ProtectedRoute>
               )}
             />
             <Route
               path="departments"
               element={(
-                <ProtectedRoute requiredRoles={['Admin']}>
+                <ProtectedRoute requiredRoles={['Admin']} requiredPermission="LookupsView">
                   <DepartmentsPage />
                 </ProtectedRoute>
               )}
@@ -159,7 +168,7 @@ export default function App() {
             <Route
               path="external-parties"
               element={(
-                <ProtectedRoute requiredRoles={['Admin']}>
+                <ProtectedRoute requiredRoles={['Admin']} requiredPermission="LookupsView">
                   <ExternalPartiesPage />
                 </ProtectedRoute>
               )}
@@ -167,7 +176,7 @@ export default function App() {
             <Route
               path="categories"
               element={(
-                <ProtectedRoute requiredRoles={['Admin']}>
+                <ProtectedRoute requiredRoles={['Admin']} requiredPermission="LookupsView">
                   <CategoriesPage />
                 </ProtectedRoute>
               )}
@@ -175,7 +184,7 @@ export default function App() {
             <Route
               path="recurring-transaction-templates"
               element={(
-                <ProtectedRoute requiredRoles={['Admin']}>
+                <ProtectedRoute requiredRoles={['Admin']} requiredPermission="ReportsBuild">
                   <RecurringTemplatesPage />
                 </ProtectedRoute>
               )}
@@ -183,7 +192,7 @@ export default function App() {
             <Route
               path="security"
               element={(
-                <ProtectedRoute requiredRoles={["Admin"]}>
+                <ProtectedRoute requiredRoles={["Admin"]} requiredPermission="SystemSettingsView">
                   <SecurityPage />
                 </ProtectedRoute>
               )}
@@ -191,7 +200,7 @@ export default function App() {
             <Route
               path="department-responses"
               element={(
-                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry', 'DepartmentUser']}>
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry', 'DepartmentUser']} requiredPermission="TransactionResponsesEdit">
                   <DepartmentTransactionsPage />
                 </ProtectedRoute>
               )}
@@ -199,7 +208,7 @@ export default function App() {
             <Route
               path="department-responses/review"
               element={(
-                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']}>
+                <ProtectedRoute requiredRoles={['Admin', 'Supervisor', 'DataEntry']} requiredPermission="TransactionResponsesEdit">
                   <DepartmentResponseReviewPage />
                 </ProtectedRoute>
               )}

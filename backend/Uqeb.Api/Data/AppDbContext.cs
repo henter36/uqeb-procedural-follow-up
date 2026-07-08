@@ -11,6 +11,7 @@ public class AppDbContext : DbContext
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
     public DbSet<User> Users => Set<User>();
+    public DbSet<UserPermission> UserPermissions => Set<UserPermission>();
     public DbSet<Department> Departments => Set<Department>();
     public DbSet<ExternalParty> ExternalParties => Set<ExternalParty>();
     public DbSet<Category> Categories => Set<Category>();
@@ -48,6 +49,14 @@ public class AppDbContext : DbContext
             e.HasIndex(u => u.Username).IsUnique();
             e.HasIndex(u => u.Email).IsUnique().HasFilter("[Email] IS NOT NULL");
             e.HasOne(u => u.Department).WithMany(d => d.Users).HasForeignKey(u => u.DepartmentId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<UserPermission>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.UserId, x.PermissionCode }).IsUnique();
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.Property(x => x.PermissionCode).HasConversion<int>();
         });
 
         modelBuilder.Entity<Department>(e =>

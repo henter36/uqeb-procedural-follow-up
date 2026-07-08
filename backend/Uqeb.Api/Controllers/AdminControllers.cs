@@ -13,7 +13,7 @@ namespace Uqeb.Api.Controllers;
 
 [ApiController]
 [Route("api/users")]
-[Authorize(Policy = Policies.CanManageUsers)]
+[Authorize]
 public class UsersController : ControllerBase
 {
     private readonly IUserService _users;
@@ -26,6 +26,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpGet]
+    [RequirePermission(PermissionCode.UsersView)]
     public async Task<IActionResult> GetAll([FromQuery] ReferenceDataListRequest? list, CancellationToken cancellationToken)
     {
         if (Request.IsPagedReferenceDataRequest())
@@ -38,6 +39,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpGet("{id}")]
+    [RequirePermission(PermissionCode.UsersView)]
     public async Task<IActionResult> GetById(int id)
     {
         var user = await _users.GetByIdAsync(id);
@@ -45,6 +47,8 @@ public class UsersController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Policy = Policies.CanManageUsers)]
+    [RequirePermission(PermissionCode.UsersManage)]
     public async Task<IActionResult> Create([FromBody] CreateUserRequest request)
     {
         try
@@ -62,6 +66,8 @@ public class UsersController : ControllerBase
     }
 
     [HttpPut("{id}")]
+    [Authorize(Policy = Policies.CanManageUsers)]
+    [RequirePermission(PermissionCode.UsersManage)]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateUserRequest request)
     {
         try
@@ -85,6 +91,8 @@ public class UsersController : ControllerBase
     }
 
     [HttpPost("{id}/reset-password")]
+    [Authorize(Policy = Policies.CanManageUsers)]
+    [RequirePermission(PermissionCode.UsersManage)]
     public async Task<IActionResult> ResetPassword(int id, [FromBody] ResetPasswordRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.NewPassword))
@@ -98,6 +106,7 @@ public class UsersController : ControllerBase
 [ApiController]
 [Route("api/departments")]
 [Authorize]
+[RequirePermission(PermissionCode.LookupsView)]
 public class DepartmentsController : ControllerBase
 {
     private readonly IDepartmentService _departments;
@@ -150,7 +159,7 @@ public class DepartmentsController : ControllerBase
     }
 
     [HttpPost]
-    [Authorize(Policy = Policies.AdminOnly)]
+    [RequirePermission(PermissionCode.LookupsManage)]
     public async Task<IActionResult> Create([FromBody] CreateDepartmentRequest request)
     {
         try
@@ -170,7 +179,7 @@ public class DepartmentsController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    [Authorize(Policy = Policies.AdminOnly)]
+    [RequirePermission(PermissionCode.LookupsManage)]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateDepartmentRequest request)
     {
         try
@@ -194,6 +203,7 @@ public class DepartmentsController : ControllerBase
 [ApiController]
 [Route("api/external-parties")]
 [Authorize]
+[RequirePermission(PermissionCode.LookupsView)]
 public class ExternalPartiesController : ControllerBase
 {
     private readonly IExternalPartyService _parties;
@@ -246,7 +256,7 @@ public class ExternalPartiesController : ControllerBase
     }
 
     [HttpPost]
-    [Authorize(Policy = Policies.AdminOnly)]
+    [RequirePermission(PermissionCode.LookupsManage)]
     public async Task<IActionResult> Create([FromBody] CreateExternalPartyRequest request)
     {
         try
@@ -266,7 +276,7 @@ public class ExternalPartiesController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    [Authorize(Policy = Policies.AdminOnly)]
+    [RequirePermission(PermissionCode.LookupsManage)]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateExternalPartyRequest request)
     {
         try

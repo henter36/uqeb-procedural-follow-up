@@ -12,6 +12,7 @@ namespace Uqeb.Api.Controllers;
 [ApiController]
 [Route("api/categories")]
 [Authorize]
+[RequirePermission(PermissionCode.LookupsView)]
 public class CategoriesController : ControllerBase
 {
     private readonly ICategoryService _categories;
@@ -64,7 +65,7 @@ public class CategoriesController : ControllerBase
     }
 
     [HttpPost]
-    [Authorize(Policy = Policies.AdminOnly)]
+    [RequirePermission(PermissionCode.LookupsManage)]
     public async Task<IActionResult> Create([FromBody] CreateCategoryRequest request)
     {
         try
@@ -84,7 +85,7 @@ public class CategoriesController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    [Authorize(Policy = Policies.AdminOnly)]
+    [RequirePermission(PermissionCode.LookupsManage)]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateCategoryRequest request)
     {
         try

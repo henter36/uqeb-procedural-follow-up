@@ -4,6 +4,7 @@ import {
   IconSettings, IconImport, IconSecurity, IconLetter, IconPrint,
 } from '../ui/icons';
 import { isInstitutionalReportsEnabled } from '../../config/featureFlags';
+import type { PermissionCode } from '../../auth/permissions';
 
 export type NavItem = {
   path: string;
@@ -17,6 +18,7 @@ export type NavItem = {
   hideForDepartmentUser?: boolean;
   matchPrefix?: boolean;
   badgeKey?: 'pendingPrints';
+  permission?: PermissionCode;
 };
 
 export type NavSection = {
@@ -29,41 +31,42 @@ export function buildNavSections(institutionalReportsEnabled = isInstitutionalRe
     {
       label: 'الرئيسية',
       items: [
-        { path: '/', label: 'لوحة المتابعة', icon: IconDashboard, hideForDepartmentUser: true },
-        { path: '/transactions', label: 'المعاملات', icon: IconTransactions, matchPrefix: true, hideForDepartmentUser: true },
-        { path: '/reports', label: 'التقارير', icon: IconReports, hideForDepartmentUser: true },
+        { path: '/', label: 'لوحة المتابعة', icon: IconDashboard, hideForDepartmentUser: true, permission: 'DashboardView' },
+        { path: '/transactions', label: 'المعاملات', icon: IconTransactions, matchPrefix: true, hideForDepartmentUser: true, permission: 'TransactionsView' },
+        { path: '/reports', label: 'التقارير', icon: IconReports, hideForDepartmentUser: true, permission: 'ReportsView' },
         ...(institutionalReportsEnabled
-          ? [{ path: '/report-builder', label: 'منشئ التقارير', icon: IconReports, adminOnly: true } satisfies NavItem]
+          ? [{ path: '/report-builder', label: 'منشئ التقارير', icon: IconReports, adminOnly: true, permission: 'ReportsBuild' } satisfies NavItem]
           : []),
       ],
     },
     {
       label: 'إفادات الإدارات',
       items: [
-        { path: '/department-responses', label: 'معاملات إدارتي', icon: IconTransactions, departmentUserOnly: true, matchPrefix: false },
-        { path: '/department-responses/review', label: 'إفادات بانتظار المراجعة', icon: IconReports, departmentResponseReviewOnly: true },
+        { path: '/department-responses', label: 'معاملات إدارتي', icon: IconTransactions, departmentUserOnly: true, matchPrefix: false, permission: 'TransactionResponsesEdit' },
+        { path: '/department-responses/review', label: 'إفادات بانتظار المراجعة', icon: IconReports, departmentResponseReviewOnly: true, permission: 'TransactionResponsesEdit' },
       ],
     },
     {
       label: 'العمليات',
       items: [
-        { path: '/reports?tab=waiting', label: 'الاحالات والردود', icon: IconReports, hideForDepartmentUser: true },
-        { path: '/recurring-transaction-templates', label: 'الالتزامات الدورية', icon: IconReports, adminOnly: true, matchPrefix: true },
-        { path: '/letter-template', label: 'قوالب خطاب التعقيب', icon: IconLetter, supervisorOnly: true, matchPrefix: true },
-        { path: '/follow-up-print/eligible', label: 'طباعة التعقيب — المستحقة', icon: IconPrint, followUpPrintOnly: true, matchPrefix: true },
-        { path: '/follow-up-print/jobs', label: 'مهام طباعة التعقيب', icon: IconPrint, followUpPrintOnly: true, matchPrefix: true },
-        { path: '/follow-up-print/pending', label: 'بانتظار تسجيل التعقيب', icon: IconPrint, followUpPrintOnly: true, badgeKey: 'pendingPrints' },
-        { path: '/transactions/import', label: 'استيراد Excel', icon: IconImport, adminOnly: true },
+        { path: '/reports?tab=waiting', label: 'الاحالات والردود', icon: IconReports, hideForDepartmentUser: true, permission: 'ReportsView' },
+        { path: '/recurring-transaction-templates', label: 'الالتزامات الدورية', icon: IconReports, adminOnly: true, matchPrefix: true, permission: 'ReportsBuild' },
+        { path: '/letter-template', label: 'قوالب خطاب التعقيب', icon: IconLetter, supervisorOnly: true, matchPrefix: true, permission: 'ReportsTemplatesManage' },
+        { path: '/follow-up-print/eligible', label: 'طباعة التعقيب — المستحقة', icon: IconPrint, followUpPrintOnly: true, matchPrefix: true, permission: 'FollowUpPrintCreate' },
+        { path: '/follow-up-print/jobs', label: 'مهام طباعة التعقيب', icon: IconPrint, followUpPrintOnly: true, matchPrefix: true, permission: 'FollowUpPrintView' },
+        { path: '/follow-up-print/pending', label: 'بانتظار تسجيل التعقيب', icon: IconPrint, followUpPrintOnly: true, badgeKey: 'pendingPrints', permission: 'FollowUpPrintView' },
+        { path: '/transactions/import', label: 'استيراد Excel', icon: IconImport, adminOnly: true, permission: 'TransactionsCreate' },
       ],
     },
     {
       label: 'الإدارة',
       items: [
-        { path: '/users', label: 'المستخدمون', icon: IconUsers, adminOnly: true },
-        { path: '/departments', label: 'الإدارات', icon: IconSettings, adminOnly: true },
-        { path: '/external-parties', label: 'الجهات الخارجية', icon: IconSettings, adminOnly: true },
-        { path: '/categories', label: 'التصنيفات', icon: IconSettings, adminOnly: true },
-        { path: '/security', label: 'الأمن والتنبيهات', icon: IconSecurity, adminOnly: true },
+        { path: '/users', label: 'المستخدمون', icon: IconUsers, adminOnly: true, permission: 'UsersView' },
+        { path: '/users/permissions', label: 'صلاحيات المستخدمين', icon: IconUsers, adminOnly: true, permission: 'UserPermissionsManage' },
+        { path: '/departments', label: 'الإدارات', icon: IconSettings, adminOnly: true, permission: 'LookupsView' },
+        { path: '/external-parties', label: 'الجهات الخارجية', icon: IconSettings, adminOnly: true, permission: 'LookupsView' },
+        { path: '/categories', label: 'التصنيفات', icon: IconSettings, adminOnly: true, permission: 'LookupsView' },
+        { path: '/security', label: 'الأمن والتنبيهات', icon: IconSecurity, adminOnly: true, permission: 'SystemSettingsView' },
       ],
     },
   ];
@@ -95,6 +98,7 @@ export function getRouteMeta(pathname: string, search: string): RouteMeta {
     '/follow-up-print/jobs': { title: 'مهام طباعة التعقيب', breadcrumbs: [{ label: 'طباعة التعقيب' }, { label: 'المهام' }] },
     '/follow-up-print/pending': { title: 'بانتظار تسجيل التعقيب', breadcrumbs: [{ label: 'طباعة التعقيب' }, { label: 'بانتظار تسجيل التعقيب' }] },
     '/users': { title: 'المستخدمون', breadcrumbs: [{ label: 'الإدارة' }, { label: 'المستخدمون' }] },
+    '/users/permissions': { title: 'صلاحيات المستخدمين', breadcrumbs: [{ label: 'الإدارة' }, { label: 'صلاحيات المستخدمين' }] },
     '/departments': { title: 'الإدارات', breadcrumbs: [{ label: 'الإدارة' }, { label: 'الإدارات' }] },
     '/external-parties': { title: 'الجهات الخارجية', breadcrumbs: [{ label: 'الإدارة' }, { label: 'الجهات الخارجية' }] },
     '/categories': { title: 'التصنيفات', breadcrumbs: [{ label: 'الإدارة' }, { label: 'التصنيفات' }] },

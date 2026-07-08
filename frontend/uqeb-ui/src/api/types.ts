@@ -5,6 +5,7 @@ export interface LoginResponse {
   role: string;
   departmentId?: number;
   departmentName?: string;
+  permissions?: string[];
 }
 
 export interface SystemVersionInfo {

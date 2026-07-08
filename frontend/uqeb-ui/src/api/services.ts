@@ -26,6 +26,7 @@ import type {
 export const authApi = {
   login: (username: string, password: string) =>
     api.post<LoginResponse>('/auth/login', { username, password }),
+  getMyPermissions: () => api.get<string[]>('/auth/me/permissions'),
 };
 
 export const systemApi = {
@@ -205,6 +206,9 @@ export const usersApi = {
   update: (id: number, data: Record<string, unknown>) => api.put<User>(`/users/${id}`, data),
   resetPassword: (id: number, newPassword: string) =>
     api.post(`/users/${id}/reset-password`, { newPassword }),
+  getPermissions: (id: number) => api.get<string[]>(`/users/${id}/permissions`),
+  replacePermissions: (id: number, permissions: string[]) =>
+    api.put(`/users/${id}/permissions`, { permissions }),
 };
 
 export const letterTemplatesApi = {

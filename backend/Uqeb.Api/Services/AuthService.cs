@@ -5,8 +5,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Uqeb.Api.Configuration;
+using Uqeb.Api.Authorization;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.Auth;
+using Uqeb.Api.Models.Enums;
 
 namespace Uqeb.Api.Services;
 
@@ -35,6 +37,14 @@ public class AuthService : IAuthService
         if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             return null;
 
+        var permissions = RolePermissionDefaults.GetPermissions(user.Role).ToHashSet();
+        var customPermissions = await _db.UserPermissions
+            .AsNoTracking()
+            .Where(x => x.UserId == user.Id)
+            .Select(x => x.PermissionCode)
+            .ToListAsync();
+        permissions.UnionWith(customPermissions);
+
         var claims = new List<Claim>
         {
             new(ClaimTypes.NameIdentifier, user.Id.ToString()),
@@ -44,6 +54,7 @@ public class AuthService : IAuthService
         };
         if (user.DepartmentId.HasValue)
             claims.Add(new Claim("departmentId", user.DepartmentId.Value.ToString()));
+        claims.AddRange(permissions.Select(permission => new Claim(PermissionClaims.PermissionClaimType, permission.ToString())));
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwt.Key));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -63,7 +74,8 @@ public class AuthService : IAuthService
             FullName = user.FullName,
             Role = user.Role.ToString(),
             DepartmentId = user.DepartmentId,
-            DepartmentName = user.Department?.Name
+            DepartmentName = user.Department?.Name,
+            Permissions = permissions.Select(x => x.ToString()).OrderBy(x => x).ToList()
         };
     }
 }
