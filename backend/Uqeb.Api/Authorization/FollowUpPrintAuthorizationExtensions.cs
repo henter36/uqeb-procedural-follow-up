@@ -18,10 +18,10 @@ public static class FollowUpPrintAuthorizationExtensions
                 .RequireAuthenticatedUser()
                 .Build();
 
-            options.AddPolicy(Policies.AdminOnly, p => p.RequireAssertion(context =>
-                HasAnyRole(context, UserRole.Admin) || HasPermission(context, PermissionCode.SystemSettingsManage)));
-            options.AddPolicy(Policies.SupervisorOrAdmin, p => p.RequireAssertion(context =>
-                HasAnyRole(context, UserRole.Admin, UserRole.Supervisor) || HasPermission(context, PermissionCode.TransactionDetailsView)));
+            options.AddPolicy(Policies.AdminOnly, p => p.RequireRole(UserRole.Admin.ToString()));
+            options.AddPolicy(Policies.SupervisorOrAdmin, p => p.RequireRole(
+                UserRole.Admin.ToString(),
+                UserRole.Supervisor.ToString()));
             options.AddPolicy(Policies.CanEditTransactions, p => p.RequireAssertion(context =>
                 HasAnyRole(context, UserRole.Admin, UserRole.Supervisor, UserRole.DataEntry) || HasPermission(context, PermissionCode.TransactionsEdit)));
             options.AddPolicy(Policies.CanCloseTransactions, p => p.RequireAssertion(context =>
@@ -56,9 +56,10 @@ public static class FollowUpPrintAuthorizationExtensions
             options.AddPolicy(Policies.SubmitDepartmentResponse, p => p.RequireAssertion(context =>
                 HasAnyRole(context, UserRole.Admin, UserRole.Supervisor, UserRole.DataEntry, UserRole.DepartmentUser) ||
                 HasPermission(context, PermissionCode.TransactionResponsesEdit)));
-            options.AddPolicy(Policies.ReviewDepartmentResponse, p => p.RequireAssertion(context =>
-                HasAnyRole(context, UserRole.Admin, UserRole.Supervisor, UserRole.DataEntry) ||
-                HasPermission(context, PermissionCode.TransactionResponsesEdit)));
+            options.AddPolicy(Policies.ReviewDepartmentResponse, p => p.RequireRole(
+                UserRole.Admin.ToString(),
+                UserRole.Supervisor.ToString(),
+                UserRole.DataEntry.ToString()));
         });
 
         return services;

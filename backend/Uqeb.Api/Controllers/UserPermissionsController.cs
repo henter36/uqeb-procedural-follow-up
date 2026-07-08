@@ -49,15 +49,33 @@ public sealed class UserPermissionsController : ControllerBase
         [FromBody] ReplaceUserPermissionsRequest request,
         CancellationToken cancellationToken)
     {
-        var exists = await _db.Users.AnyAsync(x => x.Id == userId, cancellationToken);
-        if (!exists)
+        var actorUserId = GetCurrentUserId();
+        if (actorUserId is null)
+            return Unauthorized();
+
+        var actor = await _db.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == actorUserId, cancellationToken);
+        if (actor is null)
+            return Unauthorized();
+
+        var targetUser = await _db.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == userId, cancellationToken);
+        if (targetUser is null)
             return NotFound();
+
+        if (actor.Id == userId && actor.Role != UserRole.Admin)
+            return Forbid();
 
         var requestedPermissions = new HashSet<PermissionCode>();
         foreach (var value in request.Permissions ?? [])
         {
-            if (!Enum.TryParse<PermissionCode>(value, ignoreCase: true, out var permission))
+            if (!Enum.TryParse<PermissionCode>(value, ignoreCase: true, out var permission) ||
+                !Enum.IsDefined(permission))
+            {
                 return BadRequest(new { error = $"Invalid permission: {value}" });
+            }
 
             requestedPermissions.Add(permission);
         }
@@ -68,6 +86,12 @@ public sealed class UserPermissionsController : ControllerBase
         var oldPermissions = current.Select(x => x.PermissionCode.ToString()).OrderBy(x => x).ToList();
         var newPermissions = requestedPermissions.Select(x => x.ToString()).OrderBy(x => x).ToList();
 
+        if (RemovesUserPermissionsManager(targetUser, current, requestedPermissions) &&
+            !await AnotherUserPermissionsManagerExistsAsync(userId, cancellationToken))
+        {
+            return Conflict(new { error = "Cannot remove the last user permissions manager." });
+        }
+
         _db.UserPermissions.RemoveRange(current);
         foreach (var permission in requestedPermissions)
         {
@@ -76,24 +100,55 @@ public sealed class UserPermissionsController : ControllerBase
                 UserId = userId,
                 PermissionCode = permission,
                 CreatedAt = DateTime.UtcNow,
-                CreatedById = GetCurrentUserId()
+                CreatedById = actorUserId
             });
         }
 
-        if (GetCurrentUserId() is int actorUserId)
-        {
-            _audit.TrackLog(
-                actorUserId,
-                AuditAction.UpdateUserPermissions,
-                "UserPermission",
-                userId,
-                null,
-                JsonSerializer.Serialize(oldPermissions),
-                JsonSerializer.Serialize(newPermissions));
-        }
+        _audit.TrackLog(
+            actorUserId.Value,
+            AuditAction.UpdateUserPermissions,
+            "UserPermission",
+            userId,
+            null,
+            JsonSerializer.Serialize(oldPermissions),
+            JsonSerializer.Serialize(newPermissions));
 
         await _db.SaveChangesAsync(cancellationToken);
         return NoContent();
+    }
+
+    private static bool RemovesUserPermissionsManager(
+        User targetUser,
+        IReadOnlyCollection<UserPermission> currentPermissions,
+        IReadOnlySet<PermissionCode> requestedPermissions)
+    {
+        var currentlyCanManage =
+            RolePermissionDefaults.GetPermissions(targetUser.Role).Contains(PermissionCode.UserPermissionsManage) ||
+            currentPermissions.Any(x => x.PermissionCode == PermissionCode.UserPermissionsManage);
+        var willManage =
+            RolePermissionDefaults.GetPermissions(targetUser.Role).Contains(PermissionCode.UserPermissionsManage) ||
+            requestedPermissions.Contains(PermissionCode.UserPermissionsManage);
+
+        return currentlyCanManage && !willManage;
+    }
+
+    private async Task<bool> AnotherUserPermissionsManagerExistsAsync(int targetUserId, CancellationToken cancellationToken)
+    {
+        var activeAdminExists = await _db.Users
+            .AsNoTracking()
+            .AnyAsync(user => user.Id != targetUserId && user.IsActive && user.Role == UserRole.Admin, cancellationToken);
+        if (activeAdminExists)
+            return true;
+
+        return await _db.Users
+            .AsNoTracking()
+            .AnyAsync(user =>
+                user.Id != targetUserId &&
+                user.IsActive &&
+                _db.UserPermissions.Any(permission =>
+                    permission.UserId == user.Id &&
+                    permission.PermissionCode == PermissionCode.UserPermissionsManage),
+                cancellationToken);
     }
 
     private int? GetCurrentUserId()

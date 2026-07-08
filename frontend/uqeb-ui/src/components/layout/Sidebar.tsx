@@ -30,16 +30,22 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
 
   const isVisible = (item: NavItem) => {
     const permitted = item.permission ? hasPermission(item.permission) : false;
-    const roleAllowed =
+    const hasRoleGate =
+      item.adminOnly ||
+      item.supervisorOnly ||
+      item.followUpPrintOnly ||
+      item.departmentUserOnly ||
+      item.departmentResponseReviewOnly;
+    const roleGateAllowed =
       (!item.adminOnly || isAdmin) &&
       (!item.supervisorOnly || canClose) &&
       (!item.followUpPrintOnly || canOperateFollowUpPrint) &&
       (!item.departmentUserOnly || isDepartmentUser) &&
-      (!item.departmentResponseReviewOnly || canReviewDepartmentResponse) &&
-      (!item.hideForDepartmentUser || !isDepartmentUser);
+      (!item.departmentResponseReviewOnly || canReviewDepartmentResponse);
 
-    if (!roleAllowed && !permitted) return false;
-    if (item.permission && !permitted && !roleAllowed) return false;
+    if (item.hideForDepartmentUser && isDepartmentUser && !permitted) return false;
+    if (item.permission && !permitted && (!hasRoleGate || !roleGateAllowed)) return false;
+    if (hasRoleGate && !roleGateAllowed && !permitted) return false;
     return true;
   };
 

@@ -64,6 +64,30 @@ public class UserPermissionsTests
     }
 
     [Fact]
+    public void RolePermissionDefaults_ReaderCannotWriteOrOpenReports()
+    {
+        var permissions = RolePermissionDefaults.GetPermissions(UserRole.Reader);
+
+        Assert.DoesNotContain(PermissionCode.TransactionsCreate, permissions);
+        Assert.DoesNotContain(PermissionCode.TransactionsEdit, permissions);
+        Assert.DoesNotContain(PermissionCode.ReportsView, permissions);
+        Assert.DoesNotContain(PermissionCode.UserPermissionsManage, permissions);
+    }
+
+    [Fact]
+    public void RolePermissionDefaults_DataEntryAndSupervisorRetainExpectedAccess()
+    {
+        var dataEntry = RolePermissionDefaults.GetPermissions(UserRole.DataEntry);
+        var supervisor = RolePermissionDefaults.GetPermissions(UserRole.Supervisor);
+
+        Assert.Contains(PermissionCode.TransactionsCreate, dataEntry);
+        Assert.Contains(PermissionCode.TransactionsEdit, dataEntry);
+        Assert.DoesNotContain(PermissionCode.TransactionsCancel, dataEntry);
+        Assert.Contains(PermissionCode.TransactionsCancel, supervisor);
+        Assert.Contains(PermissionCode.ReportsExportPdf, supervisor);
+    }
+
+    [Fact]
     public async Task Replace_ReplacesPermissionsAndWritesAuditLog()
     {
         await using var db = CreateDb(nameof(Replace_ReplacesPermissionsAndWritesAuditLog));
@@ -103,6 +127,40 @@ public class UserPermissionsTests
         }, CancellationToken.None);
 
         Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task Replace_NumericUndefinedPermission_ReturnsBadRequest()
+    {
+        await using var db = CreateDb(nameof(Replace_NumericUndefinedPermission_ReturnsBadRequest));
+        db.Users.Add(CreateUser(1, UserRole.Admin));
+        db.Users.Add(CreateUser(2, UserRole.Reader));
+        await db.SaveChangesAsync();
+        var controller = CreateController(db, actorUserId: 1);
+
+        var result = await controller.Replace(2, new ReplaceUserPermissionsRequest
+        {
+            Permissions = ["999999"]
+        }, CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task Replace_NonAdminCannotModifyOwnPermissions()
+    {
+        await using var db = CreateDb(nameof(Replace_NonAdminCannotModifyOwnPermissions));
+        db.Users.Add(CreateUser(2, UserRole.Reader));
+        db.UserPermissions.Add(new UserPermission { UserId = 2, PermissionCode = PermissionCode.UserPermissionsManage });
+        await db.SaveChangesAsync();
+        var controller = CreateController(db, actorUserId: 2);
+
+        var result = await controller.Replace(2, new ReplaceUserPermissionsRequest
+        {
+            Permissions = ["UserPermissionsManage", "SystemSettingsManage"]
+        }, CancellationToken.None);
+
+        Assert.IsType<ForbidResult>(result);
     }
 
     [Fact]

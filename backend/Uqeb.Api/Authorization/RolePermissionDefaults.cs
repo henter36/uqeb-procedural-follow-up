@@ -59,7 +59,6 @@ public static class RolePermissionDefaults
                 PermissionCode.DashboardView,
                 PermissionCode.TransactionsView,
                 PermissionCode.TransactionDetailsView,
-                PermissionCode.ReportsView,
                 PermissionCode.LookupsView,
             ],
             _ => new HashSet<PermissionCode>(),

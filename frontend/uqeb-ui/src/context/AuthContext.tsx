@@ -11,9 +11,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return stored ? JSON.parse(stored) : null;
   });
   const token = user?.token;
-  const [permissions, setPermissions] = useState<PermissionCode[]>(() =>
-    ((user?.permissions ?? []) as PermissionCode[])
-  );
+  const [permissions, setPermissions] = useState<PermissionCode[]>([]);
 
   useEffect(() => {
     if (user) localStorage.setItem('user', JSON.stringify(user));
@@ -31,7 +29,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setPermissions(nextPermissions);
         setUser((current) => current ? { ...current, permissions: nextPermissions } : current);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (active) setPermissions([]);
+      });
 
     return () => {
       active = false;

@@ -67,6 +67,15 @@ const permissionGroups: { title: string; permissions: PermissionEntry[] }[] = [
   },
 ];
 
+const knownPermissions = new Set<PermissionCode>(
+  permissionGroups.flatMap((group) => group.permissions.map(([permission]) => permission)),
+);
+
+function keepKnownPermissions(values: readonly string[]): PermissionCode[] {
+  return values.filter((value): value is PermissionCode =>
+    knownPermissions.has(value as PermissionCode));
+}
+
 export default function UserPermissionsPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
@@ -108,7 +117,7 @@ export default function UserPermissionsPage() {
     usersApi.getPermissions(selectedUserId)
       .then(({ data }) => {
         if (!active) return;
-        setSelectedPermissions(new Set(data as PermissionCode[]));
+        setSelectedPermissions(new Set(keepKnownPermissions(data)));
         setError(null);
         setSaved(false);
       })
@@ -137,7 +146,7 @@ export default function UserPermissionsPage() {
     setError(null);
     setSaved(false);
     try {
-      await usersApi.replacePermissions(selectedUserId, [...selectedPermissions]);
+      await usersApi.replacePermissions(selectedUserId, keepKnownPermissions([...selectedPermissions]));
       setSaved(true);
     } catch {
       setError('تعذر حفظ صلاحيات المستخدم.');

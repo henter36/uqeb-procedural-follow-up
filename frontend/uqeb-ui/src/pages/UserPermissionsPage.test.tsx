@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import UserPermissionsPage from './UserPermissionsPage';
 import { usersApi } from '../api/services';
 
@@ -28,6 +28,10 @@ describe('UserPermissionsPage', () => {
     vi.mocked(usersApi.replacePermissions).mockResolvedValue({} as never);
   });
 
+  afterEach(() => {
+    cleanup();
+  });
+
   it('saves selected permissions for the chosen user', async () => {
     const user = userEvent.setup();
     render(<UserPermissionsPage />);
@@ -44,5 +48,29 @@ describe('UserPermissionsPage', () => {
       );
     });
     expect(await screen.findByText('تم حفظ الصلاحيات.')).toBeInTheDocument();
+  });
+
+  it('does not save unknown permission values returned by the API', async () => {
+    vi.mocked(usersApi.getPermissions).mockResolvedValue({
+      data: ['ReportsExportPdf', 'NotAPermission'],
+    } as never);
+    render(<UserPermissionsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('تصدير PDF')).toBeChecked();
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: 'حفظ الصلاحيات' }));
+
+    await waitFor(() => {
+      expect(usersApi.replacePermissions).toHaveBeenCalledWith(
+        2,
+        expect.arrayContaining(['ReportsExportPdf']),
+      );
+      expect(usersApi.replacePermissions).toHaveBeenCalledWith(
+        2,
+        expect.not.arrayContaining(['NotAPermission']),
+      );
+    });
   });
 });
