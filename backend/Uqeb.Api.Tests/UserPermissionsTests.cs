@@ -84,7 +84,9 @@ public class UserPermissionsTests
         Assert.Contains(PermissionCode.TransactionsEdit, dataEntry);
         Assert.DoesNotContain(PermissionCode.TransactionsCancel, dataEntry);
         Assert.Contains(PermissionCode.TransactionsCancel, supervisor);
+        Assert.DoesNotContain(PermissionCode.ReportsBuild, supervisor);
         Assert.Contains(PermissionCode.ReportsExportPdf, supervisor);
+        Assert.DoesNotContain(PermissionCode.ReportsTemplatesManage, supervisor);
     }
 
     [Fact]
