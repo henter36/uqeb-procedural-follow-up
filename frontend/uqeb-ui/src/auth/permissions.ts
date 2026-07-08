@@ -23,4 +23,6 @@ export type PermissionCode =
   | 'UsersManage'
   | 'UserPermissionsManage'
   | 'SystemSettingsView'
-  | 'SystemSettingsManage';
+  | 'SystemSettingsManage'
+  | 'DataQualityView'
+  | 'DataQualityReview';
