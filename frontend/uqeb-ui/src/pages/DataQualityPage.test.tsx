@@ -112,6 +112,12 @@ function renderPage() {
   );
 }
 
+async function applyOverdueRule(user: ReturnType<typeof userEvent.setup>) {
+  await screen.findByText('اختر قاعدة جودة بيانات للبدء');
+  await user.type(screen.getAllByPlaceholderText('عدد الأيام')[0], '10');
+  await user.click(screen.getByRole('button', { name: 'تطبيق الفلاتر' }));
+}
+
 describe('DataQualityPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -124,20 +130,24 @@ describe('DataQualityPage', () => {
   });
 
   it('loads the page and displays summary cards and issue types', async () => {
+    const user = userEvent.setup();
     renderPage();
 
     expect(await screen.findByText('جودة البيانات')).toBeInTheDocument();
+    expect(screen.getByText('الفلاتر وقواعد الاكتشاف')).toBeInTheDocument();
+    expect(screen.getByText('النتائج')).toBeInTheDocument();
     expect(screen.getByText('إجمالي الملاحظات')).toBeInTheDocument();
     expect(screen.getByText('معاملات متأثرة')).toBeInTheDocument();
+    await applyOverdueRule(user);
     expect(screen.getByText('مدة التأخر تتجاوز الحد المحدد')).toBeInTheDocument();
-    expect(screen.getByText('تاريخ الإحالة أكبر من تاريخ الوارد')).toBeInTheDocument();
+    expect(screen.getAllByText('تاريخ الإحالة أكبر من تاريخ الوارد')).toHaveLength(2);
     expect(screen.getByText('فترة الرد أقل من الحد المحدد')).toBeInTheDocument();
   });
 
   it('sends selected rule filters to the API', async () => {
     const user = userEvent.setup();
     renderPage();
-    await screen.findAllByText('مدة التأخر تتجاوز الحد المحدد');
+    await screen.findByText('اختر قاعدة جودة بيانات للبدء');
 
     const dayInputs = screen.getAllByPlaceholderText('عدد الأيام');
     await user.type(dayInputs[0], '10');
@@ -157,7 +167,7 @@ describe('DataQualityPage', () => {
   it('maps review filter values to API parameters', async () => {
     const user = userEvent.setup();
     renderPage();
-    await screen.findAllByText('مدة التأخر تتجاوز الحد المحدد');
+    await screen.findByText('اختر قاعدة جودة بيانات للبدء');
 
     await user.selectOptions(screen.getByLabelText('حالة المراجعة'), 'all');
     await user.click(screen.getByRole('button', { name: 'تطبيق الفلاتر' }));
@@ -175,19 +185,16 @@ describe('DataQualityPage', () => {
   it('marks and unmarks issues then reloads results', async () => {
     const user = userEvent.setup();
     renderPage();
-    await screen.findAllByText('مدة التأخر تتجاوز الحد المحدد');
-
-    const dayInputs = screen.getAllByPlaceholderText('عدد الأيام');
-    await user.type(dayInputs[0], '10');
-    await user.click(screen.getByRole('button', { name: 'تطبيق الفلاتر' }));
+    await applyOverdueRule(user);
     await waitFor(() => expect(services.dataQualityApi.getSummary).toHaveBeenLastCalledWith(
       expect.objectContaining({ overdueMoreThanDays: 10 }),
     ));
 
+    const dayInputs = screen.getAllByPlaceholderText('عدد الأيام');
     await user.clear(dayInputs[0]);
     await user.type(dayInputs[0], '20');
 
-    await user.click(screen.getAllByRole('button', { name: 'تمت المراجعة' })[0]);
+    await user.click(screen.getAllByRole('button', { name: 'تعليم كمراجعة' })[0]);
     await waitFor(() => expect(services.dataQualityApi.markReviewed).toHaveBeenCalledWith({
       issueKey: 'tx:1:overdue-duration',
       transactionId: 1,
@@ -213,42 +220,54 @@ describe('DataQualityPage', () => {
     vi.mocked(services.dataQualityApi.markReviewed).mockRejectedValueOnce(new Error('failed'));
     const user = userEvent.setup();
     renderPage();
-    await screen.findAllByText('مدة التأخر تتجاوز الحد المحدد');
+    await applyOverdueRule(user);
 
-    await user.click(screen.getAllByRole('button', { name: 'تمت المراجعة' })[0]);
+    await user.click(screen.getAllByRole('button', { name: 'تعليم كمراجعة' })[0]);
 
     expect(await screen.findByText('تعذر تعليم الملاحظة كمراجعة.')).toBeInTheDocument();
     expect(screen.queryByText('تمت مراجعة هذه الملاحظة، ولن تظهر في النتائج الافتراضية القادمة.')).not.toBeInTheDocument();
-    expect(services.dataQualityApi.getSummary).toHaveBeenCalledTimes(1);
+    expect(services.dataQualityApi.getSummary).toHaveBeenCalledTimes(2);
   });
 
   it('shows an error without success feedback when unmarking an issue fails', async () => {
     vi.mocked(services.dataQualityApi.unmarkReviewed).mockRejectedValueOnce(new Error('failed'));
     const user = userEvent.setup();
     renderPage();
-    await screen.findAllByText('مدة التأخر تتجاوز الحد المحدد');
+    await applyOverdueRule(user);
 
     await user.click(screen.getByRole('button', { name: 'إزالة المراجعة' }));
 
     expect(await screen.findByText('تعذر إزالة علامة المراجعة.')).toBeInTheDocument();
     expect(screen.queryByText('تمت إزالة علامة المراجعة، وستعود الملاحظة للظهور إذا بقيت القاعدة منطبقة.')).not.toBeInTheDocument();
-    expect(services.dataQualityApi.getSummary).toHaveBeenCalledTimes(1);
+    expect(services.dataQualityApi.getSummary).toHaveBeenCalledTimes(2);
   });
 
   it('opens the existing transaction details page', async () => {
     const user = userEvent.setup();
     renderPage();
-    await screen.findAllByText('مدة التأخر تتجاوز الحد المحدد');
+    await applyOverdueRule(user);
 
     await user.click(screen.getAllByRole('button', { name: 'فتح المعاملة' })[0]);
 
     expect(navigate).toHaveBeenCalledWith('/transactions/1');
   });
 
-  it('shows an empty state when no results match filters', async () => {
+  it('shows a guided empty state before any rule is applied', async () => {
     mockSummary({ ...summary, totalIssues: 0, issues: [] });
 
     renderPage();
+
+    expect(await screen.findByText('اختر قاعدة جودة بيانات للبدء')).toBeInTheDocument();
+  });
+
+  it('shows an empty state when no results match selected rules', async () => {
+    mockSummary({ ...summary, totalIssues: 0, issues: [] });
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText('اختر قاعدة جودة بيانات للبدء');
+    await user.type(screen.getAllByPlaceholderText('عدد الأيام')[0], '10');
+    await user.click(screen.getByRole('button', { name: 'تطبيق الفلاتر' }));
 
     expect(await screen.findByText('لا توجد ملاحظات مطابقة للفلاتر المحددة.')).toBeInTheDocument();
   });
