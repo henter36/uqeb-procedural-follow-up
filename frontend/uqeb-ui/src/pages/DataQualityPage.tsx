@@ -155,7 +155,7 @@ export default function DataQualityPage() {
         </p>
       </section>
 
-      {message && <div className="alert alert-success dq-alert" role="status">{message}</div>}
+      {message && <output className="alert alert-success dq-alert" aria-live="polite">{message}</output>}
       {error && <div className="alert alert-error dq-alert" role="alert">{error}</div>}
 
       <DataQualitySummaryCards summary={summary} generatedAt={generatedAt} />
@@ -410,6 +410,15 @@ function DataQualityIssuesTable({
   onOpenTransaction,
   onUnmarkReviewed,
 }: DataQualityIssuesTableProps) {
+  const resultsContent = renderDataQualityIssuesContent({
+    hasAppliedRule,
+    issues,
+    loading,
+    onMarkReviewed,
+    onOpenTransaction,
+    onUnmarkReviewed,
+  });
+
   return (
     <section className="dq-section dq-results-section" aria-labelledby="dq-results-heading">
       <div className="dq-section-header">
@@ -419,93 +428,163 @@ function DataQualityIssuesTable({
         </div>
       </div>
 
-      {loading ? (
-        <TableSkeleton rows={5} cols={8} />
-      ) : !hasAppliedRule ? (
-        <EmptyState
-          icon="🔎"
-          title="اختر قاعدة جودة بيانات للبدء"
-          description="حدد مدة التأخر أو فعّل قاعدة تاريخ الإحالة أو أدخل حد فترة الرد، ثم اضغط تطبيق الفلاتر."
-        />
-      ) : issues.length === 0 ? (
-        <EmptyState
-          icon="✅"
-          title="لا توجد ملاحظات مطابقة للفلاتر المحددة."
-          description="يمكنك تعديل القواعد أو حالة المراجعة لتوسيع نطاق البحث."
-        />
-      ) : (
-        <div className="table-wrapper dq-table-wrapper">
-          <table className="data-table dq-issues-table">
-            <thead>
-              <tr>
-                <th>الخطورة</th>
-                <th>الملاحظة</th>
-                <th>المعاملة</th>
-                <th>الإدارة</th>
-                <th>القيمة</th>
-                <th>الأثر والإجراء</th>
-                <th>المراجعة</th>
-                <th>إجراءات</th>
-              </tr>
-            </thead>
-            <tbody>
-              {issues.map((issue) => (
-                <tr key={issue.id}>
-                  <td>
-                    <span className={`badge ${severityBadgeClass(issue.severity)}`}>{issue.severityLabel}</span>
-                  </td>
-                  <td className="dq-issue-cell">
-                    <span className="badge badge-blue">{issue.category}</span>
-                    <strong>{issue.issueType}</strong>
-                    <span className="dq-muted">{issue.fieldName}</span>
-                  </td>
-                  <td className="dq-transaction-cell">
-                    <strong>{issue.trackingNumber ?? issue.transactionId ?? '—'}</strong>
-                    <span>الوارد: {issue.incomingNumber ?? '—'}</span>
-                    <span className="dq-subject">{issue.subject ?? '—'}</span>
-                  </td>
-                  <td>{issue.departmentName ? <span className="badge badge-gray">{issue.departmentName}</span> : '—'}</td>
-                  <td className="dq-value-cell">
-                    <span>{issue.currentValue ?? '—'}</span>
-                    {issue.daysValue !== undefined && issue.daysValue !== null && (
-                      <span className="badge badge-purple">{issue.daysValue} يوم</span>
-                    )}
-                  </td>
-                  <td className="dq-impact-cell">
-                    <span>{issue.impact}</span>
-                    <strong>{issue.suggestedAction}</strong>
-                  </td>
-                  <td>
-                    <span className={`badge ${issue.isReviewed ? 'badge-green' : 'badge-yellow'}`}>
-                      {issue.isReviewed ? 'مراجع' : 'غير مراجع'}
-                    </span>
-                  </td>
-                  <td>
-                    <div className="dq-row-actions">
-                      {issue.transactionId && (
-                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => onOpenTransaction(issue.transactionId!)}>
-                          فتح المعاملة
-                        </button>
-                      )}
-                      {!issue.isReviewed ? (
-                        <button type="button" className="btn btn-outline btn-sm" onClick={() => onMarkReviewed(issue)}>
-                          تعليم كمراجعة
-                        </button>
-                      ) : (
-                        <button type="button" className="btn btn-outline btn-sm" onClick={() => onUnmarkReviewed(issue)}>
-                          إزالة المراجعة
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {resultsContent}
     </section>
   );
+}
+
+type DataQualityIssuesContentProps = Omit<DataQualityIssuesTableProps, 'totalIssues'>;
+
+function renderDataQualityIssuesContent({
+  hasAppliedRule,
+  issues,
+  loading,
+  onMarkReviewed,
+  onOpenTransaction,
+  onUnmarkReviewed,
+}: DataQualityIssuesContentProps) {
+  if (loading) {
+    return <TableSkeleton rows={5} cols={8} />;
+  }
+
+  if (!hasAppliedRule) {
+    return (
+      <EmptyState
+        icon="🔎"
+        title="اختر قاعدة جودة بيانات للبدء"
+        description="حدد مدة التأخر أو فعّل قاعدة تاريخ الإحالة أو أدخل حد فترة الرد، ثم اضغط تطبيق الفلاتر."
+      />
+    );
+  }
+
+  if (issues.length === 0) {
+    return (
+      <EmptyState
+        icon="✅"
+        title="لا توجد ملاحظات مطابقة للفلاتر المحددة."
+        description="يمكنك تعديل القواعد أو حالة المراجعة لتوسيع نطاق البحث."
+      />
+    );
+  }
+
+  return (
+    <div className="table-wrapper dq-table-wrapper">
+      <table className="data-table dq-issues-table">
+        <thead>
+          <tr>
+            <th>الخطورة</th>
+            <th>الملاحظة</th>
+            <th>المعاملة</th>
+            <th>الإدارة</th>
+            <th>القيمة</th>
+            <th>الأثر والإجراء</th>
+            <th>المراجعة</th>
+            <th>إجراءات</th>
+          </tr>
+        </thead>
+        <tbody>
+          {issues.map((issue) => (
+            <DataQualityIssueRow
+              key={issue.id}
+              issue={issue}
+              onMarkReviewed={onMarkReviewed}
+              onOpenTransaction={onOpenTransaction}
+              onUnmarkReviewed={onUnmarkReviewed}
+            />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+type DataQualityIssueRowProps = Readonly<{
+  issue: DataQualityIssue;
+  onMarkReviewed: (issue: DataQualityIssue) => void;
+  onOpenTransaction: (transactionId: number) => void;
+  onUnmarkReviewed: (issue: DataQualityIssue) => void;
+}>;
+
+function DataQualityIssueRow({
+  issue,
+  onMarkReviewed,
+  onOpenTransaction,
+  onUnmarkReviewed,
+}: DataQualityIssueRowProps) {
+  const transactionDisplayValue = getIssueTransactionDisplayValue(issue);
+  const transactionId = issue.transactionId;
+
+  return (
+    <tr>
+      <td>
+        <span className={`badge ${severityBadgeClass(issue.severity)}`}>{issue.severityLabel}</span>
+      </td>
+      <td>
+        <div className="dq-issue-cell">
+          <span className="badge badge-blue">{issue.category}</span>
+          <strong>{issue.issueType}</strong>
+          <span className="dq-muted">{issue.fieldName}</span>
+        </div>
+      </td>
+      <td>
+        <div className="dq-transaction-cell">
+          <strong>{transactionDisplayValue}</strong>
+          <span>الوارد: {issue.incomingNumber ?? '—'}</span>
+          <span className="dq-subject">{issue.subject ?? '—'}</span>
+        </div>
+      </td>
+      <td>{issue.departmentName ? <span className="badge badge-gray">{issue.departmentName}</span> : '—'}</td>
+      <td>
+        <div className="dq-value-cell">
+          <span>{issue.currentValue ?? '—'}</span>
+          {issue.daysValue !== undefined && issue.daysValue !== null && (
+            <span className="badge badge-purple">{issue.daysValue} يوم</span>
+          )}
+        </div>
+      </td>
+      <td>
+        <div className="dq-impact-cell">
+          <span>{issue.impact}</span>
+          <strong>{issue.suggestedAction}</strong>
+        </div>
+      </td>
+      <td>
+        <span className={`badge ${issue.isReviewed ? 'badge-green' : 'badge-yellow'}`}>
+          {issue.isReviewed ? 'مراجع' : 'غير مراجع'}
+        </span>
+      </td>
+      <td>
+        <div className="dq-row-actions">
+          {transactionId && (
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => onOpenTransaction(transactionId)}>
+              فتح المعاملة
+            </button>
+          )}
+          {!issue.isReviewed ? (
+            <button type="button" className="btn btn-outline btn-sm" onClick={() => onMarkReviewed(issue)}>
+              تعليم كمراجعة
+            </button>
+          ) : (
+            <button type="button" className="btn btn-outline btn-sm" onClick={() => onUnmarkReviewed(issue)}>
+              إزالة المراجعة
+            </button>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function getIssueTransactionDisplayValue(issue: DataQualityIssue): string {
+  if (issue.trackingNumber) {
+    return issue.trackingNumber;
+  }
+
+  if (issue.transactionId) {
+    return String(issue.transactionId);
+  }
+
+  return '—';
 }
 
 function severityBadgeClass(severity: number): string {

@@ -1474,7 +1474,7 @@
 .dq-stat-card--red::before { background: var(--color-danger); }
 .dq-stat-card--orange::before { background: var(--color-warning); }
 .dq-stat-card--yellow::before { background: #d97706; }
-.dq-stat-card--gray::before { background: var(--gray-400); }
+.dq-stat-card--gray::before { background: var(--color-text-muted); }
 
 .dq-filter-card {
   border-top: 3px solid var(--color-primary);
