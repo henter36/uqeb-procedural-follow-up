@@ -92,6 +92,44 @@ const summary: DataQualitySummary = {
   ],
 };
 
+const duplicateSummary: DataQualitySummary = {
+  totalIssues: 1,
+  criticalCount: 0,
+  highCount: 1,
+  mediumCount: 0,
+  lowCount: 0,
+  affectedTransactions: 2,
+  generatedAtUtc: '2026-07-08T09:00:00Z',
+  issues: [
+    {
+      id: 'tx-pair:1:2:duplicate-similar',
+      issueKey: 'tx-pair:1:2:duplicate-similar',
+      ruleCode: 'PotentialDuplicateOrSimilarTransaction',
+      severity: 3,
+      severityLabel: 'عالية',
+      category: 'التكرار والتشابه',
+      issueType: 'معاملات مكررة أو متشابهة',
+      transactionId: 1,
+      trackingNumber: 'TRK-001',
+      incomingNumber: 'و/١٤٤٧/001',
+      subject: 'طلب اعتماد صرف',
+      relatedTransactionId: 2,
+      relatedTrackingNumber: 'TRK-002',
+      relatedIncomingNumber: 'و-1447-001',
+      relatedIncomingDate: '2026-07-01T00:00:00',
+      similarityReason: 'نفس رقم الوارد والتاريخ والجهة',
+      similarityScore: 1,
+      departmentName: 'وزارة المالية',
+      fieldName: 'IncomingNumber/IncomingDate/IncomingParty/Subject',
+      currentValue: 'و/١٤٤٧/001 (2026-07-01) ↔ و-1447-001 (2026-07-01)',
+      daysValue: 0,
+      impact: 'المعاملة TRK-001 قد تتشابه مع TRK-002',
+      suggestedAction: 'فتح المعاملتين ومراجعة ما إذا كانتا تمثلان نفس الطلب.',
+      isReviewed: false,
+    },
+  ],
+};
+
 function mockSummary(data: DataQualitySummary = summary) {
   vi.mocked(services.dataQualityApi.getSummary).mockResolvedValue(
     { data } as Awaited<ReturnType<typeof services.dataQualityApi.getSummary>>,
@@ -136,6 +174,7 @@ describe('DataQualityPage', () => {
     expect(await screen.findByText('جودة البيانات')).toBeInTheDocument();
     expect(screen.getByText('الفلاتر وقواعد الاكتشاف')).toBeInTheDocument();
     expect(screen.getByText('النتائج')).toBeInTheDocument();
+    expect(screen.getByText('معاملات مكررة أو متشابهة')).toBeInTheDocument();
     expect(screen.getByText('إجمالي الملاحظات')).toBeInTheDocument();
     expect(screen.getByText('معاملات متأثرة')).toBeInTheDocument();
     await applyOverdueRule(user);
@@ -153,6 +192,7 @@ describe('DataQualityPage', () => {
     await user.type(dayInputs[0], '10');
     await user.click(screen.getByLabelText('عرض المعاملات التي تاريخ الإحالة فيها أكبر من تاريخ الوارد'));
     await user.type(dayInputs[1], '5');
+    await user.click(screen.getByLabelText('عرض معاملات مكررة أو متشابهة'));
     await user.click(screen.getByRole('button', { name: 'تطبيق الفلاتر' }));
 
     await waitFor(() => expect(services.dataQualityApi.getSummary).toHaveBeenLastCalledWith(
@@ -160,6 +200,7 @@ describe('DataQualityPage', () => {
         overdueMoreThanDays: 10,
         includeReferralDateAfterIncomingDate: true,
         responsePeriodLessThanDays: 5,
+        includePotentialDuplicateTransactions: true,
       }),
     ));
   });
@@ -250,6 +291,24 @@ describe('DataQualityPage', () => {
     await user.click(screen.getAllByRole('button', { name: 'فتح المعاملة' })[0]);
 
     expect(navigate).toHaveBeenCalledWith('/transactions/1');
+  });
+
+  it('opens both transactions for a potential duplicate pair', async () => {
+    mockSummary(duplicateSummary);
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText('اختر قاعدة جودة بيانات للبدء');
+    await user.click(screen.getByLabelText('عرض معاملات مكررة أو متشابهة'));
+    await user.click(screen.getByRole('button', { name: 'تطبيق الفلاتر' }));
+
+    expect(await screen.findByText('نفس رقم الوارد والتاريخ والجهة')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'فتح المعاملة الأولى' }));
+    expect(navigate).toHaveBeenCalledWith('/transactions/1');
+
+    await user.click(screen.getByRole('button', { name: 'فتح المعاملة المشابهة' }));
+    expect(navigate).toHaveBeenCalledWith('/transactions/2');
   });
 
   it('shows a guided empty state before any rule is applied', async () => {

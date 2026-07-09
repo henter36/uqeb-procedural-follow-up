@@ -27,6 +27,12 @@ export type DataQualityIssue = {
   trackingNumber?: string;
   incomingNumber?: string;
   subject?: string;
+  relatedTransactionId?: number;
+  relatedTrackingNumber?: string;
+  relatedIncomingNumber?: string;
+  relatedIncomingDate?: string;
+  similarityReason?: string;
+  similarityScore?: number;
   departmentName?: string;
   fieldName: string;
   currentValue?: string;

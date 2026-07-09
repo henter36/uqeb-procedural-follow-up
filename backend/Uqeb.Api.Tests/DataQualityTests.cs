@@ -147,6 +147,153 @@ public sealed class DataQualityTests
     }
 
     [Fact]
+    public async Task GetSummary_WhenPotentialDuplicateRuleEnabled_ReturnsStrongIncomingMatch()
+    {
+        await using var db = CreateDb(nameof(GetSummary_WhenPotentialDuplicateRuleEnabled_ReturnsStrongIncomingMatch));
+        SeedUser(db);
+        db.Transactions.Add(CreateTransaction(
+            1,
+            incomingNumber: "و/١٤٤٧/001",
+            incomingDate: new DateTime(2026, 7, 1),
+            incomingFrom: "وزارة المالية",
+            subject: "طلب اعتماد صرف"));
+        db.Transactions.Add(CreateTransaction(
+            2,
+            incomingNumber: "و-1447-001",
+            incomingDate: new DateTime(2026, 7, 1),
+            incomingFrom: "وزارة المالية",
+            subject: "طلب اعتماد صرف"));
+        await db.SaveChangesAsync();
+
+        var summary = await CreateService(db).GetSummaryAsync(new DataQualityQueryDto
+        {
+            IncludePotentialDuplicateTransactions = true
+        });
+
+        var issue = Assert.Single(summary.Issues);
+        Assert.Equal(DataQualityService.PotentialDuplicateOrSimilarTransactionRuleCode, issue.RuleCode);
+        Assert.Equal(1, issue.TransactionId);
+        Assert.Equal(2, issue.RelatedTransactionId);
+        Assert.Equal("نفس رقم الوارد والتاريخ والجهة", issue.SimilarityReason);
+    }
+
+    [Fact]
+    public async Task GetSummary_WhenPotentialDuplicateRuleEnabled_ReturnsSimilarSubjectSamePartyNearbyDate()
+    {
+        await using var db = CreateDb(nameof(GetSummary_WhenPotentialDuplicateRuleEnabled_ReturnsSimilarSubjectSamePartyNearbyDate));
+        SeedUser(db);
+        db.Transactions.Add(CreateTransaction(
+            1,
+            incomingDate: new DateTime(2026, 7, 1),
+            incomingFrom: "وزارة التعليم",
+            subject: "طلب اعتماد مشروع التحول الرقمي"));
+        db.Transactions.Add(CreateTransaction(
+            2,
+            incomingDate: new DateTime(2026, 7, 3),
+            incomingFrom: "وزارة التعليم",
+            subject: "بخصوص اعتماد مشروع التحول الرقمي"));
+        await db.SaveChangesAsync();
+
+        var summary = await CreateService(db).GetSummaryAsync(new DataQualityQueryDto
+        {
+            IncludePotentialDuplicateTransactions = true
+        });
+
+        var issue = Assert.Single(summary.Issues);
+        Assert.Equal("موضوع متشابه مع نفس الجهة وتاريخ قريب", issue.SimilarityReason);
+        Assert.Equal(2, issue.DaysValue);
+    }
+
+    [Fact]
+    public async Task GetSummary_WhenOnlyCommonWordsOverlapAndPartyDiffers_DoesNotReturnDuplicateIssue()
+    {
+        await using var db = CreateDb(nameof(GetSummary_WhenOnlyCommonWordsOverlapAndPartyDiffers_DoesNotReturnDuplicateIssue));
+        SeedUser(db);
+        db.Transactions.Add(CreateTransaction(
+            1,
+            incomingDate: new DateTime(2026, 7, 1),
+            incomingFrom: "وزارة الصحة",
+            subject: "بخصوص خطاب معاملة إفادة"));
+        db.Transactions.Add(CreateTransaction(
+            2,
+            incomingDate: new DateTime(2026, 7, 2),
+            incomingFrom: "وزارة العدل",
+            subject: "خطاب بخصوص معاملة إفادة"));
+        await db.SaveChangesAsync();
+
+        var summary = await CreateService(db).GetSummaryAsync(new DataQualityQueryDto
+        {
+            IncludePotentialDuplicateTransactions = true
+        });
+
+        Assert.Empty(summary.Issues);
+    }
+
+    [Fact]
+    public async Task GetSummary_WhenPotentialDuplicateRuleEnabled_DoesNotReturnReversedPair()
+    {
+        await using var db = CreateDb(nameof(GetSummary_WhenPotentialDuplicateRuleEnabled_DoesNotReturnReversedPair));
+        SeedUser(db);
+        db.Transactions.Add(CreateTransaction(
+            1,
+            incomingNumber: "و/1447/010",
+            incomingDate: new DateTime(2026, 7, 1),
+            incomingFrom: "وزارة المالية",
+            subject: "طلب اعتماد صرف"));
+        db.Transactions.Add(CreateTransaction(
+            2,
+            incomingNumber: "و-1447-010",
+            incomingDate: new DateTime(2026, 7, 1),
+            incomingFrom: "وزارة المالية",
+            subject: "طلب اعتماد صرف"));
+        await db.SaveChangesAsync();
+
+        var summary = await CreateService(db).GetSummaryAsync(new DataQualityQueryDto
+        {
+            IncludePotentialDuplicateTransactions = true,
+            IncludeReviewed = true
+        });
+
+        var issue = Assert.Single(summary.Issues);
+        Assert.Equal("tx-pair:1:2:duplicate-similar", issue.IssueKey);
+    }
+
+    [Fact]
+    public async Task GetSummary_ByDefault_ExcludesReviewedPotentialDuplicateIssues()
+    {
+        await using var db = CreateDb(nameof(GetSummary_ByDefault_ExcludesReviewedPotentialDuplicateIssues));
+        SeedUser(db);
+        db.Transactions.Add(CreateTransaction(
+            1,
+            incomingNumber: "و/1447/010",
+            incomingDate: new DateTime(2026, 7, 1),
+            incomingFrom: "وزارة المالية",
+            subject: "طلب اعتماد صرف"));
+        db.Transactions.Add(CreateTransaction(
+            2,
+            incomingNumber: "و-1447-010",
+            incomingDate: new DateTime(2026, 7, 1),
+            incomingFrom: "وزارة المالية",
+            subject: "طلب اعتماد صرف"));
+        db.DataQualityReviews.Add(new DataQualityReview
+        {
+            IssueKey = "tx-pair:1:2:duplicate-similar",
+            TransactionId = 1,
+            RuleCode = DataQualityService.PotentialDuplicateOrSimilarTransactionRuleCode,
+            IsReviewed = true,
+            ReviewedByUserId = 1
+        });
+        await db.SaveChangesAsync();
+
+        var summary = await CreateService(db).GetSummaryAsync(new DataQualityQueryDto
+        {
+            IncludePotentialDuplicateTransactions = true
+        });
+
+        Assert.Empty(summary.Issues);
+    }
+
+    [Fact]
     public async Task GetSummary_WhenNegativeThreshold_ReturnsBadRequest()
     {
         await using var db = CreateDb(nameof(GetSummary_WhenNegativeThreshold_ReturnsBadRequest));
@@ -456,13 +603,19 @@ public sealed class DataQualityTests
         int id,
         DateTime? incomingDate = null,
         DateTime? responseDueDate = null,
-        bool requiresResponse = false) => new()
+        bool requiresResponse = false,
+        string? incomingNumber = null,
+        string? incomingFrom = null,
+        string? subject = null,
+        string? category = null) => new()
         {
             Id = id,
             InternalTrackingNumber = $"TRK-{id:000}",
-            IncomingNumber = $"IN-{id:000}",
+            IncomingNumber = incomingNumber ?? $"IN-{id:000}",
             IncomingDate = incomingDate ?? new DateTime(2026, 7, 1),
-            Subject = $"موضوع {id}",
+            Subject = subject ?? $"موضوع {id}",
+            IncomingFrom = incomingFrom,
+            Category = category,
             RequiresResponse = requiresResponse,
             ResponseDueDate = responseDueDate,
             Status = TransactionStatus.New,

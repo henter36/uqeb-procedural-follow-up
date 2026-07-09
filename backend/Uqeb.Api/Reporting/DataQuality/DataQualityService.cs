@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using System.Globalization;
+using System.Text;
 using Uqeb.Api.Data;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
@@ -11,8 +13,19 @@ public sealed class DataQualityService : IDataQualityService
     public const string OverdueDurationRuleCode = "OverdueDurationExceedsThreshold";
     public const string ReferralDateAfterIncomingDateRuleCode = "ReferralDateAfterIncomingDate";
     public const string ResponsePeriodLessThanThresholdRuleCode = "ResponsePeriodLessThanThreshold";
+    public const string PotentialDuplicateOrSimilarTransactionRuleCode = "PotentialDuplicateOrSimilarTransaction";
     private const int MaxTransactionsToInspect = 10_000;
     private const int ReviewKeyBatchSize = 2_000;
+    private const double StrongSubjectSimilarityThreshold = 0.65d;
+    private const double SupportingSubjectSimilarityThreshold = 0.55d;
+    private static readonly HashSet<string> SubjectStopWords = new(StringComparer.Ordinal)
+    {
+        "بشان",
+        "بخصوص",
+        "خطاب",
+        "معامله",
+        "افاده"
+    };
 
     private readonly AppDbContext _db;
     private readonly TimeProvider _clock;
@@ -44,6 +57,9 @@ public sealed class DataQualityService : IDataQualityService
                 AddShortResponsePeriodIssue(issues, transaction, query.ResponsePeriodLessThanDays.Value);
         }
 
+        if (query.IncludePotentialDuplicateTransactions == true)
+            AddPotentialDuplicateIssues(issues, transactions);
+
         ApplySimpleFilters(issues, query);
         await AttachReviewStateAsync(issues, ct);
         ApplyReviewFilters(issues, query);
@@ -66,7 +82,12 @@ public sealed class DataQualityService : IDataQualityService
             HighCount = orderedIssues.Count(x => x.Severity == DataQualitySeverity.High),
             MediumCount = orderedIssues.Count(x => x.Severity == DataQualitySeverity.Medium),
             LowCount = orderedIssues.Count(x => x.Severity == DataQualitySeverity.Low),
-            AffectedTransactions = orderedIssues.Where(x => x.TransactionId.HasValue).Select(x => x.TransactionId!.Value).Distinct().Count(),
+            AffectedTransactions = orderedIssues
+                .SelectMany(x => new[] { x.TransactionId, x.RelatedTransactionId })
+                .Where(x => x.HasValue)
+                .Select(x => x!.Value)
+                .Distinct()
+                .Count(),
             GeneratedAtUtc = _clock.GetUtcNow().UtcDateTime,
             Issues = displayedIssues
         };
@@ -77,6 +98,9 @@ public sealed class DataQualityService : IDataQualityService
         var transactions = _db.Transactions
             .AsNoTracking()
             .AsSplitQuery()
+            .Include(x => x.IncomingFromParty)
+            .Include(x => x.IncomingFromDepartment)
+            .Include(x => x.CategoryEntity)
             .Include(x => x.OutgoingDepartments).ThenInclude(x => x.Department)
             .Include(x => x.Assignments).ThenInclude(x => x.Department)
             .Where(x => !x.IsArchived);
@@ -140,6 +164,249 @@ public sealed class DataQualityService : IDataQualityService
             Impact = "تعرض المعاملات التي تجاوز تأخرها الحد الذي حدده المستخدم.",
             SuggestedAction = "فتح المعاملة ومراجعة آخر إجراء أو تعديل البيانات من صفحة المعاملة إذا لزم."
         });
+    }
+
+    private static void AddPotentialDuplicateIssues(List<DataQualityIssueDto> issues, IReadOnlyList<Transaction> transactions)
+    {
+        var candidatesByParty = transactions
+            .Select(CreateDuplicateCandidate)
+            .Where(candidate => candidate.IncomingPartyKey.Length > 0)
+            .GroupBy(candidate => candidate.IncomingPartyKey, StringComparer.Ordinal);
+
+        foreach (var group in candidatesByParty)
+            AddPotentialDuplicateIssuesForParty(issues, group.OrderBy(candidate => candidate.Transaction.Id).ToList());
+    }
+
+    private static void AddPotentialDuplicateIssuesForParty(List<DataQualityIssueDto> issues, IReadOnlyList<DuplicateCandidate> candidates)
+    {
+        for (var i = 0; i < candidates.Count; i++)
+        {
+            for (var j = i + 1; j < candidates.Count; j++)
+            {
+                var match = TryClassifyDuplicate(candidates[i], candidates[j]);
+                if (match is null)
+                    continue;
+
+                issues.Add(CreatePotentialDuplicateIssue(candidates[i], candidates[j], match));
+            }
+        }
+    }
+
+    private static DuplicateCandidate CreateDuplicateCandidate(Transaction transaction)
+    {
+        var subjectTokens = NormalizeSubjectTokens(transaction.Subject);
+        var departmentKeys = transaction.OutgoingDepartments
+            .Select(x => x.Department?.Name)
+            .Concat(transaction.Assignments.Select(x => x.Department?.Name))
+            .Select(NormalizeComparisonText)
+            .Where(x => x.Length > 0)
+            .ToHashSet(StringComparer.Ordinal);
+
+        return new DuplicateCandidate(
+            transaction,
+            NormalizeIncomingNumber(transaction.IncomingNumber),
+            NormalizeComparisonText(ResolveIncomingPartyName(transaction)),
+            NormalizeComparisonText(transaction.CategoryEntity?.Name ?? transaction.Category),
+            subjectTokens,
+            departmentKeys);
+    }
+
+    private static DuplicateMatch? TryClassifyDuplicate(DuplicateCandidate first, DuplicateCandidate second)
+    {
+        if (first.Transaction.Id == second.Transaction.Id)
+            return null;
+
+        var sameParty = first.IncomingPartyKey.Length > 0 &&
+            string.Equals(first.IncomingPartyKey, second.IncomingPartyKey, StringComparison.Ordinal);
+        if (!sameParty)
+            return null;
+
+        var sameIncomingNumber = first.IncomingNumberKey.Length > 0 &&
+            string.Equals(first.IncomingNumberKey, second.IncomingNumberKey, StringComparison.Ordinal);
+        var daysBetween = Math.Abs((first.Transaction.IncomingDate.Date - second.Transaction.IncomingDate.Date).Days);
+
+        if (sameIncomingNumber && daysBetween == 0)
+        {
+            return new DuplicateMatch(
+                DataQualitySeverity.High,
+                1d,
+                "نفس رقم الوارد والتاريخ والجهة");
+        }
+
+        var subjectSimilarity = CalculateSubjectSimilarity(first.SubjectTokens, second.SubjectTokens);
+        if (daysBetween <= 3 && subjectSimilarity >= StrongSubjectSimilarityThreshold)
+        {
+            return new DuplicateMatch(
+                DataQualitySeverity.Medium,
+                subjectSimilarity,
+                "موضوع متشابه مع نفس الجهة وتاريخ قريب");
+        }
+
+        return TryCreateSupportingDuplicateMatch(first, second, subjectSimilarity);
+    }
+
+    private static DuplicateMatch? TryCreateSupportingDuplicateMatch(
+        DuplicateCandidate first,
+        DuplicateCandidate second,
+        double subjectSimilarity)
+    {
+        var sameCategory = first.CategoryKey.Length > 0 &&
+            string.Equals(first.CategoryKey, second.CategoryKey, StringComparison.Ordinal);
+        var sameRoutedDepartment = first.DepartmentKeys.Overlaps(second.DepartmentKeys);
+        var incomingNumbersNear = AreIncomingNumbersNear(first.IncomingNumberKey, second.IncomingNumberKey);
+
+        if (!sameCategory && !sameRoutedDepartment)
+            return null;
+
+        if (subjectSimilarity < SupportingSubjectSimilarityThreshold && !incomingNumbersNear)
+            return null;
+
+        var reason = sameCategory
+            ? "نفس الجهة والتصنيف مع موضوع أو رقم وارد قريب"
+            : "نفس الجهة والإدارات المحالة مع موضوع أو رقم وارد قريب";
+
+        return new DuplicateMatch(
+            DataQualitySeverity.Medium,
+            Math.Max(subjectSimilarity, incomingNumbersNear ? 0.55d : 0d),
+            reason);
+    }
+
+    private static DataQualityIssueDto CreatePotentialDuplicateIssue(
+        DuplicateCandidate first,
+        DuplicateCandidate second,
+        DuplicateMatch match)
+    {
+        var firstTransaction = first.Transaction;
+        var secondTransaction = second.Transaction;
+        var daysBetween = Math.Abs((firstTransaction.IncomingDate.Date - secondTransaction.IncomingDate.Date).Days);
+
+        return new DataQualityIssueDto
+        {
+            Id = $"tx-pair:{firstTransaction.Id}:{secondTransaction.Id}:duplicate-similar",
+            IssueKey = $"tx-pair:{firstTransaction.Id}:{secondTransaction.Id}:duplicate-similar",
+            RuleCode = PotentialDuplicateOrSimilarTransactionRuleCode,
+            Severity = match.Severity,
+            SeverityLabel = SeverityLabel(match.Severity),
+            Category = "التكرار والتشابه",
+            IssueType = "معاملات مكررة أو متشابهة",
+            TransactionId = firstTransaction.Id,
+            TrackingNumber = firstTransaction.InternalTrackingNumber,
+            IncomingNumber = firstTransaction.IncomingNumber,
+            Subject = firstTransaction.Subject,
+            RelatedTransactionId = secondTransaction.Id,
+            RelatedTrackingNumber = secondTransaction.InternalTrackingNumber,
+            RelatedIncomingNumber = secondTransaction.IncomingNumber,
+            RelatedIncomingDate = secondTransaction.IncomingDate,
+            SimilarityReason = match.Reason,
+            SimilarityScore = Math.Round(match.Score, 2),
+            DepartmentName = ResolveIncomingPartyName(firstTransaction),
+            FieldName = "IncomingNumber/IncomingDate/IncomingParty/Subject",
+            CurrentValue = $"{firstTransaction.IncomingNumber} ({firstTransaction.IncomingDate:yyyy-MM-dd}) ↔ {secondTransaction.IncomingNumber} ({secondTransaction.IncomingDate:yyyy-MM-dd})",
+            DaysValue = daysBetween,
+            PrimaryDate = firstTransaction.IncomingDate,
+            ComparedDate = secondTransaction.IncomingDate,
+            Impact = $"المعاملة {firstTransaction.InternalTrackingNumber} قد تتشابه مع {secondTransaction.InternalTrackingNumber}: {match.Reason}.",
+            SuggestedAction = "فتح المعاملتين ومراجعة ما إذا كانتا تمثلان نفس الطلب قبل اتخاذ أي إجراء من صفحة المعاملة."
+        };
+    }
+
+    private static string ResolveIncomingPartyName(Transaction transaction) =>
+        transaction.IncomingFromParty?.Name
+        ?? transaction.IncomingFromDepartment?.Name
+        ?? transaction.IncomingFrom
+        ?? string.Empty;
+
+    private static double CalculateSubjectSimilarity(IReadOnlySet<string> firstTokens, IReadOnlySet<string> secondTokens)
+    {
+        if (firstTokens.Count == 0 || secondTokens.Count == 0)
+            return 0d;
+
+        var intersection = firstTokens.Intersect(secondTokens, StringComparer.Ordinal).Count();
+        if (intersection == 0)
+            return 0d;
+
+        var union = firstTokens.Count + secondTokens.Count - intersection;
+        return (double)intersection / union;
+    }
+
+    private static HashSet<string> NormalizeSubjectTokens(string? value) =>
+        NormalizeComparisonText(value)
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(token => token.Length > 1 && !SubjectStopWords.Contains(token))
+            .ToHashSet(StringComparer.Ordinal);
+
+    private static string NormalizeIncomingNumber(string? value)
+    {
+        var normalized = NormalizeComparisonText(value);
+        return normalized.Replace(" ", string.Empty, StringComparison.Ordinal);
+    }
+
+    private static string NormalizeComparisonText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        var builder = new StringBuilder(value.Length);
+        var previousWasSpace = true;
+
+        foreach (var raw in value.Trim())
+        {
+            var character = NormalizeCharacter(raw);
+            if (character is '/' or '-' or '_' || char.IsPunctuation(character) || char.IsSymbol(character))
+            {
+                AppendSpace(builder, ref previousWasSpace);
+                continue;
+            }
+
+            if (char.IsWhiteSpace(character))
+            {
+                AppendSpace(builder, ref previousWasSpace);
+                continue;
+            }
+
+            builder.Append(char.ToLower(character, CultureInfo.InvariantCulture));
+            previousWasSpace = false;
+        }
+
+        return builder.ToString().Trim();
+    }
+
+    private static char NormalizeCharacter(char character) =>
+        character switch
+        {
+            >= '٠' and <= '٩' => (char)('0' + character - '٠'),
+            >= '۰' and <= '۹' => (char)('0' + character - '۰'),
+            'أ' or 'إ' or 'آ' => 'ا',
+            'ى' => 'ي',
+            'ة' => 'ه',
+            _ => character
+        };
+
+    private static void AppendSpace(StringBuilder builder, ref bool previousWasSpace)
+    {
+        if (previousWasSpace)
+            return;
+
+        builder.Append(' ');
+        previousWasSpace = true;
+    }
+
+    private static bool AreIncomingNumbersNear(string first, string second)
+    {
+        if (first.Length == 0 || second.Length == 0)
+            return false;
+
+        if (string.Equals(first, second, StringComparison.Ordinal))
+            return true;
+
+        var firstDigits = new string(first.Where(char.IsDigit).ToArray());
+        var secondDigits = new string(second.Where(char.IsDigit).ToArray());
+        if (firstDigits.Length == 0 || secondDigits.Length == 0)
+            return false;
+
+        return long.TryParse(firstDigits, out var firstNumber) &&
+            long.TryParse(secondDigits, out var secondNumber) &&
+            Math.Abs(firstNumber - secondNumber) <= 2;
     }
 
     private static DateTime? ResolveOverdueDueDate(Transaction transaction, DateTime today)
@@ -321,6 +588,19 @@ public sealed class DataQualityService : IDataQualityService
             DataQualitySeverity.Medium => "متوسطة",
             _ => "منخفضة"
         };
+
+    private sealed record DuplicateCandidate(
+        Transaction Transaction,
+        string IncomingNumberKey,
+        string IncomingPartyKey,
+        string CategoryKey,
+        HashSet<string> SubjectTokens,
+        HashSet<string> DepartmentKeys);
+
+    private sealed record DuplicateMatch(
+        DataQualitySeverity Severity,
+        double Score,
+        string Reason);
 
     private sealed record DataQualityReviewLookup(DataQualityReview Review, User? User);
 }

@@ -1,6 +1,7 @@
 using ClosedXML.Excel;
 using Uqeb.Api.Reporting.DTOs;
 using Uqeb.Api.Reporting.Enums;
+using Uqeb.Api.Reporting.Services;
 
 namespace Uqeb.Api.Reporting.Exporters;
 
@@ -229,7 +230,7 @@ public static class InstitutionalReportXlsxExporter
             ws.Cell(row, 4).Value = item.OnTimeCompletionRate;
             ws.Cell(row, 5).Value = item.OverdueCount;
             ws.Cell(row, 6).Value = item.AverageCompletionDays;
-            ws.Cell(row, 7).Value = item.ImprovementValue;
+            ws.Cell(row, 7).Value = DepartmentRecognitionFormatter.FormatImprovementValue(item);
             ws.Cell(row, 8).Value = item.Reason;
             row++;
         }

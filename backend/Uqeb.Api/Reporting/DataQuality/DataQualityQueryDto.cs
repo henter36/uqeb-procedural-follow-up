@@ -11,6 +11,7 @@ public sealed class DataQualityQueryDto
     public int? OverdueMoreThanDays { get; set; }
     public bool? IncludeReferralDateAfterIncomingDate { get; set; }
     public int? ResponsePeriodLessThanDays { get; set; }
+    public bool? IncludePotentialDuplicateTransactions { get; set; }
     public bool? IncludeReviewed { get; set; }
     public bool? ReviewedOnly { get; set; }
 }

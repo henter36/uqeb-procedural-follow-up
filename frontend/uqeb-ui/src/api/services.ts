@@ -176,6 +176,7 @@ export const dataQualityApi = {
     overdueMoreThanDays?: number;
     includeReferralDateAfterIncomingDate?: boolean;
     responsePeriodLessThanDays?: number;
+    includePotentialDuplicateTransactions?: boolean;
     includeReviewed?: boolean;
     reviewedOnly?: boolean;
   }) => api.get<DataQualitySummary>('/data-quality/summary', { params }),

@@ -13,6 +13,12 @@ public sealed class DataQualityIssueDto
     public string? TrackingNumber { get; set; }
     public string? IncomingNumber { get; set; }
     public string? Subject { get; set; }
+    public int? RelatedTransactionId { get; set; }
+    public string? RelatedTrackingNumber { get; set; }
+    public string? RelatedIncomingNumber { get; set; }
+    public DateTime? RelatedIncomingDate { get; set; }
+    public string? SimilarityReason { get; set; }
+    public double? SimilarityScore { get; set; }
     public string? DepartmentName { get; set; }
     public string FieldName { get; set; } = string.Empty;
     public string? CurrentValue { get; set; }

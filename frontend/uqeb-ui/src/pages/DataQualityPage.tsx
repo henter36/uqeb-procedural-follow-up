@@ -31,6 +31,7 @@ export default function DataQualityPage() {
   const [overdueMoreThanDays, setOverdueMoreThanDays] = useState('');
   const [includeReferralDateAfterIncomingDate, setIncludeReferralDateAfterIncomingDate] = useState(false);
   const [responsePeriodLessThanDays, setResponsePeriodLessThanDays] = useState('');
+  const [includePotentialDuplicateTransactions, setIncludePotentialDuplicateTransactions] = useState(false);
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('unreviewed');
   const [appliedParams, setAppliedParams] = useState<DataQualityParams>(defaultParams);
   const [summary, setSummary] = useState<DataQualitySummary>(emptySummary);
@@ -48,6 +49,7 @@ export default function DataQualityPage() {
     if (overdueMoreThanDays !== '') next.overdueMoreThanDays = Number(overdueMoreThanDays);
     if (includeReferralDateAfterIncomingDate) next.includeReferralDateAfterIncomingDate = true;
     if (responsePeriodLessThanDays !== '') next.responsePeriodLessThanDays = Number(responsePeriodLessThanDays);
+    if (includePotentialDuplicateTransactions) next.includePotentialDuplicateTransactions = true;
     if (reviewFilter === 'all') next.includeReviewed = true;
     if (reviewFilter === 'reviewed') next.reviewedOnly = true;
     return next;
@@ -55,6 +57,7 @@ export default function DataQualityPage() {
     category,
     from,
     includeReferralDateAfterIncomingDate,
+    includePotentialDuplicateTransactions,
     limit,
     overdueMoreThanDays,
     responsePeriodLessThanDays,
@@ -104,6 +107,7 @@ export default function DataQualityPage() {
     setOverdueMoreThanDays('');
     setIncludeReferralDateAfterIncomingDate(false);
     setResponsePeriodLessThanDays('');
+    setIncludePotentialDuplicateTransactions(false);
     setReviewFilter('unreviewed');
     setAppliedParams(defaultParams);
     await fetchSummary(defaultParams);
@@ -143,7 +147,8 @@ export default function DataQualityPage() {
   const hasAppliedRule = Boolean(
     appliedParams.overdueMoreThanDays !== undefined ||
     appliedParams.includeReferralDateAfterIncomingDate ||
-    appliedParams.responsePeriodLessThanDays !== undefined,
+    appliedParams.responsePeriodLessThanDays !== undefined ||
+    appliedParams.includePotentialDuplicateTransactions,
   );
 
   return (
@@ -164,6 +169,7 @@ export default function DataQualityPage() {
         category={category}
         from={from}
         includeReferralDateAfterIncomingDate={includeReferralDateAfterIncomingDate}
+        includePotentialDuplicateTransactions={includePotentialDuplicateTransactions}
         limit={limit}
         loading={loading}
         overdueMoreThanDays={overdueMoreThanDays}
@@ -178,6 +184,7 @@ export default function DataQualityPage() {
         onCategoryChange={setCategory}
         onFromChange={setFrom}
         onIncludeReferralDateAfterIncomingDateChange={setIncludeReferralDateAfterIncomingDate}
+        onIncludePotentialDuplicateTransactionsChange={setIncludePotentialDuplicateTransactions}
         onLimitChange={setLimit}
         onOverdueMoreThanDaysChange={setOverdueMoreThanDays}
         onResponsePeriodLessThanDaysChange={setResponsePeriodLessThanDays}
@@ -249,6 +256,7 @@ type DataQualityFiltersProps = Readonly<{
   category: string;
   from: string;
   includeReferralDateAfterIncomingDate: boolean;
+  includePotentialDuplicateTransactions: boolean;
   limit: string;
   loading: boolean;
   overdueMoreThanDays: string;
@@ -260,6 +268,7 @@ type DataQualityFiltersProps = Readonly<{
   onCategoryChange: (value: string) => void;
   onFromChange: (value: string) => void;
   onIncludeReferralDateAfterIncomingDateChange: (value: boolean) => void;
+  onIncludePotentialDuplicateTransactionsChange: (value: boolean) => void;
   onLimitChange: (value: string) => void;
   onOverdueMoreThanDaysChange: (value: string) => void;
   onReset: () => void;
@@ -273,6 +282,7 @@ function DataQualityFilters({
   category,
   from,
   includeReferralDateAfterIncomingDate,
+  includePotentialDuplicateTransactions,
   limit,
   loading,
   overdueMoreThanDays,
@@ -284,6 +294,7 @@ function DataQualityFilters({
   onCategoryChange,
   onFromChange,
   onIncludeReferralDateAfterIncomingDateChange,
+  onIncludePotentialDuplicateTransactionsChange,
   onLimitChange,
   onOverdueMoreThanDaysChange,
   onReset,
@@ -327,6 +338,7 @@ function DataQualityFilters({
               <option value="التأخر">التأخر</option>
               <option value="الإحالات">الإحالات</option>
               <option value="فترة الرد">فترة الرد</option>
+              <option value="التكرار والتشابه">التكرار والتشابه</option>
             </select>
           </label>
           <label className="dq-field">
@@ -376,6 +388,17 @@ function DataQualityFilters({
               onChange={(event) => onResponsePeriodLessThanDaysChange(event.target.value)}
               placeholder="عدد الأيام"
             />
+          </label>
+          <label className={`dq-rule-card dq-rule-card-checkbox ${includePotentialDuplicateTransactions ? 'dq-rule-card-active' : ''}`}>
+            <input
+              aria-label="عرض معاملات مكررة أو متشابهة"
+              className="dq-rule-checkbox-control"
+              type="checkbox"
+              checked={includePotentialDuplicateTransactions}
+              onChange={(event) => onIncludePotentialDuplicateTransactionsChange(event.target.checked)}
+            />
+            <span className="dq-rule-title">معاملات مكررة أو متشابهة</span>
+            <span className="dq-rule-description">يعرض أزواج المعاملات التي تتشابه في رقم الوارد أو الجهة أو الموضوع وتحتاج مراجعة.</span>
           </label>
         </div>
 
@@ -453,7 +476,7 @@ function renderDataQualityIssuesContent({
       <EmptyState
         icon="🔎"
         title="اختر قاعدة جودة بيانات للبدء"
-        description="حدد مدة التأخر أو فعّل قاعدة تاريخ الإحالة أو أدخل حد فترة الرد، ثم اضغط تطبيق الفلاتر."
+        description="حدد مدة التأخر أو فعّل إحدى قواعد التاريخ أو التشابه، ثم اضغط تطبيق الفلاتر."
       />
     );
   }
@@ -513,7 +536,9 @@ function DataQualityIssueRow({
   onUnmarkReviewed,
 }: DataQualityIssueRowProps) {
   const transactionDisplayValue = getIssueTransactionDisplayValue(issue);
+  const relatedTransactionDisplayValue = getRelatedTransactionDisplayValue(issue);
   const transactionId = issue.transactionId;
+  const relatedTransactionId = issue.relatedTransactionId;
 
   return (
     <tr>
@@ -525,12 +550,19 @@ function DataQualityIssueRow({
           <span className="badge badge-blue">{issue.category}</span>
           <strong>{issue.issueType}</strong>
           <span className="dq-muted">{issue.fieldName}</span>
+          {issue.similarityReason && <span className="dq-muted">{issue.similarityReason}</span>}
         </div>
       </td>
       <td className="dq-issues-table-cell">
         <div className="dq-transaction-cell">
           <strong>{transactionDisplayValue}</strong>
           <span>الوارد: {issue.incomingNumber ?? '—'}</span>
+          {relatedTransactionDisplayValue && (
+            <>
+              <strong>المشابهة: {relatedTransactionDisplayValue}</strong>
+              <span>وارد مشابه: {issue.relatedIncomingNumber ?? '—'}</span>
+            </>
+          )}
           <span className="dq-subject">{issue.subject ?? '—'}</span>
         </div>
       </td>
@@ -540,6 +572,9 @@ function DataQualityIssueRow({
           <span>{issue.currentValue ?? '—'}</span>
           {issue.daysValue !== undefined && issue.daysValue !== null && (
             <span className="badge badge-purple">{issue.daysValue} يوم</span>
+          )}
+          {issue.similarityScore !== undefined && issue.similarityScore !== null && (
+            <span className="badge badge-blue">تشابه {Math.round(issue.similarityScore * 100)}%</span>
           )}
         </div>
       </td>
@@ -558,7 +593,12 @@ function DataQualityIssueRow({
         <div className="dq-row-actions">
           {transactionId && (
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => onOpenTransaction(transactionId)}>
-              فتح المعاملة
+              {relatedTransactionId ? 'فتح المعاملة الأولى' : 'فتح المعاملة'}
+            </button>
+          )}
+          {relatedTransactionId && (
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => onOpenTransaction(relatedTransactionId)}>
+              فتح المعاملة المشابهة
             </button>
           )}
           {!issue.isReviewed ? (
@@ -586,6 +626,18 @@ function getIssueTransactionDisplayValue(issue: DataQualityIssue): string {
   }
 
   return '—';
+}
+
+function getRelatedTransactionDisplayValue(issue: DataQualityIssue): string | null {
+  if (issue.relatedTrackingNumber) {
+    return issue.relatedTrackingNumber;
+  }
+
+  if (issue.relatedTransactionId) {
+    return String(issue.relatedTransactionId);
+  }
+
+  return null;
 }
 
 function severityBadgeClass(severity: number): string {
