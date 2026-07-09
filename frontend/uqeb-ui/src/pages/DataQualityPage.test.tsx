@@ -93,9 +93,15 @@ const summary: DataQualitySummary = {
 };
 
 function mockSummary(data: DataQualitySummary = summary) {
-  vi.mocked(services.dataQualityApi.getSummary).mockResolvedValue({ data } as never);
-  vi.mocked(services.dataQualityApi.markReviewed).mockResolvedValue({} as never);
-  vi.mocked(services.dataQualityApi.unmarkReviewed).mockResolvedValue({} as never);
+  vi.mocked(services.dataQualityApi.getSummary).mockResolvedValue(
+    { data } as Awaited<ReturnType<typeof services.dataQualityApi.getSummary>>,
+  );
+  vi.mocked(services.dataQualityApi.markReviewed).mockResolvedValue(
+    {} as Awaited<ReturnType<typeof services.dataQualityApi.markReviewed>>,
+  );
+  vi.mocked(services.dataQualityApi.unmarkReviewed).mockResolvedValue(
+    {} as Awaited<ReturnType<typeof services.dataQualityApi.unmarkReviewed>>,
+  );
 }
 
 function renderPage() {
@@ -171,20 +177,36 @@ describe('DataQualityPage', () => {
     renderPage();
     await screen.findAllByText('مدة التأخر تتجاوز الحد المحدد');
 
+    const dayInputs = screen.getAllByPlaceholderText('عدد الأيام');
+    await user.type(dayInputs[0], '10');
+    await user.click(screen.getByRole('button', { name: 'تطبيق الفلاتر' }));
+    await waitFor(() => expect(services.dataQualityApi.getSummary).toHaveBeenLastCalledWith(
+      expect.objectContaining({ overdueMoreThanDays: 10 }),
+    ));
+
+    await user.clear(dayInputs[0]);
+    await user.type(dayInputs[0], '20');
+
     await user.click(screen.getAllByRole('button', { name: 'تمت المراجعة' })[0]);
     await waitFor(() => expect(services.dataQualityApi.markReviewed).toHaveBeenCalledWith({
       issueKey: 'tx:1:overdue-duration',
       transactionId: 1,
       ruleCode: 'OverdueDurationExceedsThreshold',
     }));
+    expect(services.dataQualityApi.getSummary).toHaveBeenLastCalledWith(
+      expect.objectContaining({ overdueMoreThanDays: 10 }),
+    );
     expect(screen.getByText('تمت مراجعة هذه الملاحظة، ولن تظهر في النتائج الافتراضية القادمة.')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'إزالة المراجعة' }));
     await waitFor(() => expect(services.dataQualityApi.unmarkReviewed).toHaveBeenCalledWith({
       issueKey: 'tx:3:short-response-period',
     }));
+    expect(services.dataQualityApi.getSummary).toHaveBeenLastCalledWith(
+      expect.objectContaining({ overdueMoreThanDays: 10 }),
+    );
     expect(screen.getByText('تمت إزالة علامة المراجعة، وستعود الملاحظة للظهور إذا بقيت القاعدة منطبقة.')).toBeInTheDocument();
-    expect(services.dataQualityApi.getSummary).toHaveBeenCalledTimes(3);
+    expect(services.dataQualityApi.getSummary).toHaveBeenCalledTimes(4);
   });
 
   it('opens the existing transaction details page', async () => {

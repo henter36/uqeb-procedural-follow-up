@@ -188,7 +188,7 @@ export const dataQualityApi = {
   }) => api.put('/data-quality/reviews', request),
 
   unmarkReviewed: (request: { issueKey: string }) =>
-    api.delete('/data-quality/reviews', { data: request }),
+    api.delete('/data-quality/reviews', { params: { issueKey: request.issueKey } }),
 };
 
 export const categoriesApi = {

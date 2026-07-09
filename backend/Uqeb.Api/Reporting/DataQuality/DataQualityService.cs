@@ -44,24 +44,27 @@ public sealed class DataQualityService : IDataQualityService
         await AttachReviewStateAsync(issues, ct);
         ApplyReviewFilters(issues, query);
 
-        issues = issues
+        var orderedIssues = issues
             .OrderByDescending(x => x.Severity)
             .ThenByDescending(x => x.DaysValue ?? 0)
             .ThenByDescending(x => x.PrimaryDate)
             .ThenByDescending(x => x.TransactionId)
+            .ToList();
+
+        var displayedIssues = orderedIssues
             .Take(limit)
             .ToList();
 
         return new DataQualitySummaryDto
         {
-            TotalIssues = issues.Count,
-            CriticalCount = issues.Count(x => x.Severity == DataQualitySeverity.Critical),
-            HighCount = issues.Count(x => x.Severity == DataQualitySeverity.High),
-            MediumCount = issues.Count(x => x.Severity == DataQualitySeverity.Medium),
-            LowCount = issues.Count(x => x.Severity == DataQualitySeverity.Low),
-            AffectedTransactions = issues.Where(x => x.TransactionId.HasValue).Select(x => x.TransactionId!.Value).Distinct().Count(),
+            TotalIssues = orderedIssues.Count,
+            CriticalCount = orderedIssues.Count(x => x.Severity == DataQualitySeverity.Critical),
+            HighCount = orderedIssues.Count(x => x.Severity == DataQualitySeverity.High),
+            MediumCount = orderedIssues.Count(x => x.Severity == DataQualitySeverity.Medium),
+            LowCount = orderedIssues.Count(x => x.Severity == DataQualitySeverity.Low),
+            AffectedTransactions = orderedIssues.Where(x => x.TransactionId.HasValue).Select(x => x.TransactionId!.Value).Distinct().Count(),
             GeneratedAtUtc = _clock.GetUtcNow().UtcDateTime,
-            Issues = issues
+            Issues = displayedIssues
         };
     }
 
@@ -69,15 +72,22 @@ public sealed class DataQualityService : IDataQualityService
     {
         var transactions = _db.Transactions
             .AsNoTracking()
+            .AsSplitQuery()
             .Include(x => x.OutgoingDepartments).ThenInclude(x => x.Department)
             .Include(x => x.Assignments).ThenInclude(x => x.Department)
             .Where(x => !x.IsArchived);
 
         if (query.From.HasValue)
-            transactions = transactions.Where(x => x.IncomingDate.Date >= query.From.Value.Date);
+        {
+            var fromDate = query.From.Value.Date;
+            transactions = transactions.Where(x => x.IncomingDate >= fromDate);
+        }
 
         if (query.To.HasValue)
-            transactions = transactions.Where(x => x.IncomingDate.Date <= query.To.Value.Date);
+        {
+            var toDateExclusive = query.To.Value.Date.AddDays(1);
+            transactions = transactions.Where(x => x.IncomingDate < toDateExclusive);
+        }
 
         if (query.DepartmentId.HasValue)
         {

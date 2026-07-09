@@ -127,6 +127,26 @@ public sealed class DataQualityTests
     }
 
     [Fact]
+    public async Task GetSummary_TotalIssues_IsNotReducedByLimit()
+    {
+        await using var db = CreateDb(nameof(GetSummary_TotalIssues_IsNotReducedByLimit));
+        SeedUser(db);
+        db.Transactions.Add(CreateTransaction(1, responseDueDate: new DateTime(2026, 6, 18), requiresResponse: true));
+        db.Transactions.Add(CreateTransaction(2, responseDueDate: new DateTime(2026, 6, 17), requiresResponse: true));
+        db.Transactions.Add(CreateTransaction(3, responseDueDate: new DateTime(2026, 6, 16), requiresResponse: true));
+        await db.SaveChangesAsync();
+
+        var summary = await CreateService(db).GetSummaryAsync(new DataQualityQueryDto
+        {
+            OverdueMoreThanDays = 10,
+            Limit = 1
+        });
+
+        Assert.Equal(3, summary.TotalIssues);
+        Assert.Single(summary.Issues);
+    }
+
+    [Fact]
     public async Task GetSummary_WhenNegativeThreshold_ReturnsBadRequest()
     {
         await using var db = CreateDb(nameof(GetSummary_WhenNegativeThreshold_ReturnsBadRequest));
@@ -253,7 +273,7 @@ public sealed class DataQualityTests
         await db.SaveChangesAsync();
         var controller = CreateController(db);
 
-        await controller.UnmarkReviewed(new UnmarkDataQualityReviewRequest { IssueKey = "tx:1:overdue-duration" }, CancellationToken.None);
+        await controller.UnmarkReviewed("tx:1:overdue-duration", CancellationToken.None);
         var summary = await CreateService(db).GetSummaryAsync(new DataQualityQueryDto { OverdueMoreThanDays = 10 });
 
         var issue = Assert.Single(summary.Issues);
@@ -274,7 +294,8 @@ public sealed class DataQualityTests
             RuleCode = DataQualityService.OverdueDurationRuleCode
         }, CancellationToken.None);
 
-        Assert.True(await db.AuditLogs.AnyAsync(x => x.Action == AuditAction.MarkDataQualityIssueReviewed));
+        var audit = await db.AuditLogs.SingleAsync(x => x.Action == AuditAction.MarkDataQualityIssueReviewed);
+        Assert.NotNull(audit.EntityId);
     }
 
     [Fact]
@@ -293,7 +314,7 @@ public sealed class DataQualityTests
         await db.SaveChangesAsync();
         var controller = CreateController(db);
 
-        await controller.UnmarkReviewed(new UnmarkDataQualityReviewRequest { IssueKey = "tx:1:overdue-duration" }, CancellationToken.None);
+        await controller.UnmarkReviewed("tx:1:overdue-duration", CancellationToken.None);
 
         Assert.True(await db.AuditLogs.AnyAsync(x => x.Action == AuditAction.UnmarkDataQualityIssueReviewed));
     }
@@ -303,9 +324,9 @@ public sealed class DataQualityTests
     {
         Assert.Contains(typeof(Microsoft.AspNetCore.Authorization.AuthorizeAttribute), typeof(DataQualityController).GetCustomAttributes(inherit: true).Select(x => x.GetType()));
 
-        var summary = typeof(DataQualityController).GetMethod(nameof(DataQualityController.GetSummary))!;
-        var mark = typeof(DataQualityController).GetMethod(nameof(DataQualityController.MarkReviewed))!;
-        var unmark = typeof(DataQualityController).GetMethod(nameof(DataQualityController.UnmarkReviewed))!;
+        var summary = GetRequiredMethod(nameof(DataQualityController.GetSummary));
+        var mark = GetRequiredMethod(nameof(DataQualityController.MarkReviewed));
+        var unmark = GetRequiredMethod(nameof(DataQualityController.UnmarkReviewed));
 
         AssertPermission(summary, PermissionCode.DataQualityView);
         AssertPermission(mark, PermissionCode.DataQualityReview);
@@ -317,8 +338,16 @@ public sealed class DataQualityTests
         var attribute = method.GetCustomAttributes(inherit: true)
             .OfType<RequirePermissionAttribute>()
             .Single();
-        var field = typeof(RequirePermissionAttribute).GetField("_permission", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var field = typeof(RequirePermissionAttribute).GetField("_permission", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(field);
         Assert.Equal(permission, field.GetValue(attribute));
+    }
+
+    private static System.Reflection.MethodInfo GetRequiredMethod(string name)
+    {
+        var method = typeof(DataQualityController).GetMethod(name);
+        Assert.NotNull(method);
+        return method;
     }
 
     private static AppDbContext CreateDb(string name) =>

@@ -30,6 +30,7 @@ export default function DataQualityPage() {
   const [includeReferralDateAfterIncomingDate, setIncludeReferralDateAfterIncomingDate] = useState(false);
   const [responsePeriodLessThanDays, setResponsePeriodLessThanDays] = useState('');
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('unreviewed');
+  const [appliedParams, setAppliedParams] = useState<DataQualityParams>({ limit: 500 });
   const [summary, setSummary] = useState<DataQualitySummary>(emptySummary);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -82,6 +83,7 @@ export default function DataQualityPage() {
 
   const applyFilters = (event: FormEvent) => {
     event.preventDefault();
+    setAppliedParams(params);
     void fetchSummary(params);
   };
 
@@ -92,13 +94,13 @@ export default function DataQualityPage() {
       ruleCode: issue.ruleCode,
     });
     setMessage('تمت مراجعة هذه الملاحظة، ولن تظهر في النتائج الافتراضية القادمة.');
-    await fetchSummary(params);
+    await fetchSummary(appliedParams);
   };
 
   const unmarkReviewed = async (issue: DataQualityIssue) => {
     await dataQualityApi.unmarkReviewed({ issueKey: issue.issueKey });
     setMessage('تمت إزالة علامة المراجعة، وستعود الملاحظة للظهور إذا بقيت القاعدة منطبقة.');
-    await fetchSummary(params);
+    await fetchSummary(appliedParams);
   };
 
   const generatedAt = summary.generatedAtUtc

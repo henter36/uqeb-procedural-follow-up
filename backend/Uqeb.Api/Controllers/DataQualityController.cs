@@ -47,9 +47,12 @@ public sealed class DataQualityController : ControllerBase
     [HttpPut("reviews")]
     [RequirePermission(PermissionCode.DataQualityReview)]
     public async Task<IActionResult> MarkReviewed(
-        [FromBody] MarkDataQualityReviewRequest request,
+        [FromBody] MarkDataQualityReviewRequest? request,
         CancellationToken ct)
     {
+        if (request is null)
+            return BadRequest(new { message = "Review request is required." });
+
         if (string.IsNullOrWhiteSpace(request.IssueKey))
             return BadRequest(new { message = "IssueKey is required." });
 
@@ -59,6 +62,7 @@ public sealed class DataQualityController : ControllerBase
         var now = DateTime.UtcNow;
         var issueKey = request.IssueKey.Trim();
         var review = await _db.DataQualityReviews.SingleOrDefaultAsync(x => x.IssueKey == issueKey, ct);
+        var isNew = review is null;
         var oldValue = review is null ? null : ReviewAuditValue(review);
 
         if (review is null)
@@ -79,11 +83,14 @@ public sealed class DataQualityController : ControllerBase
         review.ReviewedAtUtc = now;
         review.ReviewedByUserId = _currentUser.UserId;
 
+        if (isNew)
+            await _db.SaveChangesAsync(ct);
+
         _audit.TrackLog(
             _currentUser.UserId,
             AuditAction.MarkDataQualityIssueReviewed,
             "DataQualityReview",
-            review.Id == 0 ? null : review.Id,
+            review.Id,
             request.TransactionId,
             oldValue,
             ReviewAuditValue(review));
@@ -95,13 +102,13 @@ public sealed class DataQualityController : ControllerBase
     [HttpDelete("reviews")]
     [RequirePermission(PermissionCode.DataQualityReview)]
     public async Task<IActionResult> UnmarkReviewed(
-        [FromBody] UnmarkDataQualityReviewRequest request,
+        [FromQuery] string? issueKey,
         CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(request.IssueKey))
+        if (string.IsNullOrWhiteSpace(issueKey))
             return BadRequest(new { message = "IssueKey is required." });
 
-        var issueKey = request.IssueKey.Trim();
+        issueKey = issueKey.Trim();
         var review = await _db.DataQualityReviews.SingleOrDefaultAsync(x => x.IssueKey == issueKey, ct);
         if (review is null)
             return NoContent();
@@ -124,8 +131,11 @@ public sealed class DataQualityController : ControllerBase
         return NoContent();
     }
 
-    private static BadRequestObjectResult? ValidateQuery(DataQualityQueryDto query)
+    private static BadRequestObjectResult? ValidateQuery(DataQualityQueryDto? query)
     {
+        if (query is null)
+            return new BadRequestObjectResult(new { message = "Query is required." });
+
         if (query.Limit is < 1 or > 1000)
             return new BadRequestObjectResult(new { message = "Limit must be between 1 and 1000." });
 
