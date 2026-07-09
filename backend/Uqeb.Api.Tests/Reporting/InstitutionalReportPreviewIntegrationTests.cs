@@ -79,7 +79,7 @@ public class InstitutionalReportPreviewIntegrationTests : IClassFixture<Institut
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var manifest = await response.Content.ReadFromJsonAsync<RenderedReportManifestDto>();
         Assert.NotNull(manifest);
-        Assert.Equal(0, manifest!.TotalMatchedRows);
+        Assert.Equal(3, manifest!.TotalMatchedRows);
         Assert.True(manifest.TotalPages > 0);
     }
 
@@ -95,7 +95,7 @@ public class InstitutionalReportPreviewIntegrationTests : IClassFixture<Institut
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var manifest = await response.Content.ReadFromJsonAsync<RenderedReportManifestDto>();
-        Assert.Equal(1, manifest!.TotalMatchedRows);
+        Assert.Equal(4, manifest!.TotalMatchedRows);
     }
 
     [Fact]

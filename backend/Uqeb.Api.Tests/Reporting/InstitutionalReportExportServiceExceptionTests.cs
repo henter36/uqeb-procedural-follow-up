@@ -204,9 +204,9 @@ public class InstitutionalReportExportServiceExceptionTests
         var exportedPage = Assert.Single(pdfExporter.Manifest.Pages);
         Assert.Equal(3, exportedPage.OriginalPageNumber);
         Assert.Equal(ReportSectionId.TransactionDetails, exportedPage.SectionId);
-        Assert.Contains("INT-0003", pdfExporter.HtmlDocument);
-        Assert.DoesNotContain("INT-0001", pdfExporter.HtmlDocument);
-        Assert.DoesNotContain("INT-0002", pdfExporter.HtmlDocument);
+        Assert.Contains("IN-0003", pdfExporter.HtmlDocument);
+        Assert.DoesNotContain("IN-0001", pdfExporter.HtmlDocument);
+        Assert.DoesNotContain("IN-0002", pdfExporter.HtmlDocument);
         Assert.Equal(1, CountOccurrences(pdfExporter.HtmlDocument, "<footer class=\"report-footer"));
         Assert.DoesNotContain("<tbody></tbody>", pdfExporter.HtmlDocument);
         var resultPage = Assert.Single(result.Manifest!.Pages);

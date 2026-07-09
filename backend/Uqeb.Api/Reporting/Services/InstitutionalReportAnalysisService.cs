@@ -711,7 +711,7 @@ internal static class InstitutionalReportAnalysisService
                 {
                     DepartmentId = g.Key.ResponsibleDepartmentId,
                     DepartmentName = g.Key.Name,
-                    IncomingCount = g.Count(s => s.IsPeriodIncoming),
+                    IncomingCount = g.Count(IsPeriodIncomingForAnalysis),
                     ClosedCount = g.Count(s => s.IsClosed),
                     OpenCount = g.Count(s => s.IsOpen),
                     OverdueCount = g.Count(s => s.IsOverdue),
@@ -1240,7 +1240,7 @@ internal static class InstitutionalReportAnalysisService
     private static List<TimeSeriesPointDto> BuildTimeSeries(IReadOnlyList<TransactionReportSnapshot> snapshots, ReportTimeGrouping grouping)
     {
         return snapshots
-            .Where(s => s.IsPeriodIncoming)
+            .Where(IsPeriodIncomingForAnalysis)
             .GroupBy(s => PeriodStart(s.IncomingDate, grouping))
             .OrderBy(g => g.Key)
             .Select(g =>
@@ -1274,7 +1274,7 @@ internal static class InstitutionalReportAnalysisService
         ReportTimeGrouping grouping)
     {
         return snapshots
-            .Where(s => s.IsPeriodIncoming)
+            .Where(IsPeriodIncomingForAnalysis)
             .GroupBy(s => PeriodStart(s.IncomingDate, grouping))
             .SelectMany(periodGroup => periodGroup
                 .GroupBy(s => new { s.ResponsibleDepartmentId, Name = BlankToUnknown(s.ResponsibleDepartment) })
@@ -1508,6 +1508,9 @@ internal static class InstitutionalReportAnalysisService
             _ => new DateTime(date.Year, date.Month, 1, 0, 0, 0, DateTimeKind.Utc)
         };
     }
+
+    private static bool IsPeriodIncomingForAnalysis(TransactionReportSnapshot snapshot) =>
+        snapshot.IsPeriodIncoming || (!snapshot.IsPeriodIncoming && !snapshot.IsCarriedOpenBalance);
 
     private static string PeriodLabel(DateTime value, ReportTimeGrouping grouping) =>
         grouping switch

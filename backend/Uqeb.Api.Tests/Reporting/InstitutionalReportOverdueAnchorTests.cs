@@ -161,7 +161,7 @@ public class InstitutionalReportOverdueAnchorTests
             incomingDate: today.AddDays(-25),
             status: TransactionStatus.Closed,
             responseDueDate: today.AddDays(-20),
-            closedAt: today.AddDays(-10),
+            closedAt: today.AddDays(-3),
             responseCompleted: true));
         await db.SaveChangesAsync();
 

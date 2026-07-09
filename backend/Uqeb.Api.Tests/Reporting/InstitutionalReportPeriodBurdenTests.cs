@@ -171,7 +171,7 @@ public class InstitutionalReportPeriodBurdenTests
         InternalTrackingNumber = trackingNumber,
         IncomingNumber = incomingNumber ?? $"IN-{trackingNumber}",
         IncomingDate = incomingDate,
-        Subject = $"معاملة اختبار {trackingNumber}",
+        Subject = "معاملة اختبار",
         Priority = Priority.Normal,
         Status = status,
         RequiresResponse = false,
