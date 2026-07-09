@@ -5,8 +5,6 @@ namespace Uqeb.Api.Reporting.Services;
 /// <summary>Controls how aggregate metrics vs. transaction detail rows are assembled.</summary>
 public sealed record ReportAssemblyOptions
 {
-    public int? TotalMatchedOverride { get; init; }
-
     public int DetailRowLimit { get; init; } = 10_000;
 
     /// <summary>When set, only this many detail rows are loaded into <see cref="DTOs.InstitutionalReportModel.Transactions"/>.</summary>
@@ -30,7 +28,6 @@ public sealed record ReportAssemblyOptions
         return new()
         {
             Purpose = ReportBuildPurpose.Preview,
-            TotalMatchedOverride = totalMatched,
             DetailRowLimit = detailLimit,
             DetailRowsToLoad = detailLimit,
             DetailRowsTruncated = totalMatched > detailLimit,
@@ -46,7 +43,6 @@ public sealed record ReportAssemblyOptions
         ReportingOptions.ValidateDetailLimit(detailLimit);
         return new()
         {
-            TotalMatchedOverride = totalMatched,
             DetailRowLimit = detailLimit,
             DetailRowsToLoad = null,
             DetailRowsTruncated = false,
@@ -60,7 +56,6 @@ public sealed record ReportAssemblyOptions
         ReportingOptions.ValidateDetailLimit(detailLimit);
         return new()
         {
-            TotalMatchedOverride = totalMatched,
             DetailRowLimit = detailLimit,
             OmitDetailRows = true,
             DetailRowsTruncated = totalMatched > 0,
@@ -74,7 +69,6 @@ public sealed record ReportAssemblyOptions
         ReportingOptions.ValidateDetailLimit(detailLimit);
         return new()
         {
-            TotalMatchedOverride = totalMatched,
             DetailRowLimit = detailLimit,
             DetailRowsToLoad = null,
             DetailRowsTruncated = true,
