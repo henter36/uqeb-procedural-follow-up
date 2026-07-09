@@ -40,6 +40,8 @@ public sealed class TransactionReportSnapshot
     public DateTime? EarliestPendingReplyDueDate { get; set; }
     public bool IsClosed { get; set; }
     public bool IsOpen { get; set; }
+    public bool IsPeriodIncoming { get; set; }
+    public bool IsCarriedOpenBalance { get; set; }
     public bool IsOverdue { get; set; }
     public bool IsOpenOverdue { get; set; }
     public bool IsCompletedLate { get; set; }
@@ -64,6 +66,10 @@ public sealed class TransactionReportSnapshot
 public sealed class InstitutionalMetricsResult
 {
     public int TotalTransactions { get; init; }
+    public int PeriodIncomingCount { get; init; }
+    public int PeriodIncomingOpenCount { get; init; }
+    public int CarriedOpenBalanceCount { get; init; }
+    public int TotalActiveBurdenCount { get; init; }
     public int ClosedCount { get; init; }
     public int OpenCount { get; init; }
     public int CancelledCount { get; init; }

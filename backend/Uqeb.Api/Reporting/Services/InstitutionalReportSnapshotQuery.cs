@@ -181,36 +181,36 @@ internal static class InstitutionalReportSnapshotQuery
         return query;
     }
 
-    /// <summary>
-    /// The overdue report answers "what's open and overdue as of the period end", so a
-    /// transaction that arrived before the period must not be excluded just because its
-    /// IncomingDate predates DateFrom. Every other report type keeps filtering by IncomingDate.
-    /// </summary>
     private static IQueryable<Transaction> ApplyDateFilter(
         IQueryable<Transaction> query,
         ReportFilterRequest legacy,
         InstitutionalReportType reportType)
     {
-        if (legacy.DateFrom.HasValue && reportType != InstitutionalReportType.OverdueTransactions)
-            query = query.Where(t => t.IncomingDate >= legacy.DateFrom.Value.Date);
+        var evaluationDate = ResolveOverdueEvaluationDate(reportType, legacy.DateTo);
         if (legacy.DateTo.HasValue)
         {
             var toExclusive = legacy.DateTo.Value.Date.AddDays(1);
             query = query.Where(t => t.IncomingDate < toExclusive);
         }
+        if (legacy.DateFrom.HasValue)
+        {
+            var from = legacy.DateFrom.Value.Date;
+            var openAtPeriodEndExclusive = evaluationDate.Date.AddDays(1);
+            query = query.Where(t =>
+                t.IncomingDate >= from
+                || (t.IncomingDate < from
+                    && t.Status != TransactionStatus.Cancelled
+                    && t.Status != TransactionStatus.Archived
+                    && (t.ClosedAt == null && !t.ResponseCompletedDate.HasValue
+                        || t.ClosedAt >= openAtPeriodEndExclusive
+                        || t.ResponseCompletedDate >= openAtPeriodEndExclusive)));
+        }
         return query;
     }
 
-    /// <summary>
-    /// The date "as of" which overdue-ness is evaluated. The overdue report evaluates against
-    /// the requested period end (DateTo) so old-but-still-overdue transactions from earlier
-    /// periods keep showing up when a later period is requested; every other report type (and
-    /// the additive IncludeOverdue filter on general reports) keeps evaluating against today.
-    /// </summary>
+    /// <summary>The date "as of" which open/overdue reporting state is evaluated.</summary>
     internal static DateTime ResolveOverdueEvaluationDate(InstitutionalReportType reportType, DateTime? dateTo) =>
-        reportType == InstitutionalReportType.OverdueTransactions
-            ? (dateTo?.Date ?? ReportingTemporalCalculator.RiyadhBusinessDate())
-            : ReportingTemporalCalculator.RiyadhBusinessDate();
+        dateTo?.Date ?? ReportingTemporalCalculator.RiyadhBusinessDate();
 
     private static IQueryable<Transaction> ApplyCategoryFilter(IQueryable<Transaction> query, ReportFiltersDto filters)
     {
@@ -316,6 +316,12 @@ internal static class InstitutionalReportSnapshotQuery
         var proceduralCompletionDate = WorkflowHelper.ResolveProceduralCompletionDateFromRequiredReplies(
             requiredReplySignals, row.ResponseCompletedDate?.Date)?.Date;
         var isProcedurallyComplete = requiredReplySignals.Count > 0 && proceduralCompletionDate.HasValue;
+        var completionDate = proceduralCompletionDate
+            ?? (row.ResponseCompleted ? row.ResponseCompletedDate?.Date : null)
+            ?? row.ClosedAt?.Date;
+        var isClosedAsOf = completionDate.HasValue && completionDate.Value.Date <= today.Date;
+        var isTerminalWithoutDate = row.Status is TransactionStatus.Cancelled or TransactionStatus.Archived;
+        var isOpenAsOf = row.IncomingDate.Date <= today.Date && !isClosedAsOf && !isTerminalWithoutDate;
 
         var snapshot = new TransactionReportSnapshot
         {
@@ -350,8 +356,8 @@ internal static class InstitutionalReportSnapshotQuery
             EarliestPendingReplyDueDate = pendingReplyDueDates.Count > 0 ? pendingReplyDueDates.Min() : null,
             ProceduralCompletionDateForReporting = proceduralCompletionDate,
             IsProcedurallyCompleteForReporting = isProcedurallyComplete,
-            IsClosed = row.Status == TransactionStatus.Closed,
-            IsOpen = InstitutionalReportMetricsCalculator.IsOpenStatus(row.Status),
+            IsClosed = isClosedAsOf,
+            IsOpen = isOpenAsOf,
             ElapsedDays = Math.Max(0, (today - row.IncomingDate.Date).Days)
         };
 

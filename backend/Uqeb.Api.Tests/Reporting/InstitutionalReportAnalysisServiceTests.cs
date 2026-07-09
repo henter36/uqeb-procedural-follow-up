@@ -61,7 +61,7 @@ public class InstitutionalReportAnalysisServiceTests
         });
 
         Assert.Equal(
-            ["TotalTransactions", "IncomingTransactions", "ClosedTransactions", "OpenTransactions"],
+            ["TotalTransactions", "IncomingTransactions", "CarriedOpenBalance", "TotalActiveBurden"],
             result.Kpis.Take(4).Select(k => k.Key));
         Assert.Equal("معاملة", result.Kpis.Single(k => k.Key == "TotalTransactions").Unit);
         Assert.Equal("number", result.Kpis.Single(k => k.Key == "TotalTransactions").Format);

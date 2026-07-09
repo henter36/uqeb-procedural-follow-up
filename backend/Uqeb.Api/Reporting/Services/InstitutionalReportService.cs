@@ -413,7 +413,25 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             .ToListAsync(ct);
 
         var evaluationDate = referenceDate?.Date ?? DateTime.UtcNow.Date;
-        return rows.Select(row => InstitutionalReportSnapshotQuery.MapRowToSnapshot(row, evaluationDate)).ToList();
+        var snapshots = rows.Select(row => InstitutionalReportSnapshotQuery.MapRowToSnapshot(row, evaluationDate)).ToList();
+        ApplyPeriodScope(snapshots, request.Filters.DateFrom, evaluationDate);
+        return snapshots;
+    }
+
+    private static void ApplyPeriodScope(
+        IEnumerable<TransactionReportSnapshot> snapshots,
+        DateTime? dateFrom,
+        DateTime evaluationDate)
+    {
+        var from = dateFrom?.Date ?? DateTime.MinValue.Date;
+        var to = evaluationDate.Date;
+        foreach (var snapshot in snapshots)
+        {
+            snapshot.IsPeriodIncoming = snapshot.IncomingDate.Date >= from && snapshot.IncomingDate.Date <= to;
+            snapshot.IsCarriedOpenBalance = dateFrom.HasValue
+                && snapshot.IncomingDate.Date < from
+                && snapshot.IsOpen;
+        }
     }
 
     private static ExecutiveSummaryDto BuildExecutiveSummary(
@@ -422,7 +440,10 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
     {
         var cards = new List<KpiCardDto>
         {
-            new() { Key = "total", Title = "إجمالي المعاملات", Value = metrics.TotalTransactions.ToString("N0") },
+            new() { Key = "periodIncoming", Title = "وارد الفترة", Value = metrics.PeriodIncomingCount.ToString("N0"), Footnote = "معاملات وردت داخل الفترة فقط." },
+            new() { Key = "carriedOpenBalance", Title = "الرصيد المرحّل المفتوح", Value = metrics.CarriedOpenBalanceCount.ToString("N0"), Footnote = "معاملات أقدم من الفترة وما زالت مفتوحة حتى نهايتها." },
+            new() { Key = "activeBurden", Title = "إجمالي العبء القائم", Value = metrics.TotalActiveBurdenCount.ToString("N0"), Footnote = "وارد الفترة المفتوح + الرصيد المرحّل المفتوح." },
+            new() { Key = "total", Title = "إجمالي نطاق التقرير", Value = metrics.TotalTransactions.ToString("N0") },
             new() { Key = "closed", Title = "المعاملات المغلقة", Value = metrics.ClosedCount.ToString("N0") },
             new() { Key = "open", Title = "المعاملات المفتوحة", Value = metrics.OpenCount.ToString("N0") },
             new() { Key = "overdue", Title = "إجمالي المتأخرات", Value = metrics.OverdueCount.ToString("N0"), Footnote = "يشمل المفتوحة المتأخرة والمنجزة/المغلقة بعد الاستحقاق." },
@@ -439,7 +460,10 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             .OrderByDescending(g => g.Count())
             .FirstOrDefault()?.Key;
 
-        var narrative = $"خلال الفترة المحددة، بلغ إجمالي المعاملات الفريدة {metrics.TotalTransactions:N0} معاملة، " +
+        var narrative = $"بلغ وارد الفترة {metrics.PeriodIncomingCount:N0} معاملة وردت داخل الفترة فقط، " +
+                        $"والرصيد المرحّل المفتوح {metrics.CarriedOpenBalanceCount:N0} معاملة أقدم من الفترة وما زالت مفتوحة حتى نهايتها. " +
+                        $"إجمالي العبء القائم بلغ {metrics.TotalActiveBurdenCount:N0} معاملة، " +
+                        $"ونطاق التقرير التشغيلي يضم {metrics.TotalTransactions:N0} معاملة فريدة، " +
                         $"منها {metrics.ClosedCount:N0} مغلقة و{metrics.OpenCount:N0} مفتوحة. " +
                         $"تضم المعاملات المفتوحة {metrics.OpenOverdueCount:N0} معاملة متأخرة، " +
                         $"وتوجد {metrics.CompletedLateCount:N0} معاملة منجزة/مغلقة بعد الاستحقاق، " +
@@ -454,7 +478,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
 
     private static List<ChartDto> BuildCharts(InstitutionalMetricsResult metrics, IReadOnlyList<TransactionReportSnapshot> snapshots)
     {
-        var monthly = snapshots
+        var monthly = snapshots.Where(s => s.IsPeriodIncoming)
             .GroupBy(s => new DateTime(s.IncomingDate.Year, s.IncomingDate.Month, 1, 0, 0, 0, DateTimeKind.Utc))
             .OrderBy(g => g.Key)
             .Select(g => new ChartSeriesPointDto { Label = g.Key.ToString("yyyy-MM"), Value = g.Count() })

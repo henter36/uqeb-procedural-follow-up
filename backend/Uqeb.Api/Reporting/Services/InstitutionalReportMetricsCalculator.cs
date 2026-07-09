@@ -18,6 +18,9 @@ public static class InstitutionalReportMetricsCalculator
 
         var closed = unique.Where(s => s.IsClosed).ToList();
         var open = unique.Where(s => s.IsOpen).ToList();
+        var periodIncoming = unique.Where(s => s.IsPeriodIncoming).ToList();
+        var periodIncomingOpen = periodIncoming.Count(s => s.IsOpen);
+        var carriedOpenBalance = unique.Count(s => s.IsCarriedOpenBalance);
         var cancelled = unique.Count(s => TransactionStatusSemantics.IsCancelled(s.Status));
         var archived = unique.Count(s => TransactionStatusSemantics.IsArchived(s.Status));
 
@@ -61,6 +64,10 @@ public static class InstitutionalReportMetricsCalculator
         return new InstitutionalMetricsResult
         {
             TotalTransactions = unique.Count,
+            PeriodIncomingCount = periodIncoming.Count,
+            PeriodIncomingOpenCount = periodIncomingOpen,
+            CarriedOpenBalanceCount = carriedOpenBalance,
+            TotalActiveBurdenCount = periodIncomingOpen + carriedOpenBalance,
             ClosedCount = closed.Count,
             OpenCount = open.Count,
             CancelledCount = cancelled,

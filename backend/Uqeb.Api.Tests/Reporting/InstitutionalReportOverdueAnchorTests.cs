@@ -12,8 +12,8 @@ namespace Uqeb.Api.Tests.Reporting;
 /// The overdue report answers "what's open and overdue as of the period end", not "what
 /// arrived during the period and is now overdue". These tests pin down that a transaction
 /// that arrived before the requested period, but is still open and overdue as of DateTo,
-/// must not disappear just because a later period was requested — while the general/
-/// comprehensive report keeps filtering strictly by IncomingDate, unaffected.
+/// must not disappear just because a later period was requested. Comprehensive reports
+/// include that carried-open balance while keeping period incoming metrics separate.
 /// All dates are relative to DateTime.UtcNow so the suite never rots into a time bomb.
 /// </summary>
 public class InstitutionalReportOverdueAnchorTests
@@ -174,12 +174,8 @@ public class InstitutionalReportOverdueAnchorTests
     }
 
     [Fact]
-    public async Task GeneralReport_StillFiltersByIncomingDate_UnaffectedByOverdueAnchorChange()
+    public async Task GeneralReport_IncludesCarriedOpenBalanceWithoutInflatingPeriodIncoming()
     {
-        // Scenario 5: proves the incoming-report / general-report behavior did not change —
-        // a transaction that arrived before DateFrom must still be excluded from a general
-        // (non-overdue) report for the same period, even though it would now show up in the
-        // overdue report for that same period.
         var (db, user, factory) = await SeedBaseAsync($"overdue-anchor-general-{Guid.NewGuid():N}");
         var today = DateTime.UtcNow.Date;
         var periodFrom = today.AddDays(-20);
@@ -201,9 +197,11 @@ public class InstitutionalReportOverdueAnchorTests
         var model = await service.BuildReportModelAsync(
             BuildRequest(InstitutionalReportType.ExecutiveComprehensive, periodFrom, periodTo));
 
-        Assert.Equal(1, model.TotalMatchedRows);
-        Assert.DoesNotContain(model.Transactions, t => t.TrackingNumber == "OLD-OVERDUE-GENERAL");
+        Assert.Equal(2, model.TotalMatchedRows);
+        Assert.Contains(model.Transactions, t => t.TrackingNumber == "OLD-OVERDUE-GENERAL");
         Assert.Contains(model.Transactions, t => t.TrackingNumber == "CURRENT-GENERAL");
+        Assert.Equal("1", Assert.Single(model.Summary.KpiCards, c => c.Key == "periodIncoming").Value);
+        Assert.Equal("1", Assert.Single(model.Summary.KpiCards, c => c.Key == "carriedOpenBalance").Value);
     }
 
     [Fact]

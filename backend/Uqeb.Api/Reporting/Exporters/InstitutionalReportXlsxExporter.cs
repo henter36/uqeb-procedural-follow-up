@@ -438,26 +438,25 @@ public static class InstitutionalReportXlsxExporter
     {
         var ws = workbook.Worksheets.Add("المعاملات التفصيلية");
         ws.RightToLeft = true;
-        var headers = new[] { "م", "رقم المعاملة", "رقم الوارد", "تاريخ الوارد", "الموضوع", PartyHeader, DepartmentHeader, "الإدارات المشتركة", PriorityHeader, "الحالة", "مرحلة المتابعة", "الأيام", "المهلة", "آخر إجراء", "حالة الرد" };
+        var headers = new[] { "م", "رقم الوارد", "تاريخ الوارد", "الموضوع", PartyHeader, DepartmentHeader, "الإدارات المشتركة", PriorityHeader, "الحالة", "مرحلة المتابعة", "الأيام", "المهلة", "آخر إجراء", "حالة الرد" };
         for (var i = 0; i < headers.Length; i++) ws.Cell(1, i + 1).Value = headers[i];
         var row = 2;
         foreach (var t in model.Transactions)
         {
             ws.Cell(row, 1).Value = t.Sequence;
-            ws.Cell(row, 2).Value = t.TrackingNumber;
-            ws.Cell(row, 3).Value = t.IncomingNumber;
-            ws.Cell(row, 4).Value = t.IncomingDate;
-            ws.Cell(row, 5).Value = t.Subject;
-            ws.Cell(row, 6).Value = t.IncomingParty;
-            ws.Cell(row, 7).Value = t.ResponsibleDepartment;
-            ws.Cell(row, 8).Value = t.JointDepartments;
-            ws.Cell(row, 9).Value = t.Priority;
-            ws.Cell(row, 10).Value = t.Status;
-            ws.Cell(row, 11).Value = t.FollowUpStage;
-            ws.Cell(row, 12).Value = t.ElapsedDays;
-            ws.Cell(row, 13).Value = t.DueDate ?? string.Empty;
-            ws.Cell(row, 14).Value = t.LastActionDate ?? string.Empty;
-            ws.Cell(row, 15).Value = t.ResponseState;
+            ws.Cell(row, 2).Value = t.IncomingNumber;
+            ws.Cell(row, 3).Value = t.IncomingDate;
+            ws.Cell(row, 4).Value = t.Subject;
+            ws.Cell(row, 5).Value = t.IncomingParty;
+            ws.Cell(row, 6).Value = t.ResponsibleDepartment;
+            ws.Cell(row, 7).Value = t.JointDepartments;
+            ws.Cell(row, 8).Value = t.Priority;
+            ws.Cell(row, 9).Value = t.Status;
+            ws.Cell(row, 10).Value = t.FollowUpStage;
+            ws.Cell(row, 11).Value = t.ElapsedDays;
+            ws.Cell(row, 12).Value = t.DueDate ?? string.Empty;
+            ws.Cell(row, 13).Value = t.LastActionDate ?? string.Empty;
+            ws.Cell(row, 14).Value = t.ResponseState;
             row++;
         }
         ws.Range(1, 1, row - 1, headers.Length).SetAutoFilter();
@@ -476,7 +475,7 @@ public static class InstitutionalReportXlsxExporter
         ws.RightToLeft = true;
         var headers = new[]
         {
-            "م", "رقم المعاملة (التتبع الداخلي)", "رقم الوارد", "تاريخ الوارد", "الموضوع", PartyHeader,
+            "م", "رقم الوارد", "تاريخ الوارد", "الموضوع", PartyHeader,
             "الإدارة/الإدارات المطابقة", "نوع العلاقة", "رقم الصادر", "تاريخ الصادر",
             "إدارات الإحالة (الكل)", "إدارات الصادر (الكل)", "الحالة", PriorityHeader, "المهلة", "آخر إجراء",
         };
@@ -485,21 +484,20 @@ public static class InstitutionalReportXlsxExporter
         foreach (var t in model.Transactions)
         {
             ws.Cell(row, 1).Value = t.Sequence;
-            ws.Cell(row, 2).Value = t.TrackingNumber;
-            ws.Cell(row, 3).Value = t.IncomingNumber;
-            ws.Cell(row, 4).Value = t.IncomingDate;
-            ws.Cell(row, 5).Value = t.Subject;
-            ws.Cell(row, 6).Value = t.IncomingParty;
-            ws.Cell(row, 7).Value = string.Join("؛ ", t.MatchedDepartments.Select(m => m.DepartmentName));
-            ws.Cell(row, 8).Value = string.Join("؛ ", t.MatchedDepartments.Select(m => m.Relation));
-            ws.Cell(row, 9).Value = t.OutgoingNumber ?? string.Empty;
-            ws.Cell(row, 10).Value = t.OutgoingDate ?? string.Empty;
-            ws.Cell(row, 11).Value = string.Join("؛ ", t.AllAssignmentDepartments);
-            ws.Cell(row, 12).Value = string.Join("؛ ", t.AllOutgoingDepartments);
-            ws.Cell(row, 13).Value = t.Status;
-            ws.Cell(row, 14).Value = t.Priority;
-            ws.Cell(row, 15).Value = t.DueDate ?? string.Empty;
-            ws.Cell(row, 16).Value = t.LastActionDate ?? string.Empty;
+            ws.Cell(row, 2).Value = t.IncomingNumber;
+            ws.Cell(row, 3).Value = t.IncomingDate;
+            ws.Cell(row, 4).Value = t.Subject;
+            ws.Cell(row, 5).Value = t.IncomingParty;
+            ws.Cell(row, 6).Value = string.Join("؛ ", t.MatchedDepartments.Select(m => m.DepartmentName));
+            ws.Cell(row, 7).Value = string.Join("؛ ", t.MatchedDepartments.Select(m => m.Relation));
+            ws.Cell(row, 8).Value = t.OutgoingNumber ?? string.Empty;
+            ws.Cell(row, 9).Value = t.OutgoingDate ?? string.Empty;
+            ws.Cell(row, 10).Value = string.Join("؛ ", t.AllAssignmentDepartments);
+            ws.Cell(row, 11).Value = string.Join("؛ ", t.AllOutgoingDepartments);
+            ws.Cell(row, 12).Value = t.Status;
+            ws.Cell(row, 13).Value = t.Priority;
+            ws.Cell(row, 14).Value = t.DueDate ?? string.Empty;
+            ws.Cell(row, 15).Value = t.LastActionDate ?? string.Empty;
             row++;
         }
         ws.Range(1, 1, row - 1, headers.Length).SetAutoFilter();

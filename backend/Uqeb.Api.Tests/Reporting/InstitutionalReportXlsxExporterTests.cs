@@ -172,14 +172,14 @@ public class InstitutionalReportXlsxExporterTests
         using var workbook = new XLWorkbook(new MemoryStream(bytes));
         var ws = workbook.Worksheet("المعاملات التفصيلية");
         AssertHeaders(ws, [
-            "م", "رقم المعاملة (التتبع الداخلي)", "رقم الوارد", "تاريخ الوارد", "الموضوع", "الجهة",
+            "م", "رقم الوارد", "تاريخ الوارد", "الموضوع", "الجهة",
             "الإدارة/الإدارات المطابقة", "نوع العلاقة", "رقم الصادر", "تاريخ الصادر",
             "إدارات الإحالة (الكل)", "إدارات الصادر (الكل)", "الحالة", PriorityHeader, "المهلة", "آخر إجراء",
         ]);
-        Assert.Equal("الإدارة ب", ws.Cell(2, 7).GetString());
-        Assert.Equal("إحالة وصادر لها", ws.Cell(2, 8).GetString());
-        Assert.Equal("الإدارة ب؛ الإدارة ج", ws.Cell(2, 11).GetString());
-        Assert.Equal("الإدارة ب", ws.Cell(2, 12).GetString());
+        Assert.Equal("الإدارة ب", ws.Cell(2, 6).GetString());
+        Assert.Equal("إحالة وصادر لها", ws.Cell(2, 7).GetString());
+        Assert.Equal("الإدارة ب؛ الإدارة ج", ws.Cell(2, 10).GetString());
+        Assert.Equal("الإدارة ب", ws.Cell(2, 11).GetString());
     }
 
     private static void AssertHeaders(IXLWorksheet worksheet, IReadOnlyList<string> expectedHeaders)

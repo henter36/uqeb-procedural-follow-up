@@ -1110,7 +1110,7 @@ public sealed class InstitutionalReportRenderer
     private static string RenderTransactions(InstitutionalReportModel model, List<TransactionDetailRowDto> rows, bool isFirstPage)
     {
         var body = string.Join(string.Empty, rows.Select(r =>
-            $"<tr><td class=\"cell--id\">{Esc(r.TrackingNumber)}</td><td class=\"cell--id\">{Esc(r.IncomingNumber)}</td><td class=\"cell--date\">{FormatDate(r.IncomingDate)}</td><td class=\"cell--subject\">{Esc(r.Subject)}</td><td>{Esc(DisplayValue(r.IncomingParty))}</td><td>{Esc(NormalizeDepartmentName(r.ResponsibleDepartment))}</td><td>{Esc(DisplayValue(r.Status))}</td><td>{Esc(DisplayValue(r.FollowUpStage))}</td><td class=\"cell--number\">{r.ElapsedDays}</td><td class=\"cell--date\">{Esc(r.DueDate ?? "—")}</td><td>{Esc(DisplayValue(r.ResponseState))}</td></tr>"));
+            $"<tr><td class=\"cell--id\">{Esc(r.IncomingNumber)}</td><td class=\"cell--date\">{FormatDate(r.IncomingDate)}</td><td class=\"cell--subject\">{Esc(r.Subject)}</td><td>{Esc(DisplayValue(r.IncomingParty))}</td><td>{Esc(NormalizeDepartmentName(r.ResponsibleDepartment))}</td><td>{Esc(DisplayValue(r.Status))}</td><td>{Esc(DisplayValue(r.FollowUpStage))}</td><td class=\"cell--number\">{r.ElapsedDays}</td><td class=\"cell--date\">{Esc(r.DueDate ?? "—")}</td><td>{Esc(DisplayValue(r.ResponseState))}</td></tr>"));
         var totalResults = model.TotalMatchedRows > 0 ? model.TotalMatchedRows : model.Transactions.Count;
         var pageNote = rows.Count < totalResults
             ? $" — عرض {rows.Count:N0} صف في هذه الصفحة من {model.ExportedDetailRows:N0} صفًا مصدَّرًا"
@@ -1123,7 +1123,7 @@ public sealed class InstitutionalReportRenderer
         {truncationNote}
         <p class="section-subtitle">إجمالي النتائج: {totalResults:N0} معاملة{pageNote} — الفترة من {FormatDate(model.Metadata.PeriodFrom)} إلى {FormatDate(model.Metadata.PeriodTo)}</p>
         <table class="report-table report-table--transactions"><thead><tr>
-          <th>رقم المعاملة</th><th>رقم الوارد</th><th>تاريخ الوارد</th><th>الموضوع</th><th>الجهة</th>
+          <th>رقم الوارد</th><th>تاريخ الوارد</th><th>الموضوع</th><th>الجهة</th>
           <th>الإدارة</th><th>الحالة</th><th>مرحلة المتابعة</th><th>الأيام</th><th>المهلة</th><th>حالة الرد</th>
         </tr></thead><tbody>{body}</tbody></table>
         """;
