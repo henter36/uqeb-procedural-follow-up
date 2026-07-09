@@ -76,15 +76,21 @@ export default function DataQualityPage() {
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
-      void fetchSummary({ limit: 500 });
+      const loadInitialSummary = async () => {
+        await fetchSummary({ limit: 500 });
+      };
+
+      loadInitialSummary().catch(() => {
+        setError('تعذر تحميل ملاحظات جودة البيانات.');
+      });
     }, 0);
     return () => window.clearTimeout(timeoutId);
   }, [fetchSummary]);
 
-  const applyFilters = (event: FormEvent) => {
+  const applyFilters = async (event: FormEvent) => {
     event.preventDefault();
     setAppliedParams(params);
-    void fetchSummary(params);
+    await fetchSummary(params);
   };
 
   const markReviewed = async (issue: DataQualityIssue) => {

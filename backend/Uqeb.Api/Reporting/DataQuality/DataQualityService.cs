@@ -23,7 +23,7 @@ public sealed class DataQualityService : IDataQualityService
 
     public async Task<DataQualitySummaryDto> GetSummaryAsync(DataQualityQueryDto query, CancellationToken ct = default)
     {
-        var limit = Math.Clamp(query.Limit, 1, 1000);
+        var limit = Math.Clamp(query.Limit ?? 500, 1, 1000);
         var today = ReportingTemporalCalculator.RiyadhBusinessDate(_clock);
         var transactions = await BuildTransactionQuery(query).ToListAsync(ct);
 
@@ -33,7 +33,7 @@ public sealed class DataQualityService : IDataQualityService
             if (query.OverdueMoreThanDays.HasValue)
                 AddOverdueIssue(issues, transaction, today, query.OverdueMoreThanDays.Value);
 
-            if (query.IncludeReferralDateAfterIncomingDate)
+            if (query.IncludeReferralDateAfterIncomingDate == true)
                 AddReferralDateIssues(issues, transaction);
 
             if (query.ResponsePeriodLessThanDays.HasValue)
@@ -281,11 +281,11 @@ public sealed class DataQualityService : IDataQualityService
 
     private static void ApplyReviewFilters(List<DataQualityIssueDto> issues, DataQualityQueryDto query)
     {
-        if (query.ReviewedOnly)
+        if (query.ReviewedOnly == true)
         {
             issues.RemoveAll(x => !x.IsReviewed);
         }
-        else if (!query.IncludeReviewed)
+        else if (query.IncludeReviewed != true)
         {
             issues.RemoveAll(x => x.IsReviewed);
         }
