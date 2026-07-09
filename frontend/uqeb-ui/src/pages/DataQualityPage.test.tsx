@@ -209,6 +209,32 @@ describe('DataQualityPage', () => {
     expect(services.dataQualityApi.getSummary).toHaveBeenCalledTimes(4);
   });
 
+  it('shows an error without success feedback when marking an issue fails', async () => {
+    vi.mocked(services.dataQualityApi.markReviewed).mockRejectedValueOnce(new Error('failed'));
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findAllByText('مدة التأخر تتجاوز الحد المحدد');
+
+    await user.click(screen.getAllByRole('button', { name: 'تمت المراجعة' })[0]);
+
+    expect(await screen.findByText('تعذر تعليم الملاحظة كمراجعة.')).toBeInTheDocument();
+    expect(screen.queryByText('تمت مراجعة هذه الملاحظة، ولن تظهر في النتائج الافتراضية القادمة.')).not.toBeInTheDocument();
+    expect(services.dataQualityApi.getSummary).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows an error without success feedback when unmarking an issue fails', async () => {
+    vi.mocked(services.dataQualityApi.unmarkReviewed).mockRejectedValueOnce(new Error('failed'));
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findAllByText('مدة التأخر تتجاوز الحد المحدد');
+
+    await user.click(screen.getByRole('button', { name: 'إزالة المراجعة' }));
+
+    expect(await screen.findByText('تعذر إزالة علامة المراجعة.')).toBeInTheDocument();
+    expect(screen.queryByText('تمت إزالة علامة المراجعة، وستعود الملاحظة للظهور إذا بقيت القاعدة منطبقة.')).not.toBeInTheDocument();
+    expect(services.dataQualityApi.getSummary).toHaveBeenCalledTimes(1);
+  });
+
   it('opens the existing transaction details page', async () => {
     const user = userEvent.setup();
     renderPage();

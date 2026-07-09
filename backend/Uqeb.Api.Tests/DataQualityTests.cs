@@ -207,6 +207,56 @@ public sealed class DataQualityTests
     }
 
     [Fact]
+    public async Task GetSummary_AttachesReviewState_WhenIssueKeysExceedSingleSqlParameterBatch()
+    {
+        await using var db = CreateDb(nameof(GetSummary_AttachesReviewState_WhenIssueKeysExceedSingleSqlParameterBatch));
+        SeedUser(db);
+
+        for (var id = 1; id <= 2001; id++)
+            db.Transactions.Add(CreateTransaction(id, responseDueDate: new DateTime(2026, 6, 18), requiresResponse: true));
+
+        db.DataQualityReviews.AddRange(
+            new DataQualityReview
+            {
+                IssueKey = "tx:1:overdue-duration",
+                TransactionId = 1,
+                RuleCode = DataQualityService.OverdueDurationRuleCode,
+                IsReviewed = true,
+                ReviewedAtUtc = TodayUtc,
+                ReviewedByUserId = 1
+            },
+            new DataQualityReview
+            {
+                IssueKey = "tx:2001:overdue-duration",
+                TransactionId = 2001,
+                RuleCode = DataQualityService.OverdueDurationRuleCode,
+                IsReviewed = true,
+                ReviewedAtUtc = TodayUtc,
+                ReviewedByUserId = 1
+            });
+        await db.SaveChangesAsync();
+
+        var summary = await CreateService(db).GetSummaryAsync(new DataQualityQueryDto
+        {
+            OverdueMoreThanDays = 10,
+            IncludeReviewed = true,
+            Limit = 3000
+        });
+
+        Assert.Equal(2001, summary.TotalIssues);
+        Assert.Contains(summary.Issues, x =>
+            x.TransactionId == 1 &&
+            x.IsReviewed &&
+            x.ReviewedAtUtc == TodayUtc &&
+            x.ReviewedByName == "مدير النظام");
+        Assert.Contains(summary.Issues, x =>
+            x.TransactionId == 2001 &&
+            x.IsReviewed &&
+            x.ReviewedAtUtc == TodayUtc &&
+            x.ReviewedByName == "مدير النظام");
+    }
+
+    [Fact]
     public async Task GetSummary_WhenReviewedOnly_ReturnsOnlyReviewed()
     {
         await using var db = CreateDb(nameof(GetSummary_WhenReviewedOnly_ReturnsOnlyReviewed));

@@ -94,19 +94,31 @@ export default function DataQualityPage() {
   };
 
   const markReviewed = async (issue: DataQualityIssue) => {
-    await dataQualityApi.markReviewed({
-      issueKey: issue.issueKey,
-      transactionId: issue.transactionId,
-      ruleCode: issue.ruleCode,
-    });
-    setMessage('تمت مراجعة هذه الملاحظة، ولن تظهر في النتائج الافتراضية القادمة.');
-    await fetchSummary(appliedParams);
+    try {
+      await dataQualityApi.markReviewed({
+        issueKey: issue.issueKey,
+        transactionId: issue.transactionId,
+        ruleCode: issue.ruleCode,
+      });
+      setError('');
+      setMessage('تمت مراجعة هذه الملاحظة، ولن تظهر في النتائج الافتراضية القادمة.');
+      await fetchSummary(appliedParams);
+    } catch {
+      setMessage('');
+      setError('تعذر تعليم الملاحظة كمراجعة.');
+    }
   };
 
   const unmarkReviewed = async (issue: DataQualityIssue) => {
-    await dataQualityApi.unmarkReviewed({ issueKey: issue.issueKey });
-    setMessage('تمت إزالة علامة المراجعة، وستعود الملاحظة للظهور إذا بقيت القاعدة منطبقة.');
-    await fetchSummary(appliedParams);
+    try {
+      await dataQualityApi.unmarkReviewed({ issueKey: issue.issueKey });
+      setError('');
+      setMessage('تمت إزالة علامة المراجعة، وستعود الملاحظة للظهور إذا بقيت القاعدة منطبقة.');
+      await fetchSummary(appliedParams);
+    } catch {
+      setMessage('');
+      setError('تعذر إزالة علامة المراجعة.');
+    }
   };
 
   const generatedAt = summary.generatedAtUtc

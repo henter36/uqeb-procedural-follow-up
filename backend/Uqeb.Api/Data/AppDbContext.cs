@@ -70,6 +70,7 @@ public class AppDbContext : DbContext
             e.Property(x => x.IssueKey).HasMaxLength(300).IsRequired();
             e.Property(x => x.RuleCode).HasMaxLength(100).IsRequired();
             e.Property(x => x.ReviewNote).HasMaxLength(1000);
+            e.HasOne<Transaction>().WithMany().HasForeignKey(x => x.TransactionId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<User>().WithMany().HasForeignKey(x => x.ReviewedByUserId).OnDelete(DeleteBehavior.NoAction);
         });
 

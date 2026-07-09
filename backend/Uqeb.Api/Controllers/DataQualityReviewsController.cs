@@ -60,15 +60,25 @@ public sealed class DataQualityReviewsController : ControllerBase
             _db.DataQualityReviews.Add(review);
         }
 
-        review.IsReviewed = true;
-        review.TransactionId = request.TransactionId;
-        review.RuleCode = request.RuleCode.Trim();
-        review.ReviewNote = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim();
-        review.ReviewedAtUtc = now;
-        review.ReviewedByUserId = _currentUser.UserId;
+        ApplyReviewUpdate(review, request, now);
 
         if (isNew)
-            await _db.SaveChangesAsync(ct);
+        {
+            try
+            {
+                await _db.SaveChangesAsync(ct);
+            }
+            catch (DbUpdateException)
+            {
+                _db.Entry(review).State = EntityState.Detached;
+                review = await _db.DataQualityReviews.SingleOrDefaultAsync(x => x.IssueKey == issueKey, ct);
+                if (review is null)
+                    throw;
+
+                oldValue = ReviewAuditValue(review);
+                ApplyReviewUpdate(review, request, now);
+            }
+        }
 
         _audit.TrackLog(
             _currentUser.UserId,
@@ -126,4 +136,17 @@ public sealed class DataQualityReviewsController : ControllerBase
             review.ReviewedAtUtc,
             review.ReviewedByUserId
         });
+
+    private void ApplyReviewUpdate(
+        DataQualityReview review,
+        MarkDataQualityReviewRequest request,
+        DateTime reviewedAtUtc)
+    {
+        review.IsReviewed = true;
+        review.TransactionId = request.TransactionId;
+        review.RuleCode = request.RuleCode.Trim();
+        review.ReviewNote = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim();
+        review.ReviewedAtUtc = reviewedAtUtc;
+        review.ReviewedByUserId = _currentUser.UserId;
+    }
 }

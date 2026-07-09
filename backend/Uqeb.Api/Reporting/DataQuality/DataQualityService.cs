@@ -11,6 +11,8 @@ public sealed class DataQualityService : IDataQualityService
     public const string OverdueDurationRuleCode = "OverdueDurationExceedsThreshold";
     public const string ReferralDateAfterIncomingDateRuleCode = "ReferralDateAfterIncomingDate";
     public const string ResponsePeriodLessThanThresholdRuleCode = "ResponsePeriodLessThanThreshold";
+    private const int MaxTransactionsToInspect = 10_000;
+    private const int ReviewKeyBatchSize = 2_000;
 
     private readonly AppDbContext _db;
     private readonly TimeProvider _clock;
@@ -25,7 +27,9 @@ public sealed class DataQualityService : IDataQualityService
     {
         var limit = Math.Clamp(query.Limit ?? 500, 1, 1000);
         var today = ReportingTemporalCalculator.RiyadhBusinessDate(_clock);
-        var transactions = await BuildTransactionQuery(query).ToListAsync(ct);
+        var transactions = await BuildTransactionQuery(query)
+            .Take(MaxTransactionsToInspect)
+            .ToListAsync(ct);
 
         var issues = new List<DataQualityIssueDto>();
         foreach (var transaction in transactions)
@@ -257,15 +261,23 @@ public sealed class DataQualityService : IDataQualityService
             return;
 
         var keys = issues.Select(x => x.IssueKey).Distinct().ToList();
-        var reviews = await _db.DataQualityReviews
-            .AsNoTracking()
-            .Where(x => keys.Contains(x.IssueKey))
-            .GroupJoin(
-                _db.Users.AsNoTracking(),
-                review => review.ReviewedByUserId,
-                user => user.Id,
-                (review, users) => new { Review = review, User = users.FirstOrDefault() })
-            .ToDictionaryAsync(x => x.Review.IssueKey, x => x, ct);
+        var reviews = new Dictionary<string, DataQualityReviewLookup>(StringComparer.Ordinal);
+
+        foreach (var batch in keys.Chunk(ReviewKeyBatchSize))
+        {
+            var batchReviews = await _db.DataQualityReviews
+                .AsNoTracking()
+                .Where(x => batch.Contains(x.IssueKey))
+                .GroupJoin(
+                    _db.Users.AsNoTracking(),
+                    review => review.ReviewedByUserId,
+                    user => user.Id,
+                    (review, users) => new DataQualityReviewLookup(review, users.FirstOrDefault()))
+                .ToListAsync(ct);
+
+            foreach (var review in batchReviews)
+                reviews[review.Review.IssueKey] = review;
+        }
 
         foreach (var issue in issues)
         {
@@ -309,4 +321,6 @@ public sealed class DataQualityService : IDataQualityService
             DataQualitySeverity.Medium => "متوسطة",
             _ => "منخفضة"
         };
+
+    private sealed record DataQualityReviewLookup(DataQualityReview Review, User? User);
 }
