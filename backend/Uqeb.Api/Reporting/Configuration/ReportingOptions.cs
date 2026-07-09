@@ -120,6 +120,7 @@ public sealed class ReportingAnalysisOptions
     public decimal StableChangeThresholdPercent { get; set; } = 3;
     public decimal SignificantChangeThresholdPercent { get; set; } = 10;
     public int CriticalOverdueDays { get; set; } = 10;
+    public int CriticalOldOpenTransactionDays { get; set; } = 730;
     public int StaleTransactionDays { get; set; } = 7;
 
     /// <summary>Days window used to detect "no recent update" in risk counters (was hardcoded 14).</summary>
@@ -147,6 +148,9 @@ public sealed class ReportingAnalysisOptions
 
         if (CriticalOverdueDays <= 0)
             throw new InvalidOperationException("Reporting:Analysis:CriticalOverdueDays must be greater than zero.");
+
+        if (CriticalOldOpenTransactionDays <= 0)
+            throw new InvalidOperationException("Reporting:Analysis:CriticalOldOpenTransactionDays must be greater than zero.");
 
         if (StaleTransactionDays <= 0)
             throw new InvalidOperationException("Reporting:Analysis:StaleTransactionDays must be greater than zero.");

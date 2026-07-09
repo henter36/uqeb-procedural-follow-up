@@ -24,7 +24,9 @@ internal static class InstitutionalReportQueryBuilder
         query = InstitutionalReportSnapshotQuery.ApplyInstitutionalFilter(query, request.Filters, legacyFilter, request.ReportType);
         query = InstitutionalReportSnapshotQuery.ApplyReportTypeFilter(query, request.ReportType, request.SingleTransactionId, request.Filters.DateTo);
         if (request.Filters.IncludeOverdue && request.ReportType != InstitutionalReportType.OverdueTransactions)
-            query = InstitutionalReportOverdueQuery.ApplyOverdueFilter(query, ReportingTemporalCalculator.RiyadhBusinessDate());
+            query = InstitutionalReportOverdueQuery.ApplyOverdueFilter(
+                query,
+                InstitutionalReportSnapshotQuery.ResolveOverdueEvaluationDate(request.ReportType, request.Filters.DateTo));
         query = InstitutionalReportSnapshotQuery.ApplyAccessScopeFilter(query, role, departmentId);
         return query;
     }

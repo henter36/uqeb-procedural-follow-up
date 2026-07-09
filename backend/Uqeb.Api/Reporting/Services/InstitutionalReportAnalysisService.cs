@@ -396,10 +396,10 @@ internal static class InstitutionalReportAnalysisService
             : Math.Round(currentSnapshots.Count(s => s.LastFollowUpDate.HasValue) / (double)current.TotalTransactions, 2);
         var completeness = CalculateCompletenessRate(currentSnapshots);
         var previousOpen = previous?.OpenCount;
-        var previousTotal = previous?.TotalTransactions;
-        var closureToIncomingRatio = current.TotalTransactions == 0
+        var previousPeriodIncoming = previous?.PeriodIncomingCount;
+        var closureToIncomingRatio = current.PeriodIncomingCount == 0
             ? 0
-            : Math.Round(current.ClosedCount * 100.0 / current.TotalTransactions, 1);
+            : Math.Round(current.ClosedCount * 100.0 / current.PeriodIncomingCount, 1);
 
         // BacklogGrowthRate requires a comparison period to be meaningful.
         // When previousOpen is null there is no baseline; returning current.OpenCount would be
@@ -416,8 +416,10 @@ internal static class InstitutionalReportAnalysisService
 
         return
         [
-            Kpi(new AnalysisMetricDefinition { Key = "TotalTransactions", Title = "إجمالي المعاملات", Definition = "عدد المعاملات الفريدة المطابقة للفلاتر.", Formula = "count(distinct TransactionId)", FieldsUsed = "Transaction.Id", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.Neutral }, current.TotalTransactions, current.TotalTransactions, previous?.TotalTransactions, options),
-            Kpi(new AnalysisMetricDefinition { Key = "IncomingTransactions", Title = "المعاملات الواردة", Definition = "عدد المعاملات حسب تاريخ الوارد في الفترة.", Formula = "count by IncomingDate", FieldsUsed = "IncomingDate", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.Neutral }, current.TotalTransactions, current.TotalTransactions, previousTotal, options),
+            Kpi(new AnalysisMetricDefinition { Key = "TotalTransactions", Title = "إجمالي نطاق التقرير", Definition = "عدد المعاملات الفريدة ضمن وارد الفترة والرصيد المفتوح المرحّل.", Formula = "count(distinct TransactionId)", FieldsUsed = "Transaction.Id", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.Neutral }, current.TotalTransactions, current.TotalTransactions, previous?.TotalTransactions, options),
+            Kpi(new AnalysisMetricDefinition { Key = "IncomingTransactions", Title = "وارد الفترة", Definition = "معاملات وردت داخل فترة التقرير فقط.", Formula = "count(IncomingDate between DateFrom and DateTo)", FieldsUsed = "IncomingDate", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.Neutral }, current.PeriodIncomingCount, current.PeriodIncomingCount, previousPeriodIncoming, options),
+            Kpi(new AnalysisMetricDefinition { Key = "CarriedOpenBalance", Title = "الرصيد المرحّل المفتوح", Definition = "معاملات أقدم من الفترة وما زالت مفتوحة حتى نهاية الفترة.", Formula = "count(IncomingDate < DateFrom && open as of DateTo)", FieldsUsed = "IncomingDate, ClosedAt, ResponseCompletedDate, Status", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.LowerIsBetter }, current.CarriedOpenBalanceCount, current.TotalTransactions, previous?.CarriedOpenBalanceCount, options),
+            Kpi(new AnalysisMetricDefinition { Key = "TotalActiveBurden", Title = "إجمالي العبء القائم", Definition = "وارد الفترة المفتوح حتى نهاية الفترة + الرصيد المفتوح المرحّل.", Formula = "period incoming open + carried open balance", FieldsUsed = "IncomingDate, ClosedAt, Status", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.LowerIsBetter }, current.TotalActiveBurdenCount, current.TotalTransactions, previous?.TotalActiveBurdenCount, options),
             Kpi(new AnalysisMetricDefinition { Key = "ClosedTransactions", Title = "المعاملات المغلقة", Definition = "عدد المعاملات ذات الحالة المغلقة.", Formula = "count(IsClosed)", FieldsUsed = "Status, ClosedAt", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.HigherIsBetter }, current.ClosedCount, current.ClosedCount, previous?.ClosedCount, options),
             Kpi(new AnalysisMetricDefinition { Key = "OpenTransactions", Title = "المعاملات المفتوحة", Definition = "عدد المعاملات التشغيلية غير المغلقة.", Formula = "count(IsOpen)", FieldsUsed = "Status", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.LowerIsBetter }, current.OpenCount, current.OpenCount, previous?.OpenCount, options),
             Kpi(new AnalysisMetricDefinition { Key = "OnTimeCompletionRate", Title = "نسبة الإنجاز ضمن المهلة", Definition = "نسبة المعاملات المغلقة قبل أو في تاريخ المهلة.", Formula = "on-time closed / measurable closed", FieldsUsed = "ClosedAt, ResponseDueDate", Unit = "%", Format = MetricValueTypes.Percent, MinimumSampleSize = options.MinimumComparisonSampleSize, Direction = KpiDirection.HigherIsBetter }, (decimal)current.OnTimeCompletionRate, current.ClosedCount, previous is null ? null : (decimal)previous.OnTimeCompletionRate, options),
@@ -438,7 +440,7 @@ internal static class InstitutionalReportAnalysisService
             hasComparisonPeriod
                 ? Kpi(new AnalysisMetricDefinition { Key = "BacklogGrowthRate", Title = "تغير الرصيد المفتوح", Definition = "الفرق بين الرصيد المفتوح الحالي والسابق.", Formula = "current open - previous open", FieldsUsed = "Status", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = options.MinimumComparisonSampleSize, Direction = KpiDirection.LowerIsBetter }, backlogGrowth, current.TotalTransactions, previousOpen, options)
                 : UnavailableKpi("BacklogGrowthRate", "تغير الرصيد المفتوح", "لا توجد فترة مقارنة؛ تغير الرصيد غير قابل للحساب."),
-            Kpi(new AnalysisMetricDefinition { Key = "ClosureToIncomingRatio", Title = "نسبة الإغلاق إلى الوارد", Definition = "نسبة المغلق إلى إجمالي الوارد في الفترة.", Formula = "closed / incoming", FieldsUsed = "Status, IncomingDate", Unit = "%", Format = MetricValueTypes.Percent, MinimumSampleSize = options.MinimumComparisonSampleSize, Direction = KpiDirection.HigherIsBetter }, (decimal)closureToIncomingRatio, current.TotalTransactions, previous is null ? null : Rate(previous.ClosedCount, previous.TotalTransactions), options),
+            Kpi(new AnalysisMetricDefinition { Key = "ClosureToIncomingRatio", Title = "نسبة الإغلاق إلى الوارد", Definition = "نسبة المغلق إلى وارد الفترة فقط.", Formula = "closed / period incoming", FieldsUsed = "Status, IncomingDate", Unit = "%", Format = MetricValueTypes.Percent, MinimumSampleSize = options.MinimumComparisonSampleSize, Direction = KpiDirection.HigherIsBetter }, (decimal)closureToIncomingRatio, current.PeriodIncomingCount, previous is null ? null : Rate(previous.ClosedCount, previous.PeriodIncomingCount), options),
             Kpi(new AnalysisMetricDefinition { Key = "OldestOpenTransactionAgeDays", Title = "عمر أقدم معاملة مفتوحة", Definition = "أكبر عمر بالأيام بين المعاملات المفتوحة.", Formula = "max(ElapsedDays where IsOpen)", FieldsUsed = "IncomingDate, Status", Unit = "يوم", Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.LowerIsBetter }, oldestOpen, open.Count, null, options),
             Kpi(new AnalysisMetricDefinition { Key = "AverageFollowUpsPerTransaction", Title = "متوسط المتابعات لكل معاملة", Definition = "مؤشر تقريبي يعتمد على وجود آخر متابعة؛ لا يحسب كل أحداث المتابعة.", Formula = "transactions with follow-up / total", FieldsUsed = "LastFollowUpDate", Unit = "متابعة", Format = MetricValueTypes.Decimal, MinimumSampleSize = 1, Direction = KpiDirection.Neutral }, (decimal)followUpAverage, current.TotalTransactions, null, options),
             Kpi(new AnalysisMetricDefinition { Key = "DataCompletenessRate", Title = "نسبة اكتمال البيانات", Definition = "نسبة اكتمال الحقول التشغيلية المطلوبة والشرطية.", Formula = "completed required fields / expected fields", FieldsUsed = "category, party, department, due date, priority", Unit = "%", Format = MetricValueTypes.Percent, MinimumSampleSize = 1, Direction = KpiDirection.HigherIsBetter }, (decimal)completeness, current.TotalTransactions, null, options),
@@ -639,7 +641,8 @@ internal static class InstitutionalReportAnalysisService
             .Where(s => s.IsOpen)
             .SelectMany(s => CriticalRules(s, options, referenceDate))
             .OrderByDescending(c => c.Severity)
-            .ThenByDescending(c => c.DaysOverdue ?? c.AgeDays)
+            .ThenByDescending(c => c.DaysOverdue ?? 0)
+            .ThenByDescending(c => c.AgeDays)
             .ThenBy(c => c.TransactionId)
             .ToList();
 
@@ -650,6 +653,9 @@ internal static class InstitutionalReportAnalysisService
 
         if (snapshot.IsOpenOverdue && snapshot.ElapsedDays >= options.CriticalOverdueDays)
             yield return CriticalCase(snapshot, "OPEN_OLDER_THAN_THRESHOLD", $"معاملة مفتوحة متأخرة لأكثر من {options.CriticalOverdueDays} أيام", "تصعيد المعاملة المتأخرة", AnalyticalSeverity.High, referenceDate);
+
+        if (!snapshot.IsOpenOverdue && snapshot.ElapsedDays >= options.CriticalOldOpenTransactionDays)
+            yield return CriticalCase(snapshot, "OLD_OPEN_TRANSACTION", $"معاملة مفتوحة قديمة لأكثر من {options.CriticalOldOpenTransactionDays} يوم", "مراجعة سبب استمرار المعاملة مفتوحة وتصعيدها عند الحاجة", AnalyticalSeverity.High, referenceDate);
 
         if (snapshot.PendingReplyAssignmentCount > 0 && snapshot.EarliestPendingReplyDueDate.HasValue && snapshot.EarliestPendingReplyDueDate.Value.Date < referenceDate.Date)
             yield return CriticalCase(snapshot, "PENDING_ASSIGNMENT_OVERDUE", "إفادة إدارة معلقة بعد تاريخ الاستحقاق", "طلب الإفادة الناقصة", AnalyticalSeverity.High, referenceDate);
@@ -705,7 +711,7 @@ internal static class InstitutionalReportAnalysisService
                 {
                     DepartmentId = g.Key.ResponsibleDepartmentId,
                     DepartmentName = g.Key.Name,
-                    IncomingCount = g.Count(),
+                    IncomingCount = g.Count(IsPeriodIncomingForAnalysis),
                     ClosedCount = g.Count(s => s.IsClosed),
                     OpenCount = g.Count(s => s.IsOpen),
                     OverdueCount = g.Count(s => s.IsOverdue),
@@ -1234,6 +1240,7 @@ internal static class InstitutionalReportAnalysisService
     private static List<TimeSeriesPointDto> BuildTimeSeries(IReadOnlyList<TransactionReportSnapshot> snapshots, ReportTimeGrouping grouping)
     {
         return snapshots
+            .Where(IsPeriodIncomingForAnalysis)
             .GroupBy(s => PeriodStart(s.IncomingDate, grouping))
             .OrderBy(g => g.Key)
             .Select(g =>
@@ -1267,6 +1274,7 @@ internal static class InstitutionalReportAnalysisService
         ReportTimeGrouping grouping)
     {
         return snapshots
+            .Where(IsPeriodIncomingForAnalysis)
             .GroupBy(s => PeriodStart(s.IncomingDate, grouping))
             .SelectMany(periodGroup => periodGroup
                 .GroupBy(s => new { s.ResponsibleDepartmentId, Name = BlankToUnknown(s.ResponsibleDepartment) })
@@ -1500,6 +1508,9 @@ internal static class InstitutionalReportAnalysisService
             _ => new DateTime(date.Year, date.Month, 1, 0, 0, 0, DateTimeKind.Utc)
         };
     }
+
+    private static bool IsPeriodIncomingForAnalysis(TransactionReportSnapshot snapshot) =>
+        snapshot.IsPeriodIncoming || (!snapshot.IsPeriodIncoming && !snapshot.IsCarriedOpenBalance);
 
     private static string PeriodLabel(DateTime value, ReportTimeGrouping grouping) =>
         grouping switch
