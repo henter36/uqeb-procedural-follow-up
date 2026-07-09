@@ -140,7 +140,10 @@ internal static class InstitutionalReportAnalysisService
                 reportType,
                 snapshotCount,
                 () => BuildDataQualityIssues(currentSnapshots));
-        var departmentRecognitions = request.IncludeDepartmentPerformance == false
+        var includeDepartmentRecognitions =
+            request.SectionIds.Contains(ReportSectionId.OutstandingAndImprovedDepartments)
+            || request.IncludeDepartmentPerformance != false;
+        var departmentRecognitions = !includeDepartmentRecognitions
             ? []
             : MeasureStage(
                 instrumentation,
@@ -738,6 +741,10 @@ internal static class InstitutionalReportAnalysisService
         double DataCompletenessRate,
         double PendingAssignmentsRate);
 
+    private sealed record DepartmentRecognitionComparison(
+        DepartmentRecognitionMetrics Current,
+        DepartmentRecognitionMetrics Previous);
+
     private static List<DepartmentRecognitionRowDto> BuildDepartmentRecognitions(
         IReadOnlyList<TransactionReportSnapshot> current,
         IReadOnlyList<TransactionReportSnapshot> previous,
@@ -759,9 +766,11 @@ internal static class InstitutionalReportAnalysisService
 
         var improved = currentMetrics
             .Where(metric => metric.TransactionCount >= minimumSampleSize)
-            .Where(metric => previousMetrics.TryGetValue(metric.Key, out var previousMetric)
-                && previousMetric.TransactionCount >= minimumSampleSize)
-            .Select(metric => ToImprovedRecognition(metric, previousMetrics[metric.Key], minimumSampleSize))
+            .SelectMany(metric => previousMetrics.TryGetValue(metric.Key, out var previousMetric)
+                ? new[] { new DepartmentRecognitionComparison(metric, previousMetric) }
+                : Array.Empty<DepartmentRecognitionComparison>())
+            .Where(pair => pair.Previous.TransactionCount >= minimumSampleSize)
+            .Select(pair => ToImprovedRecognition(pair.Current, pair.Previous, minimumSampleSize))
             .Where(row => row.ImprovementValue >= 10)
             .OrderByDescending(row => row.ImprovementValue)
             .ThenByDescending(row => row.TransactionCount)
@@ -784,20 +793,24 @@ internal static class InstitutionalReportAnalysisService
             .Select(group =>
             {
                 var rows = group.ToList();
+                var totalCount = rows.Count;
+                var closedCount = rows.Count(snapshot => snapshot.IsClosed);
+                var overdueCount = rows.Count(snapshot => snapshot.IsOverdue);
+                var pendingAssignmentsCount = rows.Sum(snapshot => snapshot.PendingReplyAssignmentCount);
                 var key = group.Key.ResponsibleDepartmentId?.ToString(CultureInfo.InvariantCulture) ?? group.Key.Name;
                 var completionDays = CompletionDays(rows).ToList();
                 return new DepartmentRecognitionMetrics(
                     Key: key,
                     DepartmentId: group.Key.ResponsibleDepartmentId,
                     DepartmentName: group.Key.Name,
-                    TransactionCount: rows.Count,
-                    ClosedCount: rows.Count(snapshot => snapshot.IsClosed),
-                    OverdueCount: rows.Count(snapshot => snapshot.IsOverdue),
-                    OverdueRate: Math.Round(rows.Count(snapshot => snapshot.IsOverdue) * 100.0 / Math.Max(1, rows.Count), 1),
+                    TransactionCount: totalCount,
+                    ClosedCount: closedCount,
+                    OverdueCount: overdueCount,
+                    OverdueRate: Math.Round(overdueCount * 100.0 / Math.Max(1, totalCount), 1),
                     OnTimeCompletionRate: CalculateOnTimeRate(rows),
                     AverageCompletionDays: completionDays.Count == 0 ? 0 : Math.Round(completionDays.Average(), 1),
                     DataCompletenessRate: CalculateCompletenessRate(rows),
-                    PendingAssignmentsRate: Math.Round(rows.Sum(snapshot => snapshot.PendingReplyAssignmentCount) * 100.0 / Math.Max(1, rows.Count), 1));
+                    PendingAssignmentsRate: Math.Round(pendingAssignmentsCount * 100.0 / Math.Max(1, totalCount), 1));
             });
     }
 

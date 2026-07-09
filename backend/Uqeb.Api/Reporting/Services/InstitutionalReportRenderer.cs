@@ -846,10 +846,10 @@ public sealed class InstitutionalReportRenderer
     private static string RenderDepartmentRecognitions(InstitutionalReportModel model)
     {
         var outstanding = model.Analysis.DepartmentRecognitions
-            .Where(row => row.RecognitionType == "متميزة")
+            .Where(DepartmentRecognitionFormatter.IsOutstanding)
             .ToList();
         var improved = model.Analysis.DepartmentRecognitions
-            .Where(row => row.RecognitionType == "الأكثر تحسنًا")
+            .Where(DepartmentRecognitionFormatter.IsImproved)
             .ToList();
 
         return $"""
@@ -879,7 +879,7 @@ public sealed class InstitutionalReportRenderer
               <td class="cell--number">{row.OverdueCount}</td>
               <td class="cell--number">{row.AverageCompletionDays:N1}</td>
               <td class="cell--number">{row.DataCompletenessRate:N1}%</td>
-              <td class="cell--number">{row.ImprovementValue:N1}</td>
+              <td class="cell--number">{Esc(DepartmentRecognitionFormatter.FormatImprovementValue(row))}</td>
               <td>{Esc(DisplayValue(row.Reason))}</td>
             </tr>
             """));

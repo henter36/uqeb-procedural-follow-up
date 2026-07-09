@@ -198,8 +198,8 @@ public static class InstitutionalReportDocxExporter
     private static void AppendDepartmentRecognitionsSection(Body body, InstitutionalReportModel model)
     {
         AppendHeading(body, "الإدارات المتميزة والأكثر تحسنًا");
-        AppendDepartmentRecognitionGroup(body, "الإدارات المتميزة حاليًا", model.Analysis.DepartmentRecognitions.Where(row => row.RecognitionType == "متميزة"));
-        AppendDepartmentRecognitionGroup(body, "الإدارات الأكثر تحسنًا مقارنة بالفترة السابقة", model.Analysis.DepartmentRecognitions.Where(row => row.RecognitionType == "الأكثر تحسنًا"));
+        AppendDepartmentRecognitionGroup(body, "الإدارات المتميزة حاليًا", model.Analysis.DepartmentRecognitions.Where(DepartmentRecognitionFormatter.IsOutstanding));
+        AppendDepartmentRecognitionGroup(body, "الإدارات الأكثر تحسنًا مقارنة بالفترة السابقة", model.Analysis.DepartmentRecognitions.Where(DepartmentRecognitionFormatter.IsImproved));
     }
 
     private static void AppendDepartmentRecognitionGroup(
@@ -216,11 +216,7 @@ public static class InstitutionalReportDocxExporter
         }
 
         foreach (var row in list)
-        {
-            AppendParagraph(
-                body,
-                $"{row.DepartmentName} — {row.RecognitionType} — حجم {row.TransactionCount} — ضمن المهلة {row.OnTimeCompletionRate:N1}% — المتأخرات {row.OverdueCount} — متوسط الإنجاز {row.AverageCompletionDays:N1} يوم — التحسن {row.ImprovementValue:N1} — {row.Reason}");
-        }
+            AppendParagraph(body, DepartmentRecognitionFormatter.FormatDepartmentRecognitionRow(row));
     }
 
     private static void AppendExternalPartiesSection(Body body, InstitutionalReportModel model)
