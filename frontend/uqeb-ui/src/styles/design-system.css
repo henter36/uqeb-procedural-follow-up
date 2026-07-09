@@ -1459,22 +1459,22 @@
   line-height: 1.6;
 }
 
-.dq-stat-card--primary .stat-value,
-.dq-stat-card--blue .stat-value {
+.dq-stat-card-primary .stat-value,
+.dq-stat-card-blue .stat-value {
   color: var(--color-primary);
 }
 
-.dq-stat-card--red .stat-value { color: var(--color-danger); }
-.dq-stat-card--orange .stat-value { color: var(--color-warning); }
-.dq-stat-card--yellow .stat-value { color: #a16207; }
-.dq-stat-card--gray .stat-value { color: var(--color-text-secondary); }
+.dq-stat-card-red .stat-value { color: var(--color-danger); }
+.dq-stat-card-orange .stat-value { color: var(--color-warning); }
+.dq-stat-card-yellow .stat-value { color: #a16207; }
+.dq-stat-card-gray .stat-value { color: var(--color-text-secondary); }
 
-.dq-stat-card--primary::before,
-.dq-stat-card--blue::before { background: var(--color-primary); }
-.dq-stat-card--red::before { background: var(--color-danger); }
-.dq-stat-card--orange::before { background: var(--color-warning); }
-.dq-stat-card--yellow::before { background: #d97706; }
-.dq-stat-card--gray::before { background: var(--color-text-muted); }
+.dq-stat-card-primary::before,
+.dq-stat-card-blue::before { background: var(--color-primary); }
+.dq-stat-card-red::before { background: var(--color-danger); }
+.dq-stat-card-orange::before { background: var(--color-warning); }
+.dq-stat-card-yellow::before { background: #d97706; }
+.dq-stat-card-gray::before { background: var(--color-text-muted); }
 
 .dq-filter-card {
   border-top: 3px solid var(--color-primary);
@@ -1520,7 +1520,7 @@
   transition: border-color var(--transition-fast), background var(--transition-fast), box-shadow var(--transition-fast);
 }
 
-.dq-rule-card--active {
+.dq-rule-card-active {
   background: var(--color-primary-light);
   border-color: var(--color-primary);
   box-shadow: inset 0 0 0 1px var(--color-primary);
@@ -1532,18 +1532,18 @@
   line-height: 1.6;
 }
 
-.dq-rule-card--checkbox {
+.dq-rule-card-checkbox {
   display: grid;
   grid-template-columns: auto 1fr;
   align-content: start;
   column-gap: var(--space-2);
 }
 
-.dq-rule-card--checkbox input {
+.dq-rule-checkbox-control {
   margin-top: 0.2rem;
 }
 
-.dq-rule-card--checkbox .dq-rule-description {
+.dq-rule-card-checkbox .dq-rule-description {
   grid-column: 2;
 }
 
@@ -1568,7 +1568,7 @@
 }
 
 .dq-issues-table th,
-.dq-issues-table td {
+.dq-issues-table-cell {
   vertical-align: top;
 }
 
@@ -1610,14 +1610,14 @@
   min-width: 8rem;
 }
 
-@media (max-width: 1024px) {
+@media (width <= 1024px) {
   .dq-filter-grid,
   .dq-rules-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 768px) {
+@media (width <= 768px) {
   .dq-section-header {
     flex-direction: column;
   }
@@ -1632,8 +1632,7 @@
   }
 
   .dq-row-actions {
-    flex-direction: row;
-    flex-wrap: wrap;
+    flex-flow: row wrap;
   }
 }
 

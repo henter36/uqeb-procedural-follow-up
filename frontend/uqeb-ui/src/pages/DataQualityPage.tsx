@@ -237,7 +237,7 @@ function SummaryCard({
   value,
 }: Readonly<{ description?: string; label: string; tone: string; value: number | string }>) {
   return (
-    <article className={`stat-card dq-stat-card dq-stat-card--${tone}`}>
+    <article className={`stat-card dq-stat-card dq-stat-card-${tone}`}>
       <div className="stat-label">{label}</div>
       <div className="stat-value">{value}</div>
       {description && <div className="dq-stat-description">{description}</div>}
@@ -344,7 +344,7 @@ function DataQualityFilters({
         </div>
 
         <div className="dq-rules-grid" aria-label="قواعد جودة البيانات">
-          <label className={`dq-rule-card ${overdueMoreThanDays !== '' ? 'dq-rule-card--active' : ''}`}>
+          <label className={`dq-rule-card ${overdueMoreThanDays !== '' ? 'dq-rule-card-active' : ''}`}>
             <span className="dq-rule-title">متأخر أكثر من X يوم</span>
             <span className="dq-rule-description">يعرض المعاملات المفتوحة التي تجاوزت مدة التأخر التي تحددها.</span>
             <input
@@ -355,9 +355,10 @@ function DataQualityFilters({
               placeholder="عدد الأيام"
             />
           </label>
-          <label className={`dq-rule-card dq-rule-card--checkbox ${includeReferralDateAfterIncomingDate ? 'dq-rule-card--active' : ''}`}>
+          <label className={`dq-rule-card dq-rule-card-checkbox ${includeReferralDateAfterIncomingDate ? 'dq-rule-card-active' : ''}`}>
             <input
               aria-label="عرض المعاملات التي تاريخ الإحالة فيها أكبر من تاريخ الوارد"
+              className="dq-rule-checkbox-control"
               type="checkbox"
               checked={includeReferralDateAfterIncomingDate}
               onChange={(event) => onIncludeReferralDateAfterIncomingDateChange(event.target.checked)}
@@ -365,7 +366,7 @@ function DataQualityFilters({
             <span className="dq-rule-title">تاريخ الإحالة أكبر من تاريخ الوارد</span>
             <span className="dq-rule-description">حالة تحتاج مراجعة؛ لا تعني وجود خطأ قطعي دائمًا.</span>
           </label>
-          <label className={`dq-rule-card ${responsePeriodLessThanDays !== '' ? 'dq-rule-card--active' : ''}`}>
+          <label className={`dq-rule-card ${responsePeriodLessThanDays !== '' ? 'dq-rule-card-active' : ''}`}>
             <span className="dq-rule-title">فترة الرد أقل من X يوم</span>
             <span className="dq-rule-description">يعرض المعاملات التي حُددت لها فترة رد أقصر من الحد المختار.</span>
             <input
@@ -516,25 +517,25 @@ function DataQualityIssueRow({
 
   return (
     <tr>
-      <td>
+      <td className="dq-issues-table-cell">
         <span className={`badge ${severityBadgeClass(issue.severity)}`}>{issue.severityLabel}</span>
       </td>
-      <td>
+      <td className="dq-issues-table-cell">
         <div className="dq-issue-cell">
           <span className="badge badge-blue">{issue.category}</span>
           <strong>{issue.issueType}</strong>
           <span className="dq-muted">{issue.fieldName}</span>
         </div>
       </td>
-      <td>
+      <td className="dq-issues-table-cell">
         <div className="dq-transaction-cell">
           <strong>{transactionDisplayValue}</strong>
           <span>الوارد: {issue.incomingNumber ?? '—'}</span>
           <span className="dq-subject">{issue.subject ?? '—'}</span>
         </div>
       </td>
-      <td>{issue.departmentName ? <span className="badge badge-gray">{issue.departmentName}</span> : '—'}</td>
-      <td>
+      <td className="dq-issues-table-cell">{issue.departmentName ? <span className="badge badge-gray">{issue.departmentName}</span> : '—'}</td>
+      <td className="dq-issues-table-cell">
         <div className="dq-value-cell">
           <span>{issue.currentValue ?? '—'}</span>
           {issue.daysValue !== undefined && issue.daysValue !== null && (
@@ -542,18 +543,18 @@ function DataQualityIssueRow({
           )}
         </div>
       </td>
-      <td>
+      <td className="dq-issues-table-cell">
         <div className="dq-impact-cell">
           <span>{issue.impact}</span>
           <strong>{issue.suggestedAction}</strong>
         </div>
       </td>
-      <td>
+      <td className="dq-issues-table-cell">
         <span className={`badge ${issue.isReviewed ? 'badge-green' : 'badge-yellow'}`}>
           {issue.isReviewed ? 'مراجع' : 'غير مراجع'}
         </span>
       </td>
-      <td>
+      <td className="dq-issues-table-cell">
         <div className="dq-row-actions">
           {transactionId && (
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => onOpenTransaction(transactionId)}>
