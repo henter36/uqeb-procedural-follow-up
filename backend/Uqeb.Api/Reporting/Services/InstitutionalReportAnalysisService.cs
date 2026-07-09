@@ -765,7 +765,9 @@ internal static class InstitutionalReportAnalysisService
             .Take(5);
 
         var improved = currentMetrics
-            .Where(metric => metric.TransactionCount >= minimumSampleSize)
+            .Where(metric =>
+                metric.TransactionCount >= minimumSampleSize &&
+                !ReportDepartmentNameNormalizer.IsUndefined(metric.DepartmentName))
             .Select(metric => previousMetrics.TryGetValue(metric.Key, out var previousMetric)
                 ? new DepartmentRecognitionComparison(metric, previousMetric)
                 : null)
