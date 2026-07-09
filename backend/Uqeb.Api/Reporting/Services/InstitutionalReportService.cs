@@ -212,7 +212,6 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
     {
         var detailLimit = options.DetailRowLimit > 0 ? options.DetailRowLimit : _reportingOptions.MaxPreviewDetailRows;
         ReportingOptions.ValidateDetailLimit(detailLimit);
-        var totalMatched = options.TotalMatchedOverride ?? await CountMatchingTransactionsAsync(request, ct);
         var generatedAt = DateTime.UtcNow;
         var referenceDate = ReportingTemporalCalculator.RiyadhBusinessDate();
 
@@ -224,12 +223,9 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             request.ReportType, request.Filters.DateTo);
 
         var metricSnapshots = await LoadSnapshotsAsync(request, ct, takeLimit: null, overdueEvaluationDate);
-        totalMatched = metricSnapshots.Count;
         if (request.Filters.IncludeOverdue)
-        {
             metricSnapshots = metricSnapshots.Where(s => s.IsOverdue).ToList();
-            totalMatched = metricSnapshots.Count;
-        }
+        var totalMatched = metricSnapshots.Count;
         var metrics = InstitutionalReportMetricsCalculator.Calculate(metricSnapshots, overdueEvaluationDate);
         var comparisonRequest = InstitutionalReportAnalysisService.CreateComparisonRequest(request, out var comparisonUnavailableReason);
         // CreateComparisonRequest can shift Filters.DateTo to a prior period (previous-period /
@@ -248,8 +244,8 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             ? null
             : InstitutionalReportMetricsCalculator.Calculate(comparisonSnapshots, comparisonOverdueEvaluationDate);
 
-        var (detailSnapshots, exportedDetailRows) = await ResolveDetailRowsAsync(
-            request, options, totalMatched, metricSnapshots, overdueEvaluationDate, ct);
+        var (detailSnapshots, exportedDetailRows) = ResolveDetailRows(
+            options, totalMatched, metricSnapshots);
 
         // Sorting/grouping is a pure post-processing step on the already-loaded, already-truncated
         // detail rows: it never changes which rows survive truncation (still governed by
@@ -342,13 +338,10 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         return model;
     }
 
-    private async Task<(List<TransactionReportSnapshot> Snapshots, int ExportedCount)> ResolveDetailRowsAsync(
-        ReportBuildRequestDto request,
+    private static (List<TransactionReportSnapshot> Snapshots, int ExportedCount) ResolveDetailRows(
         ReportAssemblyOptions options,
         int totalMatched,
-        List<TransactionReportSnapshot> metricSnapshots,
-        DateTime overdueEvaluationDate,
-        CancellationToken ct)
+        List<TransactionReportSnapshot> metricSnapshots)
     {
         if (options.OmitDetailRows)
             return ([], options.ExportedDetailRowsOverride ?? 0);
