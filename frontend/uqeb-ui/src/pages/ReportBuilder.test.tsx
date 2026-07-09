@@ -295,6 +295,26 @@ describe('ReportBuilderPage export dialog', () => {
     expect(request.sectionIds).toContain(ReportSectionId.MethodologyAndDefinitions);
   });
 
+  it('shows department recognitions section and includes it in the analytical preset', async () => {
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+
+    expect(screen.getByLabelText('الإدارات المتميزة والأكثر تحسنًا')).toBeChecked();
+
+    await user.click(screen.getByRole('button', { name: 'إلغاء الكل' }));
+    await user.click(screen.getByRole('button', { name: 'تحليلي' }));
+
+    expect(screen.getByLabelText('الإدارات المتميزة والأكثر تحسنًا')).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+
+    await waitFor(() => {
+      expect(services.institutionalReportsApi.preview).toHaveBeenCalled();
+    });
+    const request = vi.mocked(services.institutionalReportsApi.preview).mock.calls[0][0];
+    expect(request.sectionIds).toContain(ReportSectionId.OutstandingAndImprovedDepartments);
+    expect(request.includeDepartmentPerformance).toBe(true);
+  });
+
   it('ignores stale preview response when a newer preview starts', async () => {
     let resolveSlow: (value: { data: typeof mockManifest }) => void = () => undefined;
     const slowPromise = new Promise<{ data: typeof mockManifest }>((resolve) => {

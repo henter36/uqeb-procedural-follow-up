@@ -62,6 +62,7 @@ const SECTIONS = [
   { id: ReportSectionId.TimeTrends, label: 'التحليل الزمني' },
   { id: ReportSectionId.IndicatorsDashboard, label: 'لوحة المؤشرات والاتجاهات' },
   { id: ReportSectionId.DepartmentPerformance, label: 'أداء الإدارات' },
+  { id: ReportSectionId.OutstandingAndImprovedDepartments, label: 'الإدارات المتميزة والأكثر تحسنًا' },
   { id: ReportSectionId.ExternalPartyAnalysis, label: 'تحليل الجهات الخارجية' },
   { id: ReportSectionId.ClassificationAndPriorityAnalysis, label: 'التصنيفات والأولويات' },
   { id: ReportSectionId.DelayAndBottleneckAnalysis, label: 'الاختناقات والتأخر' },
@@ -93,6 +94,7 @@ const SECTION_GROUPS = [
       ReportSectionId.TimeTrends,
       ReportSectionId.IndicatorsDashboard,
       ReportSectionId.DepartmentPerformance,
+      ReportSectionId.OutstandingAndImprovedDepartments,
       ReportSectionId.ExternalPartyAnalysis,
       ReportSectionId.ClassificationAndPriorityAnalysis,
       ReportSectionId.DelayAndBottleneckAnalysis,
@@ -134,6 +136,7 @@ const ANALYTICAL_PRESET: number[] = [
   ReportSectionId.TimeTrends,
   ReportSectionId.IndicatorsDashboard,
   ReportSectionId.DepartmentPerformance,
+  ReportSectionId.OutstandingAndImprovedDepartments,
   ReportSectionId.ExecutiveRecommendations,
   ReportSectionId.RecommendationsAndActionPlan,
 ];
@@ -449,7 +452,8 @@ export default function ReportBuilderPage() {
     includeComparison,
     includeCriticalCases: sectionIds.includes(ReportSectionId.CriticalCases),
     includeTimeTrends: sectionIds.includes(ReportSectionId.TimeTrends),
-    includeDepartmentPerformance: sectionIds.includes(ReportSectionId.DepartmentPerformance),
+    includeDepartmentPerformance: sectionIds.includes(ReportSectionId.DepartmentPerformance)
+      || sectionIds.includes(ReportSectionId.OutstandingAndImprovedDepartments),
     includeExternalPartyAnalysis: sectionIds.includes(ReportSectionId.ExternalPartyAnalysis),
     includeCategoryAnalysis: sectionIds.includes(ReportSectionId.ClassificationAndPriorityAnalysis),
     includeBottleneckAnalysis: sectionIds.includes(ReportSectionId.DelayAndBottleneckAnalysis),

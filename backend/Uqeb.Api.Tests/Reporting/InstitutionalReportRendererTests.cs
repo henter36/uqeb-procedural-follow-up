@@ -222,6 +222,7 @@ public class InstitutionalReportRendererTests
             ReportSectionId.ExecutiveSummary,
             ReportSectionId.IndicatorsDashboard,
             ReportSectionId.DepartmentPerformance,
+            ReportSectionId.OutstandingAndImprovedDepartments,
             ReportSectionId.TransactionDetails,
             ReportSectionId.ReportMetadata,
         ]);
@@ -230,10 +231,43 @@ public class InstitutionalReportRendererTests
         Assert.Equal("StandardPortrait", manifest.Pages.Single(p => p.SectionId == ReportSectionId.ExecutiveSummary).PdfProfileName);
         Assert.Equal("StandardLandscape", manifest.Pages.Single(p => p.SectionId == ReportSectionId.IndicatorsDashboard).PdfProfileName);
         Assert.Equal("WideLandscape", manifest.Pages.Single(p => p.SectionId == ReportSectionId.DepartmentPerformance).PdfProfileName);
+        Assert.Equal("WideLandscape", manifest.Pages.Single(p => p.SectionId == ReportSectionId.OutstandingAndImprovedDepartments).PdfProfileName);
         Assert.All(
             manifest.Pages.Where(p => p.SectionId == ReportSectionId.TransactionDetails),
             page => Assert.Equal("ExtraWideLandscape", page.PdfProfileName));
         Assert.Equal("StandardPortrait", manifest.Pages.Single(p => p.SectionId == ReportSectionId.ReportMetadata).PdfProfileName);
+    }
+
+    [Fact]
+    public void RenderManifest_RendersDepartmentRecognitionsAsIndependentSection()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        model.Analysis.DepartmentRecognitions =
+        [
+            new DepartmentRecognitionRowDto
+            {
+                DepartmentId = 1,
+                DepartmentName = "إدارة التميز",
+                RecognitionType = "متميزة",
+                TransactionCount = 12,
+                OnTimeCompletionRate = 91,
+                OverdueCount = 0,
+                AverageCompletionDays = 2.5,
+                DataCompletenessRate = 98,
+                Reason = "ارتفاع نسبة الإنجاز في الوقت",
+                Score = 95,
+                HasSufficientSample = true,
+            },
+        ];
+
+        var manifest = _renderer.RenderManifest(model, [ReportSectionId.OutstandingAndImprovedDepartments]);
+        var html = InstitutionalReportRenderer.RenderHtmlDocument(manifest);
+
+        Assert.Single(manifest.Pages);
+        Assert.Equal(ReportSectionId.OutstandingAndImprovedDepartments, manifest.Pages[0].SectionId);
+        Assert.Contains("الإدارات المتميزة والأكثر تحسنًا", html);
+        Assert.Contains("إدارة التميز", html);
+        Assert.Contains("ارتفاع نسبة الإنجاز في الوقت", html);
     }
 
     [Fact]

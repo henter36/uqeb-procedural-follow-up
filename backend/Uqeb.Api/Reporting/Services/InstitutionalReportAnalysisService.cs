@@ -140,6 +140,17 @@ internal static class InstitutionalReportAnalysisService
                 reportType,
                 snapshotCount,
                 () => BuildDataQualityIssues(currentSnapshots));
+        var includeDepartmentRecognitions =
+            request.SectionIds.Contains(ReportSectionId.OutstandingAndImprovedDepartments)
+            || request.IncludeDepartmentPerformance != false;
+        var departmentRecognitions = !includeDepartmentRecognitions
+            ? []
+            : MeasureStage(
+                instrumentation,
+                "department_recognitions",
+                reportType,
+                snapshotCount,
+                () => BuildDepartmentRecognitions(currentSnapshots, previousSnapshots, options));
         var completenessRate = MeasureStage(
             instrumentation,
             "completeness_rate",
@@ -202,6 +213,7 @@ internal static class InstitutionalReportAnalysisService
             TimeSeries = timeSeries,
             DepartmentTimeSeries = departmentTimeSeries,
             DepartmentPerformance = departments,
+            DepartmentRecognitions = departmentRecognitions,
             ExternalParties = externalParties,
             Categories = categories,
             Priorities = priorities,
@@ -714,6 +726,209 @@ internal static class InstitutionalReportAnalysisService
             .ThenByDescending(d => d.OpenCount)
             .ThenByDescending(d => d.SampleSize)
             .ToList();
+    }
+
+    private sealed record DepartmentRecognitionMetrics(
+        string Key,
+        int? DepartmentId,
+        string DepartmentName,
+        int TransactionCount,
+        int ClosedCount,
+        int OverdueCount,
+        double OverdueRate,
+        double OnTimeCompletionRate,
+        double AverageCompletionDays,
+        double DataCompletenessRate,
+        double PendingAssignmentsRate);
+
+    private sealed record DepartmentRecognitionComparison(
+        DepartmentRecognitionMetrics Current,
+        DepartmentRecognitionMetrics Previous);
+
+    private static List<DepartmentRecognitionRowDto> BuildDepartmentRecognitions(
+        IReadOnlyList<TransactionReportSnapshot> current,
+        IReadOnlyList<TransactionReportSnapshot> previous,
+        ReportingAnalysisOptions options)
+    {
+        var currentMetrics = BuildDepartmentRecognitionMetrics(current).ToList();
+        var previousMetrics = BuildDepartmentRecognitionMetrics(previous)
+            .ToDictionary(metric => metric.Key, StringComparer.Ordinal);
+        var minimumSampleSize = options.MinimumRankingSampleSize;
+        var systemAverageCompletion = Average(CompletionDays(current));
+
+        var outstanding = currentMetrics
+            .Where(metric => IsEligibleForOutstandingRecognition(metric, minimumSampleSize))
+            .Select(metric => ToOutstandingRecognition(metric, systemAverageCompletion, minimumSampleSize))
+            .OrderByDescending(row => row.Score)
+            .ThenByDescending(row => row.TransactionCount)
+            .ThenBy(row => row.DepartmentName, StringComparer.Ordinal)
+            .Take(5);
+
+        var improved = currentMetrics
+            .Where(metric => metric.TransactionCount >= minimumSampleSize)
+            .SelectMany(metric => previousMetrics.TryGetValue(metric.Key, out var previousMetric)
+                ? new[] { new DepartmentRecognitionComparison(metric, previousMetric) }
+                : Array.Empty<DepartmentRecognitionComparison>())
+            .Where(pair => pair.Previous.TransactionCount >= minimumSampleSize)
+            .Select(pair => ToImprovedRecognition(pair.Current, pair.Previous, minimumSampleSize))
+            .Where(row => row.ImprovementValue >= 10)
+            .OrderByDescending(row => row.ImprovementValue)
+            .ThenByDescending(row => row.TransactionCount)
+            .ThenBy(row => row.DepartmentName, StringComparer.Ordinal)
+            .Take(5);
+
+        return outstanding.Concat(improved).ToList();
+    }
+
+    private static IEnumerable<DepartmentRecognitionMetrics> BuildDepartmentRecognitionMetrics(
+        IReadOnlyList<TransactionReportSnapshot> snapshots)
+    {
+        return snapshots
+            .Where(snapshot => snapshot.ResponsibleDepartmentId.HasValue || !string.IsNullOrWhiteSpace(snapshot.ResponsibleDepartment))
+            .GroupBy(snapshot => new
+            {
+                snapshot.ResponsibleDepartmentId,
+                Name = BlankToUnknown(snapshot.ResponsibleDepartment)
+            })
+            .Select(group =>
+            {
+                var rows = group.ToList();
+                var totalCount = rows.Count;
+                var closedCount = rows.Count(snapshot => snapshot.IsClosed);
+                var overdueCount = rows.Count(snapshot => snapshot.IsOverdue);
+                var pendingAssignmentsCount = rows.Sum(snapshot => snapshot.PendingReplyAssignmentCount);
+                var key = group.Key.ResponsibleDepartmentId?.ToString(CultureInfo.InvariantCulture) ?? group.Key.Name;
+                var completionDays = CompletionDays(rows).ToList();
+                return new DepartmentRecognitionMetrics(
+                    Key: key,
+                    DepartmentId: group.Key.ResponsibleDepartmentId,
+                    DepartmentName: group.Key.Name,
+                    TransactionCount: totalCount,
+                    ClosedCount: closedCount,
+                    OverdueCount: overdueCount,
+                    OverdueRate: Math.Round(overdueCount * 100.0 / Math.Max(1, totalCount), 1),
+                    OnTimeCompletionRate: CalculateOnTimeRate(rows),
+                    AverageCompletionDays: completionDays.Count == 0 ? 0 : Math.Round(completionDays.Average(), 1),
+                    DataCompletenessRate: CalculateCompletenessRate(rows),
+                    PendingAssignmentsRate: Math.Round(pendingAssignmentsCount * 100.0 / Math.Max(1, totalCount), 1));
+            });
+    }
+
+    private static bool IsEligibleForOutstandingRecognition(DepartmentRecognitionMetrics metric, int minimumSampleSize) =>
+        metric.TransactionCount >= minimumSampleSize
+        && !ReportDepartmentNameNormalizer.IsUndefined(metric.DepartmentName)
+        && metric.DataCompletenessRate >= 85
+        && metric.OnTimeCompletionRate >= 70
+        && metric.OverdueRate <= 20;
+
+    private static DepartmentRecognitionRowDto ToOutstandingRecognition(
+        DepartmentRecognitionMetrics metric,
+        double systemAverageCompletion,
+        int minimumSampleSize)
+    {
+        var score = CalculateOutstandingScore(metric);
+        var reasons = new List<string>();
+        if (metric.OnTimeCompletionRate >= 80)
+            reasons.Add("ارتفاع نسبة الإنجاز في الوقت");
+        if (metric.OverdueRate <= 10)
+            reasons.Add("انخفاض المتأخرات");
+        if (metric.AverageCompletionDays > 0 && (systemAverageCompletion <= 0 || metric.AverageCompletionDays <= systemAverageCompletion))
+            reasons.Add("تحسن مدة المعالجة");
+        if (metric.PendingAssignmentsRate <= 10)
+            reasons.Add("اكتمال الإفادات");
+        if (metric.DataCompletenessRate >= 90)
+            reasons.Add("جودة بيانات مرتفعة");
+        if (metric.TransactionCount >= minimumSampleSize)
+            reasons.Add("حجم معاملات مناسب");
+
+        return new DepartmentRecognitionRowDto
+        {
+            DepartmentId = metric.DepartmentId,
+            DepartmentName = metric.DepartmentName,
+            RecognitionType = "متميزة",
+            TransactionCount = metric.TransactionCount,
+            OnTimeCompletionRate = metric.OnTimeCompletionRate,
+            OverdueCount = metric.OverdueCount,
+            AverageCompletionDays = metric.AverageCompletionDays,
+            DataCompletenessRate = metric.DataCompletenessRate,
+            ImprovementValue = 0,
+            Reason = string.Join("، ", reasons.Distinct()),
+            Score = score,
+            HasSufficientSample = metric.TransactionCount >= minimumSampleSize,
+            IsExcludedByDataQuality = metric.DataCompletenessRate < 85
+        };
+    }
+
+    private static DepartmentRecognitionRowDto ToImprovedRecognition(
+        DepartmentRecognitionMetrics current,
+        DepartmentRecognitionMetrics previous,
+        int minimumSampleSize)
+    {
+        var onTimeImprovement = Math.Max(0, current.OnTimeCompletionRate - previous.OnTimeCompletionRate);
+        var overdueImprovement = Math.Max(0, previous.OverdueRate - current.OverdueRate);
+        var completionImprovement = previous.AverageCompletionDays <= 0 || current.AverageCompletionDays <= 0
+            ? 0
+            : Math.Max(0, previous.AverageCompletionDays - current.AverageCompletionDays);
+        var completenessImprovement = Math.Max(0, current.DataCompletenessRate - previous.DataCompletenessRate);
+        var pendingImprovement = Math.Max(0, previous.PendingAssignmentsRate - current.PendingAssignmentsRate);
+        var improvementValue = Math.Round(
+            onTimeImprovement * 0.35
+            + overdueImprovement * 0.25
+            + Math.Min(completionImprovement * 2, 20)
+            + completenessImprovement * 0.15
+            + pendingImprovement * 0.15,
+            1);
+
+        return new DepartmentRecognitionRowDto
+        {
+            DepartmentId = current.DepartmentId,
+            DepartmentName = current.DepartmentName,
+            RecognitionType = "الأكثر تحسنًا",
+            TransactionCount = current.TransactionCount,
+            OnTimeCompletionRate = current.OnTimeCompletionRate,
+            OverdueCount = current.OverdueCount,
+            AverageCompletionDays = current.AverageCompletionDays,
+            DataCompletenessRate = current.DataCompletenessRate,
+            ImprovementValue = improvementValue,
+            Reason = BuildImprovementReason(onTimeImprovement, overdueImprovement, completionImprovement, completenessImprovement, pendingImprovement),
+            Score = CalculateOutstandingScore(current),
+            HasSufficientSample = current.TransactionCount >= minimumSampleSize,
+            IsExcludedByDataQuality = current.DataCompletenessRate < 85
+        };
+    }
+
+    private static double CalculateOutstandingScore(DepartmentRecognitionMetrics metric)
+    {
+        var overdueComponent = Math.Max(0, 100 - metric.OverdueRate);
+        var pendingComponent = Math.Max(0, 100 - metric.PendingAssignmentsRate);
+        return Math.Round(
+            metric.OnTimeCompletionRate * 0.35
+            + overdueComponent * 0.25
+            + metric.DataCompletenessRate * 0.25
+            + pendingComponent * 0.15,
+            1);
+    }
+
+    private static string BuildImprovementReason(
+        double onTimeImprovement,
+        double overdueImprovement,
+        double completionImprovement,
+        double completenessImprovement,
+        double pendingImprovement)
+    {
+        var reasons = new List<string>();
+        if (onTimeImprovement >= 5)
+            reasons.Add("ارتفاع نسبة الإنجاز في الوقت");
+        if (overdueImprovement >= 5)
+            reasons.Add("انخفاض المتأخرات");
+        if (completionImprovement >= 1)
+            reasons.Add("تحسن مدة المعالجة");
+        if (pendingImprovement >= 5)
+            reasons.Add("اكتمال الإفادات");
+        if (completenessImprovement >= 5)
+            reasons.Add("تحسن جودة البيانات مقارنة بالفترة السابقة");
+
+        return reasons.Count == 0 ? "تحسن مركب في مؤشرات الأداء مقارنة بالفترة السابقة" : string.Join("، ", reasons);
     }
 
     private static List<ExternalPartyAnalysisRowDto> BuildExternalParties(IReadOnlyList<TransactionReportSnapshot> snapshots) =>

@@ -139,6 +139,9 @@ public sealed class InstitutionalReportRenderer
             case ReportSectionId.DepartmentPerformance:
                 pages.Add(MakePage(section, "أداء الإدارات", RenderDepartments(model)));
                 break;
+            case ReportSectionId.OutstandingAndImprovedDepartments:
+                pages.Add(MakePage(section, "الإدارات المتميزة والأكثر تحسنًا", RenderDepartmentRecognitions(model)));
+                break;
             case ReportSectionId.ExternalPartyAnalysis:
                 pages.Add(MakePage(section, "تحليل الجهات الخارجية", RenderExternalParties(model)));
                 break;
@@ -837,6 +840,58 @@ public sealed class InstitutionalReportRenderer
         <p class="section-footnote">{(model.DepartmentTotalsAreAdditive
             ? "* تُحتسب كل معاملة تحت إدارتها المسؤولة فقط. تظهر تفاصيل الإدارات المشتركة في الجداول التفصيلية أو XLSX عند الحاجة."
             : $"* {Esc(model.DepartmentAggregationDescription)}")}</p>
+        """;
+    }
+
+    private static string RenderDepartmentRecognitions(InstitutionalReportModel model)
+    {
+        var outstanding = model.Analysis.DepartmentRecognitions
+            .Where(DepartmentRecognitionFormatter.IsOutstanding)
+            .ToList();
+        var improved = model.Analysis.DepartmentRecognitions
+            .Where(DepartmentRecognitionFormatter.IsImproved)
+            .ToList();
+
+        return $"""
+        <h2 class="section-title">الإدارات المتميزة والأكثر تحسنًا</h2>
+        <p class="section-subtitle">يعرض هذا القسم محورًا إيجابيًا مستقلًا: إدارات ذات أداء حالي مرتفع، وإدارات تحسنت مقارنة بالفترة السابقة. لا يغير هذا القسم حسابات أداء الإدارات أو المخاطر أو جودة البيانات.</p>
+        <h3>الإدارات المتميزة حاليًا</h3>
+        {RenderDepartmentRecognitionTable(outstanding, "لا توجد إدارات مؤهلة للتميز وفق حد العينة وجودة البيانات ومؤشرات الأداء الحالية.")}
+        <h3>الإدارات الأكثر تحسنًا مقارنة بالفترة السابقة</h3>
+        {RenderDepartmentRecognitionTable(improved, "لا توجد إدارات حققت تحسنًا كافيًا مقارنة بالفترة السابقة أو لا تتوفر فترة مقارنة بعينة كافية.")}
+        """;
+    }
+
+    private static string RenderDepartmentRecognitionTable(
+        IReadOnlyList<DepartmentRecognitionRowDto> rows,
+        string emptyMessage)
+    {
+        if (rows.Count == 0)
+            return $"""<div class="empty-state">{Esc(emptyMessage)}</div>""";
+
+        var tableRows = string.Join(string.Empty, rows.Select(row =>
+            $"""
+            <tr>
+              <td class="cell--department">{Esc(NormalizeDepartmentName(row.DepartmentName))}</td>
+              <td>{Esc(row.RecognitionType)}</td>
+              <td class="cell--number">{row.TransactionCount}</td>
+              <td class="cell--number">{row.OnTimeCompletionRate:N1}%</td>
+              <td class="cell--number">{row.OverdueCount}</td>
+              <td class="cell--number">{row.AverageCompletionDays:N1}</td>
+              <td class="cell--number">{row.DataCompletenessRate:N1}%</td>
+              <td class="cell--number">{Esc(DepartmentRecognitionFormatter.FormatImprovementValue(row))}</td>
+              <td>{Esc(DisplayValue(row.Reason))}</td>
+            </tr>
+            """));
+
+        return $"""
+        <table class="report-table report-table--departments">
+          <thead><tr>
+            <th>الإدارة</th><th>التصنيف</th><th>حجم المعاملات</th><th>ضمن المهلة</th><th>المتأخرات</th>
+            <th>متوسط الإنجاز</th><th>اكتمال البيانات</th><th>مقدار التحسن</th><th>سبب التصنيف</th>
+          </tr></thead>
+          <tbody>{tableRows}</tbody>
+        </table>
         """;
     }
 

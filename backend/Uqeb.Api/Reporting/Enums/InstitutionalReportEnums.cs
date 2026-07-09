@@ -44,7 +44,8 @@ public enum ReportSectionId
     DelayAndBottleneckAnalysis = 18,
     DataQuality = 19,
     RecommendationsAndActionPlan = 20,
-    MethodologyAndDefinitions = 21
+    MethodologyAndDefinitions = 21,
+    OutstandingAndImprovedDepartments = 22
 }
 
 public enum ExportFormat

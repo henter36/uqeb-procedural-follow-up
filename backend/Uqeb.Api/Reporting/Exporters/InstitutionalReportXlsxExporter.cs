@@ -34,6 +34,9 @@ public static class InstitutionalReportXlsxExporter
         if (ShouldInclude(manifest, ReportSectionId.DepartmentPerformance))
             AddDepartmentsSheet(workbook, model);
 
+        if (ShouldInclude(manifest, ReportSectionId.OutstandingAndImprovedDepartments))
+            AddDepartmentRecognitionsSheet(workbook, model);
+
         if (ShouldInclude(manifest, ReportSectionId.TimeTrends))
             AddDepartmentTimeSeriesSheet(workbook, model);
 
@@ -199,6 +202,38 @@ public static class InstitutionalReportXlsxExporter
         }
         noteCell.Style.Alignment.WrapText = true;
         ws.Column(1).AdjustToContents();
+    }
+
+    private static void AddDepartmentRecognitionsSheet(XLWorkbook workbook, InstitutionalReportModel model)
+    {
+        var ws = workbook.Worksheets.Add("الإدارات المتميزة والتحسن");
+        ws.RightToLeft = true;
+        var headers = new[]
+        {
+            "اسم الإدارة",
+            "نوع التصنيف",
+            "حجم المعاملات",
+            "نسبة الإنجاز في الوقت",
+            "عدد المتأخرات",
+            "متوسط مدة المعالجة أو التأخير",
+            "مقدار التحسن مقارنة بالفترة السابقة",
+            "سبب التصنيف"
+        };
+        WriteHeaders(ws, headers);
+        var row = 2;
+        foreach (var item in model.Analysis.DepartmentRecognitions)
+        {
+            ws.Cell(row, 1).Value = item.DepartmentName;
+            ws.Cell(row, 2).Value = item.RecognitionType;
+            ws.Cell(row, 3).Value = item.TransactionCount;
+            ws.Cell(row, 4).Value = item.OnTimeCompletionRate;
+            ws.Cell(row, 5).Value = item.OverdueCount;
+            ws.Cell(row, 6).Value = item.AverageCompletionDays;
+            ws.Cell(row, 7).Value = item.ImprovementValue;
+            ws.Cell(row, 8).Value = item.Reason;
+            row++;
+        }
+        FinishTable(ws, row - 1, headers.Length);
     }
 
     private static void AddExternalPartiesSheet(XLWorkbook workbook, InstitutionalReportModel model)

@@ -155,6 +155,23 @@ public sealed class DepartmentAnalysisRowDto
     public string SystemComparison { get; set; } = string.Empty;
 }
 
+public sealed class DepartmentRecognitionRowDto
+{
+    public int? DepartmentId { get; set; }
+    public string DepartmentName { get; set; } = string.Empty;
+    public string RecognitionType { get; set; } = string.Empty;
+    public int TransactionCount { get; set; }
+    public double OnTimeCompletionRate { get; set; }
+    public int OverdueCount { get; set; }
+    public double AverageCompletionDays { get; set; }
+    public double DataCompletenessRate { get; set; }
+    public double ImprovementValue { get; set; }
+    public string Reason { get; set; } = string.Empty;
+    public double Score { get; set; }
+    public bool HasSufficientSample { get; set; }
+    public bool IsExcludedByDataQuality { get; set; }
+}
+
 public sealed class ExternalPartyAnalysisRowDto
 {
     public string ExternalPartyName { get; set; } = string.Empty;
@@ -290,6 +307,7 @@ public sealed class InstitutionalReportAnalysisResult
     public List<TimeSeriesPointDto> TimeSeries { get; set; } = [];
     public List<DepartmentTimeSeriesPointDto> DepartmentTimeSeries { get; set; } = [];
     public List<DepartmentAnalysisRowDto> DepartmentPerformance { get; set; } = [];
+    public List<DepartmentRecognitionRowDto> DepartmentRecognitions { get; set; } = [];
     public List<ExternalPartyAnalysisRowDto> ExternalParties { get; set; } = [];
     public List<CategoryAnalysisRowDto> Categories { get; set; } = [];
     public List<PriorityAnalysisRowDto> Priorities { get; set; } = [];
