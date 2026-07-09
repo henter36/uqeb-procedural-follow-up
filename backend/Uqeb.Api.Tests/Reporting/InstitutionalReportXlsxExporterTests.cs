@@ -82,6 +82,38 @@ public class InstitutionalReportXlsxExporterTests
     }
 
     [Fact]
+    public void Export_IncludesDepartmentRecognitionsWorksheet_WhenSectionIsRendered()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        model.Analysis.DepartmentRecognitions =
+        [
+            new DepartmentRecognitionRowDto
+            {
+                DepartmentName = "إدارة التميز",
+                RecognitionType = "متميزة",
+                TransactionCount = 12,
+                OnTimeCompletionRate = 92,
+                OverdueCount = 0,
+                AverageCompletionDays = 2.4,
+                ImprovementValue = 0,
+                Reason = "ارتفاع نسبة الإنجاز في الوقت",
+            },
+        ];
+        var manifest = InstitutionalReportVisualFixtures.RenderSections(
+            model,
+            ReportSectionId.OutstandingAndImprovedDepartments);
+
+        var bytes = InstitutionalReportXlsxExporter.Export(model, manifest, new ReportExportRequestDto());
+
+        using var workbook = new XLWorkbook(new MemoryStream(bytes));
+        Assert.True(workbook.TryGetWorksheet("الإدارات المتميزة والتحسن", out var recognitions));
+        Assert.NotNull(recognitions);
+        AssertHeaders(recognitions, ["اسم الإدارة", "نوع التصنيف", "حجم المعاملات", "نسبة الإنجاز في الوقت", "عدد المتأخرات", "متوسط مدة المعالجة أو التأخير", "مقدار التحسن مقارنة بالفترة السابقة", "سبب التصنيف"]);
+        Assert.Equal("إدارة التميز", recognitions.Cell(2, 1).GetString());
+        Assert.Equal("متميزة", recognitions.Cell(2, 2).GetString());
+    }
+
+    [Fact]
     public void Export_OmitsDepartmentTimeSeriesWorksheet_WhenNoDataAndTimeTrendsSectionRendered()
     {
         var model = InstitutionalReportVisualFixtures.CreateBaseModel();

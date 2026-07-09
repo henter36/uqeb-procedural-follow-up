@@ -73,6 +73,9 @@ public static class InstitutionalReportDocxExporter
             case ReportSectionId.DepartmentPerformance:
                 AppendDepartmentPerformanceSection(body, model);
                 break;
+            case ReportSectionId.OutstandingAndImprovedDepartments:
+                AppendDepartmentRecognitionsSection(body, model);
+                break;
             case ReportSectionId.ExternalPartyAnalysis:
                 AppendExternalPartiesSection(body, model);
                 break;
@@ -190,6 +193,34 @@ public static class InstitutionalReportDocxExporter
         AppendHeading(body, "أداء الإدارات");
         foreach (var row in model.DepartmentPerformance)
             AppendParagraph(body, $"{row.DepartmentName} — إجمالي {row.TotalTransactions} — التقييم {row.RatingLabel}");
+    }
+
+    private static void AppendDepartmentRecognitionsSection(Body body, InstitutionalReportModel model)
+    {
+        AppendHeading(body, "الإدارات المتميزة والأكثر تحسنًا");
+        AppendDepartmentRecognitionGroup(body, "الإدارات المتميزة حاليًا", model.Analysis.DepartmentRecognitions.Where(row => row.RecognitionType == "متميزة"));
+        AppendDepartmentRecognitionGroup(body, "الإدارات الأكثر تحسنًا مقارنة بالفترة السابقة", model.Analysis.DepartmentRecognitions.Where(row => row.RecognitionType == "الأكثر تحسنًا"));
+    }
+
+    private static void AppendDepartmentRecognitionGroup(
+        Body body,
+        string title,
+        IEnumerable<DepartmentRecognitionRowDto> rows)
+    {
+        AppendHeading(body, title, 2);
+        var list = rows.ToList();
+        if (list.Count == 0)
+        {
+            AppendParagraph(body, "لا توجد إدارات مؤهلة ضمن هذا المحور وفق حد العينة والمؤشرات الحالية.");
+            return;
+        }
+
+        foreach (var row in list)
+        {
+            AppendParagraph(
+                body,
+                $"{row.DepartmentName} — {row.RecognitionType} — حجم {row.TransactionCount} — ضمن المهلة {row.OnTimeCompletionRate:N1}% — المتأخرات {row.OverdueCount} — متوسط الإنجاز {row.AverageCompletionDays:N1} يوم — التحسن {row.ImprovementValue:N1} — {row.Reason}");
+        }
     }
 
     private static void AppendExternalPartiesSection(Body body, InstitutionalReportModel model)

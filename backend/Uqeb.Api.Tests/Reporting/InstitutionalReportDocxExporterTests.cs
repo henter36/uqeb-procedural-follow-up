@@ -138,6 +138,40 @@ public class InstitutionalReportDocxExporterTests
     }
 
     [Fact]
+    public void Export_IncludesDepartmentRecognitionsSection()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        model.Analysis.DepartmentRecognitions =
+        [
+            new DepartmentRecognitionRowDto
+            {
+                DepartmentName = "إدارة التميز",
+                RecognitionType = "متميزة",
+                TransactionCount = 12,
+                OnTimeCompletionRate = 92,
+                OverdueCount = 0,
+                AverageCompletionDays = 2.4,
+                ImprovementValue = 0,
+                Reason = "ارتفاع نسبة الإنجاز في الوقت",
+            },
+        ];
+        var manifest = InstitutionalReportVisualFixtures.RenderSections(
+            model,
+            ReportSectionId.OutstandingAndImprovedDepartments);
+
+        var bytes = InstitutionalReportDocxExporter.Export(model, manifest, new ReportExportRequestDto());
+
+        using var zip = new System.IO.Compression.ZipArchive(new MemoryStream(bytes));
+        var entry = zip.GetEntry("word/document.xml");
+        Assert.NotNull(entry);
+        using var reader = new StreamReader(entry.Open());
+        var xml = reader.ReadToEnd();
+        Assert.Contains("الإدارات المتميزة والأكثر تحسنًا", xml);
+        Assert.Contains("إدارة التميز", xml);
+        Assert.Contains("ارتفاع نسبة الإنجاز في الوقت", xml);
+    }
+
+    [Fact]
     public void Export_DepartmentTransactions_RendersTableWithMatchedDepartmentsAndRelationColumn()
     {
         var model = new InstitutionalReportModel

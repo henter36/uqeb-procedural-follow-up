@@ -80,6 +80,7 @@ public static class InstitutionalReportPdfProfiles
         {
             ReportSectionId.IndicatorsDashboard => StandardLandscape,
             ReportSectionId.DepartmentPerformance => WideLandscape,
+            ReportSectionId.OutstandingAndImprovedDepartments => WideLandscape,
             ReportSectionId.ExternalPartyAnalysis => WideLandscape,
             ReportSectionId.ClassificationAndPriorityAnalysis => StandardLandscape,
             ReportSectionId.DelayAndBottleneckAnalysis => StandardLandscape,

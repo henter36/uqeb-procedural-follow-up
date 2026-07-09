@@ -38,6 +38,7 @@ export const ReportSectionId = {
   DataQuality: 19,
   RecommendationsAndActionPlan: 20,
   MethodologyAndDefinitions: 21,
+  OutstandingAndImprovedDepartments: 22,
 } as const;
 
 export const ExportFormat = {
