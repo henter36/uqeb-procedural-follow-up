@@ -239,11 +239,12 @@ public sealed class DataQualityTests
         var summary = await CreateService(db).GetSummaryAsync(new DataQualityQueryDto
         {
             OverdueMoreThanDays = 10,
-            IncludeReviewed = true,
-            Limit = 3000
+            ReviewedOnly = true,
+            Limit = 1000
         });
 
-        Assert.Equal(2001, summary.TotalIssues);
+        Assert.Equal(2, summary.TotalIssues);
+        Assert.Equal(2, summary.Issues.Count);
         Assert.Contains(summary.Issues, x =>
             x.TransactionId == 1 &&
             x.IsReviewed &&
