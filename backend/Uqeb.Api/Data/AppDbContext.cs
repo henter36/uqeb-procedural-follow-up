@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Uqeb.Api.Models.Entities;
+using Uqeb.Api.Reporting.DataQuality;
 
 namespace Uqeb.Api.Data;
 
@@ -12,6 +13,7 @@ public class AppDbContext : DbContext
 
     public DbSet<User> Users => Set<User>();
     public DbSet<UserPermission> UserPermissions => Set<UserPermission>();
+    public DbSet<DataQualityReview> DataQualityReviews => Set<DataQualityReview>();
     public DbSet<Department> Departments => Set<Department>();
     public DbSet<ExternalParty> ExternalParties => Set<ExternalParty>();
     public DbSet<Category> Categories => Set<Category>();
@@ -58,6 +60,18 @@ public class AppDbContext : DbContext
             e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne<User>().WithMany().HasForeignKey(x => x.CreatedById).OnDelete(DeleteBehavior.NoAction);
             e.Property(x => x.PermissionCode).HasConversion<int>();
+        });
+
+        modelBuilder.Entity<DataQualityReview>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.IssueKey).IsUnique();
+            e.HasIndex(x => new { x.TransactionId, x.RuleCode });
+            e.Property(x => x.IssueKey).HasMaxLength(300).IsRequired();
+            e.Property(x => x.RuleCode).HasMaxLength(100).IsRequired();
+            e.Property(x => x.ReviewNote).HasMaxLength(1000);
+            e.HasOne<Transaction>().WithMany().HasForeignKey(x => x.TransactionId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.ReviewedByUserId).OnDelete(DeleteBehavior.NoAction);
         });
 
         modelBuilder.Entity<Department>(e =>

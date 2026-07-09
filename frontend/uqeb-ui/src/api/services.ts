@@ -14,6 +14,7 @@ import type {
   DepartmentResponseStatsDto, SystemVersionInfo,
   RecurringTemplateListItem, RecurringTemplateDetail, GenerateRecurringTransactionResponse, RecurringTemplateTransactionItem,
   RecurringObligationsSummary, RecurringObligationReportRow, DepartmentObligationSnapshot,
+  DataQualitySummary,
 } from './types';
 import type {
   InstitutionalReportManifest,
@@ -162,6 +163,32 @@ export const reportsApi = {
     api.get<DepartmentObligationSnapshot>('/reports/department-obligation-snapshot', { params, ...config }),
   exportDepartmentObligationSnapshotExcel: (params?: Record<string, unknown>) =>
     api.get('/reports/department-obligation-snapshot/export-excel', { params, responseType: 'blob' }),
+};
+
+export const dataQualityApi = {
+  getSummary: (params?: {
+    from?: string;
+    to?: string;
+    severity?: string;
+    category?: string;
+    departmentId?: number;
+    limit?: number;
+    overdueMoreThanDays?: number;
+    includeReferralDateAfterIncomingDate?: boolean;
+    responsePeriodLessThanDays?: number;
+    includeReviewed?: boolean;
+    reviewedOnly?: boolean;
+  }) => api.get<DataQualitySummary>('/data-quality/summary', { params }),
+
+  markReviewed: (request: {
+    issueKey: string;
+    transactionId?: number;
+    ruleCode: string;
+    note?: string;
+  }) => api.put('/data-quality/reviews', request),
+
+  unmarkReviewed: (request: { issueKey: string }) =>
+    api.delete('/data-quality/reviews', { params: { issueKey: request.issueKey } }),
 };
 
 export const categoriesApi = {

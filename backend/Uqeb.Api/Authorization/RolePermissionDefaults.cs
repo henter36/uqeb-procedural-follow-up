@@ -27,6 +27,8 @@ public static class RolePermissionDefaults
                 PermissionCode.FollowUpPrintCreate,
                 PermissionCode.FollowUpPrintExport,
                 PermissionCode.LookupsView,
+                PermissionCode.DataQualityView,
+                PermissionCode.DataQualityReview,
             },
             UserRole.DataEntry => new HashSet<PermissionCode>
             {
@@ -45,6 +47,7 @@ public static class RolePermissionDefaults
                 PermissionCode.FollowUpPrintCreate,
                 PermissionCode.FollowUpPrintExport,
                 PermissionCode.LookupsView,
+                PermissionCode.DataQualityView,
             },
             UserRole.DepartmentUser => new HashSet<PermissionCode>
             {
@@ -58,6 +61,7 @@ public static class RolePermissionDefaults
                 PermissionCode.TransactionsView,
                 PermissionCode.TransactionDetailsView,
                 PermissionCode.LookupsView,
+                PermissionCode.DataQualityView,
             },
             _ => new HashSet<PermissionCode>(),
         };
