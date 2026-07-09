@@ -54,6 +54,40 @@ public class InstitutionalReportPeriodBurdenTests
     }
 
     [Fact]
+    public async Task ComprehensiveReport_ExcludesPrePeriodProcedurallyCompleteTransactionFromFinalScope()
+    {
+        var today = DateTime.UtcNow.Date;
+        var periodFrom = today.AddDays(-20);
+        var periodTo = today.AddDays(-5);
+        var (db, user, factory) = await CreateSeededContextAsync();
+        var department = new Department { Name = "الإدارة المختبرة", NameNormalized = "الإدارة المختبرة" };
+        var transaction = BuildTransaction(user, "PROCEDURAL-DONE", today.AddDays(-40), TransactionStatus.New);
+        transaction.Assignments.Add(new Assignment
+        {
+            Department = department,
+            AssignedDate = today.AddDays(-39),
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Replied,
+            ReplyDate = periodTo.AddDays(-1),
+            Status = AssignmentStatus.Completed,
+            CreatedById = user.Id,
+        });
+
+        db.Departments.Add(department);
+        db.Transactions.Add(transaction);
+        await db.SaveChangesAsync();
+
+        var model = await InstitutionalReportServiceTestHelpers.CreateService(factory)
+            .BuildReportModelAsync(BuildRequest(periodFrom, periodTo));
+
+        Assert.Empty(model.Transactions);
+        Assert.Equal("0", SummaryValue(model, "periodIncoming"));
+        Assert.Equal("0", SummaryValue(model, "carriedOpenBalance"));
+        Assert.Equal("0", SummaryValue(model, "activeBurden"));
+        Assert.Equal(0, model.TotalMatchedRows);
+    }
+
+    [Fact]
     public async Task ComprehensiveReport_CriticalCasesIncludeVeryOldOpenNormalPriorityWithoutDueDates()
     {
         var today = DateTime.UtcNow.Date;

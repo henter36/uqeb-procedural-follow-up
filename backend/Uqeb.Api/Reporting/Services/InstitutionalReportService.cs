@@ -224,6 +224,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             request.ReportType, request.Filters.DateTo);
 
         var metricSnapshots = await LoadSnapshotsAsync(request, ct, takeLimit: null, overdueEvaluationDate);
+        totalMatched = metricSnapshots.Count;
         if (request.Filters.IncludeOverdue)
         {
             metricSnapshots = metricSnapshots.Where(s => s.IsOverdue).ToList();
@@ -357,7 +358,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             var exportedCount = options.ExportedDetailRowsOverride ?? Math.Min(totalMatched, options.DetailRowsToLoad.Value);
             var snapshots = exportedCount >= metricSnapshots.Count
                 ? metricSnapshots
-                : await LoadSnapshotsAsync(request, ct, takeLimit: exportedCount, overdueEvaluationDate);
+                : metricSnapshots.Take(exportedCount).ToList();
             return (snapshots, exportedCount);
         }
 
@@ -377,14 +378,13 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
 
     private async Task<int> CountMatchingTransactionsAsync(ReportBuildRequestDto request, CancellationToken ct)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var query = InstitutionalReportQueryBuilder.BuildFilteredQuery(
-            db,
-            request,
-            _currentUser.UserId,
-            _currentUser.Role,
-            _currentUser.DepartmentId);
-        return await query.CountAsync(ct);
+        var referenceDate = InstitutionalReportSnapshotQuery.ResolveOverdueEvaluationDate(
+            request.ReportType,
+            request.Filters.DateTo);
+        var snapshots = await LoadSnapshotsAsync(request, ct, takeLimit: null, referenceDate);
+        if (request.Filters.IncludeOverdue)
+            snapshots = snapshots.Where(s => s.IsOverdue).ToList();
+        return snapshots.Count;
     }
 
     private async Task<List<TransactionReportSnapshot>> LoadSnapshotsAsync(
@@ -415,8 +415,11 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         var evaluationDate = referenceDate?.Date ?? DateTime.UtcNow.Date;
         var snapshots = rows.Select(row => InstitutionalReportSnapshotQuery.MapRowToSnapshot(row, evaluationDate)).ToList();
         ApplyPeriodScope(snapshots, request.Filters.DateFrom, evaluationDate);
-        return snapshots;
+        return snapshots.Where(IsInFinalReportScope).ToList();
     }
+
+    private static bool IsInFinalReportScope(TransactionReportSnapshot snapshot) =>
+        snapshot.IsPeriodIncoming || snapshot.IsCarriedOpenBalance;
 
     private static void ApplyPeriodScope(
         IEnumerable<TransactionReportSnapshot> snapshots,

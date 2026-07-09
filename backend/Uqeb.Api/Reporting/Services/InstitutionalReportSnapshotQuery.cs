@@ -201,7 +201,7 @@ internal static class InstitutionalReportSnapshotQuery
                 || (t.IncomingDate < from
                     && t.Status != TransactionStatus.Cancelled
                     && t.Status != TransactionStatus.Archived
-                    && (t.ClosedAt == null && !t.ResponseCompletedDate.HasValue
+                    && ((t.ClosedAt == null && !t.ResponseCompletedDate.HasValue)
                         || t.ClosedAt >= openAtPeriodEndExclusive
                         || t.ResponseCompletedDate >= openAtPeriodEndExclusive)));
         }
