@@ -168,11 +168,17 @@ public sealed class DataQualityService : IDataQualityService
 
     private static void AddPotentialDuplicateIssues(List<DataQualityIssueDto> issues, IReadOnlyList<Transaction> transactions)
     {
-        var candidates = transactions
-            .OrderBy(x => x.Id)
+        var candidatesByParty = transactions
             .Select(CreateDuplicateCandidate)
-            .ToList();
+            .Where(candidate => candidate.IncomingPartyKey.Length > 0)
+            .GroupBy(candidate => candidate.IncomingPartyKey, StringComparer.Ordinal);
 
+        foreach (var group in candidatesByParty)
+            AddPotentialDuplicateIssuesForParty(issues, group.OrderBy(candidate => candidate.Transaction.Id).ToList());
+    }
+
+    private static void AddPotentialDuplicateIssuesForParty(List<DataQualityIssueDto> issues, IReadOnlyList<DuplicateCandidate> candidates)
+    {
         for (var i = 0; i < candidates.Count; i++)
         {
             for (var j = i + 1; j < candidates.Count; j++)
@@ -236,24 +242,33 @@ public sealed class DataQualityService : IDataQualityService
                 "موضوع متشابه مع نفس الجهة وتاريخ قريب");
         }
 
+        return TryCreateSupportingDuplicateMatch(first, second, subjectSimilarity);
+    }
+
+    private static DuplicateMatch? TryCreateSupportingDuplicateMatch(
+        DuplicateCandidate first,
+        DuplicateCandidate second,
+        double subjectSimilarity)
+    {
         var sameCategory = first.CategoryKey.Length > 0 &&
             string.Equals(first.CategoryKey, second.CategoryKey, StringComparison.Ordinal);
         var sameRoutedDepartment = first.DepartmentKeys.Overlaps(second.DepartmentKeys);
         var incomingNumbersNear = AreIncomingNumbersNear(first.IncomingNumberKey, second.IncomingNumberKey);
 
-        if ((sameCategory || sameRoutedDepartment) &&
-            (subjectSimilarity >= SupportingSubjectSimilarityThreshold || incomingNumbersNear))
-        {
-            var reason = sameCategory
-                ? "نفس الجهة والتصنيف مع موضوع أو رقم وارد قريب"
-                : "نفس الجهة والإدارات المحالة مع موضوع أو رقم وارد قريب";
-            return new DuplicateMatch(
-                DataQualitySeverity.Medium,
-                Math.Max(subjectSimilarity, incomingNumbersNear ? 0.55d : 0d),
-                reason);
-        }
+        if (!sameCategory && !sameRoutedDepartment)
+            return null;
 
-        return null;
+        if (subjectSimilarity < SupportingSubjectSimilarityThreshold && !incomingNumbersNear)
+            return null;
+
+        var reason = sameCategory
+            ? "نفس الجهة والتصنيف مع موضوع أو رقم وارد قريب"
+            : "نفس الجهة والإدارات المحالة مع موضوع أو رقم وارد قريب";
+
+        return new DuplicateMatch(
+            DataQualitySeverity.Medium,
+            Math.Max(subjectSimilarity, incomingNumbersNear ? 0.55d : 0d),
+            reason);
     }
 
     private static DataQualityIssueDto CreatePotentialDuplicateIssue(
@@ -310,8 +325,8 @@ public sealed class DataQualityService : IDataQualityService
         if (intersection == 0)
             return 0d;
 
-        var union = firstTokens.Union(secondTokens, StringComparer.Ordinal).Count();
-        return union == 0 ? 0d : (double)intersection / union;
+        var union = firstTokens.Count + secondTokens.Count - intersection;
+        return (double)intersection / union;
     }
 
     private static HashSet<string> NormalizeSubjectTokens(string? value) =>

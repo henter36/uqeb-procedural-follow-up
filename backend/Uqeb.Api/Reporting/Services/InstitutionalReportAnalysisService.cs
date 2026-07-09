@@ -766,11 +766,11 @@ internal static class InstitutionalReportAnalysisService
 
         var improved = currentMetrics
             .Where(metric => metric.TransactionCount >= minimumSampleSize)
-            .SelectMany(metric => previousMetrics.TryGetValue(metric.Key, out var previousMetric)
-                ? new[] { new DepartmentRecognitionComparison(metric, previousMetric) }
-                : Array.Empty<DepartmentRecognitionComparison>())
-            .Where(pair => pair.Previous.TransactionCount >= minimumSampleSize)
-            .Select(pair => ToImprovedRecognition(pair.Current, pair.Previous, minimumSampleSize))
+            .Select(metric => previousMetrics.TryGetValue(metric.Key, out var previousMetric)
+                ? new DepartmentRecognitionComparison(metric, previousMetric)
+                : null)
+            .Where(pair => pair is not null && pair.Previous.TransactionCount >= minimumSampleSize)
+            .Select(pair => ToImprovedRecognition(pair!.Current, pair.Previous, minimumSampleSize))
             .Where(row => row.ImprovementValue >= 10)
             .OrderByDescending(row => row.ImprovementValue)
             .ThenByDescending(row => row.TransactionCount)
