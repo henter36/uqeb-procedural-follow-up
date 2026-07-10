@@ -22,12 +22,12 @@ public class InstitutionalReportRendererCoverTests
         var page = Assert.Single(manifest.Pages);
 
         Assert.Contains("class=\"report-page report-page--standard-portrait\"", page.HtmlContent);
-        Assert.Contains("REP-2026-000125", page.HtmlContent);
+        Assert.DoesNotContain("REP-2026-000125", page.HtmlContent);
         Assert.Single(Regex.Matches(page.HtmlContent, "class=\"report-page"));
     }
 
     [Fact]
-    public void RenderManifest_CoverUsesQuietOfficialFieldsOnly()
+    public void RenderManifest_CoverUsesTitleAndPeriodOnly()
     {
         var model = BuildModel();
         var manifest = _renderer.RenderManifest(model,
@@ -40,8 +40,14 @@ public class InstitutionalReportRendererCoverTests
         var cover = Assert.Single(manifest.Pages, p => p.SectionId == ReportSectionId.Cover);
         Assert.Contains("<h1 class=\"cover-title\">تقرير المتابعة الإجرائية</h1>", cover.HtmlContent);
         Assert.DoesNotContain("<h1 class=\"cover-title\">تقرير اختبار</h1>", cover.HtmlContent);
-        Assert.Contains("<dt>الفترة:</dt><dd>من 2026-01-01 إلى 2026-06-01</dd>", cover.HtmlContent);
-        Assert.Contains("<dt>تاريخ الإصدار:</dt><dd>2026-06-01</dd>", cover.HtmlContent);
+        Assert.Contains("<div class=\"cover-period\">الفترة: من 2026-01-01 إلى 2026-06-01</div>", cover.HtmlContent);
+        Assert.DoesNotContain("تاريخ الإصدار", cover.HtmlContent);
+        Assert.DoesNotContain("رقم التقرير", cover.HtmlContent);
+        Assert.DoesNotContain("REP-2026-000010", cover.HtmlContent);
+        Assert.DoesNotContain("تقرير اختبار", cover.HtmlContent);
+        Assert.DoesNotContain("VERIFY", cover.HtmlContent);
+        Assert.DoesNotContain("report-header", cover.HtmlContent);
+        Assert.DoesNotContain("report-footer", cover.HtmlContent);
         Assert.DoesNotContain("إجمالي الصفحات", cover.HtmlContent);
         Assert.DoesNotContain("معرف التحقق", cover.HtmlContent);
         Assert.DoesNotContain("البصمة", cover.HtmlContent);
