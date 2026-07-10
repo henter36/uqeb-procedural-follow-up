@@ -49,6 +49,14 @@ internal static class DepartmentTimeSeriesRanking
         HashSet<(int? DepartmentId, string DepartmentName)> topDepartmentKeys) =>
         topDepartmentKeys.Contains((point.DepartmentId, point.DepartmentName));
 
+
+    internal static IOrderedEnumerable<DepartmentTimeSeriesPointDto> SortDepartmentTimeSeriesRows(
+        IEnumerable<DepartmentTimeSeriesPointDto> points) =>
+        points
+            .OrderBy(p => NormalizeDepartmentName(p.DepartmentName), StringComparer.Ordinal)
+            .ThenBy(p => p.PeriodStart == default ? DateTime.MaxValue : p.PeriodStart)
+            .ThenBy(p => p.PeriodLabel, StringComparer.Ordinal);
+
     /// <summary>
     /// Department-name fallback shared by the HTML/PDF renderer and the DOCX exporter, so the
     /// department time-series view never diverges between the two on an undefined/blank name.

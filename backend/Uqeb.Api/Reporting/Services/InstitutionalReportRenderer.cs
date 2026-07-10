@@ -627,11 +627,11 @@ public sealed class InstitutionalReportRenderer
         return $"""
         <div class="cover">
           <div class="cover-main">
-            <h1 class="cover-title">{Esc(m.Title)}</h1>
-            <div class="cover-period">الفترة من {FormatDate(m.PeriodFrom)} إلى {FormatDate(m.PeriodTo)}</div>
-            <dl class="info-card">
+            <h1 class="cover-title">تقرير المتابعة الإجرائية</h1>
+            <dl class="info-card cover-info-card">
+              <dt>الفترة:</dt><dd>من {FormatDate(m.PeriodFrom)} إلى {FormatDate(m.PeriodTo)}</dd>
+              <dt>تاريخ الإصدار:</dt><dd>{FormatDate(m.IssueDate)}</dd>
               <dt>رقم التقرير</dt><dd>{Esc(m.ReportNumber)}</dd>
-              <dt>تاريخ الإصدار</dt><dd>{FormatDate(m.IssueDate)}</dd>
             </dl>
           </div>
         </div>
@@ -755,7 +755,8 @@ public sealed class InstitutionalReportRenderer
         var departmentGroups = DepartmentTimeSeriesRanking.RankDepartments(points);
         var topDepartmentKeys = DepartmentTimeSeriesRanking.TopDepartmentKeys(departmentGroups);
 
-        var visibleRows = points.Where(p => DepartmentTimeSeriesRanking.IsTopDepartment(p, topDepartmentKeys)).ToList();
+        var visibleRows = DepartmentTimeSeriesRanking.SortDepartmentTimeSeriesRows(
+            points.Where(p => DepartmentTimeSeriesRanking.IsTopDepartment(p, topDepartmentKeys))).ToList();
         var truncationNote = topDepartmentKeys.Count < departmentGroups.Count
             ? $"""<div class="partial-note">تعرض هذه القائمة أعلى {DepartmentTimeSeriesRanking.TopDepartments} إدارات حسب المتأخرات ثم المفتوحة ثم الوارد؛ تصدير XLSX يشمل كل الإدارات.</div>"""
             : string.Empty;
@@ -1124,7 +1125,7 @@ public sealed class InstitutionalReportRenderer
         <p class="section-subtitle">إجمالي النتائج: {totalResults:N0} معاملة{pageNote} — الفترة من {FormatDate(model.Metadata.PeriodFrom)} إلى {FormatDate(model.Metadata.PeriodTo)}</p>
         <table class="report-table report-table--transactions"><thead><tr>
           <th>رقم الوارد</th><th>تاريخ الوارد</th><th>الموضوع</th><th>الجهة</th>
-          <th>الإدارة</th><th>الحالة</th><th>مرحلة المتابعة</th><th>الأيام</th><th>المهلة</th><th>حالة الرد</th>
+          <th>الإدارة</th><th>الحالة</th><th>مرحلة المتابعة</th><th>عمر المعاملة</th><th>المهلة</th><th>حالة الرد</th>
         </tr></thead><tbody>{body}</tbody></table>
         """;
     }

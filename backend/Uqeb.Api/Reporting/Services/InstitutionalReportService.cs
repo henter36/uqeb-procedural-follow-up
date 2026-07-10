@@ -437,8 +437,8 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         var cards = new List<KpiCardDto>
         {
             new() { Key = "periodIncoming", Title = "وارد الفترة", Value = metrics.PeriodIncomingCount.ToString("N0"), Footnote = "معاملات وردت داخل الفترة فقط." },
-            new() { Key = "carriedOpenBalance", Title = "الرصيد المرحّل المفتوح", Value = metrics.CarriedOpenBalanceCount.ToString("N0"), Footnote = "معاملات أقدم من الفترة وما زالت مفتوحة حتى نهايتها." },
-            new() { Key = "activeBurden", Title = "إجمالي العبء القائم", Value = metrics.TotalActiveBurdenCount.ToString("N0"), Footnote = "وارد الفترة المفتوح + الرصيد المرحّل المفتوح." },
+            new() { Key = "carriedOpenBalance", Title = "المعاملات مرحلة لفترة سابقة", Value = metrics.CarriedOpenBalanceCount.ToString("N0"), Footnote = "معاملات أقدم من الفترة وما زالت مفتوحة حتى نهايتها." },
+            new() { Key = "activeBurden", Title = "إجمالي المعاملات القائمة", Value = metrics.TotalActiveBurdenCount.ToString("N0"), Footnote = "وارد الفترة المفتوح + المعاملات المرحلة من فترة سابقة." },
             new() { Key = "total", Title = "إجمالي نطاق التقرير", Value = metrics.TotalTransactions.ToString("N0") },
             new() { Key = "closed", Title = "المعاملات المغلقة", Value = metrics.ClosedCount.ToString("N0") },
             new() { Key = "open", Title = "المعاملات المفتوحة", Value = metrics.OpenCount.ToString("N0") },
@@ -457,8 +457,8 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             .FirstOrDefault()?.Key;
 
         var narrative = $"بلغ وارد الفترة {metrics.PeriodIncomingCount:N0} معاملة وردت داخل الفترة فقط، " +
-                        $"والرصيد المرحّل المفتوح {metrics.CarriedOpenBalanceCount:N0} معاملة أقدم من الفترة وما زالت مفتوحة حتى نهايتها. " +
-                        $"إجمالي العبء القائم بلغ {metrics.TotalActiveBurdenCount:N0} معاملة، " +
+                        $"والمعاملات المرحلة من فترة سابقة {metrics.CarriedOpenBalanceCount:N0} معاملة أقدم من الفترة وما زالت مفتوحة حتى نهايتها. " +
+                        $"إجمالي المعاملات القائمة بلغ {metrics.TotalActiveBurdenCount:N0} معاملة، " +
                         $"ونطاق التقرير التشغيلي يضم {metrics.TotalTransactions:N0} معاملة فريدة، " +
                         $"منها {metrics.ClosedCount:N0} مغلقة و{metrics.OpenCount:N0} مفتوحة. " +
                         $"تضم المعاملات المفتوحة {metrics.OpenOverdueCount:N0} معاملة متأخرة، " +

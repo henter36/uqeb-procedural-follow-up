@@ -82,6 +82,33 @@ public class InstitutionalReportXlsxExporterTests
     }
 
     [Fact]
+    public void Export_DepartmentTimeSeriesWorksheetOrdersRowsByDepartmentThenPeriod()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        model.Analysis.DepartmentTimeSeries =
+        [
+            DepartmentPoint("B Department", "2026-06", new DateTime(2026, 6, 1)),
+            DepartmentPoint("A Department", "2026-07", new DateTime(2026, 7, 1)),
+            DepartmentPoint("A Department", "2026-06", new DateTime(2026, 6, 1)),
+            DepartmentPoint("B Department", "2026-05", new DateTime(2026, 5, 1)),
+        ];
+        var manifest = InstitutionalReportVisualFixtures.RenderSections(model, ReportSectionId.TimeTrends);
+
+        var bytes = InstitutionalReportXlsxExporter.Export(model, manifest, new ReportExportRequestDto());
+
+        using var workbook = new XLWorkbook(new MemoryStream(bytes));
+        var ws = workbook.Worksheet("Department Time Series");
+        Assert.Equal("2026-06", ws.Cell(2, 1).GetString());
+        Assert.Equal("A Department", ws.Cell(2, 2).GetString());
+        Assert.Equal("2026-07", ws.Cell(3, 1).GetString());
+        Assert.Equal("A Department", ws.Cell(3, 2).GetString());
+        Assert.Equal("2026-05", ws.Cell(4, 1).GetString());
+        Assert.Equal("B Department", ws.Cell(4, 2).GetString());
+        Assert.Equal("2026-06", ws.Cell(5, 1).GetString());
+        Assert.Equal("B Department", ws.Cell(5, 2).GetString());
+    }
+
+    [Fact]
     public void Export_IncludesDepartmentRecognitionsWorksheet_WhenSectionIsRendered()
     {
         var model = InstitutionalReportVisualFixtures.CreateBaseModel();
@@ -182,9 +209,31 @@ public class InstitutionalReportXlsxExporterTests
         Assert.Equal("الإدارة ب", ws.Cell(2, 11).GetString());
     }
 
+    [Fact]
+    public void Export_TransactionDetailsLabelsElapsedDaysAsTransactionAge()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel(totalMatched: 1, exportedRows: 1);
+        var manifest = InstitutionalReportVisualFixtures.RenderSections(model, ReportSectionId.TransactionDetails);
+
+        var bytes = InstitutionalReportXlsxExporter.Export(model, manifest, new ReportExportRequestDto());
+
+        using var workbook = new XLWorkbook(new MemoryStream(bytes));
+        var ws = workbook.Worksheet("المعاملات التفصيلية");
+        AssertHeaders(ws, ["م", "رقم الوارد", "تاريخ الوارد", "الموضوع", "الجهة", DepartmentHeader, "الإدارات المشتركة", PriorityHeader, "الحالة", "مرحلة المتابعة", "عمر المعاملة", "المهلة", "آخر إجراء", "حالة الرد"]);
+    }
+
     private static void AssertHeaders(IXLWorksheet worksheet, IReadOnlyList<string> expectedHeaders)
     {
         for (var column = 1; column <= expectedHeaders.Count; column++)
             Assert.Equal(expectedHeaders[column - 1], worksheet.Cell(1, column).GetString());
     }
+
+    private static DepartmentTimeSeriesPointDto DepartmentPoint(string departmentName, string periodLabel, DateTime periodStart) =>
+        new()
+        {
+            DepartmentName = departmentName,
+            PeriodLabel = periodLabel,
+            PeriodStart = periodStart,
+            IncomingCount = 1,
+        };
 }

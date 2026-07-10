@@ -219,13 +219,13 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 12px;
+  gap: 18px;
   max-width: 135mm;
-  padding: 20px 8px;
+  padding: 28px 8px;
 }
 
 .cover-title {
-  font-size: 34px;
+  font-size: 38px;
   line-height: 1.3;
   color: var(--report-primary);
   font-weight: 800;
@@ -274,6 +274,18 @@ body {
   font-weight: 700;
   color: var(--report-primary);
   overflow-wrap: break-word;
+}
+
+.cover-info-card {
+  display: grid;
+  grid-template-columns: 34mm 1fr;
+  gap: 8px 12px;
+  max-width: 110mm;
+}
+
+.cover-info-card dt,
+.cover-info-card dd {
+  margin: 0;
 }
 
 .info-card--metadata {
