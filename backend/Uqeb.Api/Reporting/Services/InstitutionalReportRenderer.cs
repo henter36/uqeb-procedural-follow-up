@@ -755,7 +755,7 @@ public sealed class InstitutionalReportRenderer
         var departmentGroups = DepartmentTimeSeriesRanking.RankDepartments(points);
         var topDepartmentKeys = DepartmentTimeSeriesRanking.TopDepartmentKeys(departmentGroups);
 
-        var visibleRows = SortDepartmentTimeSeriesRows(
+        var visibleRows = DepartmentTimeSeriesRanking.SortDepartmentTimeSeriesRows(
             points.Where(p => DepartmentTimeSeriesRanking.IsTopDepartment(p, topDepartmentKeys))).ToList();
         var truncationNote = topDepartmentKeys.Count < departmentGroups.Count
             ? $"""<div class="partial-note">تعرض هذه القائمة أعلى {DepartmentTimeSeriesRanking.TopDepartments} إدارات حسب المتأخرات ثم المفتوحة ثم الوارد؛ تصدير XLSX يشمل كل الإدارات.</div>"""
@@ -1129,13 +1129,6 @@ public sealed class InstitutionalReportRenderer
         </tr></thead><tbody>{body}</tbody></table>
         """;
     }
-
-    private static IOrderedEnumerable<DepartmentTimeSeriesPointDto> SortDepartmentTimeSeriesRows(
-        IEnumerable<DepartmentTimeSeriesPointDto> points) =>
-        points
-            .OrderBy(p => DepartmentTimeSeriesRanking.NormalizeDepartmentName(p.DepartmentName), StringComparer.Ordinal)
-            .ThenBy(p => p.PeriodStart == default ? DateTime.MaxValue : p.PeriodStart)
-            .ThenBy(p => p.PeriodLabel, StringComparer.Ordinal);
 
     private static string RenderDepartmentTransactionDetails(
         InstitutionalReportModel model, List<TransactionDetailRowDto> rows, bool isFirstPage)

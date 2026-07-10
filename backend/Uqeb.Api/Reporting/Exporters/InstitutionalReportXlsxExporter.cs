@@ -275,7 +275,7 @@ public static class InstitutionalReportXlsxExporter
         var headers = new[] { "الفترة", DepartmentHeader, "الوارد", "المغلق", "المفتوح", "المتأخر", OnTimeHeader, "متوسط الإنجاز", "الإفادات المعلقة", "الردود الجزئية", "تغير التراكم" };
         WriteHeaders(ws, headers);
         var row = 2;
-        foreach (var point in SortDepartmentTimeSeriesRows(model.Analysis.DepartmentTimeSeries))
+        foreach (var point in DepartmentTimeSeriesRanking.SortDepartmentTimeSeriesRows(model.Analysis.DepartmentTimeSeries))
         {
             ws.Cell(row, 1).Value = point.PeriodLabel;
             ws.Cell(row, 2).Value = point.DepartmentName;
@@ -522,13 +522,6 @@ public static class InstitutionalReportXlsxExporter
         }
         ws.Columns().AdjustToContents();
     }
-
-    private static IOrderedEnumerable<DepartmentTimeSeriesPointDto> SortDepartmentTimeSeriesRows(
-        IEnumerable<DepartmentTimeSeriesPointDto> points) =>
-        points
-            .OrderBy(p => DepartmentTimeSeriesRanking.NormalizeDepartmentName(p.DepartmentName), StringComparer.Ordinal)
-            .ThenBy(p => p.PeriodStart == default ? DateTime.MaxValue : p.PeriodStart)
-            .ThenBy(p => p.PeriodLabel, StringComparer.Ordinal);
 
     private static void AddMethodologySheet(XLWorkbook workbook, InstitutionalReportModel model)
     {

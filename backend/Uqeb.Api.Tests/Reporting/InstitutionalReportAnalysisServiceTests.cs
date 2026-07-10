@@ -67,7 +67,7 @@ public class InstitutionalReportAnalysisServiceTests
         Assert.Equal("number", result.Kpis.Single(k => k.Key == "TotalTransactions").Format);
         Assert.Equal("percent", result.Kpis.Single(k => k.Key == "OverdueRate").Format);
         Assert.Equal("decimal", result.Kpis.Single(k => k.Key == "AverageCompletionDays").Format);
-        Assert.Equal("المعاملات مرحلة لفترة سابقة", result.Kpis.Single(k => k.Key == "TotalActiveBurden").Title);
+        Assert.Equal("المعاملات مرحلة لفترة سابقة", result.Kpis.Single(k => k.Key == "CarriedOpenBalance").Title);\n        Assert.Equal("إجمالي المعاملات القائمة", result.Kpis.Single(k => k.Key == "TotalActiveBurden").Title);
         Assert.DoesNotContain(result.Kpis, k => k.Key == "AverageFollowUpsPerTransaction");
         Assert.DoesNotContain(result.Kpis, k => k.Title == "متوسط المتابعات لكل معاملة");
 
