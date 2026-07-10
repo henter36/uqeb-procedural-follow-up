@@ -131,6 +131,23 @@ public class InstitutionalReportRendererTests
         Assert.DoesNotContain($"""<span class="footer-title">{TestReportId}</span>""", html);
     }
 
+    [Fact]
+    public void RenderManifest_CoverShowsFixedTitlePeriodAndIssueDate()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel(title: "عنوان داخلي لا يظهر في الغلاف");
+        model.Metadata.PeriodFrom = new DateTime(2026, 1, 1);
+        model.Metadata.PeriodTo = new DateTime(2026, 6, 15);
+        model.Metadata.IssueDate = new DateTime(2026, 6, 20);
+
+        var manifest = _renderer.RenderManifest(model, [ReportSectionId.Cover]);
+        var coverHtml = Assert.Single(manifest.Pages).HtmlContent;
+
+        Assert.Contains("<h1 class=\"cover-title\">تقرير المتابعة الإجرائية</h1>", coverHtml);
+        Assert.Contains("<dt>الفترة:</dt><dd>من 2026-01-01 إلى 2026-06-15</dd>", coverHtml);
+        Assert.Contains("<dt>تاريخ الإصدار:</dt><dd>2026-06-20</dd>", coverHtml);
+        Assert.Equal("عنوان داخلي لا يظهر في الغلاف", manifest.ReportTitle);
+    }
+
     [Theory]
     [InlineData(PageNumberingMode.Restart)]
     [InlineData(PageNumberingMode.Original)]
@@ -450,6 +467,15 @@ public class InstitutionalReportRendererTests
             TimeSpan.FromMilliseconds(250)).Count;
     }
 
+    private static DepartmentTimeSeriesPointDto DepartmentPoint(string departmentName, string periodLabel, DateTime periodStart) =>
+        new()
+        {
+            DepartmentName = departmentName,
+            PeriodLabel = periodLabel,
+            PeriodStart = periodStart,
+            IncomingCount = 1,
+        };
+
     [Fact]
     public void RenderManifest_RendersAnalyticalSectionsFromUnifiedAnalysisModel()
     {
@@ -479,6 +505,44 @@ public class InstitutionalReportRendererTests
         Assert.Contains("نسبة اكتمال البيانات", html);
         Assert.Contains("مراجعة المعاملات المتأخرة حسب الإدارات الأعلى أثرًا", html);
         Assert.Contains("متوسط ساعات أول إجراء", html);
+    }
+
+    [Fact]
+    public void RenderManifest_DepartmentTimeSeriesOrdersRowsByDepartmentThenPeriod()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        model.Analysis.DepartmentTimeSeries =
+        [
+            DepartmentPoint("B Department", "2026-06", new DateTime(2026, 6, 1)),
+            DepartmentPoint("A Department", "2026-07", new DateTime(2026, 7, 1)),
+            DepartmentPoint("A Department", "2026-06", new DateTime(2026, 6, 1)),
+            DepartmentPoint("B Department", "2026-05", new DateTime(2026, 5, 1)),
+        ];
+
+        var manifest = _renderer.RenderManifest(model, [ReportSectionId.TimeTrends]);
+        var html = InstitutionalReportRenderer.RenderHtmlDocument(manifest);
+
+        Assert.True(
+            html.IndexOf("<td>2026-06</td><td class=\"cell--department\">A Department</td>", StringComparison.Ordinal) <
+            html.IndexOf("<td>2026-07</td><td class=\"cell--department\">A Department</td>", StringComparison.Ordinal));
+        Assert.True(
+            html.IndexOf("<td>2026-05</td><td class=\"cell--department\">B Department</td>", StringComparison.Ordinal) <
+            html.IndexOf("<td>2026-06</td><td class=\"cell--department\">B Department</td>", StringComparison.Ordinal));
+        Assert.True(
+            html.IndexOf("<td>2026-07</td><td class=\"cell--department\">A Department</td>", StringComparison.Ordinal) <
+            html.IndexOf("<td>2026-05</td><td class=\"cell--department\">B Department</td>", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void RenderManifest_TransactionDetailsLabelsElapsedDaysAsTransactionAge()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel(totalMatched: 1, exportedRows: 1);
+
+        var manifest = _renderer.RenderManifest(model, [ReportSectionId.TransactionDetails]);
+        var html = InstitutionalReportRenderer.RenderHtmlDocument(manifest);
+
+        Assert.Contains("<th>عمر المعاملة</th>", html);
+        Assert.DoesNotContain("<th>الأيام</th>", html);
     }
 
     [Fact]
