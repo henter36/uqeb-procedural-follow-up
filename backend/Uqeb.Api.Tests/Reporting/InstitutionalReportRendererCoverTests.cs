@@ -38,8 +38,8 @@ public class InstitutionalReportRendererCoverTests
 
         Assert.Equal(2, manifest.TotalPages);
         var cover = Assert.Single(manifest.Pages, p => p.SectionId == ReportSectionId.Cover);
-        Assert.Contains("تقرير المتابعة الإجرائية", cover.HtmlContent);
-        Assert.DoesNotContain("تقرير اختبار", cover.HtmlContent);
+        Assert.Contains("<h1 class=\"cover-title\">تقرير المتابعة الإجرائية</h1>", cover.HtmlContent);
+        Assert.DoesNotContain("<h1 class=\"cover-title\">تقرير اختبار</h1>", cover.HtmlContent);
         Assert.Contains("<dt>الفترة:</dt><dd>من 2026-01-01 إلى 2026-06-01</dd>", cover.HtmlContent);
         Assert.Contains("<dt>تاريخ الإصدار:</dt><dd>2026-06-01</dd>", cover.HtmlContent);
         Assert.DoesNotContain("إجمالي الصفحات", cover.HtmlContent);
