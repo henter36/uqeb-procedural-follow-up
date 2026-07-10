@@ -152,6 +152,26 @@ describe('SearchableSelect interaction', () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 
+  it('selects the only filtered result when clicking the native results select', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+
+    renderSelect(onChange);
+
+    const input = screen.getByRole('combobox', { name: 'اختيار القائمة' });
+    await user.click(input);
+    await user.type(input, 'Bet');
+
+    const select = getResultsSelect();
+    expect(within(select).getAllByRole('option')).toHaveLength(1);
+
+    fireEvent.click(select);
+
+    expect(onChange).toHaveBeenCalledWith(2);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('listbox', { name: 'اختيار القائمة - النتائج' })).not.toBeInTheDocument();
+  });
+
   it('selects option immediately on mouse click without Enter', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

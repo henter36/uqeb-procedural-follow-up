@@ -238,6 +238,11 @@ export default function SearchableSelect({
                 const target = event.target;
                 if (target instanceof HTMLOptionElement) {
                   commitNativeSelection(Number(target.value));
+                  return;
+                }
+
+                if (filtered.length === 1 && activeOption) {
+                  commitNativeSelection(activeOption.id);
                 }
               }}
               onMouseMove={(event) => {
