@@ -132,19 +132,26 @@ public class InstitutionalReportRendererTests
     }
 
     [Fact]
-    public void RenderManifest_CoverShowsFixedTitlePeriodAndIssueDate()
+    public void RenderManifest_CoverShowsFixedTitleAndPeriodOnly()
     {
         var model = InstitutionalReportVisualFixtures.CreateBaseModel(title: "عنوان داخلي لا يظهر في الغلاف");
         model.Metadata.PeriodFrom = new DateTime(2026, 1, 1);
         model.Metadata.PeriodTo = new DateTime(2026, 6, 15);
         model.Metadata.IssueDate = new DateTime(2026, 6, 20);
+        model.Metadata.ReportNumber = "REP-COVER-HIDDEN";
 
         var manifest = _renderer.RenderManifest(model, [ReportSectionId.Cover]);
         var coverHtml = Assert.Single(manifest.Pages).HtmlContent;
 
         Assert.Contains("<h1 class=\"cover-title\">تقرير المتابعة الإجرائية</h1>", coverHtml);
-        Assert.Contains("<dt>الفترة:</dt><dd>من 2026-01-01 إلى 2026-06-15</dd>", coverHtml);
-        Assert.Contains("<dt>تاريخ الإصدار:</dt><dd>2026-06-20</dd>", coverHtml);
+        Assert.Contains("<div class=\"cover-period\">الفترة: من 2026-01-01 إلى 2026-06-15</div>", coverHtml);
+        Assert.DoesNotContain("تاريخ الإصدار", coverHtml);
+        Assert.DoesNotContain("2026-06-20", coverHtml);
+        Assert.DoesNotContain("رقم التقرير", coverHtml);
+        Assert.DoesNotContain("REP-COVER-HIDDEN", coverHtml);
+        Assert.DoesNotContain("عنوان داخلي لا يظهر في الغلاف", coverHtml);
+        Assert.DoesNotContain("report-header", coverHtml);
+        Assert.DoesNotContain("report-footer", coverHtml);
         Assert.Equal("عنوان داخلي لا يظهر في الغلاف", manifest.ReportTitle);
     }
 

@@ -121,7 +121,7 @@ public class InstitutionalReportPlaywrightPdfExporterTests
     }
 
     [Fact]
-    public async Task ExportAsync_CoverPdf_HasNoQrPlaceholderAndFooterStaysOnSinglePhysicalPage()
+    public async Task ExportAsync_CoverPdf_HasOnlyTitleAndPeriodAndStaysOnSinglePhysicalPage()
     {
         await EnsurePlaywrightAvailableAsync();
         if (!await IsPlaywrightAvailableAsync())
@@ -131,10 +131,13 @@ public class InstitutionalReportPlaywrightPdfExporterTests
         var manifest = InstitutionalReportVisualFixtures.RenderSections(model, ReportSectionId.Cover);
         var html = InstitutionalReportRenderer.RenderHtmlDocument(manifest);
 
+        Assert.Contains("تقرير المتابعة الإجرائية", html);
+        Assert.Contains("الفترة: من 2026-01-01 إلى 2026-06-15", html);
         Assert.DoesNotContain("qr-box", html);
         Assert.DoesNotContain(">QR", html);
         Assert.DoesNotContain("معرف التحقق", html);
-        Assert.Equal(1, CountOccurrences(html, "<footer class=\"report-footer"));
+        Assert.DoesNotContain("REP-2026-000125", html);
+        Assert.Equal(0, CountOccurrences(html, "<footer class=\"report-footer"));
 
         await using var exporter = CreateExporter();
         var pdf = await exporter.ExportAsync(manifest, html);

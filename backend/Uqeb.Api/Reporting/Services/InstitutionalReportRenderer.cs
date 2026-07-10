@@ -98,7 +98,7 @@ public sealed class InstitutionalReportRenderer
                         Partial: false,
                         Profile: InstitutionalReportPdfProfiles.GetByName(coverPage.PdfProfileName),
                         SectionId: coverPage.SectionId,
-                        ReportTitle: model.Metadata.Title,
+                        ReportTitle: "تقرير المتابعة الإجرائية",
                         ReportId: model.Metadata.ReportNumber)),
             };
         }
@@ -284,13 +284,15 @@ public sealed class InstitutionalReportRenderer
             {
                 OriginalPageNumber = pageNumber,
                 RenderedPageNumber = pageNumber,
-                HtmlContent = InjectFooter(
-                    page.HtmlContent,
-                    pageNumber,
-                    total,
-                    false,
-                    model.Metadata.Title,
-                    model.Metadata.ReportNumber)
+                HtmlContent = page.SectionId == ReportSectionId.Cover
+                    ? page.HtmlContent
+                    : InjectFooter(
+                        page.HtmlContent,
+                        pageNumber,
+                        total,
+                        false,
+                        model.Metadata.Title,
+                        model.Metadata.ReportNumber)
             };
         }).ToList();
 
@@ -459,13 +461,15 @@ public sealed class InstitutionalReportRenderer
             var renderedNumber = i + 1;
             var footerTotal = pages.Count;
 
-            var html = InjectFooter(
-                page.HtmlContent,
-                renderedNumber,
-                footerTotal,
-                isPartial,
-                reportTitle,
-                reportId);
+            var html = page.SectionId == ReportSectionId.Cover
+                ? page.HtmlContent
+                : InjectFooter(
+                    page.HtmlContent,
+                    renderedNumber,
+                    footerTotal,
+                    isPartial,
+                    reportTitle,
+                    reportId);
 
             if (page.SectionId == ReportSectionId.ReportMetadata)
                 html = UpdateMetadataTotalPages(html, footerTotal);
@@ -537,14 +541,17 @@ public sealed class InstitutionalReportRenderer
 
     private static string WrapPage(
         string content,
-        PageChromeOptions options) =>
-        $"""
+        PageChromeOptions options)
+    {
+        var showChrome = options.SectionId != ReportSectionId.Cover;
+        return $"""
         <section class="report-page report-page--{options.Profile.CssClass}" data-page="{options.PageNumber}" data-profile="{options.Profile.Name}" data-section="{Esc(options.ReportTitle)}" data-section-id="{options.SectionId}">
-          {Header(options.Partial)}
+          {(showChrome ? Header(options.Partial) : string.Empty)}
           <main class="report-content">{content}</main>
-          {BuildFooter(options.PageNumber, options.TotalPages, options.Partial, options.ReportTitle, options.ReportId)}
+          {(showChrome ? BuildFooter(options.PageNumber, options.TotalPages, options.Partial, options.ReportTitle, options.ReportId) : string.Empty)}
         </section>
         """;
+    }
 
     private sealed record PageChromeOptions(
         int PageNumber,
@@ -628,11 +635,8 @@ public sealed class InstitutionalReportRenderer
         <div class="cover">
           <div class="cover-main">
             <h1 class="cover-title">تقرير المتابعة الإجرائية</h1>
-            <dl class="info-card cover-info-card">
-              <dt>الفترة:</dt><dd>من {FormatDate(m.PeriodFrom)} إلى {FormatDate(m.PeriodTo)}</dd>
-              <dt>تاريخ الإصدار:</dt><dd>{FormatDate(m.IssueDate)}</dd>
-              <dt>رقم التقرير</dt><dd>{Esc(m.ReportNumber)}</dd>
-            </dl>
+            <div class="cover-divider" aria-hidden="true"></div>
+            <div class="cover-period">الفترة: من {FormatDate(m.PeriodFrom)} إلى {FormatDate(m.PeriodTo)}</div>
           </div>
         </div>
         """;

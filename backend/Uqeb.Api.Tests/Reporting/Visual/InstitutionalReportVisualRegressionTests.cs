@@ -132,12 +132,16 @@ public class InstitutionalReportVisualRegressionTests
         await page.SetContentAsync(html, new PageSetContentOptions { WaitUntil = WaitUntilState.NetworkIdle });
         await page.EvaluateAsync("() => document.fonts ? document.fonts.ready : Promise.resolve()");
 
-        var everyPageHasOneFooter = await page.Locator(".report-page").EvaluateAllAsync<bool>(
-            "pages => pages.every(page => page.querySelectorAll('.report-footer').length === 1)");
-        Assert.True(everyPageHasOneFooter);
+        var nonCoverPagesHaveOneFooter = await page.Locator(".report-page").EvaluateAllAsync<bool>(
+            "pages => pages.every(page => page.dataset.sectionId === 'Cover' || page.querySelectorAll('.report-footer').length === 1)");
+        Assert.True(nonCoverPagesHaveOneFooter);
 
-        var footerTitle = await page.Locator(".report-footer .footer-title").First.InnerTextAsync();
-        var footerId = await page.Locator(".report-footer .footer-id").First.InnerTextAsync();
+        var coverHasNoFooter = await page.Locator(".report-page").First
+            .EvaluateAsync<bool>("page => page.querySelectorAll('.report-footer').length === 0");
+        Assert.True(coverHasNoFooter);
+
+        var footerTitle = await page.Locator(".report-page:not([data-section-id='Cover']) .report-footer .footer-title").First.InnerTextAsync();
+        var footerId = await page.Locator(".report-page:not([data-section-id='Cover']) .report-footer .footer-id").First.InnerTextAsync();
         Assert.Equal(model.Metadata.Title, footerTitle);
         Assert.Equal("REP-2026-000125", footerId);
 
@@ -189,7 +193,7 @@ public class InstitutionalReportVisualRegressionTests
     {
         var expectedText = section switch
         {
-            ReportSectionId.Cover => "REP-2026-000125",
+            ReportSectionId.Cover => "تقرير المتابعة الإجرائية",
             ReportSectionId.ExecutiveSummary => "الملخص التنفيذي",
             ReportSectionId.IndicatorsDashboard => "لوحة المؤشرات",
             ReportSectionId.DepartmentPerformance => "أداء الإدارات",
