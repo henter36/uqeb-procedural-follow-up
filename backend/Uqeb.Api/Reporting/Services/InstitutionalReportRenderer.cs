@@ -543,7 +543,7 @@ public sealed class InstitutionalReportRenderer
         string content,
         PageChromeOptions options)
     {
-        var showChrome = options.SectionId != ReportSectionId.Cover || options.Partial;
+        var showChrome = options.SectionId != ReportSectionId.Cover;
         return $"""
         <section class="report-page report-page--{options.Profile.CssClass}" data-page="{options.PageNumber}" data-profile="{options.Profile.Name}" data-section="{Esc(options.ReportTitle)}" data-section-id="{options.SectionId}">
           {(showChrome ? Header(options.Partial) : string.Empty)}
