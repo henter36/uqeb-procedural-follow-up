@@ -72,10 +72,12 @@ function getCompletionDateHint(hasOfficialCompletionDate: boolean, hasEffectiveC
   return 'يُحسب عند إغلاق جميع الإحالات المطلوبة';
 }
 
-function getResponseTimingLabel(isResponseOverdue: boolean, hasEffectiveCompletionDate: boolean): string {
-  if (isResponseOverdue) return 'متأخرة';
-  if (hasEffectiveCompletionDate) return 'مُنجزة';
-  return 'في الوقت';
+function getOverdueStatusLabel(tx: TransactionDetail): string {
+  const days = Math.max(0, tx.overdueDays ?? 0);
+  if (days <= 0) return 'غير متأخرة';
+  if (tx.completionDate || tx.responseCompleted) return `أُنجزت متأخرة — مدة التأخر: ${days} يوم`;
+  if (tx.isProcedurallyCompleteForReporting) return `مكتملة إجرائيًا متأخرة — مدة التأخر: ${days} يوم`;
+  return `متأخرة — عدد أيام التأخر: ${days} يوم`;
 }
 
 function renderDepartmentCompletionDays(completionDays?: number | null): ReactNode {
@@ -601,7 +603,14 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     setTx(updated);
     resetAndCloseAction();
     setMessage('تم تصحيح التواريخ بنجاح.');
-    await loadWorkspace({ silent: true });
+    setError('');
+    try {
+      const res = await transactionsApi.getWorkspace(+id);
+      applyWorkspaceData(res.data);
+    } catch {
+      setTx(updated);
+      setError('تم الحفظ لكن تعذر تحديث بيانات المعاملة من الخادم. حاول تحديث الصفحة.');
+    }
   };
 
   const handleEnableRecurringSuccess = (updated: import('../api/types').TransactionDetail) => {
@@ -794,7 +803,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const completionDaysHint = hasEffectiveCompletionDays
     ? 'محسوب تلقائيًا: تاريخ الإغلاق − تاريخ الوارد'
     : 'محسوب تلقائيًا: اليوم − تاريخ الوارد';
-  const responseTimingLabel = getResponseTimingLabel(tx.isResponseOverdue, hasEffectiveCompletionDate);
+  const overdueStatusLabel = getOverdueStatusLabel(tx);
 
   const replyAssignmentId = actionContext.replyAssignmentId;
   const replyFollowUpId = actionContext.replyFollowUpId;
@@ -904,9 +913,9 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
           />
           <MetricTile
             label="حالة التأخر"
-            value={responseTimingLabel}
-            tileClassName={tx.isResponseOverdue ? 'metric-tile-overdue' : undefined}
-            valueClassName={tx.isResponseOverdue ? 'text-danger' : 'text-success'}
+            value={overdueStatusLabel}
+            tileClassName={(tx.overdueDays ?? 0) > 0 ? 'metric-tile-overdue' : undefined}
+            valueClassName={(tx.overdueDays ?? 0) > 0 ? 'text-danger' : 'text-success'}
             hint={tx.responseDueDate
               ? `${formatDaysRemaining(tx.daysRemainingForResponse)} حتى الاستحقاق`
               : 'لم يُحدَّد تاريخ استحقاق'}

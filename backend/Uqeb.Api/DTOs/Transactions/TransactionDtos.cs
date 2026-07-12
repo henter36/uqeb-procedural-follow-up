@@ -71,6 +71,7 @@ public class TransactionDetailDto : TransactionListDto
     public string ResponseType { get; set; } = string.Empty;
     public int? ResponseDueDays { get; set; }
     public DateTime? ResponseCompletedDate { get; set; }
+    public int OverdueDays { get; set; }
     /// <summary>
     /// Reporting-only "effective response completed" date derived from department assignment
     /// replies (see WorkflowHelper.ResolveProceduralCompletionDateForReporting). Never implies

@@ -569,6 +569,65 @@ public class TransactionWorkspaceReadModelTests
     }
 
     [Fact]
+    public async Task SearchAsync_OverdueFilters_ExcludeOnTimeResponseCompletedWithLaterClosure()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(SearchAsync_OverdueFilters_ExcludeOnTimeResponseCompletedWithLaterClosure));
+        var dueDate = new DateTime(2026, 1, 5, 0, 0, 0, DateTimeKind.Utc);
+        var transaction = await SeedTransactionAsync(db, 122);
+        transaction.RequiresResponse = true;
+        transaction.ResponseCompleted = true;
+        transaction.ResponseCompletedDate = dueDate;
+        transaction.ResponseDueDate = dueDate;
+        transaction.ClosedAt = dueDate.AddDays(7);
+        transaction.Status = TransactionStatus.Closed;
+        await db.SaveChangesAsync();
+
+        var overdueOnly = await service.SearchAsync(
+            new TransactionSearchRequest { StatusScope = "all", OverdueOnly = true, Page = 1, PageSize = 20 },
+            new TestCurrentUser(UserRole.Admin));
+        var responseOverdue = await service.SearchAsync(
+            new TransactionSearchRequest { StatusScope = "all", ResponseOverdue = true, Page = 1, PageSize = 20 },
+            new TestCurrentUser(UserRole.Admin));
+        var all = await service.SearchAsync(
+            new TransactionSearchRequest { StatusScope = "all", Page = 1, PageSize = 20 },
+            new TestCurrentUser(UserRole.Admin));
+
+        Assert.DoesNotContain(overdueOnly.Items, tx => tx.Id == transaction.Id);
+        Assert.DoesNotContain(responseOverdue.Items, tx => tx.Id == transaction.Id);
+        var row = Assert.Single(all.Items, tx => tx.Id == transaction.Id);
+        Assert.False(row.IsResponseOverdue);
+        Assert.False(row.IsOverdue);
+    }
+
+    [Fact]
+    public async Task SearchAsync_OverdueFilters_IncludeLateResponseCompletedWithLaterClosure()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(SearchAsync_OverdueFilters_IncludeLateResponseCompletedWithLaterClosure));
+        var dueDate = new DateTime(2026, 1, 5, 0, 0, 0, DateTimeKind.Utc);
+        var transaction = await SeedTransactionAsync(db, 123);
+        transaction.RequiresResponse = true;
+        transaction.ResponseCompleted = true;
+        transaction.ResponseCompletedDate = dueDate.AddDays(2);
+        transaction.ResponseDueDate = dueDate;
+        transaction.ClosedAt = dueDate.AddDays(7);
+        transaction.Status = TransactionStatus.Closed;
+        await db.SaveChangesAsync();
+
+        var overdueOnly = await service.SearchAsync(
+            new TransactionSearchRequest { StatusScope = "all", OverdueOnly = true, Page = 1, PageSize = 20 },
+            new TestCurrentUser(UserRole.Admin));
+        var responseOverdue = await service.SearchAsync(
+            new TransactionSearchRequest { StatusScope = "all", ResponseOverdue = true, Page = 1, PageSize = 20 },
+            new TestCurrentUser(UserRole.Admin));
+
+        var overdueRow = Assert.Single(overdueOnly.Items, tx => tx.Id == transaction.Id);
+        var responseRow = Assert.Single(responseOverdue.Items, tx => tx.Id == transaction.Id);
+        Assert.True(overdueRow.IsResponseOverdue);
+        Assert.True(overdueRow.IsOverdue);
+        Assert.True(responseRow.IsResponseOverdue);
+    }
+
+    [Fact]
     public async Task GetWorkspaceAsync_does_not_include_audit_logs()
     {
         var (service, db) = await CreateServiceAsync(nameof(GetWorkspaceAsync_does_not_include_audit_logs));

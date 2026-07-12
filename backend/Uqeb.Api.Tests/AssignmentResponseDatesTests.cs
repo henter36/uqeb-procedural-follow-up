@@ -790,6 +790,7 @@ public class AssignmentResponseDatesTests
         Assert.NotNull(updated);
         Assert.False(updated.IsResponseOverdue);
         Assert.False(updated.IsOverdue);
+        Assert.Equal(0, updated.OverdueDays);
     }
 
     [Fact]
@@ -813,6 +814,7 @@ public class AssignmentResponseDatesTests
         Assert.NotNull(updated);
         Assert.True(updated.IsResponseOverdue);
         Assert.True(updated.IsOverdue);
+        Assert.True(updated.OverdueDays > 0);
     }
 
     [Fact]

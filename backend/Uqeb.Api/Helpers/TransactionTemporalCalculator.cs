@@ -12,8 +12,25 @@ public static class TransactionTemporalCalculator
 
     public static bool IsOpen(Transaction transaction) => IsOpen(transaction.Status);
 
-    public static bool IsResponseOverdue(Transaction transaction, DateTime referenceDate) =>
-        WorkflowHelper.IsResponseOverdue(transaction, referenceDate);
+    public static bool IsResponseOverdue(
+        Transaction transaction,
+        DateTime referenceDate,
+        DateTime? proceduralCompletionDateForReporting = null)
+    {
+        if (!transaction.RequiresResponse || !transaction.ResponseDueDate.HasValue)
+            return false;
+
+        var comparisonDate = ResolveAuthoritativeCompletionDate(transaction, proceduralCompletionDateForReporting)
+            ?? referenceDate.Date;
+        return comparisonDate.Date > transaction.ResponseDueDate.Value.Date;
+    }
+
+    public static DateTime? ResolveAuthoritativeCompletionDate(
+        Transaction transaction,
+        DateTime? proceduralCompletionDateForReporting = null) =>
+        proceduralCompletionDateForReporting?.Date
+        ?? (transaction.ResponseCompleted ? transaction.ResponseCompletedDate?.Date : null)
+        ?? transaction.ClosedAt?.Date;
 
     public static bool IsAssignmentOverdue(
         ReplyStatus replyStatus,
@@ -25,7 +42,7 @@ public static class TransactionTemporalCalculator
         && replyStatus != ReplyStatus.Replied
         && status == AssignmentStatus.Active
         && dueDate.HasValue
-        && dueDate.Value < referenceDate;
+        && dueDate.Value.Date < referenceDate.Date;
 
     public static bool IsAssignmentOverdue(Assignment assignment, DateTime referenceDate) =>
         IsAssignmentOverdue(
@@ -42,8 +59,9 @@ public static class TransactionTemporalCalculator
     public static bool IsOverdue(
         Transaction transaction,
         IEnumerable<AssignmentSummaryFacts> assignmentRows,
-        DateTime referenceDate) =>
-        IsResponseOverdue(transaction, referenceDate)
+        DateTime referenceDate,
+        DateTime? proceduralCompletionDateForReporting = null) =>
+        IsResponseOverdue(transaction, referenceDate, proceduralCompletionDateForReporting)
         || assignmentRows.Any(a => IsAssignmentOverdue(
             a.ReplyStatus,
             a.RequiresReply,
@@ -57,7 +75,8 @@ public static class TransactionTemporalCalculator
     public static int? DaysOverdue(
         Transaction transaction,
         DateTime referenceDate,
-        DateTime? earliestPendingAssignmentDueDate = null)
+        DateTime? earliestPendingAssignmentDueDate = null,
+        DateTime? proceduralCompletionDateForReporting = null)
     {
         var dueDates = new List<DateTime>();
         if (transaction.RequiresResponse && transaction.ResponseDueDate.HasValue)
@@ -69,7 +88,8 @@ public static class TransactionTemporalCalculator
             return null;
 
         var earliestDue = dueDates.Min();
-        var comparisonDate = WorkflowHelper.ResolveResponseCompletionDate(transaction) ?? referenceDate.Date;
+        var comparisonDate = ResolveAuthoritativeCompletionDate(transaction, proceduralCompletionDateForReporting)
+            ?? referenceDate.Date;
         if (comparisonDate.Date <= earliestDue)
             return null;
 
