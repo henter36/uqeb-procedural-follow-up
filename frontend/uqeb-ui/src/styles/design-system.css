@@ -937,6 +937,7 @@
   unicode-bidi: plaintext;
 }
 
+.global-transaction-search-control input,
 .filter-form input,
 .filter-form select {
   padding: var(--space-2) var(--space-3);
@@ -949,6 +950,10 @@
   box-shadow: var(--form-field-shadow);
 }
 
+.global-transaction-search-control input {
+  min-width: 0;
+}
+
 .pagination-size select {
   padding: var(--space-1) var(--space-2);
   border: 1px solid var(--form-field-border);
@@ -958,6 +963,7 @@
   background: var(--form-field-bg);
 }
 
+.global-transaction-search-control input:focus,
 .form-group input:focus,
 .form-group select:focus,
 .form-group textarea:focus,
@@ -1146,6 +1152,31 @@
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text);
+}
+
+.global-transaction-search {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.global-transaction-search label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.global-transaction-search-control {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.global-transaction-search-icon {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-lg);
+  line-height: 1;
 }
 
 .filter-form {

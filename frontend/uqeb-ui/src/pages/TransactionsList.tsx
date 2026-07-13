@@ -30,6 +30,7 @@ type StatusScope = 'active' | 'closed' | 'all';
 
 type FiltersState = {
   statusScope: StatusScope;
+  searchText: string;
   incomingNumber: string;
   outgoingNumber: string;
   subject: string;
@@ -60,6 +61,7 @@ type FiltersState = {
 
 const DEFAULT_FILTERS: FiltersState = {
   statusScope: 'active',
+  searchText: '',
   incomingNumber: '', outgoingNumber: '', subject: '', status: '',
   incomingSourceType: '', incomingFromPartyId: '', incomingFromDepartmentId: '',
   departmentId: '', categoryId: '', dateFrom: '', dateTo: '',
@@ -102,6 +104,7 @@ function buildSearchParams(f: FiltersState): Record<string, unknown> {
     sortBy: f.sortBy,
     sortDesc: f.sortDesc,
   };
+  if (f.searchText) params.searchText = f.searchText;
   if (f.incomingNumber) params.incomingNumber = f.incomingNumber;
   if (f.outgoingNumber) params.outgoingNumber = f.outgoingNumber;
   if (f.subject) params.subject = f.subject;
@@ -225,6 +228,13 @@ export default function TransactionsList() {
   const effectivePage = clampPage(searchQuery.page, total, searchQuery.pageSize);
   const [retryNonce, setRetryNonce] = useState(0);
 
+  const applyQuery = useCallback((next: FiltersState) => {
+    setLoading(true);
+    setLoadError(null);
+    setFilters(next);
+    setSearchQuery(next);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -259,12 +269,17 @@ export default function TransactionsList() {
     };
   }, [searchQuery, retryNonce]);
 
-  const applyQuery = useCallback((next: FiltersState) => {
-    setLoading(true);
-    setLoadError(null);
-    setFilters(next);
-    setSearchQuery(next);
-  }, []);
+  useEffect(() => {
+    if (filters.searchText === searchQuery.searchText) return undefined;
+
+    const timeout = window.setTimeout(() => {
+      const next = { ...filters, page: 1 };
+      setStorageItem(FILTERS_STORAGE_KEY, JSON.stringify(next));
+      applyQuery(next);
+    }, 400);
+
+    return () => window.clearTimeout(timeout);
+  }, [filters, searchQuery.searchText, applyQuery]);
 
   const handleSearch = (e: FormEvent) => {
     e.preventDefault();
@@ -277,6 +292,16 @@ export default function TransactionsList() {
     const reset = { ...DEFAULT_FILTERS, status: searchParams.get('status') ?? '' };
     removeStorageItem(FILTERS_STORAGE_KEY);
     applyQuery(reset);
+  };
+
+  const handleGlobalSearchChange = (searchText: string) => {
+    setFilters((current) => ({ ...current, searchText }));
+  };
+
+  const handleClearGlobalSearch = () => {
+    const next = { ...filters, searchText: '', page: 1 };
+    setStorageItem(FILTERS_STORAGE_KEY, JSON.stringify(next));
+    applyQuery(next);
   };
 
   const handleSort = (columnKey: SortKey) => {
@@ -335,7 +360,7 @@ export default function TransactionsList() {
       return (
         <EmptyState
           title={getEmptyStateTitle(searchQuery.statusScope)}
-          description="جرّب تعديل معايير البحث أو إضافة معاملة جديدة"
+          description={searchQuery.searchText ? 'لا توجد نتائج مطابقة' : 'جرّب تعديل معايير البحث أو إضافة معاملة جديدة'}
           action={canEdit ? <Link to="/transactions/new" className="btn btn-primary">إضافة معاملة</Link> : undefined}
         />
       );
@@ -451,6 +476,33 @@ export default function TransactionsList() {
               إعادة ضبط
             </button>
           </div>
+        </div>
+        <div className="global-transaction-search">
+          <label htmlFor="transaction-global-search">البحث في جميع بيانات المعاملة</label>
+          <div className="global-transaction-search-control">
+            <span className="global-transaction-search-icon" aria-hidden="true">⌕</span>
+            <input
+              id="transaction-global-search"
+              aria-label="البحث في جميع بيانات المعاملة"
+              value={filters.searchText}
+              maxLength={100}
+              placeholder="ابحث برقم الوارد، الموضوع، الجهة، الإدارة، الصادر…"
+              onChange={(e) => handleGlobalSearchChange(e.target.value)}
+            />
+            {filters.searchText && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm global-transaction-search-clear"
+                onClick={handleClearGlobalSearch}
+                aria-label="مسح البحث في جميع بيانات المعاملة"
+              >
+                مسح
+              </button>
+            )}
+          </div>
+          {loading && filters.searchText === searchQuery.searchText && (
+            <small className="text-muted">جارٍ تحديث نتائج البحث…</small>
+          )}
         </div>
         <form onSubmit={handleSearch} className="filter-form">
           <input
