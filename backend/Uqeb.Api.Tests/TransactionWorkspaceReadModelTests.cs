@@ -628,6 +628,180 @@ public class TransactionWorkspaceReadModelTests
     }
 
     [Fact]
+    public async Task SearchAsync_GlobalSearch_FindsByIncomingNumberSubjectPartyDepartmentAndOutgoingNumber()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(SearchAsync_GlobalSearch_FindsByIncomingNumberSubjectPartyDepartmentAndOutgoingNumber));
+        var party = new ExternalParty { Id = 30, Name = "جهة الاختبار", NameNormalized = ReferenceNameNormalizer.NormalizeKey("جهة الاختبار") };
+        db.ExternalParties.Add(party);
+        var transaction = await SeedTransactionAsync(db, 130);
+        transaction.IncomingNumber = "IN-GLOBAL-130";
+        transaction.Subject = "موضوع البحث الشامل";
+        transaction.IncomingFromPartyId = party.Id;
+        transaction.OutgoingNumber = "OUT-GLOBAL-9";
+        db.TransactionOutgoingDepartments.Add(new TransactionOutgoingDepartment
+        {
+            TransactionId = transaction.Id,
+            DepartmentId = 20,
+            CreatedById = 1
+        });
+        await db.SaveChangesAsync();
+
+        await AssertSearchReturnsAsync(service, "GLOBAL-130", transaction.Id);
+        await AssertSearchReturnsAsync(service, "البحث الشامل", transaction.Id);
+        await AssertSearchReturnsAsync(service, "جهة الاختبار", transaction.Id);
+        await AssertSearchReturnsAsync(service, "الموارد", transaction.Id);
+        await AssertSearchReturnsAsync(service, "OUT-GLOBAL", transaction.Id);
+    }
+
+    [Fact]
+    public async Task SearchAsync_GlobalSearch_FindsResponseAndFollowUpText()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(SearchAsync_GlobalSearch_FindsResponseAndFollowUpText));
+        var transaction = await SeedTransactionAsync(db, 131);
+        transaction.UpdatedById = 2;
+        db.DepartmentResponses.Add(new DepartmentResponse
+        {
+            TransactionId = transaction.Id,
+            DepartmentId = 10,
+            ResponseText = "إفادة تفصيلية قابلة للبحث",
+            SubmittedByUserId = 2
+        });
+        db.FollowUps.Add(new FollowUp
+        {
+            TransactionId = transaction.Id,
+            FollowUpNumber = "FU-GLOBAL-1",
+            FollowUpDate = DateTime.UtcNow.Date,
+            Notes = "تعقيب مهم قابل للبحث",
+            RequiresReply = false,
+            CreatedById = 1
+        });
+        db.Attachments.Add(new Attachment
+        {
+            TransactionId = transaction.Id,
+            OriginalFileName = "مرفق-بحث-شامل.pdf",
+            StoredFileName = "stored.pdf",
+            FilePath = "/tmp/stored.pdf",
+            UploadedById = 1
+        });
+        await db.SaveChangesAsync();
+
+        await AssertSearchReturnsAsync(service, "تفصيلية", transaction.Id);
+        await AssertSearchReturnsAsync(service, "تعقيب مهم", transaction.Id);
+        await AssertSearchReturnsAsync(service, "مرفق-بحث", transaction.Id);
+        await AssertSearchReturnsAsync(service, "Admin", transaction.Id);
+        await AssertSearchReturnsAsync(service, "Dept User", transaction.Id);
+    }
+
+    [Fact]
+    public async Task SearchAsync_GlobalSearch_FindsStatusAndPriorityLabels()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(SearchAsync_GlobalSearch_FindsStatusAndPriorityLabels));
+        var transaction = await SeedTransactionAsync(db, 139);
+        transaction.Status = TransactionStatus.ResponseCompleted;
+        transaction.Priority = Priority.VeryUrgent;
+        await db.SaveChangesAsync();
+
+        await AssertSearchReturnsAsync(service, "تمت الافادة", transaction.Id);
+        await AssertSearchReturnsAsync(service, "عاجل جدا", transaction.Id);
+    }
+
+    [Fact]
+    public async Task SearchAsync_GlobalSearch_ComposesWithFiltersAndPaginationCounts()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(SearchAsync_GlobalSearch_ComposesWithFiltersAndPaginationCounts));
+        var first = await SeedTransactionAsync(db, 132);
+        first.Subject = "مطابقة مشتركة";
+        first.Status = TransactionStatus.New;
+        var second = await SeedTransactionAsync(db, 133);
+        second.Subject = "مطابقة مشتركة";
+        second.Status = TransactionStatus.Closed;
+        second.ClosedAt = DateTime.UtcNow.Date;
+        var third = await SeedTransactionAsync(db, 134);
+        third.Subject = "مطابقة مشتركة";
+        third.Status = TransactionStatus.New;
+        await db.SaveChangesAsync();
+
+        var filtered = await service.SearchAsync(
+            new TransactionSearchRequest
+            {
+                SearchText = "مطابقة",
+                Status = nameof(TransactionStatus.New),
+                StatusScope = "all",
+                Page = 1,
+                PageSize = 1,
+                SortBy = "IncomingNumber",
+                SortDesc = false
+            },
+            new TestCurrentUser(UserRole.Admin));
+
+        Assert.Equal(2, filtered.TotalCount);
+        Assert.Equal(2, filtered.TotalPages);
+        Assert.Single(filtered.Items);
+        Assert.DoesNotContain(filtered.Items, tx => tx.Id == second.Id);
+    }
+
+    [Fact]
+    public async Task SearchAsync_GlobalSearch_NormalizesArabicHamzaAndDigits()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(SearchAsync_GlobalSearch_NormalizesArabicHamzaAndDigits));
+        var transaction = await SeedTransactionAsync(db, 135);
+        transaction.Subject = "أرشيف 123";
+        await db.SaveChangesAsync();
+
+        await AssertSearchReturnsAsync(service, "ارشيف ١٢٣", transaction.Id);
+    }
+
+    [Fact]
+    public async Task SearchAsync_GlobalSearch_FindsDateWithArabicAndEnglishDigitsIgnoringTimeOfDay()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(SearchAsync_GlobalSearch_FindsDateWithArabicAndEnglishDigitsIgnoringTimeOfDay));
+        var transaction = await SeedTransactionAsync(db, 138);
+        transaction.IncomingDate = new DateTime(2026, 1, 2, 18, 45, 0, DateTimeKind.Utc);
+        await db.SaveChangesAsync();
+
+        await AssertSearchReturnsAsync(service, "2026-01-02", transaction.Id);
+        await AssertSearchReturnsAsync(service, "٢٠٢٦٠١٠٢", transaction.Id);
+    }
+
+    [Fact]
+    public async Task SearchAsync_GlobalSearch_RespectsDepartmentUserScope()
+    {
+        var (service, db) = await CreateServiceAsync(nameof(SearchAsync_GlobalSearch_RespectsDepartmentUserScope));
+        var visible = await SeedTransactionAsync(db, 136);
+        visible.Subject = "سرية البحث";
+        var hidden = await SeedTransactionAsync(db, 137);
+        hidden.Subject = "سرية البحث";
+        db.Assignments.Add(new Assignment
+        {
+            TransactionId = visible.Id,
+            DepartmentId = 10,
+            AssignedDate = DateTime.UtcNow.Date,
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Pending,
+            Status = AssignmentStatus.Active,
+            CreatedById = 1
+        });
+        await db.SaveChangesAsync();
+
+        var result = await service.SearchAsync(
+            new TransactionSearchRequest { SearchText = "سرية البحث", StatusScope = "all", Page = 1, PageSize = 20 },
+            new TestCurrentUser(UserRole.DepartmentUser, userId: 2, departmentId: 10));
+
+        var item = Assert.Single(result.Items);
+        Assert.Equal(visible.Id, item.Id);
+        Assert.DoesNotContain(result.Items, tx => tx.Id == hidden.Id);
+    }
+
+    private static async Task AssertSearchReturnsAsync(TransactionService service, string searchText, int transactionId)
+    {
+        var result = await service.SearchAsync(
+            new TransactionSearchRequest { SearchText = searchText, StatusScope = "all", Page = 1, PageSize = 20 },
+            new TestCurrentUser(UserRole.Admin));
+
+        Assert.Contains(result.Items, tx => tx.Id == transactionId);
+    }
+
+    [Fact]
     public async Task GetWorkspaceAsync_does_not_include_audit_logs()
     {
         var (service, db) = await CreateServiceAsync(nameof(GetWorkspaceAsync_does_not_include_audit_logs));

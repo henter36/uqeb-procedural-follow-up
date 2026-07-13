@@ -179,7 +179,10 @@ public class CompleteResponseRequest
 
 public class TransactionSearchRequest
 {
+    public const int MaxSearchTextLength = 100;
+
     public string? StatusScope { get; set; }
+    public string? SearchText { get; set; }
     public string? IncomingNumber { get; set; }
     public string? OutgoingNumber { get; set; }
     public string? Subject { get; set; }

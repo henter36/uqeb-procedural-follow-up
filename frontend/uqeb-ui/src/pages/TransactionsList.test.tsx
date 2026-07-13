@@ -31,6 +31,22 @@ vi.mock('../utils/safeStorage', () => ({
   removeStorageItem: vi.fn(() => true),
 }));
 
+const emptySearchResponse: Awaited<ReturnType<typeof services.transactionsApi.search>> = {
+  data: {
+    items: [],
+    totalCount: 0,
+    page: 1,
+    pageSize: 20,
+    totalPages: 0,
+    hasNextPage: false,
+    hasPreviousPage: false,
+  },
+  status: 200,
+  statusText: 'OK',
+  headers: {},
+  config: { headers: {} } as Awaited<ReturnType<typeof services.transactionsApi.search>>['config'],
+};
+
 describe('TransactionsList', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -221,6 +237,66 @@ describe('TransactionsList', () => {
         subject: 'اختبار',
       }));
     });
+  });
+
+  it('debounces the global transaction search and resets to the first page', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.search).mockResolvedValue(emptySearchResponse);
+
+    render(
+      <MemoryRouter>
+        <TransactionsList />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('لا توجد معاملات نشطة.')).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByLabelText('البحث في جميع بيانات المعاملة'), 'وارد شامل');
+
+    expect(services.transactionsApi.search).not.toHaveBeenLastCalledWith(expect.objectContaining({
+      searchText: 'وارد شامل',
+    }));
+
+    await waitFor(() => {
+      expect(services.transactionsApi.search).toHaveBeenLastCalledWith(expect.objectContaining({
+        searchText: 'وارد شامل',
+        page: 1,
+        statusScope: 'active',
+      }));
+    }, { timeout: 1000 });
+  });
+
+  it('clears the global transaction search and reloads the original result set', async () => {
+    const user = userEvent.setup();
+    vi.mocked(services.transactionsApi.search).mockResolvedValue(emptySearchResponse);
+
+    render(
+      <MemoryRouter>
+        <TransactionsList />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('لا توجد معاملات نشطة.')).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByLabelText('البحث في جميع بيانات المعاملة'), 'وارد شامل');
+    await waitFor(() => {
+      expect(services.transactionsApi.search).toHaveBeenLastCalledWith(expect.objectContaining({
+        searchText: 'وارد شامل',
+      }));
+    }, { timeout: 1000 });
+
+    await user.click(screen.getByRole('button', { name: 'مسح البحث في جميع بيانات المعاملة' }));
+
+    await waitFor(() => {
+      expect(services.transactionsApi.search).toHaveBeenLastCalledWith(expect.not.objectContaining({
+        searchText: expect.anything(),
+      }));
+    });
+    expect(screen.getByLabelText('البحث في جميع بيانات المعاملة')).toHaveValue('');
   });
 
   it('shows a recurring badge for transactions linked to a recurring template', async () => {

@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Linq.Expressions;
 using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -42,6 +44,7 @@ public interface ITransactionService
 
 public class TransactionService : ITransactionService
 {
+    private const int MaxGlobalSearchTextLength = TransactionSearchRequest.MaxSearchTextLength;
     private const string AssignmentEntityName = "Assignment";
     private const string AssignmentSourceName = "Assignment";
     private const string DepartmentResponseEntityName = "DepartmentResponse";
@@ -76,6 +79,28 @@ public class TransactionService : ITransactionService
         [nameof(CreateRecurringTemplateRequest.DueDaysAfterPeriodEnd)] = nameof(CreateTransactionRequest.RecurringDueDaysAfterPeriodEnd),
         [nameof(CreateRecurringTemplateRequest.NextTransactionCreationMethod)] = nameof(CreateTransactionRequest.RecurringNextTransactionCreationMethod),
         [nameof(CreateRecurringTemplateRequest.DepartmentIds)] = nameof(CreateTransactionRequest.OutgoingDepartmentIds),
+    };
+
+    private static readonly Dictionary<TransactionStatus, string[]> TransactionStatusSearchLabels = new()
+    {
+        [TransactionStatus.New] = ["New", "جديدة", "جديد"],
+        [TransactionStatus.InProgress] = ["InProgress", "قيد الإجراء", "قيد الاجراء"],
+        [TransactionStatus.Assigned] = ["Assigned", "محالة", "احالة", "إحالة"],
+        [TransactionStatus.WaitingForReply] = ["WaitingForReply", "بانتظار رد", "انتظار رد"],
+        [TransactionStatus.PartiallyReplied] = ["PartiallyReplied", "رد جزئي"],
+        [TransactionStatus.ReadyForResponse] = ["ReadyForResponse", "جاهزة للإفادة", "جاهزة للافادة"],
+        [TransactionStatus.ResponseCompleted] = ["ResponseCompleted", "تمت الإفادة", "تمت الافادة"],
+        [TransactionStatus.Closed] = ["Closed", "مغلقة", "مغلق"],
+        [TransactionStatus.Overdue] = ["Overdue", "متأخرة", "متاخره", "متأخر"],
+        [TransactionStatus.Cancelled] = ["Cancelled", "ملغاة", "ملغيه", "ملغي"],
+        [TransactionStatus.Archived] = ["Archived", "مؤرشفة", "مؤرشفه", "مؤرشف"]
+    };
+
+    private static readonly Dictionary<Priority, string[]> PrioritySearchLabels = new()
+    {
+        [Priority.Normal] = ["Normal", "عادي"],
+        [Priority.Urgent] = ["Urgent", "عاجل"],
+        [Priority.VeryUrgent] = ["VeryUrgent", "عاجل جدا", "عاجل جداً"]
     };
 
     public TransactionService(
@@ -238,9 +263,11 @@ public class TransactionService : ITransactionService
             _db.DepartmentResponses.Any(r => r.TransactionId == t.Id && r.DepartmentId == deptId));
     }
 
-    private static IQueryable<Transaction> ApplyTextAndReferenceFilters(
+    private IQueryable<Transaction> ApplyTextAndReferenceFilters(
         IQueryable<Transaction> query, TransactionSearchRequest request)
     {
+        query = ApplyGlobalSearchFilter(query, request.SearchText);
+
         if (!string.IsNullOrWhiteSpace(request.IncomingNumber))
             query = query.Where(t => t.IncomingNumber.Contains(request.IncomingNumber));
         if (!string.IsNullOrWhiteSpace(request.OutgoingNumber))
@@ -266,6 +293,279 @@ public class TransactionService : ITransactionService
             query = query.Where(t => t.OutgoingDepartments.Any(o => o.DepartmentId == request.OutgoingDepartmentId));
         return query;
     }
+
+    private IQueryable<Transaction> ApplyGlobalSearchFilter(IQueryable<Transaction> query, string? searchText)
+    {
+        var criteria = BuildGlobalSearchCriteria(searchText);
+        if (criteria is null)
+            return query;
+
+        var predicate = CombineWithOrElse(
+            BuildTransactionFieldsPredicate(criteria),
+            BuildReferenceDataPredicate(criteria),
+            BuildOutgoingRelationsPredicate(criteria),
+            BuildAssignmentsPredicate(criteria),
+            BuildFollowUpsPredicate(criteria),
+            BuildResponsesAttachmentsAndUsersPredicate(criteria),
+            BuildStatusPriorityAndDatePredicate(criteria));
+
+        return query.Where(predicate);
+    }
+
+    private static Expression<Func<Transaction, bool>> BuildTransactionFieldsPredicate(GlobalSearchCriteria criteria)
+    {
+        var exact = criteria.Exact;
+        var alif = criteria.AlifVariant;
+        var hamza = criteria.HamzaVariant;
+        var taMarbuta = criteria.TaMarbutaVariant;
+
+        return CombineWithOrElse<Transaction>(
+            t => t.IncomingNumber.Contains(exact),
+            t => t.InternalTrackingNumber.Contains(exact),
+            t => t.Subject.Contains(exact) || t.Subject.Contains(alif) || t.Subject.Contains(hamza) || t.Subject.Contains(taMarbuta),
+            t => t.IncomingFrom != null && (t.IncomingFrom.Contains(exact) || t.IncomingFrom.Contains(alif) || t.IncomingFrom.Contains(hamza) || t.IncomingFrom.Contains(taMarbuta)),
+            t => t.OutgoingNumber != null && t.OutgoingNumber.Contains(exact),
+            t => t.OutgoingTo != null && (t.OutgoingTo.Contains(exact) || t.OutgoingTo.Contains(alif) || t.OutgoingTo.Contains(hamza) || t.OutgoingTo.Contains(taMarbuta)),
+            t => t.Category != null && (t.Category.Contains(exact) || t.Category.Contains(alif) || t.Category.Contains(hamza) || t.Category.Contains(taMarbuta)),
+            t => t.ResponseSummary != null && (t.ResponseSummary.Contains(exact) || t.ResponseSummary.Contains(alif) || t.ResponseSummary.Contains(hamza) || t.ResponseSummary.Contains(taMarbuta)),
+            t => t.Notes != null && (t.Notes.Contains(exact) || t.Notes.Contains(alif) || t.Notes.Contains(hamza) || t.Notes.Contains(taMarbuta)),
+            t => t.RecurringPeriodLabel != null && t.RecurringPeriodLabel.Contains(exact));
+    }
+
+    private static Expression<Func<Transaction, bool>> BuildReferenceDataPredicate(GlobalSearchCriteria criteria)
+    {
+        var exact = criteria.Exact;
+        var alif = criteria.AlifVariant;
+        var hamza = criteria.HamzaVariant;
+        var taMarbuta = criteria.TaMarbutaVariant;
+        var normalized = criteria.Normalized;
+
+        return CombineWithOrElse<Transaction>(
+            t => t.IncomingFromParty != null && (t.IncomingFromParty.NameNormalized.Contains(normalized) || t.IncomingFromParty.Name.Contains(exact) || t.IncomingFromParty.Name.Contains(alif) || t.IncomingFromParty.Name.Contains(hamza) || t.IncomingFromParty.Name.Contains(taMarbuta)),
+            t => t.IncomingFromDepartment != null && (t.IncomingFromDepartment.NameNormalized.Contains(normalized) || t.IncomingFromDepartment.Name.Contains(exact) || t.IncomingFromDepartment.Name.Contains(alif) || t.IncomingFromDepartment.Name.Contains(hamza) || t.IncomingFromDepartment.Name.Contains(taMarbuta) || (t.IncomingFromDepartment.Code != null && t.IncomingFromDepartment.Code.Contains(exact))),
+            t => t.OutgoingToParty != null && (t.OutgoingToParty.NameNormalized.Contains(normalized) || t.OutgoingToParty.Name.Contains(exact) || t.OutgoingToParty.Name.Contains(alif) || t.OutgoingToParty.Name.Contains(hamza) || t.OutgoingToParty.Name.Contains(taMarbuta)),
+            t => t.CategoryEntity != null && (t.CategoryEntity.NameNormalized.Contains(normalized) || t.CategoryEntity.Name.Contains(exact) || t.CategoryEntity.Name.Contains(alif) || t.CategoryEntity.Name.Contains(hamza) || t.CategoryEntity.Name.Contains(taMarbuta) || (t.CategoryEntity.Code != null && t.CategoryEntity.Code.Contains(exact))));
+    }
+
+    private static Expression<Func<Transaction, bool>> BuildOutgoingRelationsPredicate(GlobalSearchCriteria criteria)
+    {
+        var exact = criteria.Exact;
+        var alif = criteria.AlifVariant;
+        var hamza = criteria.HamzaVariant;
+        var taMarbuta = criteria.TaMarbutaVariant;
+        var normalized = criteria.Normalized;
+
+        return CombineWithOrElse<Transaction>(
+            t => t.OutgoingParties.Any(o => o.ExternalParty.NameNormalized.Contains(normalized) || o.ExternalParty.Name.Contains(exact) || o.ExternalParty.Name.Contains(alif) || o.ExternalParty.Name.Contains(hamza) || o.ExternalParty.Name.Contains(taMarbuta)),
+            t => t.OutgoingDepartments.Any(o => o.Department.NameNormalized.Contains(normalized) || o.Department.Name.Contains(exact) || o.Department.Name.Contains(alif) || o.Department.Name.Contains(hamza) || o.Department.Name.Contains(taMarbuta) || (o.Department.Code != null && o.Department.Code.Contains(exact))));
+    }
+
+    private static Expression<Func<Transaction, bool>> BuildAssignmentsPredicate(GlobalSearchCriteria criteria)
+    {
+        var exact = criteria.Exact;
+        var alif = criteria.AlifVariant;
+        var hamza = criteria.HamzaVariant;
+        var taMarbuta = criteria.TaMarbutaVariant;
+        var normalized = criteria.Normalized;
+
+        return t => t.Assignments.Any(a =>
+            (a.LetterNumber != null && a.LetterNumber.Contains(exact)) ||
+            (a.RequiredAction != null && (a.RequiredAction.Contains(exact) || a.RequiredAction.Contains(alif) || a.RequiredAction.Contains(hamza) || a.RequiredAction.Contains(taMarbuta))) ||
+            (a.ReplySummary != null && (a.ReplySummary.Contains(exact) || a.ReplySummary.Contains(alif) || a.ReplySummary.Contains(hamza) || a.ReplySummary.Contains(taMarbuta))) ||
+            a.Department.NameNormalized.Contains(normalized) ||
+            a.Department.Name.Contains(exact) ||
+            a.Department.Name.Contains(alif) ||
+            a.Department.Name.Contains(hamza) ||
+            a.Department.Name.Contains(taMarbuta) ||
+            (a.Department.Code != null && a.Department.Code.Contains(exact)));
+    }
+
+    private static Expression<Func<Transaction, bool>> BuildFollowUpsPredicate(GlobalSearchCriteria criteria)
+    {
+        var exact = criteria.Exact;
+        var alif = criteria.AlifVariant;
+        var hamza = criteria.HamzaVariant;
+        var taMarbuta = criteria.TaMarbutaVariant;
+        var normalized = criteria.Normalized;
+
+        return t => t.FollowUps.Any(f =>
+            (f.FollowUpNumber != null && f.FollowUpNumber.Contains(exact)) ||
+            (f.SentTo != null && (f.SentTo.Contains(exact) || f.SentTo.Contains(alif) || f.SentTo.Contains(hamza) || f.SentTo.Contains(taMarbuta))) ||
+            (f.Notes != null && (f.Notes.Contains(exact) || f.Notes.Contains(alif) || f.Notes.Contains(hamza) || f.Notes.Contains(taMarbuta))) ||
+            (f.ReplySummary != null && (f.ReplySummary.Contains(exact) || f.ReplySummary.Contains(alif) || f.ReplySummary.Contains(hamza) || f.ReplySummary.Contains(taMarbuta))) ||
+            f.Recipients.Any(r => r.ExternalParty.NameNormalized.Contains(normalized) || r.ExternalParty.Name.Contains(exact) || r.ExternalParty.Name.Contains(alif) || r.ExternalParty.Name.Contains(hamza) || r.ExternalParty.Name.Contains(taMarbuta)) ||
+            f.Departments.Any(d => d.Department.NameNormalized.Contains(normalized) || d.Department.Name.Contains(exact) || d.Department.Name.Contains(alif) || d.Department.Name.Contains(hamza) || d.Department.Name.Contains(taMarbuta) || (d.Department.Code != null && d.Department.Code.Contains(exact))));
+    }
+
+    private Expression<Func<Transaction, bool>> BuildResponsesAttachmentsAndUsersPredicate(GlobalSearchCriteria criteria)
+    {
+        var exact = criteria.Exact;
+        var alif = criteria.AlifVariant;
+        var hamza = criteria.HamzaVariant;
+        var taMarbuta = criteria.TaMarbutaVariant;
+        var normalized = criteria.Normalized;
+
+        return CombineWithOrElse<Transaction>(
+            t => t.Attachments.Any(a => a.OriginalFileName.Contains(exact) || a.OriginalFileName.Contains(alif) || a.OriginalFileName.Contains(hamza) || a.OriginalFileName.Contains(taMarbuta)),
+            t => _db.DepartmentResponses.Any(r => r.TransactionId == t.Id &&
+                (r.ResponseText.Contains(exact) || r.ResponseText.Contains(alif) || r.ResponseText.Contains(hamza) || r.ResponseText.Contains(taMarbuta) ||
+                 r.Department.NameNormalized.Contains(normalized) || r.Department.Name.Contains(exact) || r.Department.Name.Contains(alif) || r.Department.Name.Contains(hamza) || r.Department.Name.Contains(taMarbuta) ||
+                 r.SubmittedBy.FullName.Contains(exact) || (r.ReviewedBy != null && r.ReviewedBy.FullName.Contains(exact)))),
+            t => t.CreatedBy.FullName.Contains(exact),
+            t => t.UpdatedBy != null && t.UpdatedBy.FullName.Contains(exact));
+    }
+
+    private static Expression<Func<Transaction, bool>> BuildStatusPriorityAndDatePredicate(GlobalSearchCriteria criteria)
+    {
+        var parsedDate = criteria.ParsedDate;
+        var matchingStatuses = criteria.MatchingStatuses;
+        var matchingPriorities = criteria.MatchingPriorities;
+
+        return CombineWithOrElse<Transaction>(
+            t => matchingStatuses.Contains(t.Status),
+            t => matchingPriorities.Contains(t.Priority),
+            t => parsedDate.HasValue && t.IncomingDate.Date == parsedDate.Value,
+            t => parsedDate.HasValue && t.OutgoingDate.HasValue && t.OutgoingDate.Value.Date == parsedDate.Value,
+            t => parsedDate.HasValue && t.ResponseDueDate.HasValue && t.ResponseDueDate.Value.Date == parsedDate.Value,
+            t => parsedDate.HasValue && t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date == parsedDate.Value,
+            t => parsedDate.HasValue && t.ClosedAt.HasValue && t.ClosedAt.Value.Date == parsedDate.Value);
+    }
+
+    private static Expression<Func<T, bool>> CombineWithOrElse<T>(params Expression<Func<T, bool>>[] predicates)
+    {
+        var parameter = Expression.Parameter(typeof(T), "entity");
+        Expression body = Expression.Constant(false);
+
+        foreach (var predicate in predicates)
+        {
+            var rewrittenBody = new ParameterReplaceVisitor(predicate.Parameters[0], parameter)
+                .Visit(predicate.Body)
+                ?? throw new InvalidOperationException("Failed to combine search predicate.");
+
+            body = Expression.OrElse(body, rewrittenBody);
+        }
+
+        return Expression.Lambda<Func<T, bool>>(body, parameter);
+    }
+
+    private sealed class ParameterReplaceVisitor(
+        ParameterExpression source,
+        ParameterExpression target) : ExpressionVisitor
+    {
+        protected override Expression VisitParameter(ParameterExpression node) =>
+            node == source ? target : base.VisitParameter(node);
+    }
+
+    private static GlobalSearchCriteria? BuildGlobalSearchCriteria(string? searchText)
+    {
+        var exact = NormalizeSearchInput(searchText);
+        if (string.IsNullOrWhiteSpace(exact))
+            return null;
+
+        if (exact.Length > MaxGlobalSearchTextLength)
+            exact = exact[..MaxGlobalSearchTextLength];
+
+        var normalized = NormalizeArabicSearchKey(exact);
+        var alifVariant = exact
+            .Replace('أ', 'ا')
+            .Replace('إ', 'ا')
+            .Replace('آ', 'ا');
+        var hamzaVariant = exact.Replace('ا', 'أ');
+        var taMarbutaVariant = exact.Contains('ة')
+            ? exact.Replace('ة', 'ه')
+            : exact.Replace('ه', 'ة');
+        var parsedDate = TryParseSearchDate(exact, out var date) ? date : (DateTime?)null;
+        var matchingStatuses = TransactionStatusSearchLabels
+            .Where(item => item.Value.Any(label => NormalizeArabicSearchKey(label).Contains(normalized)))
+            .Select(item => item.Key)
+            .ToArray();
+        var matchingPriorities = PrioritySearchLabels
+            .Where(item => item.Value.Any(label => NormalizeArabicSearchKey(label).Contains(normalized)))
+            .Select(item => item.Key)
+            .ToArray();
+
+        return new GlobalSearchCriteria(
+            exact,
+            alifVariant,
+            hamzaVariant,
+            taMarbutaVariant,
+            normalized,
+            parsedDate,
+            matchingStatuses,
+            matchingPriorities);
+    }
+
+    private static string NormalizeSearchInput(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return ReferenceNameNormalizer.FormatDisplayName(ConvertArabicDigits(value));
+    }
+
+    private static string NormalizeArabicSearchKey(string? value)
+    {
+        var normalized = ReferenceNameNormalizer.NormalizeKey(ConvertArabicDigits(value));
+        if (string.IsNullOrEmpty(normalized))
+            return normalized;
+
+        return normalized
+            .Replace('أ', 'ا')
+            .Replace('إ', 'ا')
+            .Replace('آ', 'ا')
+            .Replace('ة', 'ه');
+    }
+
+    private static string ConvertArabicDigits(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return string.Empty;
+
+        var chars = value.ToCharArray();
+        for (var i = 0; i < chars.Length; i++)
+        {
+            chars[i] = chars[i] switch
+            {
+                >= '٠' and <= '٩' => (char)('0' + chars[i] - '٠'),
+                >= '۰' and <= '۹' => (char)('0' + chars[i] - '۰'),
+                _ => chars[i]
+            };
+        }
+
+        return new string(chars);
+    }
+
+    private static bool TryParseSearchDate(string value, out DateTime date)
+    {
+        var formats = new[]
+        {
+            "yyyy-MM-dd",
+            "yyyy/M/d",
+            "yyyy/MM/dd",
+            "d/M/yyyy",
+            "dd/MM/yyyy",
+            "d-M-yyyy",
+            "dd-MM-yyyy",
+            "yyyyMMdd"
+        };
+
+        return DateTime.TryParseExact(
+            ConvertArabicDigits(value),
+            formats,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+            out date);
+    }
+
+    private sealed record GlobalSearchCriteria(
+        string Exact,
+        string AlifVariant,
+        string HamzaVariant,
+        string TaMarbutaVariant,
+        string Normalized,
+        DateTime? ParsedDate,
+        TransactionStatus[] MatchingStatuses,
+        Priority[] MatchingPriorities);
 
     private static IQueryable<Transaction> ApplyDateRangeFilters(
         IQueryable<Transaction> query, TransactionSearchRequest request)
