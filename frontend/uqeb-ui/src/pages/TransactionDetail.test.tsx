@@ -2327,6 +2327,178 @@ describe('TransactionDetailPage indicators, action grouping, card order, and nav
     expect(within(bar).getByRole('button', { name: 'تصحيح التواريخ إداريًا' })).toBeInTheDocument();
   });
 
+  it('shows non-overdue status text', async () => {
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: { ...defaultWorkspace, transaction: { ...baseTx, overdueDays: 0, isOverdue: false } },
+    });
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    expect(screen.getByText('غير متأخرة')).toBeInTheDocument();
+  });
+
+  it('shows open overdue status text with overdue days', async () => {
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: {
+        ...defaultWorkspace,
+        transaction: {
+          ...baseTx,
+          requiresResponse: true,
+          responseType: 'Internal',
+          responseDueDate: '2026-01-05',
+          overdueDays: 5,
+          isOverdue: true,
+          isResponseOverdue: true,
+        },
+      },
+    });
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    expect(screen.getByText('متأخرة — عدد أيام التأخر: 5 يوم')).toBeInTheDocument();
+  });
+
+  it('shows procedural overdue status text before final response approval', async () => {
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: {
+        ...defaultWorkspace,
+        transaction: {
+          ...baseTx,
+          requiresResponse: true,
+          responseType: 'Internal',
+          responseDueDate: '2026-01-05',
+          proceduralCompletionDateForReporting: '2026-01-10',
+          isProcedurallyCompleteForReporting: true,
+          responseCompleted: false,
+          completionDate: null,
+          overdueDays: 5,
+          isOverdue: true,
+          isResponseOverdue: true,
+        },
+      },
+    });
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    expect(screen.getByText('مكتملة إجرائيًا متأخرة — مدة التأخر: 5 يوم')).toBeInTheDocument();
+  });
+
+  it('shows officially completed overdue status text', async () => {
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: {
+        ...defaultWorkspace,
+        transaction: {
+          ...baseTx,
+          requiresResponse: true,
+          responseType: 'Internal',
+          responseDueDate: '2026-01-05',
+          responseCompleted: true,
+          responseCompletedDate: '2026-01-10',
+          completionDate: '2026-01-10',
+          overdueDays: 5,
+          isOverdue: true,
+          isResponseOverdue: true,
+        },
+      },
+    });
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    expect(screen.getByText('أُنجزت متأخرة — مدة التأخر: 5 يوم')).toBeInTheDocument();
+  });
+
+  it('refreshes overdue status immediately after admin date correction', async () => {
+    const user = userEvent.setup();
+    const initialTransaction = {
+      ...baseTx,
+      requiresResponse: true,
+      responseType: 'Internal',
+      responseDueDays: 20,
+      responseDueDate: '2026-01-21',
+      overdueDays: 0,
+      isResponseOverdue: false,
+      isOverdue: false,
+    };
+    const refreshedTransaction = {
+      ...initialTransaction,
+      responseDueDays: 4,
+      responseDueDate: '2026-01-05',
+      overdueDays: 5,
+      isResponseOverdue: true,
+      isOverdue: true,
+      daysRemainingForResponse: -5,
+    };
+    mockApi(services.transactionsApi.getWorkspace)
+      .mockResolvedValueOnce({ data: { ...defaultWorkspace, transaction: initialTransaction } })
+      .mockResolvedValueOnce({ data: { ...defaultWorkspace, transaction: refreshedTransaction } });
+    mockApi(services.transactionsApi.adminEditTransactionDates).mockResolvedValue({
+      data: refreshedTransaction,
+    });
+
+    renderDetail();
+    await waitForDetailsReady();
+    expect(screen.getByText('غير متأخرة')).toBeInTheDocument();
+
+    await user.click(getActionBarButton('تصحيح التواريخ إداريًا'));
+    await user.clear(screen.getByLabelText('تاريخ استحقاق المعاملة'));
+    await user.type(screen.getByLabelText('تاريخ استحقاق المعاملة'), '2026-01-05');
+    await user.type(screen.getByLabelText('سبب التعديل *'), 'تصحيح تاريخ الاستحقاق');
+    await user.click(screen.getByRole('button', { name: 'حفظ التصحيح' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('متأخرة — عدد أيام التأخر: 5 يوم')).toBeInTheDocument();
+    });
+    expect(services.transactionsApi.getWorkspace).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps saved date correction data and shows refresh failure when workspace reload fails after save', async () => {
+    const user = userEvent.setup();
+    const initialTransaction = {
+      ...baseTx,
+      requiresResponse: true,
+      responseType: 'Internal',
+      responseDueDays: 20,
+      responseDueDate: '2026-01-21',
+      overdueDays: 0,
+      isResponseOverdue: false,
+      isOverdue: false,
+    };
+    const updatedTransaction = {
+      ...initialTransaction,
+      responseDueDays: 4,
+      responseDueDate: '2026-01-05',
+      overdueDays: 5,
+      isResponseOverdue: true,
+      isOverdue: true,
+      daysRemainingForResponse: -5,
+    };
+    mockApi(services.transactionsApi.getWorkspace)
+      .mockResolvedValueOnce({ data: { ...defaultWorkspace, transaction: initialTransaction } })
+      .mockRejectedValueOnce(new Error('refresh failed'));
+    mockApi(services.transactionsApi.adminEditTransactionDates).mockResolvedValue({
+      data: updatedTransaction,
+    });
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    await user.click(getActionBarButton('تصحيح التواريخ إداريًا'));
+    await user.clear(screen.getByLabelText('تاريخ استحقاق المعاملة'));
+    await user.type(screen.getByLabelText('تاريخ استحقاق المعاملة'), '2026-01-05');
+    await user.type(screen.getByLabelText('سبب التعديل *'), 'تصحيح تاريخ الاستحقاق');
+    await user.click(screen.getByRole('button', { name: 'حفظ التصحيح' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('تم الحفظ لكن تعذر تحديث بيانات المعاملة من الخادم. حاول تحديث الصفحة.')).toBeInTheDocument();
+    });
+    expect(screen.getByText('متأخرة — عدد أيام التأخر: 5 يوم')).toBeInTheDocument();
+    expect(services.transactionsApi.getWorkspace).toHaveBeenCalledTimes(2);
+  });
+
   it('orders التعقيبات والردود before الإفادة in the section grid', async () => {
     renderDetail();
     await waitForDetailsReady();

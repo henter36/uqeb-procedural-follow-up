@@ -303,8 +303,8 @@ public class TransactionService : ITransactionService
             query = query.Where(t => t.RequiresResponse && t.ResponseDueDate.HasValue &&
                 ((!t.ResponseCompleted && t.Status != TransactionStatus.Closed && t.ResponseDueDate.Value.Date < today) ||
                  ((t.ResponseCompleted || t.Status == TransactionStatus.Closed) &&
-                  ((t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date) ||
-                   (!t.ClosedAt.HasValue && t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date)))));
+                  ((t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date) ||
+                   (!t.ResponseCompletedDate.HasValue && t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date)))));
         return query;
     }
 
@@ -326,8 +326,8 @@ public class TransactionService : ITransactionService
             (t.RequiresResponse && t.ResponseDueDate.HasValue &&
                 ((!t.ResponseCompleted && t.Status != TransactionStatus.Closed && t.ResponseDueDate.Value.Date < today) ||
                  ((t.ResponseCompleted || t.Status == TransactionStatus.Closed) &&
-                  ((t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date) ||
-                   (!t.ClosedAt.HasValue && t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date))))) ||
+                  ((t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date) ||
+                   (!t.ResponseCompletedDate.HasValue && t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date))))) ||
             t.Assignments.Any(a => a.RequiresReply && a.DueDate.HasValue &&
                 ((a.ReplyStatus != ReplyStatus.Replied
                   && a.Status == AssignmentStatus.Active
@@ -367,9 +367,9 @@ public class TransactionService : ITransactionService
                     t.RequiresResponse &&
                     t.ResponseDueDate.HasValue &&
                     (t.ResponseCompleted || t.Status == TransactionStatus.Closed
-                        ? (t.ClosedAt.HasValue
-                            ? t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date
-                            : t.ResponseCompletedDate.HasValue && t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date)
+                        ? (t.ResponseCompletedDate.HasValue
+                            ? t.ResponseCompletedDate.Value.Date > t.ResponseDueDate.Value.Date
+                            : t.ClosedAt.HasValue && t.ClosedAt.Value.Date > t.ResponseDueDate.Value.Date)
                         : t.ResponseDueDate.Value.Date < today)
             })
             .Select(x => new TransactionSearchRow(
@@ -2719,6 +2719,10 @@ public class TransactionService : ITransactionService
         var proceduralCompletionDate = WorkflowHelper.ResolveProceduralCompletionDateFromRequiredReplies(
             requiredReplySignals, t.ResponseCompletedDate);
         var isProcedurallyComplete = requiredReplySignals.Count > 0 && proceduralCompletionDate.HasValue;
+        var earliestPendingAssignmentDueDate = assignmentRows
+            .Where(a => a.RequiresReply && a.ReplyStatus != ReplyStatus.Replied && a.Status == AssignmentStatus.Active)
+            .Select(a => a.DueDate?.Date)
+            .Min();
 
         var dto = new TransactionDetailDto
         {
@@ -2749,9 +2753,14 @@ public class TransactionService : ITransactionService
             IsProcedurallyCompleteForReporting = isProcedurallyComplete,
             ResponseSummary = t.ResponseSummary,
             Notes = t.Notes,
-            IsResponseOverdue = TransactionTemporalCalculator.IsResponseOverdue(t, now),
+            OverdueDays = TransactionTemporalCalculator.DaysOverdue(
+                t,
+                now,
+                earliestPendingAssignmentDueDate,
+                proceduralCompletionDate) ?? 0,
+            IsResponseOverdue = TransactionTemporalCalculator.IsResponseOverdue(t, now, proceduralCompletionDate),
             HasPendingAssignments = hasPending,
-            IsOverdue = TransactionTemporalCalculator.IsOverdue(t, summaryFacts, now),
+            IsOverdue = TransactionTemporalCalculator.IsOverdue(t, summaryFacts, now, proceduralCompletionDate),
             IsArchived = t.IsArchived,
             CreatedByName = t.CreatedBy?.FullName ?? "",
             CreatedAt = t.CreatedAt,

@@ -55,6 +55,22 @@ public class TransactionTemporalCalculatorTests
     }
 
     [Fact]
+    public void DaysOverdue_counts_open_transaction_from_due_date_to_reference_date()
+    {
+        var referenceDate = new DateTime(2026, 6, 25, 18, 30, 0, DateTimeKind.Utc);
+        var transaction = new Transaction
+        {
+            IncomingDate = new DateTime(2026, 6, 1),
+            RequiresResponse = true,
+            ResponseCompleted = false,
+            ResponseDueDate = new DateTime(2026, 6, 20, 23, 59, 0, DateTimeKind.Utc),
+            Status = TransactionStatus.WaitingForReply
+        };
+
+        Assert.Equal(5, TransactionTemporalCalculator.DaysOverdue(transaction, referenceDate));
+    }
+
+    [Fact]
     public void IsResponseOverdue_does_not_count_due_today_as_overdue()
     {
         var referenceDate = new DateTime(2026, 6, 25, 18, 30, 0, DateTimeKind.Utc);
@@ -72,6 +88,42 @@ public class TransactionTemporalCalculatorTests
     }
 
     [Fact]
+    public void IsAssignmentOverdue_does_not_count_due_today_as_overdue()
+    {
+        var referenceDate = new DateTime(2026, 6, 25, 18, 30, 0, DateTimeKind.Utc);
+
+        Assert.False(TransactionTemporalCalculator.IsAssignmentOverdue(
+            ReplyStatus.Pending,
+            requiresReply: true,
+            AssignmentStatus.Active,
+            new DateTime(2026, 6, 25, 0, 0, 0, DateTimeKind.Utc),
+            referenceDate));
+    }
+
+    [Fact]
+    public void IsOverdue_and_DaysOverdue_use_same_date_only_assignment_boundary()
+    {
+        var referenceDate = new DateTime(2026, 6, 25, 18, 30, 0, DateTimeKind.Utc);
+        var transaction = new Transaction
+        {
+            IncomingDate = new DateTime(2026, 6, 1),
+            RequiresResponse = false,
+            Status = TransactionStatus.WaitingForReply
+        };
+        var facts = new[]
+        {
+            new TransactionTemporalCalculator.AssignmentSummaryFacts(
+                ReplyStatus.Pending,
+                RequiresReply: true,
+                AssignmentStatus.Active,
+                new DateTime(2026, 6, 25, 0, 0, 0, DateTimeKind.Utc))
+        };
+
+        Assert.False(TransactionTemporalCalculator.IsOverdue(transaction, facts, referenceDate));
+        Assert.Null(TransactionTemporalCalculator.DaysOverdue(transaction, referenceDate, facts[0].DueDate));
+    }
+
+    [Fact]
     public void IsResponseOverdue_counts_completed_transaction_after_due_date()
     {
         var transaction = new Transaction
@@ -86,6 +138,41 @@ public class TransactionTemporalCalculatorTests
 
         Assert.True(TransactionTemporalCalculator.IsResponseOverdue(transaction, new DateTime(2026, 1, 20)));
         Assert.Equal(5, TransactionTemporalCalculator.DaysOverdue(transaction, new DateTime(2026, 1, 20)));
+    }
+
+    [Fact]
+    public void DaysOverdue_returns_null_for_on_time_completed_transaction()
+    {
+        var transaction = new Transaction
+        {
+            IncomingDate = new DateTime(2026, 1, 1),
+            RequiresResponse = true,
+            ResponseCompleted = true,
+            ResponseCompletedDate = new DateTime(2026, 1, 5, 18, 0, 0, DateTimeKind.Utc),
+            ResponseDueDate = new DateTime(2026, 1, 5, 0, 0, 0, DateTimeKind.Utc),
+            Status = TransactionStatus.ResponseCompleted
+        };
+
+        Assert.False(TransactionTemporalCalculator.IsResponseOverdue(transaction, new DateTime(2026, 1, 20)));
+        Assert.Null(TransactionTemporalCalculator.DaysOverdue(transaction, new DateTime(2026, 1, 20)));
+    }
+
+    [Fact]
+    public void IsResponseOverdue_uses_response_completion_before_later_closed_date()
+    {
+        var transaction = new Transaction
+        {
+            IncomingDate = new DateTime(2026, 1, 1),
+            RequiresResponse = true,
+            ResponseCompleted = true,
+            ResponseCompletedDate = new DateTime(2026, 1, 5),
+            ClosedAt = new DateTime(2026, 1, 12),
+            ResponseDueDate = new DateTime(2026, 1, 5),
+            Status = TransactionStatus.Closed
+        };
+
+        Assert.False(TransactionTemporalCalculator.IsResponseOverdue(transaction, new DateTime(2026, 1, 20)));
+        Assert.Null(TransactionTemporalCalculator.DaysOverdue(transaction, new DateTime(2026, 1, 20)));
     }
 
     [Fact]
