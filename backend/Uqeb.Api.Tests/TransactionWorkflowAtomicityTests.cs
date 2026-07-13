@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using System.Text.Json;
 using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.Transactions;
 using Uqeb.Api.Helpers;
@@ -170,6 +171,8 @@ public class TransactionWorkflowAtomicityTests
     // after "today" regardless of the UTC time of day the test happens to run at;
     // DateTime.UtcNow.Date.AddDays(1) is not always future once Saudi time has
     // already rolled over to the next day (UTC 21:00-24:00).
+    private static DateTime SaudiToday() => DateTime.UtcNow.AddHours(3).Date;
+
     private static DateTime DayAfterSaudiToday() => DateTime.UtcNow.AddHours(3).Date.AddDays(1);
 
     private static async Task PrepareTransactionForCloseAsync(AppDbContext db, int transactionId)
@@ -230,6 +233,24 @@ public class TransactionWorkflowAtomicityTests
             CreatedAt = DateTime.UtcNow
         });
         await db.SaveChangesAsync();
+    }
+
+    private static async Task<(TransactionDetailDto Created, DateTime ClosedAt, DateTime ResponseCompletedDate)> CreateClosedTransactionAsync(
+        TransactionService service,
+        AppDbContext db)
+    {
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        var closedAt = SaudiToday().AddDays(-1);
+        var responseCompletedDate = closedAt.AddDays(-1);
+        var transaction = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        transaction.IncomingDate = closedAt.AddDays(-10);
+        transaction.ResponseCompleted = true;
+        transaction.ResponseCompletedDate = responseCompletedDate;
+        transaction.Status = TransactionStatus.Closed;
+        transaction.ClosedAt = closedAt;
+        await db.SaveChangesAsync();
+
+        return (created, closedAt, responseCompletedDate);
     }
 
     [Fact]
@@ -514,6 +535,318 @@ public class TransactionWorkflowAtomicityTests
 
         Assert.Equal(0, cache.TransactionChangeInvalidations);
         Assert.InRange(counter.Count, 0, 1);
+    }
+
+    [Fact]
+    public async Task CloseAsync_preserves_existing_closed_at_and_audits_it()
+    {
+        var (service, db, _, _) = await CreateServiceAsync(nameof(CloseAsync_preserves_existing_closed_at_and_audits_it));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        await PrepareTransactionForCloseAsync(db, created.Id);
+        await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 1, DepartmentResponseStatus.Approved);
+        var preservedClosedAt = SaudiToday().AddDays(-1);
+        var transaction = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        transaction.IncomingDate = preservedClosedAt.AddDays(-10);
+        transaction.ResponseCompletedDate = preservedClosedAt.AddDays(-1);
+        transaction.ClosedAt = preservedClosedAt;
+        await db.SaveChangesAsync();
+
+        await service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin);
+
+        var persisted = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        Assert.Equal(TransactionStatus.Closed, persisted.Status);
+        Assert.Equal(preservedClosedAt, persisted.ClosedAt);
+
+        var audit = await db.AuditLogs.SingleAsync(a => a.Action == AuditAction.Close && a.TransactionId == created.Id);
+        Assert.Contains(preservedClosedAt.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), audit.NewValue);
+    }
+
+    [Fact]
+    public async Task CloseAsync_sets_saudi_today_when_closed_at_is_missing()
+    {
+        var (service, db, _, _) = await CreateServiceAsync(nameof(CloseAsync_sets_saudi_today_when_closed_at_is_missing));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        await PrepareTransactionForCloseAsync(db, created.Id);
+        await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 1, DepartmentResponseStatus.Approved);
+        var today = SaudiToday();
+        var transaction = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        transaction.IncomingDate = today.AddDays(-10);
+        transaction.ResponseCompletedDate = today.AddDays(-1);
+        transaction.ClosedAt = null;
+        await db.SaveChangesAsync();
+
+        await service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin);
+
+        Assert.Equal(today, await db.Transactions.Where(t => t.Id == created.Id).Select(t => t.ClosedAt).SingleAsync());
+    }
+
+    [Fact]
+    public async Task CloseAsync_rejects_closed_at_before_incoming_date()
+    {
+        var (service, db, _, _) = await CreateServiceAsync(nameof(CloseAsync_rejects_closed_at_before_incoming_date));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        await PrepareTransactionForCloseAsync(db, created.Id);
+        await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 1, DepartmentResponseStatus.Approved);
+        var today = SaudiToday();
+        var transaction = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        transaction.IncomingDate = today;
+        transaction.ResponseCompletedDate = today;
+        transaction.ClosedAt = today.AddDays(-1);
+        await db.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin));
+
+        Assert.Equal("تاريخ إغلاق المعاملة لا يمكن أن يسبق تاريخ الوارد.", ex.Message);
+        Assert.NotEqual(TransactionStatus.Closed, await db.Transactions.Where(t => t.Id == created.Id).Select(t => t.Status).SingleAsync());
+    }
+
+    [Fact]
+    public async Task CloseAsync_rejects_closed_at_before_response_completed_date()
+    {
+        var (service, db, _, _) = await CreateServiceAsync(nameof(CloseAsync_rejects_closed_at_before_response_completed_date));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        await PrepareTransactionForCloseAsync(db, created.Id);
+        await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 1, DepartmentResponseStatus.Approved);
+        var today = SaudiToday();
+        var transaction = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        transaction.IncomingDate = today.AddDays(-10);
+        transaction.ResponseCompletedDate = today;
+        transaction.ClosedAt = today.AddDays(-1);
+        await db.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin));
+
+        Assert.Equal("تاريخ إغلاق المعاملة لا يمكن أن يسبق تاريخ الإفادة.", ex.Message);
+        Assert.NotEqual(TransactionStatus.Closed, await db.Transactions.Where(t => t.Id == created.Id).Select(t => t.Status).SingleAsync());
+    }
+
+    [Fact]
+    public async Task CloseAsync_ignores_stale_response_completed_date_when_response_is_not_required()
+    {
+        var (service, db, _, _) = await CreateServiceAsync(nameof(CloseAsync_ignores_stale_response_completed_date_when_response_is_not_required));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        var closedAt = SaudiToday().AddDays(-1);
+        var transaction = await db.Transactions
+            .Include(t => t.Assignments)
+            .SingleAsync(t => t.Id == created.Id);
+        transaction.IncomingDate = closedAt.AddDays(-10);
+        transaction.RequiresResponse = false;
+        transaction.ResponseType = ResponseType.None;
+        transaction.ResponseDueDays = null;
+        transaction.ResponseDueDate = null;
+        transaction.ResponseCompletedDate = closedAt.AddDays(1);
+        transaction.ClosedAt = closedAt;
+        foreach (var assignment in transaction.Assignments)
+            assignment.Status = AssignmentStatus.Completed;
+        await db.SaveChangesAsync();
+
+        await service.CloseAsync(created.Id, userId: 1, role: UserRole.Admin);
+
+        var persisted = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        Assert.Equal(TransactionStatus.Closed, persisted.Status);
+        Assert.Equal(closedAt, persisted.ClosedAt);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_status_closed_resolves_closed_at_using_same_rules()
+    {
+        var (service, db, _, _) = await CreateServiceAsync(nameof(UpdateAsync_status_closed_resolves_closed_at_using_same_rules));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        await PrepareTransactionForCloseAsync(db, created.Id);
+        await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 1, DepartmentResponseStatus.Approved);
+        var preservedClosedAt = SaudiToday().AddDays(-1);
+        var transaction = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        transaction.IncomingDate = preservedClosedAt.AddDays(-10);
+        transaction.ResponseCompletedDate = preservedClosedAt.AddDays(-1);
+        transaction.ClosedAt = preservedClosedAt;
+        await db.SaveChangesAsync();
+
+        await service.UpdateAsync(
+            created.Id,
+            new UpdateTransactionRequest { Status = TransactionStatus.Closed.ToString() },
+            userId: 1,
+            role: UserRole.Admin);
+
+        var persisted = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        Assert.Equal(TransactionStatus.Closed, persisted.Status);
+        Assert.Equal(preservedClosedAt, persisted.ClosedAt);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UpdateAsync_status_closed_audits_resolved_closed_at(bool hasExistingClosedAt)
+    {
+        var (service, db, _, _) = await CreateServiceAsync($"{nameof(UpdateAsync_status_closed_audits_resolved_closed_at)}_{hasExistingClosedAt}");
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        await PrepareTransactionForCloseAsync(db, created.Id);
+        await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 1, DepartmentResponseStatus.Approved);
+        var today = SaudiToday();
+        var existingClosedAt = hasExistingClosedAt ? today.AddDays(-1) : (DateTime?)null;
+        var expectedClosedAt = existingClosedAt ?? today;
+        var transaction = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        transaction.IncomingDate = today.AddDays(-10);
+        transaction.ResponseCompletedDate = today.AddDays(-2);
+        transaction.ClosedAt = existingClosedAt;
+        await db.SaveChangesAsync();
+
+        await service.UpdateAsync(
+            created.Id,
+            new UpdateTransactionRequest { Status = TransactionStatus.Closed.ToString() },
+            userId: 1,
+            role: UserRole.Admin);
+
+        var persisted = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        Assert.Equal(TransactionStatus.Closed, persisted.Status);
+        Assert.Equal(expectedClosedAt, persisted.ClosedAt);
+
+        var audit = await db.AuditLogs
+            .Where(a => a.Action == AuditAction.Update && a.TransactionId == created.Id)
+            .OrderBy(a => a.Id)
+            .LastAsync();
+        using var oldJson = JsonDocument.Parse(audit.OldValue!);
+        using var newJson = JsonDocument.Parse(audit.NewValue!);
+        var oldClosedAt = oldJson.RootElement.GetProperty("ClosedAt");
+        if (existingClosedAt.HasValue)
+            Assert.Equal(existingClosedAt.Value, oldClosedAt.GetDateTime());
+        else
+            Assert.Equal(JsonValueKind.Null, oldClosedAt.ValueKind);
+        Assert.Equal(expectedClosedAt.Date, newJson.RootElement.GetProperty("ClosedAt").GetDateTime().Date);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_status_closed_validation_failure_does_not_close_or_change_closed_at()
+    {
+        var (service, db, _, _) = await CreateServiceAsync(nameof(UpdateAsync_status_closed_validation_failure_does_not_close_or_change_closed_at));
+        var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
+        await PrepareTransactionForCloseAsync(db, created.Id);
+        await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 1, DepartmentResponseStatus.Approved);
+        var today = SaudiToday();
+        var invalidClosedAt = today.AddDays(-1);
+        var transaction = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        transaction.IncomingDate = today.AddDays(-10);
+        transaction.ResponseCompletedDate = today;
+        transaction.ClosedAt = invalidClosedAt;
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpdateAsync(
+                created.Id,
+                new UpdateTransactionRequest { Status = TransactionStatus.Closed.ToString() },
+                userId: 1,
+                role: UserRole.Admin));
+
+        var persisted = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        Assert.NotEqual(TransactionStatus.Closed, persisted.Status);
+        Assert.Equal(invalidClosedAt, persisted.ClosedAt);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_reopening_closed_transaction_to_in_progress_clears_closed_at()
+    {
+        var (service, db, _, _) = await CreateServiceAsync(nameof(UpdateAsync_reopening_closed_transaction_to_in_progress_clears_closed_at));
+        var (created, _, _) = await CreateClosedTransactionAsync(service, db);
+
+        await service.UpdateAsync(
+            created.Id,
+            new UpdateTransactionRequest { Status = TransactionStatus.InProgress.ToString() },
+            userId: 1,
+            role: UserRole.Admin);
+
+        var persisted = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        Assert.Equal(TransactionStatus.InProgress, persisted.Status);
+        Assert.Null(persisted.ClosedAt);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_reopening_closed_transaction_to_response_completed_clears_closed_at()
+    {
+        var (service, db, _, _) = await CreateServiceAsync(nameof(UpdateAsync_reopening_closed_transaction_to_response_completed_clears_closed_at));
+        var (created, _, _) = await CreateClosedTransactionAsync(service, db);
+
+        await service.UpdateAsync(
+            created.Id,
+            new UpdateTransactionRequest { Status = TransactionStatus.ResponseCompleted.ToString() },
+            userId: 1,
+            role: UserRole.Admin);
+
+        var persisted = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        Assert.Equal(TransactionStatus.ResponseCompleted, persisted.Status);
+        Assert.Null(persisted.ClosedAt);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_closed_to_closed_preserves_closed_at()
+    {
+        var (service, db, _, _) = await CreateServiceAsync(nameof(UpdateAsync_closed_to_closed_preserves_closed_at));
+        var (created, closedAt, _) = await CreateClosedTransactionAsync(service, db);
+
+        await service.UpdateAsync(
+            created.Id,
+            new UpdateTransactionRequest { Status = TransactionStatus.Closed.ToString() },
+            userId: 1,
+            role: UserRole.Admin);
+
+        var persisted = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        Assert.Equal(TransactionStatus.Closed, persisted.Status);
+        Assert.Equal(closedAt, persisted.ClosedAt);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_closed_to_archived_preserves_closed_at()
+    {
+        var (service, db, _, _) = await CreateServiceAsync(nameof(UpdateAsync_closed_to_archived_preserves_closed_at));
+        var (created, closedAt, _) = await CreateClosedTransactionAsync(service, db);
+
+        await service.UpdateAsync(
+            created.Id,
+            new UpdateTransactionRequest { Status = TransactionStatus.Archived.ToString() },
+            userId: 1,
+            role: UserRole.Admin);
+
+        var persisted = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        Assert.Equal(TransactionStatus.Archived, persisted.Status);
+        Assert.Equal(closedAt, persisted.ClosedAt);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_closed_to_cancelled_preserves_closed_at()
+    {
+        var (service, db, _, _) = await CreateServiceAsync(nameof(UpdateAsync_closed_to_cancelled_preserves_closed_at));
+        var (created, closedAt, _) = await CreateClosedTransactionAsync(service, db);
+
+        await service.UpdateAsync(
+            created.Id,
+            new UpdateTransactionRequest { Status = TransactionStatus.Cancelled.ToString() },
+            userId: 1,
+            role: UserRole.Admin);
+
+        var persisted = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        Assert.Equal(TransactionStatus.Cancelled, persisted.Status);
+        Assert.Equal(closedAt, persisted.ClosedAt);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_reopened_workspace_does_not_expose_old_closed_at_as_completion_date()
+    {
+        var (service, db, _, _) = await CreateServiceAsync(nameof(UpdateAsync_reopened_workspace_does_not_expose_old_closed_at_as_completion_date));
+        var (created, closedAt, responseCompletedDate) = await CreateClosedTransactionAsync(service, db);
+
+        var updated = await service.UpdateAsync(
+            created.Id,
+            new UpdateTransactionRequest { Status = TransactionStatus.InProgress.ToString() },
+            userId: 1,
+            role: UserRole.Admin);
+        var workspace = await service.GetWorkspaceAsync(created.Id, new TestCurrentUser(1, UserRole.Admin));
+
+        Assert.NotNull(updated);
+        Assert.NotEqual(closedAt, updated.CompletionDate);
+        Assert.Equal(responseCompletedDate, updated.CompletionDate);
+        Assert.NotNull(workspace);
+        Assert.NotEqual(closedAt, workspace.Transaction.CompletionDate);
+        Assert.Equal(responseCompletedDate, workspace.Transaction.CompletionDate);
     }
 
     [Fact]
