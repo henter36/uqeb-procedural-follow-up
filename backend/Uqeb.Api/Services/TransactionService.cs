@@ -1270,7 +1270,8 @@ public class TransactionService : ITransactionService
             t.Priority,
             OutgoingDepartmentIds = t.OutgoingDepartments.Select(o => o.DepartmentId).ToList(),
             t.ResponseDueDays,
-            ResponseType = t.ResponseType.ToString()
+            ResponseType = t.ResponseType.ToString(),
+            t.ClosedAt
         });
 
         if (!string.IsNullOrEmpty(request.IncomingNumber) && request.IncomingNumber != t.IncomingNumber)
@@ -1308,14 +1309,22 @@ public class TransactionService : ITransactionService
         if (request.ResponseDueDays.HasValue) t.ResponseDueDays = request.ResponseDueDays;
         if (request.ResponseCompleted.HasValue || request.ResponseCompletedDate.HasValue)
             throw new InvalidOperationException("يجب تسجيل الإفادة عبر إجراء «تسجيل الإفادة» وليس من شاشة التعديل");
+        var wasClosed = t.Status == TransactionStatus.Closed;
         bool isClosing = false;
+        bool isReopening = false;
         if (!string.IsNullOrEmpty(request.Status))
         {
             var newStatus = EnumHelper.ParseTransactionStatus(request.Status);
             if (newStatus == TransactionStatus.Closed && role != UserRole.Admin && role != UserRole.Supervisor)
                 throw new UnauthorizedAccessException("لا تملك صلاحية إغلاق المعاملة");
-            isClosing = newStatus == TransactionStatus.Closed;
-            t.Status = newStatus;
+            isClosing = newStatus == TransactionStatus.Closed && !wasClosed;
+            isReopening = IsReopeningClosedTransaction(wasClosed, newStatus);
+            if (!isClosing)
+            {
+                t.Status = newStatus;
+                if (isReopening)
+                    t.ClosedAt = null;
+            }
         }
         if (!string.IsNullOrEmpty(request.Priority))
         {
@@ -1339,7 +1348,11 @@ public class TransactionService : ITransactionService
         try
         {
             if (isClosing)
+            {
                 await ValidateCanCloseAsync(t, userId);
+                t.ClosedAt = ResolveAndValidateClosedAt(t);
+                t.Status = TransactionStatus.Closed;
+            }
 
             if (request.OutgoingDepartmentIds != null)
                 await SyncOutgoingDepartmentsAsync(t, request.OutgoingDepartmentIds, userId);
@@ -1348,7 +1361,7 @@ public class TransactionService : ITransactionService
             t.UpdatedAt = DateTime.UtcNow;
 
             _audit.TrackLog(userId, AuditAction.Update, TransactionEntityName, id, id, oldValues,
-                JsonSerializer.Serialize(new { t.IncomingNumber, t.Subject, t.Status, t.CategoryId, t.ResponseDueDays }));
+                JsonSerializer.Serialize(new { t.IncomingNumber, t.Subject, t.Status, t.CategoryId, t.ResponseDueDays, t.ClosedAt }));
 
             await _db.SaveChangesAsync();
             await dbTransaction.CommitAsync();
@@ -1416,12 +1429,13 @@ public class TransactionService : ITransactionService
             await CommitWorkflowMutationAsync(async () =>
             {
                 await ValidateCanCloseAsync(t, userId);
+                var resolvedClosedAt = ResolveAndValidateClosedAt(t);
                 t.Status = TransactionStatus.Closed;
-                t.ClosedAt = DateTime.UtcNow;
+                t.ClosedAt = resolvedClosedAt;
                 t.UpdatedById = userId;
                 t.UpdatedAt = DateTime.UtcNow;
                 _audit.TrackLog(userId, AuditAction.Close, TransactionEntityName, id, id, null,
-                    JsonSerializer.Serialize(new { ClosedAt = t.ClosedAt }));
+                    JsonSerializer.Serialize(new { ClosedAt = resolvedClosedAt }));
             });
         }
         catch (InvalidOperationException ex)
@@ -2386,6 +2400,33 @@ public class TransactionService : ITransactionService
         if (t.RequiresResponse && (!t.ResponseCompleted || !t.ResponseCompletedDate.HasValue))
             throw new InvalidOperationException("لا يمكن إغلاق المعاملة قبل تسجيل الإفادة.");
     }
+
+    private static DateTime ResolveAndValidateClosedAt(Transaction transaction)
+    {
+        var resolvedClosedAt = transaction.ClosedAt?.Date ?? GetSaudiToday();
+
+        if (resolvedClosedAt.Date < transaction.IncomingDate.Date)
+            throw new InvalidOperationException("تاريخ إغلاق المعاملة لا يمكن أن يسبق تاريخ الوارد.");
+
+        if (transaction.RequiresResponse &&
+            transaction.ResponseCompletedDate.HasValue &&
+            resolvedClosedAt.Date < transaction.ResponseCompletedDate.Value.Date)
+        {
+            throw new InvalidOperationException("تاريخ إغلاق المعاملة لا يمكن أن يسبق تاريخ الإفادة.");
+        }
+
+        if (IsFutureEventDate(resolvedClosedAt))
+            throw new InvalidOperationException(FutureEventDateMessage);
+
+        return resolvedClosedAt;
+    }
+
+    private static bool IsReopeningClosedTransaction(bool wasClosed, TransactionStatus newStatus) =>
+        wasClosed &&
+        newStatus is not (
+            TransactionStatus.Closed or
+            TransactionStatus.Cancelled or
+            TransactionStatus.Archived);
 
     private async Task<List<string>> GetDepartmentResponseClosureFailuresAsync(int transactionId)
     {
