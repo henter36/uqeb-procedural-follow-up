@@ -552,9 +552,7 @@ public class TransactionWorkflowAtomicityTests
         transaction.ClosedAt = responseCompletedDate.AddDays(-3);
         await db.SaveChangesAsync();
 
-#pragma warning disable CS0618
         var request = new CloseTransactionRequest { ClosedAt = responseCompletedDate.AddDays(5) };
-#pragma warning restore CS0618
         await service.CloseAsync(created.Id, request, userId: 1, role: UserRole.Admin);
 
         var persisted = await db.Transactions.SingleAsync(t => t.Id == created.Id);
@@ -583,9 +581,7 @@ public class TransactionWorkflowAtomicityTests
         transaction.ClosedAt = null;
         await db.SaveChangesAsync();
 
-#pragma warning disable CS0618
         var request = new CloseTransactionRequest { ClosedAt = requestedClosedAt };
-#pragma warning restore CS0618
         await service.CloseAsync(created.Id, request, userId: 1, role: UserRole.Admin);
 
         var persisted = await db.Transactions
@@ -624,9 +620,7 @@ public class TransactionWorkflowAtomicityTests
             assignment.Status = AssignmentStatus.Completed;
         await db.SaveChangesAsync();
 
-#pragma warning disable CS0618
         var request = new CloseTransactionRequest { ClosedAt = savedClosedAt.AddDays(5) };
-#pragma warning restore CS0618
         await service.CloseAsync(created.Id, request, userId: 1, role: UserRole.Admin);
 
         Assert.Equal(savedClosedAt, await db.Transactions.Where(t => t.Id == created.Id).Select(t => t.ClosedAt).SingleAsync());
@@ -764,9 +758,7 @@ public class TransactionWorkflowAtomicityTests
             assignment.Status = AssignmentStatus.Completed;
         await db.SaveChangesAsync();
 
-#pragma warning disable CS0618
         var request = new CloseTransactionRequest { ClosedAt = closedAt.AddDays(5) };
-#pragma warning restore CS0618
         await service.CloseAsync(created.Id, request, userId: 1, role: UserRole.Admin);
 
         var persisted = await db.Transactions.SingleAsync(t => t.Id == created.Id);
