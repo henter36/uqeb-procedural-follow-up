@@ -71,6 +71,7 @@ public class TransactionDetailDto : TransactionListDto
     public string ResponseType { get; set; } = string.Empty;
     public int? ResponseDueDays { get; set; }
     public DateTime? ResponseCompletedDate { get; set; }
+    public DateTime? ClosedAt { get; set; }
     public int OverdueDays { get; set; }
     /// <summary>
     /// Reporting-only "effective response completed" date derived from department assignment
@@ -130,6 +131,11 @@ public class CreateTransactionRequest
     public DateTime? RecurringEndDate { get; set; }
     public int? RecurringDueDaysAfterPeriodEnd { get; set; }
     public string? RecurringNextTransactionCreationMethod { get; set; }
+}
+
+public sealed class CloseTransactionRequest
+{
+    public DateTime? ClosedAt { get; set; }
 }
 
 public class EnableRecurringForTransactionRequest

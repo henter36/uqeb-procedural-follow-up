@@ -11,7 +11,7 @@ type FormState = {
   incomingDate: string;
   responseDueDays: string;
   responseDueDate: string;
-  completionDate: string;
+  closedAt: string;
   reason: string;
 };
 
@@ -20,7 +20,7 @@ function fromTransaction(tx?: TransactionDetail): FormState {
     incomingDate: tx?.incomingDate?.slice(0, 10) ?? '',
     responseDueDays: tx?.responseDueDays != null ? String(tx.responseDueDays) : '',
     responseDueDate: tx?.responseDueDate?.slice(0, 10) ?? '',
-    completionDate: tx?.completionDate?.slice(0, 10) ?? '',
+    closedAt: tx?.closedAt?.slice(0, 10) ?? '',
     reason: '',
   };
 }
@@ -48,7 +48,7 @@ export default function AdminEditDatesFormPanel({
   const dirty = form.incomingDate !== initialForm.incomingDate
     || form.responseDueDays !== initialForm.responseDueDays
     || form.responseDueDate !== initialForm.responseDueDate
-    || form.completionDate !== initialForm.completionDate;
+    || form.closedAt !== initialForm.closedAt;
 
   useEffect(() => {
     onDirtyChange(dirty);
@@ -99,7 +99,7 @@ export default function AdminEditDatesFormPanel({
       setError('سبب التعديل مطلوب للحقول الزمنية الحساسة.');
       return;
     }
-    if (isFutureLocalDate(form.incomingDate) || isFutureLocalDate(form.completionDate)) {
+    if (isFutureLocalDate(form.incomingDate) || isFutureLocalDate(form.closedAt)) {
       setError(FUTURE_EVENT_DATE_MESSAGE);
       return;
     }
@@ -114,7 +114,7 @@ export default function AdminEditDatesFormPanel({
       setError('تاريخ استحقاق المعاملة لا يمكن أن يسبق تاريخ الوارد.');
       return;
     }
-    if (form.incomingDate && form.completionDate && form.completionDate < form.incomingDate) {
+    if (form.incomingDate && form.closedAt && form.closedAt < form.incomingDate) {
       setError('تاريخ إغلاق المعاملة لا يمكن أن يسبق تاريخ الوارد.');
       return;
     }
@@ -126,7 +126,7 @@ export default function AdminEditDatesFormPanel({
         incomingDate: form.incomingDate || null,
         responseDueDays: form.responseDueDays ? Number(form.responseDueDays) : null,
         responseDueDate: form.responseDueDate || null,
-        closedAt: form.completionDate || null,
+        closedAt: form.closedAt || null,
       };
       const res = await transactionsApi.adminEditTransactionDates(transactionId, payload);
       onDirtyChange(false);
@@ -177,8 +177,8 @@ export default function AdminEditDatesFormPanel({
           <HijriDateInput
             id="admin-dates-closed"
             label="تاريخ إغلاق المعاملة"
-            value={form.completionDate}
-            onChange={(completionDate) => update({ completionDate })}
+            value={form.closedAt}
+            onChange={(closedAt) => update({ closedAt })}
             disallowFutureDate
           />
           <small className="text-muted">يُستخدم لحساب أيام إنجاز المعاملة. لا يسبق تاريخ الوارد.</small>

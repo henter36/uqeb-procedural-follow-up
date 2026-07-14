@@ -39,7 +39,7 @@ public class TransactionsControllerReplyAssignmentTests
         public Task<TransactionDetailDto?> UpdateAsync(int id, UpdateTransactionRequest request, int userId, UserRole role) => throw new NotImplementedException();
         public Task<bool> CancelAsync(int id, int userId, UserRole role) => throw new NotImplementedException();
         public Task<bool> ArchiveAsync(int id, int userId, UserRole role) => throw new NotImplementedException();
-        public Task<bool> CloseAsync(int id, int userId, UserRole role) => throw new NotImplementedException();
+        public Task<bool> CloseAsync(int id, CloseTransactionRequest request, int userId, UserRole role) => throw new NotImplementedException();
         public Task<TransactionDetailDto?> CompleteResponseAsync(int id, CompleteResponseRequest request, ICurrentUserService currentUser) => throw new NotImplementedException();
         public Task<List<FollowUpDepartmentOptionDto>?> GetFollowUpDepartmentsAsync(int transactionId, ICurrentUserService currentUser) => throw new NotImplementedException();
         public Task<FollowUpDto> AddFollowUpAsync(int transactionId, CreateFollowUpRequest request, int userId) => throw new NotImplementedException();

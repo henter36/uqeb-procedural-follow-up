@@ -38,6 +38,8 @@ describe('AdminEditDatesFormPanel', () => {
     responseType: 'External',
     responseDueDays: 5,
     responseDueDate: '2026-01-06',
+    closedAt: null,
+    completionDate: null,
     isOverdue: false,
     isResponseOverdue: false,
     hasPendingAssignments: false,
@@ -84,6 +86,24 @@ describe('AdminEditDatesFormPanel', () => {
     })));
     expect(onDirtyChange).toHaveBeenCalledWith(false);
     expect(onSuccess).toHaveBeenCalled();
+  });
+
+  it('uses raw closedAt instead of computed completionDate for the close date field', () => {
+    render(
+      <AdminEditDatesFormPanel
+        transactionId={1}
+        transaction={{
+          ...transaction,
+          closedAt: '2026-06-01T00:00:00',
+          completionDate: '2026-07-14T00:00:00',
+        }}
+        onDirtyChange={vi.fn()}
+        onCancel={vi.fn()}
+        onSuccess={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText('تاريخ إغلاق المعاملة - اختيار من التقويم')).toHaveValue('2026-06-01');
   });
 
   it('clears stale response due date and days when incoming date is cleared', async () => {
