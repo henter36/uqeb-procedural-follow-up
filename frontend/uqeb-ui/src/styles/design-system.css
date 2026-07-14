@@ -1877,6 +1877,10 @@
   box-shadow: var(--shadow-lg);
 }
 
+dialog.modal {
+  border: 0;
+}
+
 .modal h3 {
   margin-bottom: var(--space-4);
   font-size: var(--font-size-lg);

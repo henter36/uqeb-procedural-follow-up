@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Uqeb.Api.DTOs.LetterTemplates;
 using Uqeb.Api.DTOs.Transactions;
 using Uqeb.Api.Authorization;
@@ -247,11 +248,13 @@ public class TransactionsController : ControllerBase
 
     [HttpPost("{id}/close")]
     [RequirePermission(PermissionCode.TransactionsCancel)]
-    public async Task<IActionResult> Close(int id)
+    public async Task<IActionResult> Close(
+        int id,
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] CloseTransactionRequest? request)
     {
         try
         {
-            return await _transactions.CloseAsync(id, _currentUser.UserId, _currentUser.Role) ? Ok() : NotFound();
+            return await _transactions.CloseAsync(id, request ?? new CloseTransactionRequest(), _currentUser.UserId, _currentUser.Role) ? Ok() : NotFound();
         }
         catch (InvalidOperationException ex)
         {

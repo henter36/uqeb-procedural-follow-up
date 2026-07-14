@@ -24,7 +24,7 @@ public interface ITransactionService
     Task<TransactionDetailDto?> UpdateAsync(int id, UpdateTransactionRequest request, int userId, UserRole role);
     Task<bool> CancelAsync(int id, int userId, UserRole role);
     Task<bool> ArchiveAsync(int id, int userId, UserRole role);
-    Task<bool> CloseAsync(int id, int userId, UserRole role);
+    Task<bool> CloseAsync(int id, CloseTransactionRequest request, int userId, UserRole role);
     Task<TransactionDetailDto?> CompleteResponseAsync(int id, CompleteResponseRequest request, ICurrentUserService currentUser);
     Task<TransactionDetailDto?> EditResponseAsync(int id, CompleteResponseRequest request, ICurrentUserService currentUser);
     Task<List<FollowUpDepartmentOptionDto>?> GetFollowUpDepartmentsAsync(int transactionId, ICurrentUserService currentUser);
@@ -1350,7 +1350,7 @@ public class TransactionService : ITransactionService
             if (isClosing)
             {
                 await ValidateCanCloseAsync(t, userId);
-                t.ClosedAt = ResolveAndValidateClosedAt(t);
+                t.ClosedAt = ResolveAndValidateClosedAt(t, requestedClosedAt: null);
                 t.Status = TransactionStatus.Closed;
             }
 
@@ -1416,11 +1416,12 @@ public class TransactionService : ITransactionService
         return true;
     }
 
-    public async Task<bool> CloseAsync(int id, int userId, UserRole role)
+    public async Task<bool> CloseAsync(int id, CloseTransactionRequest request, int userId, UserRole role)
     {
         if (role != UserRole.Admin && role != UserRole.Supervisor)
             throw new UnauthorizedAccessException("لا تملك صلاحية إغلاق المعاملة");
 
+        request ??= new CloseTransactionRequest();
         var t = await _db.Transactions.Include(x => x.Assignments).ThenInclude(a => a.Department).FirstOrDefaultAsync(x => x.Id == id);
         if (t == null) return false;
 
@@ -1429,7 +1430,7 @@ public class TransactionService : ITransactionService
             await CommitWorkflowMutationAsync(async () =>
             {
                 await ValidateCanCloseAsync(t, userId);
-                var resolvedClosedAt = ResolveAndValidateClosedAt(t);
+                var resolvedClosedAt = ResolveAndValidateClosedAt(t, request.ClosedAt);
                 t.Status = TransactionStatus.Closed;
                 t.ClosedAt = resolvedClosedAt;
                 t.UpdatedById = userId;
@@ -2401,9 +2402,12 @@ public class TransactionService : ITransactionService
             throw new InvalidOperationException("لا يمكن إغلاق المعاملة قبل تسجيل الإفادة.");
     }
 
-    private static DateTime ResolveAndValidateClosedAt(Transaction transaction)
+    private static DateTime ResolveAndValidateClosedAt(Transaction transaction, DateTime? requestedClosedAt)
     {
-        var resolvedClosedAt = transaction.ClosedAt?.Date ?? GetSaudiToday();
+        var resolvedClosedAt = requestedClosedAt.HasValue
+            ? NormalizeDateOnlyUtc(requestedClosedAt.Value)
+            : transaction.ClosedAt?.Date
+              ?? GetSaudiToday();
 
         if (resolvedClosedAt.Date < transaction.IncomingDate.Date)
             throw new InvalidOperationException("تاريخ إغلاق المعاملة لا يمكن أن يسبق تاريخ الوارد.");
@@ -3090,6 +3094,7 @@ public class TransactionService : ITransactionService
             ResponseDueDays = t.ResponseDueDays,
             ResponseDueDate = t.ResponseDueDate,
             ResponseCompletedDate = t.ResponseCompletedDate,
+            ClosedAt = t.ClosedAt,
             ProceduralCompletionDateForReporting = proceduralCompletionDate,
             IsProcedurallyCompleteForReporting = isProcedurallyComplete,
             ResponseSummary = t.ResponseSummary,
