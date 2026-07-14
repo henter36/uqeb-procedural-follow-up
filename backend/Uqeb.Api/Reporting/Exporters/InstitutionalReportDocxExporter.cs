@@ -192,7 +192,7 @@ public static class InstitutionalReportDocxExporter
     {
         AppendHeading(body, "أداء الإدارات");
         foreach (var row in model.DepartmentPerformance)
-            AppendParagraph(body, $"{row.DepartmentName} — إجمالي {row.TotalTransactions} — التقييم {row.RatingLabel}");
+            AppendParagraph(body, $"{row.DepartmentName} — إجمالي {row.TotalTransactions}");
     }
 
     private static void AppendDepartmentRecognitionsSection(Body body, InstitutionalReportModel model)

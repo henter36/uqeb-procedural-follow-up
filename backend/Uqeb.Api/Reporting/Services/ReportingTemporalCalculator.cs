@@ -103,10 +103,14 @@ internal static class ReportingTemporalCalculator
     public static bool IsStale(TransactionReportSnapshot snapshot, DateTime referenceDate, int staleDays) =>
         DaysSinceLastAction(snapshot, referenceDate) >= staleDays;
 
-    public static int? CompletionDays(TransactionReportSnapshot snapshot) =>
-        snapshot.IsClosed && snapshot.ClosedAt.HasValue
-            ? Math.Max(0, (snapshot.ClosedAt!.Value.Date - snapshot.IncomingDate.Date).Days)
-            : null;
+    public static int? CompletionDays(TransactionReportSnapshot snapshot)
+    {
+        if (!snapshot.IsClosed || !snapshot.ClosedAt.HasValue)
+            return null;
+
+        var days = (snapshot.ClosedAt!.Value.Date - snapshot.IncomingDate.Date).Days;
+        return days < 0 ? null : days;
+    }
 
     public static int DaysSinceLastAction(TransactionReportSnapshot snapshot, DateTime referenceDate)
     {

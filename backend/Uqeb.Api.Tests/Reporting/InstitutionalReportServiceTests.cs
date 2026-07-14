@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using ClosedXML.Excel;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -93,6 +94,98 @@ public class InstitutionalReportServiceExportValidationTests
 
         var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.ExportAsync(request));
         Assert.Contains("selectedPages", ex.FieldErrors.Keys);
+    }
+}
+
+public class InstitutionalReportServiceDepartmentPerformanceTests
+{
+    [Fact]
+    public async Task ExportAsync_DepartmentPerformanceAverageCompletionDays_ExcludesNegativeDurations()
+    {
+        var dbName = $"department-performance-negative-duration-{Guid.NewGuid():N}";
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(dbName)
+            .Options;
+        IDbContextFactory<AppDbContext> dbFactory = new TestDbContextFactory(options);
+
+        await using (var db = dbFactory.CreateDbContext())
+        {
+            var user = new User
+            {
+                Username = "dept-performance-test",
+                PasswordHash = "hash",
+                FullName = "Department Performance Test",
+                Role = UserRole.Admin,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            };
+            var department = new Department { Id = 10, Name = "إدارة المتابعة", NameNormalized = "إدارة المتابعة", IsActive = true };
+            db.Users.Add(user);
+            db.Departments.Add(department);
+            await db.SaveChangesAsync();
+
+            AddClosedTransaction(db, user.Id, department.Id, 1, new DateTime(2026, 6, 1), new DateTime(2026, 6, 6));
+            AddClosedTransaction(db, user.Id, department.Id, 2, new DateTime(2026, 6, 10), new DateTime(2026, 6, 5));
+            await db.SaveChangesAsync();
+        }
+
+        var service = InstitutionalReportServiceTestHelpers.CreateService(dbFactory);
+        var result = await service.ExportAsync(new ReportExportRequestDto
+        {
+            ExportFormat = ExportFormat.Xlsx,
+            ExportMode = ExportMode.FullReport,
+            DetailOverflowAction = DetailOverflowAction.None,
+            BuildRequest = new ReportBuildRequestDto
+            {
+                ReportType = InstitutionalReportType.ExecutiveComprehensive,
+                SectionIds = [ReportSectionId.DepartmentPerformance],
+                Filters = new ReportFiltersDto
+                {
+                    DateFrom = new DateTime(2026, 6, 1),
+                    DateTo = new DateTime(2026, 6, 30),
+                },
+            },
+        });
+
+        using var workbook = new XLWorkbook(new MemoryStream(result.Content));
+        var ws = workbook.Worksheet("أداء الإدارات");
+        Assert.Equal("إدارة المتابعة", ws.Cell(2, 1).GetString());
+        Assert.Equal(2, ws.Cell(2, 2).GetValue<int>());
+        Assert.Equal(5, ws.Cell(2, 8).GetDouble());
+    }
+
+    private static void AddClosedTransaction(
+        AppDbContext db,
+        int userId,
+        int departmentId,
+        int sequence,
+        DateTime incomingDate,
+        DateTime closedAt)
+    {
+        var transaction = new Transaction
+        {
+            InternalTrackingNumber = $"AVG-{sequence:D4}",
+            IncomingNumber = $"AVG-IN-{sequence:D4}",
+            IncomingDate = incomingDate,
+            Subject = $"متوسط إنجاز {sequence}",
+            IncomingFrom = "جهة اختبار",
+            Status = TransactionStatus.Closed,
+            Priority = Priority.Normal,
+            ClosedAt = closedAt,
+            CreatedById = userId,
+            CreatedAt = incomingDate,
+        };
+        db.Transactions.Add(transaction);
+        db.Assignments.Add(new Assignment
+        {
+            Transaction = transaction,
+            DepartmentId = departmentId,
+            Status = AssignmentStatus.Active,
+            RequiresReply = false,
+            ReplyStatus = ReplyStatus.Pending,
+            AssignedDate = incomingDate,
+            CreatedById = userId,
+        });
     }
 }
 

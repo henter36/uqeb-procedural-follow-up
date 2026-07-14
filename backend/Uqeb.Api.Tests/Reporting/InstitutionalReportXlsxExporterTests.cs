@@ -141,6 +141,23 @@ public class InstitutionalReportXlsxExporterTests
     }
 
     [Fact]
+    public void Export_DepartmentPerformanceSheet_DoesNotExposeRatingOrUndefinedDepartment()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        var manifest = InstitutionalReportVisualFixtures.RenderSections(model, ReportSectionId.DepartmentPerformance);
+
+        var bytes = InstitutionalReportXlsxExporter.Export(model, manifest, new ReportExportRequestDto());
+
+        using var workbook = new XLWorkbook(new MemoryStream(bytes));
+        var ws = workbook.Worksheet("أداء الإدارات");
+        AssertHeaders(ws, [DepartmentHeader, "إجمالي", "مغلقة", "مفتوحة", "بانتظار إفادة", "متأخرة", "إدارات مشتركة", "متوسط الإنجاز", "ضمن المهلة"]);
+        var text = ws.CellsUsed().Select(c => c.GetString()).ToList();
+        Assert.DoesNotContain("التقييم", text);
+        Assert.DoesNotContain("غير محدد", text);
+        Assert.DoesNotContain("إدارة غير محددة", text);
+    }
+
+    [Fact]
     public void Export_OmitsDepartmentTimeSeriesWorksheet_WhenNoDataAndTimeTrendsSectionRendered()
     {
         var model = InstitutionalReportVisualFixtures.CreateBaseModel();

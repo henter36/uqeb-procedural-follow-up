@@ -242,6 +242,76 @@ public class InstitutionalReportAnalysisServiceTests
         Assert.Equal("إدارة التأخر", result.DepartmentPerformance.First().DepartmentName);
     }
 
+    [Fact]
+    public void Build_DepartmentAnalysis_UsesOnlyValidDepartmentBuckets()
+    {
+        var snapshots = new List<TransactionReportSnapshot>
+        {
+            DepartmentSnapshot(1, 10, "إدارة المتابعة", isOpen: true),
+            DepartmentSnapshot(2, 10, "إدارة المتابعة", isOpen: false, isClosed: true),
+            DepartmentSnapshot(3, null, "غير محدد", isOpen: true),
+            DepartmentSnapshot(4, 20, "   ", isOpen: true),
+        };
+
+        var result = BuildAnalysis(snapshots, previousSnapshots: [], minimumRankingSampleSize: 1);
+
+        var department = Assert.Single(result.DepartmentPerformance);
+        Assert.Equal(10, department.DepartmentId);
+        Assert.Equal("إدارة المتابعة", department.DepartmentName);
+        Assert.Equal(2, department.SampleSize);
+        Assert.DoesNotContain(result.DepartmentPerformance, row =>
+            row.DepartmentId is null ||
+            string.IsNullOrWhiteSpace(row.DepartmentName) ||
+            row.DepartmentName.Contains("غير محدد", StringComparison.Ordinal));
+        Assert.DoesNotContain(result.DepartmentRecognitions, row =>
+            row.DepartmentId is null ||
+            string.IsNullOrWhiteSpace(row.DepartmentName) ||
+            row.DepartmentName.Contains("غير محدد", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ReportDepartmentValidator_RejectsMissingDepartmentId()
+    {
+        var snapshot = DepartmentSnapshot(1, null, "إدارة المتابعة", isOpen: true);
+
+        Assert.False(ReportDepartmentValidator.HasValidDepartment(snapshot));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("غير محدد")]
+    [InlineData("غير محددة")]
+    [InlineData("—")]
+    public void ReportDepartmentValidator_RejectsUndefinedDepartmentName(string departmentName)
+    {
+        var snapshot = DepartmentSnapshot(1, 10, departmentName, isOpen: true);
+
+        Assert.False(ReportDepartmentValidator.HasValidDepartment(snapshot));
+    }
+
+    [Fact]
+    public void Build_DepartmentAnalysis_MergesComparisonByDepartmentId()
+    {
+        var currentSnapshots = new List<TransactionReportSnapshot>
+        {
+            DepartmentSnapshot(1, 10, "إدارة المتابعة", isOpen: true),
+        };
+        var previousSnapshots = new List<TransactionReportSnapshot>
+        {
+            DepartmentSnapshot(2, 10, "إدارة المتابعة ", isOpen: true),
+            DepartmentSnapshot(3, null, string.Empty, isOpen: true),
+        };
+
+        var result = BuildAnalysis(currentSnapshots, previousSnapshots, minimumRankingSampleSize: 1);
+
+        var department = Assert.Single(result.DepartmentPerformance);
+        Assert.Equal(10, department.DepartmentId);
+        Assert.Equal(0, department.BacklogChange);
+        Assert.DoesNotContain(result.DepartmentPerformance, row =>
+            row.DepartmentName.Contains("غير محدد", StringComparison.Ordinal));
+    }
+
     private static List<TransactionReportSnapshot> CreateCurrentSnapshots() =>
     [
         Snapshot(1, TransactionStatus.New, Priority.Urgent, isOpen: true, isClosed: false, isOverdue: true, elapsedDays: 30, department: "الشؤون الإدارية", pendingReplies: 1, dueDate: ReferenceDate.AddDays(-10)),
@@ -343,6 +413,35 @@ public class InstitutionalReportAnalysisServiceTests
             };
         }
     }
+
+    private static TransactionReportSnapshot DepartmentSnapshot(
+        int id,
+        int? departmentId,
+        string department,
+        bool isOpen,
+        bool isClosed = false) => new()
+    {
+        TransactionId = id,
+        TrackingNumber = $"INT-{id:D4}",
+        IncomingNumber = $"IN-{id:D4}",
+        IncomingDate = ReferenceDate.AddDays(-id),
+        Subject = $"معاملة إدارة {id}",
+        IncomingParty = "جهة اختبار",
+        CategoryName = "تصنيف اختبار",
+        Priority = Priority.Normal,
+        Status = isClosed ? TransactionStatus.Closed : TransactionStatus.New,
+        RequiresResponse = false,
+        ResponseCompleted = isClosed,
+        ClosedAt = isClosed ? ReferenceDate.AddDays(-1) : null,
+        CreatedAt = ReferenceDate.AddDays(-id),
+        UpdatedAt = ReferenceDate.AddDays(-1),
+        ResponsibleDepartment = department,
+        ResponsibleDepartmentId = departmentId,
+        IsClosed = isClosed,
+        IsOpen = isOpen,
+        IsPeriodIncoming = true,
+        ElapsedDays = id,
+    };
 
     private static TransactionReportSnapshot Snapshot(
         int id,

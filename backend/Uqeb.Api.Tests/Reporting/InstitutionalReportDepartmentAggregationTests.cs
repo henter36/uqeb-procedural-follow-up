@@ -124,12 +124,13 @@ public class InstitutionalReportDepartmentAggregationTests
     }
 
     [Fact]
-    public void HtmlRenderer_DepartmentTotalRow_ContainsAdditiveLabel_WhenAdditive()
+    public void HtmlRenderer_DepartmentTotalRow_UsesShortTotalLabel()
     {
         var model = InstitutionalReportVisualFixtures.CreateBaseModel();
         var manifest = InstitutionalReportVisualFixtures.RenderSections(model, ReportSectionId.DepartmentPerformance);
         var html = manifest.Pages.Single().HtmlContent;
-        Assert.Contains("قابل للجمع", html);
+        Assert.Contains("<td>الإجمالي</td>", html);
+        Assert.DoesNotContain("الإجمالي —", html);
     }
 
     [Fact]

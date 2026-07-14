@@ -154,22 +154,10 @@ public class InstitutionalReportExportParityTests
     }
 
     [Fact]
-    public void Docx_DepartmentTimeSeries_NormalizesUndefinedDepartmentName_SameAsHtml()
+    public void Docx_DepartmentPerformance_DoesNotExposeRatingOrUndefinedDepartment()
     {
         var model = InstitutionalReportVisualFixtures.CreateBaseModel();
-        model.Analysis.DepartmentTimeSeries =
-        [
-            new DepartmentTimeSeriesPointDto
-            {
-                DepartmentId = null,
-                DepartmentName = "  ",
-                PeriodStart = new DateTime(2026, 6, 1),
-                PeriodLabel = "2026-06",
-                IncomingCount = 3,
-                OverdueCount = 1,
-            },
-        ];
-        var manifest = InstitutionalReportVisualFixtures.RenderSections(model, ReportSectionId.TimeTrends);
+        var manifest = InstitutionalReportVisualFixtures.RenderSections(model, ReportSectionId.DepartmentPerformance);
         var html = manifest.Pages.Single().HtmlContent;
         var docxBytes = InstitutionalReportDocxExporter.Export(model, manifest, new ReportExportRequestDto());
 
@@ -179,8 +167,10 @@ public class InstitutionalReportExportParityTests
         using var reader = new System.IO.StreamReader(entry!.Open());
         var docxXml = reader.ReadToEnd();
 
-        Assert.Contains("غير محدد", html);
-        Assert.Contains("غير محدد", docxXml);
+        Assert.DoesNotContain("التقييم", html);
+        Assert.DoesNotContain("التقييم", docxXml);
+        Assert.DoesNotContain("غير محدد", html);
+        Assert.DoesNotContain("غير محدد", docxXml);
     }
 
     [Fact]

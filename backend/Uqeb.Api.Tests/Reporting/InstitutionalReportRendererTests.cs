@@ -681,27 +681,17 @@ public class InstitutionalReportRendererTests
     }
 
     [Fact]
-    public void RenderManifest_NormalizesUndefinedDepartmentAndAddsDataQualityNote()
+    public void RenderManifest_DepartmentPerformanceOmitsRatingColumnAndDataQualityNote()
     {
         var model = InstitutionalReportVisualFixtures.CreateBaseModel();
-        model.DepartmentPerformance =
-        [
-            new DepartmentPerformanceRowDto
-            {
-                DepartmentId = 0,
-                DepartmentName = "—",
-                TotalTransactions = 3,
-                Rating = DepartmentRatingLevel.NeedsFollowUp,
-                RatingLabel = "بحاجة متابعة",
-            },
-        ];
 
         var manifest = _renderer.RenderManifest(model, [ReportSectionId.DepartmentPerformance]);
         var html = InstitutionalReportRenderer.RenderHtmlDocument(manifest);
 
-        Assert.Contains("غير محدد", html);
-        Assert.Contains("ملاحظة جودة بيانات", html);
-        Assert.DoesNotContain("""<td class="cell--department">—</td>""", html);
+        Assert.Contains("<td>الإجمالي</td>", html);
+        Assert.DoesNotContain("<th>التقييم</th>", html);
+        Assert.DoesNotContain("ملاحظة جودة بيانات", html);
+        Assert.DoesNotContain("غير محدد", html);
     }
 
     [Fact]

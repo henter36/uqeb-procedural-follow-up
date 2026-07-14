@@ -60,6 +60,62 @@ public class InstitutionalReportOverflowTests
     }
 
     [Fact]
+    public async Task RenderPreviewAsync_DefaultLimit_Includes552RowsWithoutTruncation()
+    {
+        const int transactionCount = 552;
+        var dbFactory = await CreateSeededFactoryAsync(transactionCount);
+        var service = InstitutionalReportServiceTestHelpers.CreateService(
+            dbFactory,
+            new ReportingOptions { MaxPreviewDetailRows = ReportingOptions.DefaultMaxPreviewDetailRows });
+
+        var manifest = await service.RenderPreviewAsync(new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [ReportSectionId.Cover, ReportSectionId.KeyPerformanceIndicators, ReportSectionId.TransactionDetails],
+        });
+
+        Assert.False(manifest.DetailRowsTruncated);
+        Assert.False(manifest.RequiresDetailOverflowAction);
+        Assert.Equal(transactionCount, manifest.TotalMatchingTransactions);
+        Assert.Equal(transactionCount, manifest.IncludedTransactionCount);
+        Assert.Equal(transactionCount, manifest.LoadedDetailRows);
+        Assert.Equal(ReportingOptions.DefaultMaxPreviewDetailRows, manifest.DetailRowLimit);
+    }
+
+    [Fact]
+    public async Task RenderPreviewAsync_DefaultLimit_Truncates5001RowsButKpisUseAllResults()
+    {
+        const int transactionCount = ReportingOptions.DefaultMaxPreviewDetailRows + 1;
+        var dbFactory = await CreateSeededFactoryAsync(transactionCount);
+        var service = InstitutionalReportServiceTestHelpers.CreateService(
+            dbFactory,
+            new ReportingOptions { MaxPreviewDetailRows = ReportingOptions.DefaultMaxPreviewDetailRows });
+
+        var manifest = await service.RenderPreviewAsync(new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [ReportSectionId.Cover, ReportSectionId.KeyPerformanceIndicators, ReportSectionId.TransactionDetails],
+        });
+
+        Assert.True(manifest.DetailRowsTruncated);
+        Assert.True(manifest.RequiresDetailOverflowAction);
+        Assert.Equal(transactionCount, manifest.TotalMatchingTransactions);
+        Assert.Equal(ReportingOptions.DefaultMaxPreviewDetailRows, manifest.IncludedTransactionCount);
+        Assert.Equal(ReportingOptions.DefaultMaxPreviewDetailRows, manifest.LoadedDetailRows);
+        var totalKpi = Assert.Single(manifest.Analysis!.Kpis, k => k.Key == "TotalTransactions");
+        Assert.Equal(transactionCount, totalKpi.NumericValue);
+    }
+
+    [Fact]
+    public void ReportingOptions_DefaultPreviewDetailLimit_Is5000()
+    {
+        var options = new ReportingOptions();
+
+        Assert.Equal(5_000, ReportingOptions.DefaultMaxPreviewDetailRows);
+        Assert.Equal(ReportingOptions.DefaultMaxPreviewDetailRows, options.MaxPreviewDetailRows);
+    }
+
+    [Fact]
     public async Task RenderPreviewAsync_IncludeOverdue_UsesFilteredCountForOverflow()
     {
         var dbFactory = await CreateSeededFactoryAsync(transactionCount: 5, overdueCount: 1);
