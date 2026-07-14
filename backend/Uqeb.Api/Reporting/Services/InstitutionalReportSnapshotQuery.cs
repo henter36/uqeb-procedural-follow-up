@@ -43,8 +43,11 @@ internal static class InstitutionalReportSnapshotQuery
 
     internal sealed class AssignmentRow
     {
+        public int Id { get; init; }
         public int DepartmentId { get; init; }
         public string DepartmentName { get; init; } = string.Empty;
+        public DateTime AssignedDate { get; init; }
+        public DateTime CreatedAt { get; init; }
         public bool RequiresReply { get; init; }
         public ReplyStatus ReplyStatus { get; init; }
         public AssignmentStatus Status { get; init; }
@@ -84,8 +87,11 @@ internal static class InstitutionalReportSnapshotQuery
         OutgoingDate = t.OutgoingDate,
         Assignments = t.Assignments.Select(a => new AssignmentRow
         {
+            Id = a.Id,
             DepartmentId = a.DepartmentId,
             DepartmentName = a.Department != null ? a.Department.Name : string.Empty,
+            AssignedDate = a.AssignedDate,
+            CreatedAt = a.CreatedAt,
             RequiresReply = a.RequiresReply,
             ReplyStatus = a.ReplyStatus,
             Status = a.Status,
@@ -290,10 +296,18 @@ internal static class InstitutionalReportSnapshotQuery
     internal static TransactionReportSnapshot MapRowToSnapshot(SnapshotRow row, DateTime today)
     {
         var activeAssignments = row.Assignments.Where(a => a.Status == AssignmentStatus.Active).ToList();
-        var uniqueDepartments = BuildDepartmentPairs(activeAssignments);
+        var sortedAttributionAssignments = row.Assignments
+            .Where(IsReportAttributionAssignment)
+            .OrderByDescending(a => a.Status == AssignmentStatus.Active)
+            .ThenByDescending(a => a.AssignedDate)
+            .ThenByDescending(a => a.CreatedAt)
+            .ThenByDescending(a => a.Id)
+            .ToList();
+        var uniqueDepartments = BuildDepartmentPairs(sortedAttributionAssignments);
         var assignmentDeptIds = uniqueDepartments.Select(x => x.DepartmentId).ToList();
         var assignmentDeptNames = uniqueDepartments.Select(x => x.DepartmentName).ToList();
-        var responsible = assignmentDeptNames.FirstOrDefault() ?? "—";
+        var responsibleAssignment = sortedAttributionAssignments.FirstOrDefault();
+        var responsible = responsibleAssignment?.DepartmentName ?? "—";
 
         var uniqueOutgoingDepartments = row.OutgoingDepartments
             .GroupBy(o => o.DepartmentId)
@@ -344,7 +358,7 @@ internal static class InstitutionalReportSnapshotQuery
             OutgoingNumber = row.OutgoingNumber,
             OutgoingDate = row.OutgoingDate?.Date,
             ResponsibleDepartment = responsible,
-            ResponsibleDepartmentId = assignmentDeptIds.FirstOrDefault(),
+            ResponsibleDepartmentId = responsibleAssignment?.DepartmentId,
             AssignmentDepartmentIds = assignmentDeptIds,
             AssignmentDepartmentNames = assignmentDeptNames,
             OutgoingDepartmentIds = uniqueOutgoingDepartments.Select(o => o.DepartmentId).ToList(),
@@ -371,8 +385,11 @@ internal static class InstitutionalReportSnapshotQuery
         return snapshot;
     }
 
-    internal static List<DepartmentRow> BuildDepartmentPairs(IEnumerable<AssignmentRow> activeAssignments) =>
-        activeAssignments
+    private static bool IsReportAttributionAssignment(AssignmentRow assignment) =>
+        assignment.Status is AssignmentStatus.Active or AssignmentStatus.Completed;
+
+    internal static List<DepartmentRow> BuildDepartmentPairs(IEnumerable<AssignmentRow> assignments) =>
+        assignments
             .Select(a => new DepartmentRow { DepartmentId = a.DepartmentId, DepartmentName = a.DepartmentName })
             .GroupBy(x => x.DepartmentId)
             .Select(g => g.First())

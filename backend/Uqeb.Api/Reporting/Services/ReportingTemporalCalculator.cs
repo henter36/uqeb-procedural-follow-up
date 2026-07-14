@@ -112,6 +112,11 @@ internal static class ReportingTemporalCalculator
         return days < 0 ? null : days;
     }
 
+    public static IEnumerable<int> CompletionDays(IEnumerable<TransactionReportSnapshot> snapshots) =>
+        snapshots
+            .Select(CompletionDays)
+            .OfType<int>();
+
     public static int DaysSinceLastAction(TransactionReportSnapshot snapshot, DateTime referenceDate)
     {
         var lastAction = new[] { snapshot.UpdatedAt, snapshot.LastFollowUpDate, snapshot.ClosedAt }

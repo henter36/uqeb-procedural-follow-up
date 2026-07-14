@@ -270,6 +270,8 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
 
         var verificationId = Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
 
+        var departmentPerformance = BuildDepartmentPerformance(metrics.Snapshots, referenceDate);
+
         var model = new InstitutionalReportModel
         {
             TotalMatchedRows = totalMatched,
@@ -297,12 +299,12 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             Filters = request.Filters,
             Summary = BuildExecutiveSummary(metrics, metricSnapshots),
             Charts = BuildCharts(metrics, metricSnapshots),
-            DepartmentPerformance = BuildDepartmentPerformance(metrics.Snapshots, referenceDate),
+            DepartmentPerformance = departmentPerformance,
             Risks = BuildRisks(metrics.Snapshots),
             Recommendations = BuildRecommendations(metrics.Snapshots, referenceDate, _reportingOptions.Analysis),
             RiskCounters = BuildRiskCounters(metrics.Snapshots, referenceDate, _reportingOptions.Analysis),
             Transactions = detailRows,
-            IntegrityWarnings = ValidateIntegrity(metrics),
+            IntegrityWarnings = ValidateIntegrity(metrics, departmentPerformance),
             DetailSortByEffective = finalEffectiveSort,
             GroupDetailsByDepartmentEffective = groupedByDepartment,
             DetailRowsAreAdditive = !groupedByDepartment,
@@ -452,13 +454,10 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         };
 
         var topOverdueDept = snapshots.Where(s => s.IsOpenOverdue && ReportDepartmentValidator.HasValidDepartment(s))
-            .GroupBy(s => new
-            {
-                Id = s.ResponsibleDepartmentId!.Value,
-                Name = ReportDepartmentNameNormalizer.Normalize(s.ResponsibleDepartment)
-            })
+            .GroupBy(ReportDepartmentValidator.GetKey)
             .OrderByDescending(g => g.Count())
-            .FirstOrDefault()?.Key.Name;
+            .Select(ReportDepartmentValidator.GetName)
+            .FirstOrDefault();
 
         var narrative = $"بلغ وارد الفترة {metrics.PeriodIncomingCount:N0} معاملة وردت داخل الفترة فقط، " +
                         $"والمعاملات المرحلة من فترة سابقة {metrics.CarriedOpenBalanceCount:N0} معاملة أقدم من الفترة وما زالت مفتوحة حتى نهايتها. " +
@@ -505,32 +504,25 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             .ToList();
 
         var topOverdueDepts = snapshots.Where(s => s.IsOverdue && ReportDepartmentValidator.HasValidDepartment(s))
-            .GroupBy(s => new
-            {
-                Id = s.ResponsibleDepartmentId!.Value,
-                Name = ReportDepartmentNameNormalizer.Normalize(s.ResponsibleDepartment)
-            })
+            .GroupBy(ReportDepartmentValidator.GetKey)
             .OrderByDescending(g => g.Count())
             .Take(8)
-            .Select(g => new ChartSeriesPointDto { Label = g.Key.Name, Value = g.Count() })
+            .Select(g => new ChartSeriesPointDto { Label = ReportDepartmentValidator.GetName(g), Value = g.Count() })
             .ToList();
 
         var avgByDept = snapshots
             .Where(s => ReportDepartmentValidator.HasValidDepartment(s))
-            .GroupBy(s => new
-            {
-                Id = s.ResponsibleDepartmentId!.Value,
-                Name = ReportDepartmentNameNormalizer.Normalize(s.ResponsibleDepartment)
-            })
+            .GroupBy(ReportDepartmentValidator.GetKey)
             .Select(g => new
             {
                 g.Key,
-                CompletionDays = g.Select(ReportingTemporalCalculator.CompletionDays).OfType<int>().ToList()
+                DepartmentName = ReportDepartmentValidator.GetName(g),
+                CompletionDays = ReportingTemporalCalculator.CompletionDays(g).ToList()
             })
             .Where(g => g.CompletionDays.Count > 0)
             .Select(g => new ChartSeriesPointDto
             {
-                Label = g.Key.Name,
+                Label = g.DepartmentName,
                 Value = (decimal)Math.Round(g.CompletionDays.Average(), 1)
             })
             .OrderByDescending(x => x.Value)
@@ -565,17 +557,13 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
 
         return snapshots
             .Where(ReportDepartmentValidator.HasValidDepartment)
-            .GroupBy(s => new
-            {
-                Id = s.ResponsibleDepartmentId!.Value,
-                Name = ReportDepartmentNameNormalizer.Normalize(s.ResponsibleDepartment)
-            })
+            .GroupBy(ReportDepartmentValidator.GetKey)
             .Select(g =>
             {
                 var items = g.ToList();
                 var closed = items.Where(s => s.IsClosed).ToList();
                 var open = items.Where(s => s.IsOpen).ToList();
-                var completionDays = closed.Select(ReportingTemporalCalculator.CompletionDays).OfType<int>().ToList();
+                var completionDays = ReportingTemporalCalculator.CompletionDays(closed).ToList();
                 var measurable = closed.Where(s => s.ResponseDueDate.HasValue && s.ClosedAt.HasValue).ToList();
                 var onTime = measurable.Count(s => s.ClosedAt!.Value <= s.ResponseDueDate!.Value);
                 var onTimeRate = measurable.Count == 0 ? 0 : Math.Round(onTime * 100.0 / measurable.Count, 1);
@@ -590,8 +578,8 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
                 var rating = InstitutionalReportMetricsCalculator.RateDepartment(ratingMetrics, _ratingCriteria);
                 return new DepartmentPerformanceRowDto
                 {
-                    DepartmentId = g.Key.Id,
-                    DepartmentName = g.Key.Name,
+                    DepartmentId = g.Key,
+                    DepartmentName = ReportDepartmentValidator.GetName(g),
                     TotalTransactions = items.Count,
                     ClosedCount = closed.Count,
                     OpenCount = open.Count,
@@ -909,7 +897,9 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         return "—";
     }
 
-    private static List<IntegrityWarningDto> ValidateIntegrity(InstitutionalMetricsResult metrics)
+    private List<IntegrityWarningDto> ValidateIntegrity(
+        InstitutionalMetricsResult metrics,
+        IReadOnlyList<DepartmentPerformanceRowDto> departmentPerformance)
     {
         var warnings = new List<IntegrityWarningDto>();
         var bucketTotal = metrics.OpenCount + metrics.ClosedCount + metrics.CancelledCount + metrics.ArchivedCount;
@@ -920,6 +910,32 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
                 Code = "TOTAL_MISMATCH",
                 Message = "مجموع المفتوحة والمغلقة والملغاة والمؤرشفة لا يساوي إجمالي المعاملات الفريدة.",
                 Severity = "critical"
+            });
+        }
+        var departmentTotal = departmentPerformance.Sum(row => row.TotalTransactions);
+        if (departmentTotal != metrics.TotalTransactions)
+        {
+            var unattributedSnapshots = metrics.Snapshots
+                .Where(snapshot => !ReportDepartmentValidator.HasValidDepartment(snapshot))
+                .ToList();
+            var mismatchKind = departmentTotal > metrics.TotalTransactions
+                ? "duplicate-attribution"
+                : "unattributed-transactions";
+
+            _logger.LogWarning(
+                "Institutional report department attribution mismatch. Kind={Kind} TotalTransactions={TotalTransactions} DepartmentTotal={DepartmentTotal} UnattributedCount={UnattributedCount}",
+                mismatchKind,
+                metrics.TotalTransactions,
+                departmentTotal,
+                unattributedSnapshots.Count);
+
+            warnings.Add(new IntegrityWarningDto
+            {
+                Code = "DEPARTMENT_ATTRIBUTION_MISMATCH",
+                Message = departmentTotal > metrics.TotalTransactions
+                    ? $"إجمالي المعاملات المنسوبة للإدارات ({departmentTotal:N0}) يتجاوز إجمالي نطاق التقرير ({metrics.TotalTransactions:N0})."
+                    : $"إجمالي نطاق التقرير ({metrics.TotalTransactions:N0}) لا يساوي إجمالي المعاملات المنسوبة للإدارات ({departmentTotal:N0}). عدد المعاملات غير المنسوبة: {unattributedSnapshots.Count:N0}.",
+                Severity = "warning"
             });
         }
         if (metrics.OpenOverdueCount > metrics.OpenCount)
