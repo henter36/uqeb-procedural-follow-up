@@ -135,7 +135,14 @@ public class CreateTransactionRequest
 
 public sealed class CloseTransactionRequest
 {
-    // Kept for backward compatibility with existing clients; close date is resolved server-side.
+    /// <summary>
+    /// Deprecated compatibility field.
+    /// This value is ignored; the server resolves the close date
+    /// from ResponseCompletedDate for response-required transactions.
+    /// </summary>
+    [Obsolete(
+        "ClosedAt is ignored. The server resolves the transaction close date.",
+        error: false)]
     public DateTime? ClosedAt { get; set; }
 }
 

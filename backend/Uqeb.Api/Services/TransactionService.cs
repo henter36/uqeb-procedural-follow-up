@@ -1421,7 +1421,6 @@ public class TransactionService : ITransactionService
         if (role != UserRole.Admin && role != UserRole.Supervisor)
             throw new UnauthorizedAccessException("لا تملك صلاحية إغلاق المعاملة");
 
-        request ??= new CloseTransactionRequest();
         var t = await _db.Transactions.Include(x => x.Assignments).ThenInclude(a => a.Department).FirstOrDefaultAsync(x => x.Id == id);
         if (t == null) return false;
 
@@ -2408,11 +2407,9 @@ public class TransactionService : ITransactionService
 
         if (transaction.RequiresResponse)
         {
-            if (!transaction.ResponseCompleted ||
-                !transaction.ResponseCompletedDate.HasValue)
-            {
-                throw new InvalidOperationException("لا يمكن إغلاق المعاملة قبل تسجيل الإفادة.");
-            }
+            System.Diagnostics.Debug.Assert(
+                transaction.ResponseCompletedDate.HasValue,
+                "ValidateCanCloseAsync must run before resolving the close date.");
 
             resolvedClosedAt = NormalizeDateOnlyUtc(transaction.ResponseCompletedDate.Value);
         }
