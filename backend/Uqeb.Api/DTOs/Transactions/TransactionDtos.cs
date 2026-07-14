@@ -135,6 +135,10 @@ public class CreateTransactionRequest
 
 public sealed class CloseTransactionRequest
 {
+    /// <summary>
+    /// Legacy compatibility field retained for clients using the previous API contract.
+    /// This value is ignored; the server resolves the transaction close date.
+    /// </summary>
     public DateTime? ClosedAt { get; set; }
 }
 

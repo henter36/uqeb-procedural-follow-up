@@ -49,8 +49,8 @@ export const transactionsApi = {
     api.get<PagedResult<import('./types').AuditLog>>(`/transactions/${id}/audit-log`, { params: { page, pageSize } }),
   create: (data: Record<string, unknown>) => api.post<TransactionDetail>('/transactions', data),
   update: (id: number, data: Record<string, unknown>) => api.put<TransactionDetail>(`/transactions/${id}`, data),
-  close: (id: number, data: { closedAt: string }) =>
-    api.post(`/transactions/${id}/close`, data),
+  close: (id: number) =>
+    api.post(`/transactions/${id}/close`, {}),
   enableRecurring: (id: number, data: Record<string, unknown>) =>
     api.post<TransactionDetail>(`/transactions/${id}/enable-recurring`, data),
   completeResponse: (id: number, data: Record<string, unknown>) =>
