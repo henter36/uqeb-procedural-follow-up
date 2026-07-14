@@ -135,6 +135,7 @@ public class CreateTransactionRequest
 
 public sealed class CloseTransactionRequest
 {
+    // Kept for backward compatibility with existing clients; close date is resolved server-side.
     public DateTime? ClosedAt { get; set; }
 }
 

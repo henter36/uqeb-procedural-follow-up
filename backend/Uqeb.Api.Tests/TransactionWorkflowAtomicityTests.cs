@@ -539,40 +539,48 @@ public class TransactionWorkflowAtomicityTests
     }
 
     [Fact]
-    public async Task CloseAsync_preserves_existing_closed_at_and_audits_it()
+    public async Task CloseAsync_uses_response_completed_date_and_audits_it_when_response_is_required()
     {
-        var (service, db, _, _) = await CreateServiceAsync(nameof(CloseAsync_preserves_existing_closed_at_and_audits_it));
+        var (service, db, _, _) = await CreateServiceAsync(nameof(CloseAsync_uses_response_completed_date_and_audits_it_when_response_is_required));
         var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
         await PrepareTransactionForCloseAsync(db, created.Id);
         await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 1, DepartmentResponseStatus.Approved);
-        var preservedClosedAt = SaudiToday().AddDays(-1);
+        var responseCompletedDate = new DateTime(2026, 6, 1);
         var transaction = await db.Transactions.SingleAsync(t => t.Id == created.Id);
-        transaction.IncomingDate = preservedClosedAt.AddDays(-10);
-        transaction.ResponseCompletedDate = preservedClosedAt.AddDays(-1);
-        transaction.ClosedAt = preservedClosedAt;
+        transaction.IncomingDate = responseCompletedDate.AddDays(-10);
+        transaction.ResponseCompletedDate = responseCompletedDate;
+        transaction.ClosedAt = responseCompletedDate.AddDays(-3);
         await db.SaveChangesAsync();
 
-        await service.CloseAsync(created.Id, new CloseTransactionRequest(), userId: 1, role: UserRole.Admin);
+        await service.CloseAsync(
+            created.Id,
+            new CloseTransactionRequest { ClosedAt = responseCompletedDate.AddDays(5) },
+            userId: 1,
+            role: UserRole.Admin);
 
         var persisted = await db.Transactions.SingleAsync(t => t.Id == created.Id);
         Assert.Equal(TransactionStatus.Closed, persisted.Status);
-        Assert.Equal(preservedClosedAt, persisted.ClosedAt);
+        Assert.Equal(responseCompletedDate, persisted.ClosedAt);
+        Assert.NotEqual(SaudiToday(), persisted.ClosedAt);
 
         var audit = await db.AuditLogs.SingleAsync(a => a.Action == AuditAction.Close && a.TransactionId == created.Id);
-        Assert.Contains(preservedClosedAt.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), audit.NewValue);
+        Assert.NotNull(audit.NewValue);
+        using var newValue = JsonDocument.Parse(audit.NewValue);
+        Assert.Equal(responseCompletedDate, newValue.RootElement.GetProperty("ClosedAt").GetDateTime());
     }
 
     [Fact]
-    public async Task CloseAsync_requested_closed_at_persists_to_database_without_using_today()
+    public async Task CloseAsync_ignores_requested_closed_at_when_response_is_required()
     {
-        var (service, db, _, _) = await CreateServiceAsync(nameof(CloseAsync_requested_closed_at_persists_to_database_without_using_today));
+        var (service, db, _, _) = await CreateServiceAsync(nameof(CloseAsync_ignores_requested_closed_at_when_response_is_required));
         var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
         await PrepareTransactionForCloseAsync(db, created.Id);
         await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 1, DepartmentResponseStatus.Approved);
-        var requestedClosedAt = DateTime.SpecifyKind(SaudiToday().AddDays(-3), DateTimeKind.Unspecified);
+        var responseCompletedDate = new DateTime(2026, 6, 1);
+        var requestedClosedAt = DateTime.SpecifyKind(responseCompletedDate.AddDays(7), DateTimeKind.Unspecified);
         var transaction = await db.Transactions.SingleAsync(t => t.Id == created.Id);
-        transaction.IncomingDate = requestedClosedAt.AddDays(-10);
-        transaction.ResponseCompletedDate = requestedClosedAt.AddDays(-1);
+        transaction.IncomingDate = responseCompletedDate.AddDays(-10);
+        transaction.ResponseCompletedDate = responseCompletedDate;
         transaction.ClosedAt = null;
         await db.SaveChangesAsync();
 
@@ -587,7 +595,7 @@ public class TransactionWorkflowAtomicityTests
             .Select(t => new { t.Id, t.Status, t.IncomingDate, t.ResponseCompletedDate, t.ClosedAt, t.UpdatedAt })
             .SingleAsync();
         Assert.Equal(TransactionStatus.Closed, persisted.Status);
-        Assert.Equal(requestedClosedAt.Date, persisted.ClosedAt?.Date);
+        Assert.Equal(responseCompletedDate, persisted.ClosedAt);
         Assert.Equal(DateTimeKind.Utc, persisted.ClosedAt?.Kind);
         Assert.NotEqual(SaudiToday(), persisted.ClosedAt);
         Assert.True(persisted.UpdatedAt.HasValue);
@@ -595,31 +603,36 @@ public class TransactionWorkflowAtomicityTests
         var audit = await db.AuditLogs.SingleAsync(a => a.Action == AuditAction.Close && a.TransactionId == created.Id);
         Assert.NotNull(audit.NewValue);
         using var newValue = JsonDocument.Parse(audit.NewValue);
-        Assert.Equal(requestedClosedAt.Date, newValue.RootElement.GetProperty("ClosedAt").GetDateTime().Date);
+        Assert.Equal(responseCompletedDate, newValue.RootElement.GetProperty("ClosedAt").GetDateTime());
     }
 
     [Fact]
-    public async Task CloseAsync_requested_closed_at_overrides_existing_saved_closed_at()
+    public async Task CloseAsync_preserves_existing_closed_at_when_response_is_not_required()
     {
-        var (service, db, _, _) = await CreateServiceAsync(nameof(CloseAsync_requested_closed_at_overrides_existing_saved_closed_at));
+        var (service, db, _, _) = await CreateServiceAsync(nameof(CloseAsync_preserves_existing_closed_at_when_response_is_not_required));
         var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
-        await PrepareTransactionForCloseAsync(db, created.Id);
-        await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 1, DepartmentResponseStatus.Approved);
-        var requestedClosedAt = SaudiToday().AddDays(-2);
-        var savedClosedAt = requestedClosedAt.AddDays(-3);
-        var transaction = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        var savedClosedAt = SaudiToday().AddDays(-3);
+        var transaction = await db.Transactions
+            .Include(t => t.Assignments)
+            .SingleAsync(t => t.Id == created.Id);
         transaction.IncomingDate = savedClosedAt.AddDays(-10);
-        transaction.ResponseCompletedDate = savedClosedAt;
+        transaction.RequiresResponse = false;
+        transaction.ResponseType = ResponseType.None;
+        transaction.ResponseDueDays = null;
+        transaction.ResponseDueDate = null;
+        transaction.ResponseCompletedDate = savedClosedAt.AddDays(2);
         transaction.ClosedAt = savedClosedAt;
+        foreach (var assignment in transaction.Assignments)
+            assignment.Status = AssignmentStatus.Completed;
         await db.SaveChangesAsync();
 
         await service.CloseAsync(
             created.Id,
-            new CloseTransactionRequest { ClosedAt = requestedClosedAt },
+            new CloseTransactionRequest { ClosedAt = savedClosedAt.AddDays(5) },
             userId: 1,
             role: UserRole.Admin);
 
-        Assert.Equal(requestedClosedAt, await db.Transactions.Where(t => t.Id == created.Id).Select(t => t.ClosedAt).SingleAsync());
+        Assert.Equal(savedClosedAt, await db.Transactions.Where(t => t.Id == created.Id).Select(t => t.ClosedAt).SingleAsync());
     }
 
     [Fact]
@@ -627,13 +640,19 @@ public class TransactionWorkflowAtomicityTests
     {
         var (service, db, _, _) = await CreateServiceAsync(nameof(CloseAsync_sets_saudi_today_when_closed_at_is_missing));
         var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
-        await PrepareTransactionForCloseAsync(db, created.Id);
-        await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 1, DepartmentResponseStatus.Approved);
         var today = SaudiToday();
-        var transaction = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        var transaction = await db.Transactions
+            .Include(t => t.Assignments)
+            .SingleAsync(t => t.Id == created.Id);
         transaction.IncomingDate = today.AddDays(-10);
+        transaction.RequiresResponse = false;
+        transaction.ResponseType = ResponseType.None;
+        transaction.ResponseDueDays = null;
+        transaction.ResponseDueDate = null;
         transaction.ResponseCompletedDate = today.AddDays(-1);
         transaction.ClosedAt = null;
+        foreach (var assignment in transaction.Assignments)
+            assignment.Status = AssignmentStatus.Completed;
         await db.SaveChangesAsync();
 
         var expectedFrom = SaudiToday();
@@ -655,7 +674,7 @@ public class TransactionWorkflowAtomicityTests
         var today = SaudiToday();
         var transaction = await db.Transactions.SingleAsync(t => t.Id == created.Id);
         transaction.IncomingDate = today;
-        transaction.ResponseCompletedDate = today;
+        transaction.ResponseCompletedDate = today.AddDays(-1);
         transaction.ClosedAt = null;
         await db.SaveChangesAsync();
 
@@ -671,16 +690,16 @@ public class TransactionWorkflowAtomicityTests
     }
 
     [Fact]
-    public async Task CloseAsync_rejects_future_requested_closed_at()
+    public async Task CloseAsync_rejects_future_response_completed_date()
     {
-        var (service, db, _, cache) = await CreateServiceAsync(nameof(CloseAsync_rejects_future_requested_closed_at));
+        var (service, db, _, cache) = await CreateServiceAsync(nameof(CloseAsync_rejects_future_response_completed_date));
         var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
         await PrepareTransactionForCloseAsync(db, created.Id);
         await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 1, DepartmentResponseStatus.Approved);
         var today = SaudiToday();
         var transaction = await db.Transactions.SingleAsync(t => t.Id == created.Id);
         transaction.IncomingDate = today.AddDays(-10);
-        transaction.ResponseCompletedDate = today.AddDays(-1);
+        transaction.ResponseCompletedDate = DayAfterSaudiToday();
         transaction.ClosedAt = null;
         await db.SaveChangesAsync();
         cache.ResetInvalidations();
@@ -688,7 +707,7 @@ public class TransactionWorkflowAtomicityTests
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.CloseAsync(
                 created.Id,
-                new CloseTransactionRequest { ClosedAt = DayAfterSaudiToday() },
+                new CloseTransactionRequest(),
                 userId: 1,
                 role: UserRole.Admin));
 
@@ -701,28 +720,31 @@ public class TransactionWorkflowAtomicityTests
     }
 
     [Fact]
-    public async Task CloseAsync_rejects_closed_at_before_response_completed_date()
+    public async Task CloseAsync_rejects_missing_response_completed_date_when_response_is_required()
     {
-        var (service, db, _, _) = await CreateServiceAsync(nameof(CloseAsync_rejects_closed_at_before_response_completed_date));
+        var (service, db, _, _) = await CreateServiceAsync(nameof(CloseAsync_rejects_missing_response_completed_date_when_response_is_required));
         var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
         await PrepareTransactionForCloseAsync(db, created.Id);
         await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 1, DepartmentResponseStatus.Approved);
         var today = SaudiToday();
         var transaction = await db.Transactions.SingleAsync(t => t.Id == created.Id);
         transaction.IncomingDate = today.AddDays(-10);
-        transaction.ResponseCompletedDate = today;
-        transaction.ClosedAt = null;
+        transaction.ResponseCompleted = true;
+        transaction.ResponseCompletedDate = null;
+        transaction.ClosedAt = today.AddDays(-1);
         await db.SaveChangesAsync();
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.CloseAsync(
                 created.Id,
-                new CloseTransactionRequest { ClosedAt = today.AddDays(-1) },
+                new CloseTransactionRequest(),
                 userId: 1,
                 role: UserRole.Admin));
 
-        Assert.Equal("تاريخ إغلاق المعاملة لا يمكن أن يسبق تاريخ الإفادة.", ex.Message);
-        Assert.NotEqual(TransactionStatus.Closed, await db.Transactions.Where(t => t.Id == created.Id).Select(t => t.Status).SingleAsync());
+        Assert.Equal("لا يمكن إغلاق المعاملة قبل تسجيل الإفادة.", ex.Message);
+        var persisted = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        Assert.NotEqual(TransactionStatus.Closed, persisted.Status);
+        Assert.Equal(today.AddDays(-1), persisted.ClosedAt);
     }
 
     [Fact]
@@ -740,14 +762,14 @@ public class TransactionWorkflowAtomicityTests
         transaction.ResponseDueDays = null;
         transaction.ResponseDueDate = null;
         transaction.ResponseCompletedDate = closedAt.AddDays(1);
-        transaction.ClosedAt = null;
+        transaction.ClosedAt = closedAt;
         foreach (var assignment in transaction.Assignments)
             assignment.Status = AssignmentStatus.Completed;
         await db.SaveChangesAsync();
 
         await service.CloseAsync(
             created.Id,
-            new CloseTransactionRequest { ClosedAt = closedAt },
+            new CloseTransactionRequest { ClosedAt = closedAt.AddDays(5) },
             userId: 1,
             role: UserRole.Admin);
 
@@ -791,17 +813,17 @@ public class TransactionWorkflowAtomicityTests
     }
 
     [Fact]
-    public async Task UpdateAsync_status_closed_resolves_closed_at_using_same_rules()
+    public async Task UpdateAsync_status_closed_uses_response_completed_date()
     {
-        var (service, db, _, _) = await CreateServiceAsync(nameof(UpdateAsync_status_closed_resolves_closed_at_using_same_rules));
+        var (service, db, _, _) = await CreateServiceAsync(nameof(UpdateAsync_status_closed_uses_response_completed_date));
         var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
         await PrepareTransactionForCloseAsync(db, created.Id);
         await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 1, DepartmentResponseStatus.Approved);
-        var preservedClosedAt = SaudiToday().AddDays(-1);
+        var responseCompletedDate = new DateTime(2026, 6, 1);
         var transaction = await db.Transactions.SingleAsync(t => t.Id == created.Id);
-        transaction.IncomingDate = preservedClosedAt.AddDays(-10);
-        transaction.ResponseCompletedDate = preservedClosedAt.AddDays(-1);
-        transaction.ClosedAt = preservedClosedAt;
+        transaction.IncomingDate = responseCompletedDate.AddDays(-10);
+        transaction.ResponseCompletedDate = responseCompletedDate;
+        transaction.ClosedAt = responseCompletedDate.AddDays(-3);
         await db.SaveChangesAsync();
 
         await service.UpdateAsync(
@@ -812,7 +834,7 @@ public class TransactionWorkflowAtomicityTests
 
         var persisted = await db.Transactions.SingleAsync(t => t.Id == created.Id);
         Assert.Equal(TransactionStatus.Closed, persisted.Status);
-        Assert.Equal(preservedClosedAt, persisted.ClosedAt);
+        Assert.Equal(responseCompletedDate, persisted.ClosedAt);
     }
 
     [Theory]
@@ -826,27 +848,22 @@ public class TransactionWorkflowAtomicityTests
         await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 1, DepartmentResponseStatus.Approved);
         var today = SaudiToday();
         var existingClosedAt = hasExistingClosedAt ? today.AddDays(-1) : (DateTime?)null;
+        var responseCompletedDate = today.AddDays(-2);
         var transaction = await db.Transactions.SingleAsync(t => t.Id == created.Id);
         transaction.IncomingDate = today.AddDays(-10);
-        transaction.ResponseCompletedDate = today.AddDays(-2);
+        transaction.ResponseCompletedDate = responseCompletedDate;
         transaction.ClosedAt = existingClosedAt;
         await db.SaveChangesAsync();
 
-        var expectedFrom = SaudiToday();
         await service.UpdateAsync(
             created.Id,
             new UpdateTransactionRequest { Status = TransactionStatus.Closed.ToString() },
             userId: 1,
             role: UserRole.Admin);
-        var expectedTo = SaudiToday();
-        var expectedClosedAt = existingClosedAt ?? expectedFrom;
 
         var persisted = await db.Transactions.SingleAsync(t => t.Id == created.Id);
         Assert.Equal(TransactionStatus.Closed, persisted.Status);
-        if (existingClosedAt.HasValue)
-            Assert.Equal(expectedClosedAt, persisted.ClosedAt);
-        else
-            Assert.InRange(persisted.ClosedAt.GetValueOrDefault(), expectedFrom, expectedTo);
+        Assert.Equal(responseCompletedDate, persisted.ClosedAt);
 
         var audit = await db.AuditLogs
             .Where(a => a.Action == AuditAction.Update && a.TransactionId == created.Id)
@@ -862,10 +879,7 @@ public class TransactionWorkflowAtomicityTests
         else
             Assert.Equal(JsonValueKind.Null, oldClosedAt.ValueKind);
         var newClosedAt = newJson.RootElement.GetProperty("ClosedAt").GetDateTime().Date;
-        if (existingClosedAt.HasValue)
-            Assert.Equal(expectedClosedAt.Date, newClosedAt);
-        else
-            Assert.InRange(newClosedAt, expectedFrom, expectedTo);
+        Assert.Equal(responseCompletedDate.Date, newClosedAt);
     }
 
     [Fact]
@@ -878,8 +892,8 @@ public class TransactionWorkflowAtomicityTests
         var today = SaudiToday();
         var invalidClosedAt = today.AddDays(-1);
         var transaction = await db.Transactions.SingleAsync(t => t.Id == created.Id);
-        transaction.IncomingDate = today.AddDays(-10);
-        transaction.ResponseCompletedDate = today;
+        transaction.IncomingDate = today;
+        transaction.ResponseCompletedDate = invalidClosedAt;
         transaction.ClosedAt = invalidClosedAt;
         await db.SaveChangesAsync();
 

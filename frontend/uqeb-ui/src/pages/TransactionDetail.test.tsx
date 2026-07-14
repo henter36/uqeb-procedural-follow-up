@@ -2973,12 +2973,12 @@ describe('TransactionDetailPage recurring template info', () => {
     await waitFor(() => expect(screen.getByTestId('recurring-template-info')).toBeInTheDocument());
   });
 
-  it('sends the selected close date without replacing it with today', async () => {
+  it('closes the transaction directly without showing a close date dialog', async () => {
     const user = userEvent.setup();
     const closableTx = {
       ...baseTx,
-      closedAt: '2026-06-01',
-      completionDate: '2026-07-14',
+      responseCompleted: true,
+      responseCompletedDate: '2026-06-01',
       requiresResponse: false,
       responseType: 'None',
     };
@@ -2993,40 +2993,88 @@ describe('TransactionDetailPage recurring template info', () => {
 
     await user.click(getActionBarButton('إغلاق المعاملة'));
 
-    const dialog = screen.getByRole('dialog', { name: 'إغلاق المعاملة' });
-    expect(dialog).toBeInTheDocument();
-    expect(dialog).not.toHaveAttribute('role');
-    expect(document.querySelector('.modal-overlay')).not.toHaveAttribute('role');
-
-    const closeDateInput = within(dialog).getByLabelText('تاريخ إغلاق المعاملة - اختيار من التقويم');
-    expect(closeDateInput).toHaveValue('2026-06-01');
-
-    await user.clear(closeDateInput);
-    await user.click(within(dialog).getByRole('button', { name: 'تأكيد الإغلاق' }));
-
-    expect(within(dialog).getByRole('alert')).toHaveTextContent('تاريخ إغلاق المعاملة مطلوب.');
-    expect(services.transactionsApi.close).not.toHaveBeenCalled();
-
-    await user.type(closeDateInput, '2025-12-31');
-    await user.click(within(dialog).getByRole('button', { name: 'تأكيد الإغلاق' }));
-
-    expect(within(dialog).getByRole('alert')).toHaveTextContent('تاريخ إغلاق المعاملة لا يمكن أن يسبق تاريخ الوارد.');
-    expect(services.transactionsApi.close).not.toHaveBeenCalled();
-
-    await user.clear(closeDateInput);
-    await user.type(closeDateInput, '2026-06-01');
-    expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument();
-    await user.click(within(dialog).getByRole('button', { name: 'إلغاء' }));
     expect(screen.queryByRole('dialog', { name: 'إغلاق المعاملة' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('تاريخ إغلاق المعاملة - اختيار من التقويم')).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: /تاريخ إغلاق المعاملة/ })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(services.transactionsApi.close).toHaveBeenCalledWith(1);
+    });
+  });
+
+  it('does not close a response-required transaction without a response completion date', async () => {
+    const user = userEvent.setup();
+    const invalidTx = {
+      ...baseTx,
+      requiresResponse: true,
+      responseType: 'External',
+      responseCompleted: true,
+      responseCompletedDate: null,
+    };
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: { ...defaultWorkspace, transaction: invalidTx },
+    });
+    mockApi(services.transactionsApi.getBasic).mockResolvedValue({ data: invalidTx });
+    mockApi(services.transactionsApi.close).mockResolvedValue({});
+
+    renderDetail();
+    await waitForDetailsReady();
 
     await user.click(getActionBarButton('إغلاق المعاملة'));
-    const reopenedDialog = screen.getByRole('dialog', { name: 'إغلاق المعاملة' });
 
-    await user.click(within(reopenedDialog).getByRole('button', { name: 'تأكيد الإغلاق' }));
+    expect(services.transactionsApi.close).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('لا يمكن إغلاق المعاملة قبل تسجيل الإفادة.');
+  });
 
-    await waitFor(() => {
-      expect(services.transactionsApi.close).toHaveBeenCalledWith(1, { closedAt: '2026-06-01' });
+  it('shows close API errors at page level', async () => {
+    const user = userEvent.setup();
+    const closableTx = {
+      ...baseTx,
+      requiresResponse: false,
+      responseType: 'None',
+    };
+    mockApi(services.transactionsApi.getWorkspace).mockResolvedValue({
+      data: { ...defaultWorkspace, transaction: closableTx },
     });
+    mockApi(services.transactionsApi.getBasic).mockResolvedValue({ data: closableTx });
+    mockApi(services.transactionsApi.close).mockRejectedValue(new Error('تعذر الإغلاق'));
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    await user.click(getActionBarButton('إغلاق المعاملة'));
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('تعذر الإغلاق'));
+    expect(screen.queryByRole('dialog', { name: 'إغلاق المعاملة' })).not.toBeInTheDocument();
+  });
+
+  it('does not send duplicate close requests while closing is in progress', async () => {
+    const user = userEvent.setup();
+    const closableTx = {
+      ...baseTx,
+      requiresResponse: false,
+      responseType: 'None',
+    };
+    let resolveClose: () => void = () => {};
+    const pendingClose = new Promise<void>((resolve) => {
+      resolveClose = resolve;
+    });
+    mockApi(services.transactionsApi.getWorkspace)
+      .mockResolvedValueOnce({ data: { ...defaultWorkspace, transaction: closableTx } })
+      .mockResolvedValueOnce({ data: { ...defaultWorkspace, transaction: { ...closableTx, status: 'Closed' } } });
+    mockApi(services.transactionsApi.getBasic).mockResolvedValue({ data: closableTx });
+    mockApi(services.transactionsApi.close).mockReturnValue(pendingClose);
+
+    renderDetail();
+    await waitForDetailsReady();
+
+    const closeButton = getActionBarButton('إغلاق المعاملة');
+    await user.click(closeButton);
+    await waitFor(() => expect(closeButton).toBeDisabled());
+    await user.click(closeButton);
+
+    expect(services.transactionsApi.close).toHaveBeenCalledTimes(1);
+    resolveClose();
+    await waitFor(() => expect(screen.getByText('تم إغلاق المعاملة')).toBeInTheDocument());
   });
 
   it('suggests generating the next period after closing a transaction with AutomaticOnClose', async () => {
@@ -3057,7 +3105,6 @@ describe('TransactionDetailPage recurring template info', () => {
     await waitForDetailsReady();
 
     await user.click(getActionBarButton('إغلاق المعاملة'));
-    await user.click(screen.getByRole('button', { name: 'تأكيد الإغلاق' }));
 
     await waitFor(() => expect(services.transactionsApi.close).toHaveBeenCalled());
     await waitFor(() => {

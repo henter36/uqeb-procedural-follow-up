@@ -13,7 +13,8 @@ type TransactionActionBarProps = Readonly<{
   hasPendingDepts: boolean;
   activeAction: WorkspaceAction | null;
   onAction: (action: WorkspaceAction) => void;
-  onCloseTransaction: () => void;
+  onCloseTransaction: () => void | Promise<void>;
+  closeInProgress?: boolean;
   showEnableRecurring?: boolean;
   showAdminEditDates?: boolean;
 }>;
@@ -31,6 +32,7 @@ export default function TransactionActionBar({
   activeAction,
   onAction,
   onCloseTransaction,
+  closeInProgress = false,
   showEnableRecurring = false,
   showAdminEditDates = false,
 }: TransactionActionBarProps) {
@@ -78,7 +80,12 @@ export default function TransactionActionBar({
         <span className="badge badge-blue workspace-response-status">{responseStatusLabel}</span>
       )}
       {canShowClose && (
-        <button type="button" className="btn btn-danger btn-sm" onClick={onCloseTransaction}>
+        <button
+          type="button"
+          className="btn btn-danger btn-sm"
+          onClick={onCloseTransaction}
+          disabled={closeInProgress}
+        >
           إغلاق المعاملة
         </button>
       )}

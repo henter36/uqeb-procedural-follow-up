@@ -1,5 +1,5 @@
 import {
-  useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode,
+  useCallback, useEffect, useRef, useState, type ReactNode,
 } from 'react';
 import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { isAxiosError } from 'axios';
@@ -15,7 +15,6 @@ import {
 } from '../utils/labels';
 import { getApiErrorMessage } from '../utils/apiHelpers';
 import { formatHijri } from '../utils/dateUtils';
-import { FUTURE_EVENT_DATE_MESSAGE, isFutureLocalDate, todayLocalIso } from '../utils/localDate';
 import DateDisplay from '../components/DateDisplay';
 import DepartmentBadges from '../components/DepartmentBadges';
 import { responseTimingBadgeClass, formatCompletionDays, formatDaysSince } from '../utils/responseTiming';
@@ -37,7 +36,6 @@ import AdminEditAssignmentFormPanel from '../components/transaction-workspace/Ad
 import AdminEditDatesFormPanel from '../components/transaction-workspace/AdminEditDatesFormPanel';
 import AdminEditTransactionResponseFormPanel from '../components/transaction-workspace/AdminEditTransactionResponseFormPanel';
 import EnableRecurringFormPanel from '../components/transaction-workspace/EnableRecurringFormPanel';
-import HijriDateInput from '../components/HijriDateInput';
 import { departmentResponseStatusLabels } from '../components/transaction-workspace/departmentResponseStatusLabels';
 import type { WorkspaceAction, WorkspaceActionContext } from '../components/transaction-workspace/types';
 import { parseDetailTab, type DetailTab } from './transactionDetailTabs';
@@ -259,9 +257,6 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
   const [workspaceLoading, setWorkspaceLoading] = useState(true);
   const [departmentResponseItem, setDepartmentResponseItem] = useState<DepartmentTransactionResponseItemDto | null>(null);
   const [departmentResponseItemError, setDepartmentResponseItemError] = useState('');
-  const [closeDialogOpen, setCloseDialogOpen] = useState(false);
-  const [closeDate, setCloseDate] = useState('');
-  const [closeError, setCloseError] = useState('');
   const [closing, setClosing] = useState(false);
   const responsePanelRef = useRef<HTMLElement | null>(null);
   const departmentResponseRequestRef = useRef(0);
@@ -677,47 +672,22 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
     ]);
   };
 
-  const handleCloseTransaction = () => {
-    if (!tx) return;
-    const needsResponse = tx.requiresResponse || tx.responseType !== 'None';
-    if (needsResponse && !tx.responseCompleted) {
-      setError('لا يمكن إغلاق المعاملة قبل تسجيل الإفادة.');
-      return;
-    }
-    setCloseDate(tx.closedAt?.slice(0, 10) ?? todayLocalIso());
-    setCloseError('');
-    setCloseDialogOpen(true);
-    setError('');
-  };
-
-  const submitCloseTransaction = async (e: FormEvent) => {
-    e.preventDefault();
+  const handleCloseTransaction = async () => {
     if (!tx || closing) return;
-    if (!closeDate) {
-      setCloseError('تاريخ إغلاق المعاملة مطلوب.');
-      return;
-    }
-    const incomingDate = tx.incomingDate.slice(0, 10);
-    if (closeDate < incomingDate) {
-      setCloseError('تاريخ إغلاق المعاملة لا يمكن أن يسبق تاريخ الوارد.');
-      return;
-    }
-    if (isFutureLocalDate(closeDate)) {
-      setCloseError(FUTURE_EVENT_DATE_MESSAGE);
+    const needsResponse = tx.requiresResponse || tx.responseType !== 'None';
+    if (needsResponse && (!tx.responseCompleted || !tx.responseCompletedDate)) {
+      setError('لا يمكن إغلاق المعاملة قبل تسجيل الإفادة.');
       return;
     }
     setClosing(true);
     setError('');
-    setCloseError('');
     try {
-      await transactionsApi.close(+id, { closedAt: closeDate });
+      await transactionsApi.close(+id);
       await loadWorkspace({ silent: true });
       setMessage('تم إغلاق المعاملة');
-      setCloseDialogOpen(false);
-      setCloseError('');
-      await checkRecurringSuggestionAfterClose(tx?.recurringTemplateId);
+      await checkRecurringSuggestionAfterClose(tx.recurringTemplateId);
     } catch (err: unknown) {
-      setCloseError(getApiErrorMessage(err));
+      setError(getApiErrorMessage(err));
     } finally {
       setClosing(false);
     }
@@ -896,6 +866,7 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
               activeAction={activeAction}
               onAction={toggleAction}
               onCloseTransaction={handleCloseTransaction}
+              closeInProgress={closing}
               showEnableRecurring={canEdit && !tx?.recurringTemplateId}
               showAdminEditDates={isAdmin}
             />
@@ -985,49 +956,6 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
               إنشاء معاملة الفترة القادمة
             </Link>
           </Alert>
-        )}
-
-        {closeDialogOpen && (
-          <div className="modal-overlay">
-            <dialog
-              open
-              className="modal"
-              aria-labelledby="close-transaction-title"
-            >
-              <form className="workspace-form" onSubmit={submitCloseTransaction}>
-                <h3 id="close-transaction-title">إغلاق المعاملة</h3>
-                {closeError && <Alert variant="error">{closeError}</Alert>}
-                <div className="form-group">
-                  <HijriDateInput
-                    id="close-transaction-date"
-                    label="تاريخ إغلاق المعاملة"
-                    value={closeDate}
-                    onChange={(value) => {
-                      setCloseDate(value);
-                      setCloseError('');
-                    }}
-                    disallowFutureDate
-                  />
-                </div>
-                <div className="modal-actions">
-                  <button
-                    type="button"
-                    className="btn btn-outline"
-                    onClick={() => {
-                      setCloseDialogOpen(false);
-                      setCloseError('');
-                    }}
-                    disabled={closing}
-                  >
-                    إلغاء
-                  </button>
-                  <button type="submit" className="btn btn-primary" disabled={closing}>
-                    تأكيد الإغلاق
-                  </button>
-                </div>
-              </form>
-            </dialog>
-          </div>
         )}
 
         {activeAction === 'enable-recurring' && (

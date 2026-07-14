@@ -1350,7 +1350,7 @@ public class TransactionService : ITransactionService
             if (isClosing)
             {
                 await ValidateCanCloseAsync(t, userId);
-                t.ClosedAt = ResolveAndValidateClosedAt(t, requestedClosedAt: null);
+                t.ClosedAt = ResolveAndValidateClosedAt(t);
                 t.Status = TransactionStatus.Closed;
             }
 
@@ -1430,7 +1430,7 @@ public class TransactionService : ITransactionService
             await CommitWorkflowMutationAsync(async () =>
             {
                 await ValidateCanCloseAsync(t, userId);
-                var resolvedClosedAt = ResolveAndValidateClosedAt(t, request.ClosedAt);
+                var resolvedClosedAt = ResolveAndValidateClosedAt(t);
                 t.Status = TransactionStatus.Closed;
                 t.ClosedAt = resolvedClosedAt;
                 t.UpdatedById = userId;
@@ -2402,22 +2402,31 @@ public class TransactionService : ITransactionService
             throw new InvalidOperationException("لا يمكن إغلاق المعاملة قبل تسجيل الإفادة.");
     }
 
-    private static DateTime ResolveAndValidateClosedAt(Transaction transaction, DateTime? requestedClosedAt)
+    private static DateTime ResolveAndValidateClosedAt(Transaction transaction)
     {
-        var resolvedClosedAt = requestedClosedAt.HasValue
-            ? NormalizeDateOnlyUtc(requestedClosedAt.Value)
-            : transaction.ClosedAt?.Date
-              ?? GetSaudiToday();
+        DateTime resolvedClosedAt;
+
+        if (transaction.RequiresResponse)
+        {
+            if (!transaction.ResponseCompleted ||
+                !transaction.ResponseCompletedDate.HasValue)
+            {
+                throw new InvalidOperationException("لا يمكن إغلاق المعاملة قبل تسجيل الإفادة.");
+            }
+
+            resolvedClosedAt = NormalizeDateOnlyUtc(transaction.ResponseCompletedDate.Value);
+        }
+        else if (transaction.ClosedAt.HasValue)
+        {
+            resolvedClosedAt = NormalizeDateOnlyUtc(transaction.ClosedAt.Value);
+        }
+        else
+        {
+            resolvedClosedAt = GetSaudiToday();
+        }
 
         if (resolvedClosedAt.Date < transaction.IncomingDate.Date)
             throw new InvalidOperationException("تاريخ إغلاق المعاملة لا يمكن أن يسبق تاريخ الوارد.");
-
-        if (transaction.RequiresResponse &&
-            transaction.ResponseCompletedDate.HasValue &&
-            resolvedClosedAt.Date < transaction.ResponseCompletedDate.Value.Date)
-        {
-            throw new InvalidOperationException("تاريخ إغلاق المعاملة لا يمكن أن يسبق تاريخ الإفادة.");
-        }
 
         if (IsFutureEventDate(resolvedClosedAt))
             throw new InvalidOperationException(FutureEventDateMessage);
