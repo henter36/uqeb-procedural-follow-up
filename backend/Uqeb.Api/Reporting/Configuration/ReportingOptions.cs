@@ -7,7 +7,7 @@ public sealed class ReportingOptions
     public const string SectionName = "Reporting";
 
     /// <summary>Maximum detail rows shown in preview.</summary>
-    public int MaxPreviewDetailRows { get; set; } = 500;
+    public int MaxPreviewDetailRows { get; set; } = 5_000;
 
     /// <summary>Maximum detail rows embedded in a single PDF/DOCX export before overflow handling.</summary>
     public int MaxPdfDetailRows { get; set; } = 5_000;

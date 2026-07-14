@@ -60,6 +60,53 @@ public class InstitutionalReportOverflowTests
     }
 
     [Fact]
+    public async Task RenderPreviewAsync_DefaultLimit_Includes552RowsWithoutTruncation()
+    {
+        const int transactionCount = 552;
+        var dbFactory = await CreateSeededFactoryAsync(transactionCount);
+        var service = InstitutionalReportServiceTestHelpers.CreateService(
+            dbFactory,
+            new ReportingOptions { MaxPreviewDetailRows = 5_000 });
+
+        var manifest = await service.RenderPreviewAsync(new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [ReportSectionId.Cover, ReportSectionId.KeyPerformanceIndicators, ReportSectionId.TransactionDetails],
+        });
+
+        Assert.False(manifest.DetailRowsTruncated);
+        Assert.False(manifest.RequiresDetailOverflowAction);
+        Assert.Equal(transactionCount, manifest.TotalMatchingTransactions);
+        Assert.Equal(transactionCount, manifest.IncludedTransactionCount);
+        Assert.Equal(transactionCount, manifest.LoadedDetailRows);
+        Assert.Equal(5_000, manifest.DetailRowLimit);
+    }
+
+    [Fact]
+    public async Task RenderPreviewAsync_DefaultLimit_Truncates5001RowsButKpisUseAllResults()
+    {
+        const int transactionCount = 5_001;
+        var dbFactory = await CreateSeededFactoryAsync(transactionCount);
+        var service = InstitutionalReportServiceTestHelpers.CreateService(
+            dbFactory,
+            new ReportingOptions { MaxPreviewDetailRows = 5_000 });
+
+        var manifest = await service.RenderPreviewAsync(new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [ReportSectionId.Cover, ReportSectionId.KeyPerformanceIndicators, ReportSectionId.TransactionDetails],
+        });
+
+        Assert.True(manifest.DetailRowsTruncated);
+        Assert.True(manifest.RequiresDetailOverflowAction);
+        Assert.Equal(transactionCount, manifest.TotalMatchingTransactions);
+        Assert.Equal(5_000, manifest.IncludedTransactionCount);
+        Assert.Equal(5_000, manifest.LoadedDetailRows);
+        var totalKpi = Assert.Single(manifest.Analysis!.Kpis, k => k.Key == "TotalTransactions");
+        Assert.Equal(transactionCount, totalKpi.NumericValue);
+    }
+
+    [Fact]
     public async Task RenderPreviewAsync_IncludeOverdue_UsesFilteredCountForOverflow()
     {
         var dbFactory = await CreateSeededFactoryAsync(transactionCount: 5, overdueCount: 1);

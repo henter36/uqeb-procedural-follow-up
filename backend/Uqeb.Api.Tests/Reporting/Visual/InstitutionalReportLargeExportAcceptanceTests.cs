@@ -15,11 +15,11 @@ public class InstitutionalReportLargeExportAcceptanceTests
     public InstitutionalReportLargeExportAcceptanceTests(ITestOutputHelper output) => _output = output;
 
     [Theory]
-    [InlineData(500)]
-    [InlineData(1000)]
+    [InlineData(552)]
+    [InlineData(5001)]
     public void LargeDataset_KpiUsesFullPopulationWhileDetailsAreSampled(int datasetSize)
     {
-        var previewLimit = 500;
+        var previewLimit = 5000;
         var model = InstitutionalReportVisualFixtures.CreateBaseModel(
             totalMatched: datasetSize,
             exportedRows: Math.Min(datasetSize, previewLimit),
@@ -60,7 +60,7 @@ public class InstitutionalReportLargeExportAcceptanceTests
     {
         var options = new ReportingOptions
         {
-            MaxPreviewDetailRows = 500,
+            MaxPreviewDetailRows = 5000,
             MaxPdfDetailRowsPerPart = 5000,
             MaxDocxDetailRows = 20000,
             MaxXlsxDetailRows = 100000,

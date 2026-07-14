@@ -803,43 +803,29 @@ public sealed class InstitutionalReportRenderer
     {
         var rows = string.Join(string.Empty, model.DepartmentPerformance.Select(d =>
         {
-            var ratingClass = d.Rating switch
-            {
-                DepartmentRatingLevel.Good => "rating-good",
-                DepartmentRatingLevel.Critical => "rating-critical",
-                _ => "rating-watch"
-            };
             return $"""
             <tr>
               <td class="cell--department">{Esc(NormalizeDepartmentName(d.DepartmentName))}</td>
               <td class="cell--number">{d.TotalTransactions}</td><td class="cell--number">{d.ClosedCount}</td><td class="cell--number">{d.OpenCount}</td>
               <td class="cell--number">{d.OverdueCount}</td><td class="cell--number">{d.WaitingForStatementCount}</td><td class="cell--number">{d.OnTimeCompletionRate:N1}%</td>
-              <td class="cell--rating {ratingClass}">{Esc(DisplayValue(d.RatingLabel))}</td>
             </tr>
             """;
         }));
-        var undefinedDepartmentNote = model.DepartmentPerformance.Any(d => ReportDepartmentNameNormalizer.IsUndefined(d.DepartmentName) || d.DepartmentId == 0)
-            ? """<div class="partial-note">ملاحظة جودة بيانات: توجد معاملات بلا إدارة مختصة محددة. صف "غير محدد" يعرض حجم السجلات غير المصنفة ولا يُستخدم كتقييم تنفيذي لإدارة بعينها.</div>"""
-            : string.Empty;
         var totals = model.DepartmentPerformance.Aggregate(
             (Total: 0, Closed: 0, Open: 0, Waiting: 0, Overdue: 0, Joint: 0),
             (acc, row) => (acc.Total + row.TotalTransactions, acc.Closed + row.ClosedCount, acc.Open + row.OpenCount,
                 acc.Waiting + row.WaitingForStatementCount, acc.Overdue + row.OverdueCount, acc.Joint + row.JointDepartmentCount));
-        var totalsNote = model.DepartmentTotalsAreAdditive
-            ? $"الإجمالي — قابل للجمع (مجمَّع حسب {Esc(model.DepartmentAggregationDescription)})"
-            : $"الإجمالي — ملاحظة: المجاميع قد تتجاوز إجمالي المعاملات ({Esc(model.DepartmentAggregationDescription)})";
         return $"""
         <h2 class="section-title">أداء الإدارات</h2>
-        {undefinedDepartmentNote}
         <table class="report-table report-table--departments">
           <thead><tr>
             <th>الإدارة</th><th>إجمالي</th><th>مغلقة</th><th>مفتوحة</th><th>متأخرة</th>
-            <th>بانتظار إفادة</th><th>ضمن المهلة</th><th>التقييم</th>
+            <th>بانتظار إفادة</th><th>ضمن المهلة</th>
           </tr></thead>
           <tbody>{rows}
           <tr class="report-table__total-row">
-            <td>{totalsNote}</td><td class="cell--number">{totals.Total}</td><td class="cell--number">{totals.Closed}</td><td class="cell--number">{totals.Open}</td>
-            <td class="cell--number">{totals.Overdue}</td><td class="cell--number">{totals.Waiting}</td><td>—</td><td>—</td>
+            <td>الإجمالي</td><td class="cell--number">{totals.Total}</td><td class="cell--number">{totals.Closed}</td><td class="cell--number">{totals.Open}</td>
+            <td class="cell--number">{totals.Overdue}</td><td class="cell--number">{totals.Waiting}</td><td>—</td>
           </tr></tbody>
         </table>
         <p class="section-footnote">{(model.DepartmentTotalsAreAdditive

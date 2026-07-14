@@ -689,17 +689,22 @@ internal static class InstitutionalReportAnalysisService
         ReportingAnalysisOptions options)
     {
         var previousOpen = previous
-            .Where(s => s.ResponsibleDepartmentId.HasValue || !string.IsNullOrWhiteSpace(s.ResponsibleDepartment))
-            .GroupBy(s => s.ResponsibleDepartmentId?.ToString(CultureInfo.InvariantCulture) ?? s.ResponsibleDepartment)
+            .Where(HasValidDepartment)
+            .GroupBy(s => s.ResponsibleDepartmentId!.Value.ToString(CultureInfo.InvariantCulture))
             .ToDictionary(g => g.Key, g => g.Count(s => s.IsOpen), StringComparer.Ordinal);
         var systemAverageCompletion = CompletionDays(current).DefaultIfEmpty(0).Average();
 
         return current
-            .GroupBy(s => new { s.ResponsibleDepartmentId, Name = BlankToUnknown(s.ResponsibleDepartment) })
+            .Where(HasValidDepartment)
+            .GroupBy(s => new
+            {
+                ResponsibleDepartmentId = s.ResponsibleDepartmentId!.Value,
+                Name = ReportDepartmentNameNormalizer.Normalize(s.ResponsibleDepartment)
+            })
             .Select(g =>
             {
                 var closedDays = CompletionDays(g).ToList();
-                var key = g.Key.ResponsibleDepartmentId?.ToString(CultureInfo.InvariantCulture) ?? g.Key.Name;
+                var key = g.Key.ResponsibleDepartmentId.ToString(CultureInfo.InvariantCulture);
                 previousOpen.TryGetValue(key, out var previousOpenCount);
                 var average = closedDays.Count == 0 ? 0 : Math.Round(closedDays.Average(), 1);
                 var systemComparison = ResolveSystemComparison(average, systemAverageCompletion);
@@ -788,11 +793,11 @@ internal static class InstitutionalReportAnalysisService
         IReadOnlyList<TransactionReportSnapshot> snapshots)
     {
         return snapshots
-            .Where(snapshot => snapshot.ResponsibleDepartmentId.HasValue || !string.IsNullOrWhiteSpace(snapshot.ResponsibleDepartment))
+            .Where(HasValidDepartment)
             .GroupBy(snapshot => new
             {
-                snapshot.ResponsibleDepartmentId,
-                Name = BlankToUnknown(snapshot.ResponsibleDepartment)
+                ResponsibleDepartmentId = snapshot.ResponsibleDepartmentId!.Value,
+                Name = ReportDepartmentNameNormalizer.Normalize(snapshot.ResponsibleDepartment)
             })
             .Select(group =>
             {
@@ -801,7 +806,7 @@ internal static class InstitutionalReportAnalysisService
                 var closedCount = rows.Count(snapshot => snapshot.IsClosed);
                 var overdueCount = rows.Count(snapshot => snapshot.IsOverdue);
                 var pendingAssignmentsCount = rows.Sum(snapshot => snapshot.PendingReplyAssignmentCount);
-                var key = group.Key.ResponsibleDepartmentId?.ToString(CultureInfo.InvariantCulture) ?? group.Key.Name;
+                var key = group.Key.ResponsibleDepartmentId.ToString(CultureInfo.InvariantCulture);
                 var completionDays = CompletionDays(rows).ToList();
                 return new DepartmentRecognitionMetrics(
                     Key: key,
@@ -1273,7 +1278,12 @@ internal static class InstitutionalReportAnalysisService
             .Where(IsPeriodIncomingForAnalysis)
             .GroupBy(s => PeriodStart(s.IncomingDate, grouping))
             .SelectMany(periodGroup => periodGroup
-                .GroupBy(s => new { s.ResponsibleDepartmentId, Name = BlankToUnknown(s.ResponsibleDepartment) })
+                .Where(HasValidDepartment)
+                .GroupBy(s => new
+                {
+                    ResponsibleDepartmentId = s.ResponsibleDepartmentId!.Value,
+                    Name = ReportDepartmentNameNormalizer.Normalize(s.ResponsibleDepartment)
+                })
                 .Select(deptGroup =>
                 {
                     var incoming = deptGroup.Count();
@@ -1492,6 +1502,10 @@ internal static class InstitutionalReportAnalysisService
 
     private static string BlankToUnknown(string? value) =>
         string.IsNullOrWhiteSpace(value) ? "غير محدد" : value.Trim();
+
+    private static bool HasValidDepartment(TransactionReportSnapshot snapshot) =>
+        snapshot.ResponsibleDepartmentId.HasValue
+        && !ReportDepartmentNameNormalizer.IsUndefined(snapshot.ResponsibleDepartment);
 
     private static DateTime PeriodStart(DateTime value, ReportTimeGrouping grouping)
     {

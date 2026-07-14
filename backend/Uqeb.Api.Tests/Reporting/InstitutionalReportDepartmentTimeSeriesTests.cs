@@ -224,6 +224,27 @@ public class InstitutionalReportDepartmentTimeSeriesTests
     }
 
     [Fact]
+    public void DepartmentTimeSeries_SkipsMissingDepartmentRows()
+    {
+        var snapshots = new List<TransactionReportSnapshot>
+        {
+            Snapshot(1, new DateTime(2026, 6, 2), 1, "الشؤون الإدارية", isOpen: true, isClosed: false),
+            Snapshot(2, new DateTime(2026, 6, 3), null, "غير محدد", isOpen: true, isClosed: false),
+            Snapshot(3, new DateTime(2026, 6, 4), 2, "   ", isOpen: true, isClosed: false),
+        };
+
+        var result = BuildAnalysis(snapshots);
+
+        var point = Assert.Single(result.DepartmentTimeSeries);
+        Assert.Equal(1, point.DepartmentId);
+        Assert.Equal("الشؤون الإدارية", point.DepartmentName);
+        Assert.DoesNotContain(result.DepartmentTimeSeries, row =>
+            row.DepartmentId is null ||
+            string.IsNullOrWhiteSpace(row.DepartmentName) ||
+            row.DepartmentName.Contains("غير محدد", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void OverdueReport_KpisAndOverdueRate_UnaffectedByNewDepartmentTimeSeriesField()
     {
         // Scenario 6 (overdue side): PR #101's overdue-report metrics must compute exactly as
