@@ -66,7 +66,7 @@ public class InstitutionalReportOverflowTests
         var dbFactory = await CreateSeededFactoryAsync(transactionCount);
         var service = InstitutionalReportServiceTestHelpers.CreateService(
             dbFactory,
-            new ReportingOptions { MaxPreviewDetailRows = 5_000 });
+            new ReportingOptions { MaxPreviewDetailRows = ReportingOptions.DefaultMaxPreviewDetailRows });
 
         var manifest = await service.RenderPreviewAsync(new ReportBuildRequestDto
         {
@@ -79,17 +79,17 @@ public class InstitutionalReportOverflowTests
         Assert.Equal(transactionCount, manifest.TotalMatchingTransactions);
         Assert.Equal(transactionCount, manifest.IncludedTransactionCount);
         Assert.Equal(transactionCount, manifest.LoadedDetailRows);
-        Assert.Equal(5_000, manifest.DetailRowLimit);
+        Assert.Equal(ReportingOptions.DefaultMaxPreviewDetailRows, manifest.DetailRowLimit);
     }
 
     [Fact]
     public async Task RenderPreviewAsync_DefaultLimit_Truncates5001RowsButKpisUseAllResults()
     {
-        const int transactionCount = 5_001;
+        const int transactionCount = ReportingOptions.DefaultMaxPreviewDetailRows + 1;
         var dbFactory = await CreateSeededFactoryAsync(transactionCount);
         var service = InstitutionalReportServiceTestHelpers.CreateService(
             dbFactory,
-            new ReportingOptions { MaxPreviewDetailRows = 5_000 });
+            new ReportingOptions { MaxPreviewDetailRows = ReportingOptions.DefaultMaxPreviewDetailRows });
 
         var manifest = await service.RenderPreviewAsync(new ReportBuildRequestDto
         {
@@ -100,10 +100,19 @@ public class InstitutionalReportOverflowTests
         Assert.True(manifest.DetailRowsTruncated);
         Assert.True(manifest.RequiresDetailOverflowAction);
         Assert.Equal(transactionCount, manifest.TotalMatchingTransactions);
-        Assert.Equal(5_000, manifest.IncludedTransactionCount);
-        Assert.Equal(5_000, manifest.LoadedDetailRows);
+        Assert.Equal(ReportingOptions.DefaultMaxPreviewDetailRows, manifest.IncludedTransactionCount);
+        Assert.Equal(ReportingOptions.DefaultMaxPreviewDetailRows, manifest.LoadedDetailRows);
         var totalKpi = Assert.Single(manifest.Analysis!.Kpis, k => k.Key == "TotalTransactions");
         Assert.Equal(transactionCount, totalKpi.NumericValue);
+    }
+
+    [Fact]
+    public void ReportingOptions_DefaultPreviewDetailLimit_Is5000()
+    {
+        var options = new ReportingOptions();
+
+        Assert.Equal(5_000, ReportingOptions.DefaultMaxPreviewDetailRows);
+        Assert.Equal(ReportingOptions.DefaultMaxPreviewDetailRows, options.MaxPreviewDetailRows);
     }
 
     [Fact]

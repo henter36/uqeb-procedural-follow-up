@@ -19,7 +19,7 @@ public class InstitutionalReportLargeExportAcceptanceTests
     [InlineData(5001)]
     public void LargeDataset_KpiUsesFullPopulationWhileDetailsAreSampled(int datasetSize)
     {
-        var previewLimit = 5000;
+        var previewLimit = ReportingOptions.DefaultMaxPreviewDetailRows;
         var model = InstitutionalReportVisualFixtures.CreateBaseModel(
             totalMatched: datasetSize,
             exportedRows: Math.Min(datasetSize, previewLimit),
@@ -37,7 +37,7 @@ public class InstitutionalReportLargeExportAcceptanceTests
     [Theory]
     [InlineData(500)]
     [InlineData(1000)]
-    [InlineData(5000)]
+    [InlineData(ReportingOptions.DefaultMaxPreviewDetailRows)]
     public void XlsxExporter_HandlesLargeDetailSetsWithoutThrowing(int rowCount)
     {
         var model = InstitutionalReportVisualFixtures.CreateBaseModel(
@@ -60,14 +60,14 @@ public class InstitutionalReportLargeExportAcceptanceTests
     {
         var options = new ReportingOptions
         {
-            MaxPreviewDetailRows = 5000,
+            MaxPreviewDetailRows = ReportingOptions.DefaultMaxPreviewDetailRows,
             MaxPdfDetailRowsPerPart = 5000,
             MaxDocxDetailRows = 20000,
             MaxXlsxDetailRows = 100000,
             MaxHtmlDetailRows = 20000,
         };
 
-        Assert.Equal(5000, options.ResolveDetailLimit(ExportFormat.Pdf));
+        Assert.Equal(ReportingOptions.DefaultMaxPreviewDetailRows, options.ResolveDetailLimit(ExportFormat.Pdf));
         Assert.Equal(20000, options.ResolveDetailLimit(ExportFormat.Docx));
         Assert.Equal(100000, options.ResolveDetailLimit(ExportFormat.Xlsx));
         Assert.Equal(20000, options.ResolveDetailLimit(ExportFormat.Html));

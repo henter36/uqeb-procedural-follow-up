@@ -451,7 +451,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             new() { Key = "onTime", Title = "نسبة الإنجاز ضمن المهلة", Value = $"{metrics.OnTimeCompletionRate:N1}%" }
         };
 
-        var topOverdueDept = snapshots.Where(s => s.IsOpenOverdue && HasValidDepartment(s))
+        var topOverdueDept = snapshots.Where(s => s.IsOpenOverdue && ReportDepartmentValidator.HasValidDepartment(s))
             .GroupBy(s => new
             {
                 Id = s.ResponsibleDepartmentId!.Value,
@@ -504,7 +504,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             .Select(g => new ChartSeriesPointDto { Label = PriorityLabel(g.Key), Value = g.Count() })
             .ToList();
 
-        var topOverdueDepts = snapshots.Where(s => s.IsOverdue && HasValidDepartment(s))
+        var topOverdueDepts = snapshots.Where(s => s.IsOverdue && ReportDepartmentValidator.HasValidDepartment(s))
             .GroupBy(s => new
             {
                 Id = s.ResponsibleDepartmentId!.Value,
@@ -515,16 +515,23 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             .Select(g => new ChartSeriesPointDto { Label = g.Key.Name, Value = g.Count() })
             .ToList();
 
-        var avgByDept = snapshots.Where(s => s.IsClosed && s.ClosedAt.HasValue && HasValidDepartment(s))
+        var avgByDept = snapshots
+            .Where(s => ReportDepartmentValidator.HasValidDepartment(s))
             .GroupBy(s => new
             {
                 Id = s.ResponsibleDepartmentId!.Value,
                 Name = ReportDepartmentNameNormalizer.Normalize(s.ResponsibleDepartment)
             })
+            .Select(g => new
+            {
+                g.Key,
+                CompletionDays = g.Select(ReportingTemporalCalculator.CompletionDays).OfType<int>().ToList()
+            })
+            .Where(g => g.CompletionDays.Count > 0)
             .Select(g => new ChartSeriesPointDto
             {
                 Label = g.Key.Name,
-                Value = (decimal)Math.Round(g.Average(x => (x.ClosedAt!.Value - x.IncomingDate).TotalDays), 1)
+                Value = (decimal)Math.Round(g.CompletionDays.Average(), 1)
             })
             .OrderByDescending(x => x.Value)
             .Take(8)
@@ -557,7 +564,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         var staleThreshold = today.AddDays(-_ratingCriteria.CriticalStaleUpdateDaysThreshold);
 
         return snapshots
-            .Where(HasValidDepartment)
+            .Where(ReportDepartmentValidator.HasValidDepartment)
             .GroupBy(s => new
             {
                 Id = s.ResponsibleDepartmentId!.Value,
@@ -568,7 +575,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
                 var items = g.ToList();
                 var closed = items.Where(s => s.IsClosed).ToList();
                 var open = items.Where(s => s.IsOpen).ToList();
-                var closedWithDates = closed.Where(s => s.ClosedAt.HasValue).ToList();
+                var completionDays = closed.Select(ReportingTemporalCalculator.CompletionDays).OfType<int>().ToList();
                 var measurable = closed.Where(s => s.ResponseDueDate.HasValue && s.ClosedAt.HasValue).ToList();
                 var onTime = measurable.Count(s => s.ClosedAt!.Value <= s.ResponseDueDate!.Value);
                 var onTimeRate = measurable.Count == 0 ? 0 : Math.Round(onTime * 100.0 / measurable.Count, 1);
@@ -591,8 +598,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
                     WaitingForStatementCount = open.Count(s => s.IsWaitingForStatement),
                     OverdueCount = items.Count(s => s.IsOverdue),
                     JointDepartmentCount = items.Count(s => s.IsJointDepartment),
-                    AverageCompletionDays = closedWithDates.Count == 0 ? 0 :
-                        Math.Round(closedWithDates.Average(s => (s.ClosedAt!.Value - s.IncomingDate).TotalDays), 1),
+                    AverageCompletionDays = completionDays.Count == 0 ? 0 : Math.Round(completionDays.Average(), 1),
                     OnTimeCompletionRate = onTimeRate,
                     Rating = rating,
                     RatingLabel = InstitutionalReportMetricsCalculator.RatingLabel(rating)
@@ -601,10 +607,6 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             .OrderByDescending(r => r.TotalTransactions)
             .ToList();
     }
-
-    private static bool HasValidDepartment(TransactionReportSnapshot snapshot) =>
-        snapshot.ResponsibleDepartmentId.HasValue
-        && !ReportDepartmentNameNormalizer.IsUndefined(snapshot.ResponsibleDepartment);
 
     private static List<RiskAlertRowDto> BuildRisks(IReadOnlyList<TransactionReportSnapshot> snapshots)
     {

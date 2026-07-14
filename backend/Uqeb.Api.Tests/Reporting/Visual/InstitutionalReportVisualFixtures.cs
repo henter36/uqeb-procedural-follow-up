@@ -1,4 +1,5 @@
 using Uqeb.Api.Reporting.DTOs;
+using Uqeb.Api.Reporting.Configuration;
 using Uqeb.Api.Reporting.Enums;
 using Uqeb.Api.Reporting.Services;
 
@@ -35,7 +36,7 @@ internal static class InstitutionalReportVisualFixtures
                 VerificationId = "VISUALFIX001",
                 TotalMatchingTransactions = totalMatched,
                 IncludedTransactionCount = exportedRows,
-                DetailRowLimit = 5000,
+                DetailRowLimit = ReportingOptions.DefaultMaxPreviewDetailRows,
                 TotalPages = 8,
             },
             Summary = new ExecutiveSummaryDto
@@ -258,7 +259,7 @@ internal static class InstitutionalReportVisualFixtures
             PeriodBasis = "الفترة الزمنية مبنية على تاريخ الوارد.",
             ComparisonPeriod = "2025-07-19 إلى 2025-12-31",
             Filters = "بدون فلاتر إضافية",
-            RowLimits = "DetailLimit=5000",
+            RowLimits = $"DetailLimit={ReportingOptions.DefaultMaxPreviewDetailRows}",
             DeferredMetrics = ["AverageFirstActionHours: يحتاج حدث أول إجراء موثوق."],
         },
     };

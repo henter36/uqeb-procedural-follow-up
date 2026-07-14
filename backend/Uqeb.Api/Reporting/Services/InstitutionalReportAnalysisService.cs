@@ -689,13 +689,13 @@ internal static class InstitutionalReportAnalysisService
         ReportingAnalysisOptions options)
     {
         var previousOpen = previous
-            .Where(HasValidDepartment)
-            .GroupBy(s => s.ResponsibleDepartmentId!.Value.ToString(CultureInfo.InvariantCulture))
-            .ToDictionary(g => g.Key, g => g.Count(s => s.IsOpen), StringComparer.Ordinal);
+            .Where(ReportDepartmentValidator.HasValidDepartment)
+            .GroupBy(s => s.ResponsibleDepartmentId!.Value)
+            .ToDictionary(g => g.Key, g => g.Count(s => s.IsOpen));
         var systemAverageCompletion = CompletionDays(current).DefaultIfEmpty(0).Average();
 
         return current
-            .Where(HasValidDepartment)
+            .Where(ReportDepartmentValidator.HasValidDepartment)
             .GroupBy(s => new
             {
                 ResponsibleDepartmentId = s.ResponsibleDepartmentId!.Value,
@@ -704,8 +704,7 @@ internal static class InstitutionalReportAnalysisService
             .Select(g =>
             {
                 var closedDays = CompletionDays(g).ToList();
-                var key = g.Key.ResponsibleDepartmentId.ToString(CultureInfo.InvariantCulture);
-                previousOpen.TryGetValue(key, out var previousOpenCount);
+                previousOpen.TryGetValue(g.Key.ResponsibleDepartmentId, out var previousOpenCount);
                 var average = closedDays.Count == 0 ? 0 : Math.Round(closedDays.Average(), 1);
                 var systemComparison = ResolveSystemComparison(average, systemAverageCompletion);
                 return new DepartmentAnalysisRowDto
@@ -736,7 +735,7 @@ internal static class InstitutionalReportAnalysisService
     }
 
     private sealed record DepartmentRecognitionMetrics(
-        string Key,
+        int Key,
         int? DepartmentId,
         string DepartmentName,
         int TransactionCount,
@@ -759,7 +758,7 @@ internal static class InstitutionalReportAnalysisService
     {
         var currentMetrics = BuildDepartmentRecognitionMetrics(current).ToList();
         var previousMetrics = BuildDepartmentRecognitionMetrics(previous)
-            .ToDictionary(metric => metric.Key, StringComparer.Ordinal);
+            .ToDictionary(metric => metric.Key);
         var minimumSampleSize = options.MinimumRankingSampleSize;
         var systemAverageCompletion = Average(CompletionDays(current));
 
@@ -793,7 +792,7 @@ internal static class InstitutionalReportAnalysisService
         IReadOnlyList<TransactionReportSnapshot> snapshots)
     {
         return snapshots
-            .Where(HasValidDepartment)
+            .Where(ReportDepartmentValidator.HasValidDepartment)
             .GroupBy(snapshot => new
             {
                 ResponsibleDepartmentId = snapshot.ResponsibleDepartmentId!.Value,
@@ -806,10 +805,9 @@ internal static class InstitutionalReportAnalysisService
                 var closedCount = rows.Count(snapshot => snapshot.IsClosed);
                 var overdueCount = rows.Count(snapshot => snapshot.IsOverdue);
                 var pendingAssignmentsCount = rows.Sum(snapshot => snapshot.PendingReplyAssignmentCount);
-                var key = group.Key.ResponsibleDepartmentId.ToString(CultureInfo.InvariantCulture);
                 var completionDays = CompletionDays(rows).ToList();
                 return new DepartmentRecognitionMetrics(
-                    Key: key,
+                    Key: group.Key.ResponsibleDepartmentId,
                     DepartmentId: group.Key.ResponsibleDepartmentId,
                     DepartmentName: group.Key.Name,
                     TransactionCount: totalCount,
@@ -1278,7 +1276,7 @@ internal static class InstitutionalReportAnalysisService
             .Where(IsPeriodIncomingForAnalysis)
             .GroupBy(s => PeriodStart(s.IncomingDate, grouping))
             .SelectMany(periodGroup => periodGroup
-                .Where(HasValidDepartment)
+                .Where(ReportDepartmentValidator.HasValidDepartment)
                 .GroupBy(s => new
                 {
                     ResponsibleDepartmentId = s.ResponsibleDepartmentId!.Value,
@@ -1419,13 +1417,14 @@ internal static class InstitutionalReportAnalysisService
 
     private static IEnumerable<int> CompletionDays(IEnumerable<TransactionReportSnapshot> snapshots) =>
         snapshots
-            .Where(s => s.IsClosed && s.ClosedAt.HasValue)
-            .Select(s => Math.Max(0, (s.ClosedAt!.Value.Date - s.IncomingDate.Date).Days));
+            .Select(ReportingTemporalCalculator.CompletionDays)
+            .OfType<int>();
 
     private static IEnumerable<int> ResponseDays(IEnumerable<TransactionReportSnapshot> snapshots) =>
         snapshots
-            .Where(s => s.ResponseCompleted && s.ClosedAt.HasValue)
-            .Select(s => Math.Max(0, (s.ClosedAt!.Value.Date - s.IncomingDate.Date).Days));
+            .Where(s => s.ResponseCompleted)
+            .Select(ReportingTemporalCalculator.CompletionDays)
+            .OfType<int>();
 
     private static double Average(IEnumerable<int> values)
     {
@@ -1502,10 +1501,6 @@ internal static class InstitutionalReportAnalysisService
 
     private static string BlankToUnknown(string? value) =>
         string.IsNullOrWhiteSpace(value) ? "غير محدد" : value.Trim();
-
-    private static bool HasValidDepartment(TransactionReportSnapshot snapshot) =>
-        snapshot.ResponsibleDepartmentId.HasValue
-        && !ReportDepartmentNameNormalizer.IsUndefined(snapshot.ResponsibleDepartment);
 
     private static DateTime PeriodStart(DateTime value, ReportTimeGrouping grouping)
     {

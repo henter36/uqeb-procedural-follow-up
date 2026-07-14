@@ -270,6 +270,27 @@ public class InstitutionalReportAnalysisServiceTests
     }
 
     [Fact]
+    public void ReportDepartmentValidator_RejectsMissingDepartmentId()
+    {
+        var snapshot = DepartmentSnapshot(1, null, "إدارة المتابعة", isOpen: true);
+
+        Assert.False(ReportDepartmentValidator.HasValidDepartment(snapshot));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("غير محدد")]
+    [InlineData("غير محددة")]
+    [InlineData("—")]
+    public void ReportDepartmentValidator_RejectsUndefinedDepartmentName(string departmentName)
+    {
+        var snapshot = DepartmentSnapshot(1, 10, departmentName, isOpen: true);
+
+        Assert.False(ReportDepartmentValidator.HasValidDepartment(snapshot));
+    }
+
+    [Fact]
     public void Build_DepartmentAnalysis_MergesComparisonByDepartmentId()
     {
         var currentSnapshots = new List<TransactionReportSnapshot>
