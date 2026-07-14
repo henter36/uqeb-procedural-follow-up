@@ -270,6 +270,27 @@ public class InstitutionalReportAnalysisServiceTests
     }
 
     [Fact]
+    public void Build_DepartmentAnalysis_GroupsSameDepartmentId_WhenDepartmentNameChanges()
+    {
+        var snapshots = new List<TransactionReportSnapshot>
+        {
+            DepartmentSnapshot(1, 10, "إدارة المتابعة", isOpen: true),
+            DepartmentSnapshot(2, 10, "إدارة المتابعة المحدثة", isOpen: false, isClosed: true),
+        };
+        var previousSnapshots = new List<TransactionReportSnapshot>
+        {
+            DepartmentSnapshot(3, 10, "إدارة المتابعة السابقة", isOpen: true),
+        };
+
+        var result = BuildAnalysis(snapshots, previousSnapshots, minimumRankingSampleSize: 1);
+
+        var department = Assert.Single(result.DepartmentPerformance);
+        Assert.Equal(10, department.DepartmentId);
+        Assert.Equal(2, department.SampleSize);
+        Assert.Equal(0, department.BacklogChange);
+    }
+
+    [Fact]
     public void ReportDepartmentValidator_RejectsMissingDepartmentId()
     {
         var snapshot = DepartmentSnapshot(1, null, "إدارة المتابعة", isOpen: true);

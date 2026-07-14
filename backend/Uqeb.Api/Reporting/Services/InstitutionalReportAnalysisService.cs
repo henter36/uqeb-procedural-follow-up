@@ -385,7 +385,7 @@ internal static class InstitutionalReportAnalysisService
         DateTime referenceDate)
     {
         var open = currentSnapshots.Where(s => s.IsOpen).ToList();
-        var closedDurations = CompletionDays(currentSnapshots).ToList();
+        var closedDurations = ReportingTemporalCalculator.CompletionDays(currentSnapshots).ToList();
         var responseDurations = ResponseDays(currentSnapshots).ToList();
         var stale = open.Count(s => ReportingTemporalCalculator.IsStale(s, referenceDate, options.StaleTransactionDays));
         var oldestOpen = open.Count == 0 ? 0 : open.Max(s => s.ElapsedDays);
@@ -692,25 +692,21 @@ internal static class InstitutionalReportAnalysisService
             .Where(ReportDepartmentValidator.HasValidDepartment)
             .GroupBy(s => s.ResponsibleDepartmentId!.Value)
             .ToDictionary(g => g.Key, g => g.Count(s => s.IsOpen));
-        var systemAverageCompletion = CompletionDays(current).DefaultIfEmpty(0).Average();
+        var systemAverageCompletion = ReportingTemporalCalculator.CompletionDays(current).DefaultIfEmpty(0).Average();
 
         return current
             .Where(ReportDepartmentValidator.HasValidDepartment)
-            .GroupBy(s => new
-            {
-                ResponsibleDepartmentId = s.ResponsibleDepartmentId!.Value,
-                Name = ReportDepartmentNameNormalizer.Normalize(s.ResponsibleDepartment)
-            })
+            .GroupBy(ReportDepartmentValidator.GetKey)
             .Select(g =>
             {
-                var closedDays = CompletionDays(g).ToList();
-                previousOpen.TryGetValue(g.Key.ResponsibleDepartmentId, out var previousOpenCount);
+                var closedDays = ReportingTemporalCalculator.CompletionDays(g).ToList();
+                previousOpen.TryGetValue(g.Key, out var previousOpenCount);
                 var average = closedDays.Count == 0 ? 0 : Math.Round(closedDays.Average(), 1);
                 var systemComparison = ResolveSystemComparison(average, systemAverageCompletion);
                 return new DepartmentAnalysisRowDto
                 {
-                    DepartmentId = g.Key.ResponsibleDepartmentId,
-                    DepartmentName = g.Key.Name,
+                    DepartmentId = g.Key,
+                    DepartmentName = ReportDepartmentValidator.GetName(g),
                     IncomingCount = g.Count(IsPeriodIncomingForAnalysis),
                     ClosedCount = g.Count(s => s.IsClosed),
                     OpenCount = g.Count(s => s.IsOpen),
@@ -760,7 +756,7 @@ internal static class InstitutionalReportAnalysisService
         var previousMetrics = BuildDepartmentRecognitionMetrics(previous)
             .ToDictionary(metric => metric.Key);
         var minimumSampleSize = options.MinimumRankingSampleSize;
-        var systemAverageCompletion = Average(CompletionDays(current));
+        var systemAverageCompletion = Average(ReportingTemporalCalculator.CompletionDays(current));
 
         var outstanding = currentMetrics
             .Where(metric => IsEligibleForOutstandingRecognition(metric, minimumSampleSize))
@@ -793,11 +789,7 @@ internal static class InstitutionalReportAnalysisService
     {
         return snapshots
             .Where(ReportDepartmentValidator.HasValidDepartment)
-            .GroupBy(snapshot => new
-            {
-                ResponsibleDepartmentId = snapshot.ResponsibleDepartmentId!.Value,
-                Name = ReportDepartmentNameNormalizer.Normalize(snapshot.ResponsibleDepartment)
-            })
+            .GroupBy(ReportDepartmentValidator.GetKey)
             .Select(group =>
             {
                 var rows = group.ToList();
@@ -805,11 +797,11 @@ internal static class InstitutionalReportAnalysisService
                 var closedCount = rows.Count(snapshot => snapshot.IsClosed);
                 var overdueCount = rows.Count(snapshot => snapshot.IsOverdue);
                 var pendingAssignmentsCount = rows.Sum(snapshot => snapshot.PendingReplyAssignmentCount);
-                var completionDays = CompletionDays(rows).ToList();
+                var completionDays = ReportingTemporalCalculator.CompletionDays(rows).ToList();
                 return new DepartmentRecognitionMetrics(
-                    Key: group.Key.ResponsibleDepartmentId,
-                    DepartmentId: group.Key.ResponsibleDepartmentId,
-                    DepartmentName: group.Key.Name,
+                    Key: group.Key,
+                    DepartmentId: group.Key,
+                    DepartmentName: ReportDepartmentValidator.GetName(group),
                     TransactionCount: totalCount,
                     ClosedCount: closedCount,
                     OverdueCount: overdueCount,
@@ -977,7 +969,7 @@ internal static class InstitutionalReportAnalysisService
                 OpenCount = g.Count(s => s.IsOpen),
                 OverdueCount = g.Count(s => s.IsOverdue),
                 OnTimeCompletionRate = CalculateOnTimeRate(g),
-                AverageCompletionDays = Average(CompletionDays(g)),
+                AverageCompletionDays = Average(ReportingTemporalCalculator.CompletionDays(g)),
                 PendingAssignments = g.Sum(s => s.PendingReplyAssignmentCount)
             })
             .OrderByDescending(c => c.TransactionCount)
@@ -1256,7 +1248,7 @@ internal static class InstitutionalReportAnalysisService
                     OpenBalance = g.Count(s => s.IsOpen),
                     Overdue = overdue,
                     OnTimeRate = CalculateOnTimeRate(g),
-                    AverageCompletionDays = Average(CompletionDays(g)),
+                    AverageCompletionDays = Average(ReportingTemporalCalculator.CompletionDays(g)),
                     BacklogGrowth = incoming - closed
                 };
             })
@@ -1277,19 +1269,15 @@ internal static class InstitutionalReportAnalysisService
             .GroupBy(s => PeriodStart(s.IncomingDate, grouping))
             .SelectMany(periodGroup => periodGroup
                 .Where(ReportDepartmentValidator.HasValidDepartment)
-                .GroupBy(s => new
-                {
-                    ResponsibleDepartmentId = s.ResponsibleDepartmentId!.Value,
-                    Name = ReportDepartmentNameNormalizer.Normalize(s.ResponsibleDepartment)
-                })
+                .GroupBy(ReportDepartmentValidator.GetKey)
                 .Select(deptGroup =>
                 {
                     var incoming = deptGroup.Count();
                     var closed = deptGroup.Count(s => s.IsClosed);
                     return new DepartmentTimeSeriesPointDto
                     {
-                        DepartmentId = deptGroup.Key.ResponsibleDepartmentId,
-                        DepartmentName = deptGroup.Key.Name,
+                        DepartmentId = deptGroup.Key,
+                        DepartmentName = ReportDepartmentValidator.GetName(deptGroup),
                         PeriodStart = periodGroup.Key,
                         PeriodLabel = PeriodLabel(periodGroup.Key, grouping),
                         IncomingCount = incoming,
@@ -1297,7 +1285,7 @@ internal static class InstitutionalReportAnalysisService
                         OpenCount = deptGroup.Count(s => s.IsOpen),
                         OverdueCount = deptGroup.Count(s => s.IsOverdue),
                         OnTimeCompletionRate = CalculateOnTimeRate(deptGroup),
-                        AverageCompletionDays = Average(CompletionDays(deptGroup)),
+                        AverageCompletionDays = Average(ReportingTemporalCalculator.CompletionDays(deptGroup)),
                         PendingAssignments = deptGroup.Sum(s => s.PendingReplyAssignmentCount),
                         PartialReplies = deptGroup.Count(s => s.IsPartialReply),
                         BacklogGrowth = incoming - closed
@@ -1415,16 +1403,8 @@ internal static class InstitutionalReportAnalysisService
             ? request.ComparisonDateTo
             : CreateComparisonRequest(request)?.Filters.DateTo;
 
-    private static IEnumerable<int> CompletionDays(IEnumerable<TransactionReportSnapshot> snapshots) =>
-        snapshots
-            .Select(ReportingTemporalCalculator.CompletionDays)
-            .OfType<int>();
-
     private static IEnumerable<int> ResponseDays(IEnumerable<TransactionReportSnapshot> snapshots) =>
-        snapshots
-            .Where(s => s.ResponseCompleted)
-            .Select(ReportingTemporalCalculator.CompletionDays)
-            .OfType<int>();
+        ReportingTemporalCalculator.CompletionDays(snapshots.Where(s => s.ResponseCompleted));
 
     private static double Average(IEnumerable<int> values)
     {

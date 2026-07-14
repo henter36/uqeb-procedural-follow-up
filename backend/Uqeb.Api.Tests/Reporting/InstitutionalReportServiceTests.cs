@@ -154,6 +154,117 @@ public class InstitutionalReportServiceDepartmentPerformanceTests
         Assert.Equal(5, ws.Cell(2, 8).GetDouble());
     }
 
+    [Fact]
+    public async Task BuildReportModelAsync_DepartmentPerformanceTotalMatchesScope_WhenClosedTransactionsHaveCompletedAssignments()
+    {
+        var dbName = $"department-performance-completed-assignments-{Guid.NewGuid():N}";
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(dbName)
+            .Options;
+        IDbContextFactory<AppDbContext> dbFactory = new TestDbContextFactory(options);
+
+        await using (var db = dbFactory.CreateDbContext())
+        {
+            var user = new User
+            {
+                Username = "dept-attribution-test",
+                PasswordHash = "hash",
+                FullName = "Department Attribution Test",
+                Role = UserRole.Admin,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            };
+            db.Users.Add(user);
+            db.Departments.AddRange(
+                new Department { Id = 10, Name = "إدارة نشطة", NameNormalized = "إدارة نشطة", IsActive = true },
+                new Department { Id = 20, Name = "إدارة مكتملة", NameNormalized = "إدارة مكتملة", IsActive = true },
+                new Department { Id = 30, Name = "إدارة ملغاة", NameNormalized = "إدارة ملغاة", IsActive = true });
+            await db.SaveChangesAsync();
+
+            AddReportTransaction(db, user.Id, 1, TransactionStatus.New, new DateTime(2026, 6, 1),
+            [
+                (10, AssignmentStatus.Active),
+            ]);
+            AddReportTransaction(db, user.Id, 2, TransactionStatus.Closed, new DateTime(2026, 6, 2),
+            [
+                (20, AssignmentStatus.Completed),
+            ]);
+            AddReportTransaction(db, user.Id, 3, TransactionStatus.Closed, new DateTime(2026, 6, 3),
+            [
+                (30, AssignmentStatus.Cancelled),
+                (20, AssignmentStatus.Completed),
+            ]);
+            await db.SaveChangesAsync();
+        }
+
+        var service = InstitutionalReportServiceTestHelpers.CreateService(dbFactory);
+        var model = await service.BuildReportModelAsync(new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [ReportSectionId.DepartmentPerformance],
+            Filters = new ReportFiltersDto
+            {
+                DateFrom = new DateTime(2026, 6, 1),
+                DateTo = new DateTime(2026, 6, 30),
+            },
+        });
+
+        Assert.Equal(model.TotalMatchedRows, model.DepartmentPerformance.Sum(row => row.TotalTransactions));
+        Assert.Equal(model.Summary.KpiCards.Single(card => card.Key == "total").Value, model.TotalMatchedRows.ToString("N0"));
+        Assert.DoesNotContain(model.DepartmentPerformance, row => row.DepartmentId == 0);
+        Assert.DoesNotContain(model.DepartmentPerformance, row => row.DepartmentName.Contains("غير محدد", StringComparison.Ordinal));
+        Assert.DoesNotContain(model.IntegrityWarnings, w => w.Code == "DEPARTMENT_ATTRIBUTION_MISMATCH");
+    }
+
+    [Fact]
+    public async Task BuildReportModelAsync_AddsIntegrityWarning_WhenTransactionsCannotBeAttributedToDepartment()
+    {
+        var dbName = $"department-performance-unattributed-{Guid.NewGuid():N}";
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(dbName)
+            .Options;
+        IDbContextFactory<AppDbContext> dbFactory = new TestDbContextFactory(options);
+
+        await using (var db = dbFactory.CreateDbContext())
+        {
+            var user = new User
+            {
+                Username = "dept-unattributed-test",
+                PasswordHash = "hash",
+                FullName = "Department Unattributed Test",
+                Role = UserRole.Admin,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            };
+            db.Users.Add(user);
+            db.Departments.Add(new Department { Id = 30, Name = "إدارة ملغاة", NameNormalized = "إدارة ملغاة", IsActive = true });
+            await db.SaveChangesAsync();
+
+            AddReportTransaction(db, user.Id, 1, TransactionStatus.New, new DateTime(2026, 6, 1),
+            [
+                (30, AssignmentStatus.Cancelled),
+            ]);
+            await db.SaveChangesAsync();
+        }
+
+        var service = InstitutionalReportServiceTestHelpers.CreateService(dbFactory);
+        var model = await service.BuildReportModelAsync(new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [ReportSectionId.DepartmentPerformance],
+            Filters = new ReportFiltersDto
+            {
+                DateFrom = new DateTime(2026, 6, 1),
+                DateTo = new DateTime(2026, 6, 30),
+            },
+        });
+
+        Assert.Equal(1, model.TotalMatchedRows);
+        Assert.Empty(model.DepartmentPerformance);
+        var warning = Assert.Single(model.IntegrityWarnings, w => w.Code == "DEPARTMENT_ATTRIBUTION_MISMATCH");
+        Assert.Contains("عدد المعاملات غير المنسوبة", warning.Message);
+    }
+
     private static void AddClosedTransaction(
         AppDbContext db,
         int userId,
@@ -186,6 +297,47 @@ public class InstitutionalReportServiceDepartmentPerformanceTests
             AssignedDate = incomingDate,
             CreatedById = userId,
         });
+    }
+
+    private static void AddReportTransaction(
+        AppDbContext db,
+        int userId,
+        int sequence,
+        TransactionStatus status,
+        DateTime incomingDate,
+        IReadOnlyList<(int DepartmentId, AssignmentStatus Status)> assignments)
+    {
+        var transaction = new Transaction
+        {
+            InternalTrackingNumber = $"ATTR-{sequence:D4}",
+            IncomingNumber = $"ATTR-IN-{sequence:D4}",
+            IncomingDate = incomingDate,
+            Subject = $"إسناد تقرير {sequence}",
+            IncomingFrom = "جهة اختبار",
+            Status = status,
+            Priority = Priority.Normal,
+            ClosedAt = status == TransactionStatus.Closed ? incomingDate.AddDays(2) : null,
+            CreatedById = userId,
+            CreatedAt = incomingDate,
+        };
+        db.Transactions.Add(transaction);
+
+        var offset = 0;
+        foreach (var assignment in assignments)
+        {
+            db.Assignments.Add(new Assignment
+            {
+                Transaction = transaction,
+                DepartmentId = assignment.DepartmentId,
+                Status = assignment.Status,
+                RequiresReply = false,
+                ReplyStatus = ReplyStatus.Pending,
+                AssignedDate = incomingDate.AddDays(offset),
+                CreatedAt = incomingDate.AddDays(offset).AddHours(1),
+                CreatedById = userId,
+            });
+            offset++;
+        }
     }
 }
 
