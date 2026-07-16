@@ -29,11 +29,13 @@ public sealed class ReportFiltersDto
     public DateTime? DateFrom { get; set; }
     public DateTime? DateTo { get; set; }
     public List<int> DepartmentIds { get; set; } = [];
+    public List<int> ExcludedDepartmentIds { get; set; } = [];
     public List<int> PartyIds { get; set; } = [];
     public List<int> CategoryIds { get; set; } = [];
     public List<string> Priorities { get; set; } = [];
     public List<string> Statuses { get; set; } = [];
     public bool IncludeOverdue { get; set; } = false;
+    public DepartmentTransactionScope DepartmentTransactionScope { get; set; } = DepartmentTransactionScope.All;
     public string? Search { get; set; }
 }
 
@@ -330,6 +332,7 @@ public sealed class DepartmentPerformanceRowDto
     public int JointDepartmentCount { get; set; }
     public double AverageCompletionDays { get; set; }
     public double OnTimeCompletionRate { get; set; }
+    public double? OverdueRate { get; set; }
     public DepartmentRatingLevel Rating { get; set; }
     public string RatingLabel { get; set; } = string.Empty;
 }

@@ -807,7 +807,7 @@ public sealed class InstitutionalReportRenderer
             <tr>
               <td class="cell--department">{Esc(NormalizeDepartmentName(d.DepartmentName))}</td>
               <td class="cell--number">{d.TotalTransactions}</td><td class="cell--number">{d.ClosedCount}</td><td class="cell--number">{d.OpenCount}</td>
-              <td class="cell--number">{d.OverdueCount}</td><td class="cell--number">{d.WaitingForStatementCount}</td><td class="cell--number">{d.OnTimeCompletionRate:N1}%</td>
+              <td class="cell--number">{d.OverdueCount}</td><td class="cell--number">{FormatPercentOrDash(d.OverdueRate)}</td><td class="cell--number">{d.WaitingForStatementCount}</td><td class="cell--number">{d.OnTimeCompletionRate:N1}%</td>
             </tr>
             """;
         }));
@@ -820,12 +820,12 @@ public sealed class InstitutionalReportRenderer
         <table class="report-table report-table--departments">
           <thead><tr>
             <th>الإدارة</th><th>إجمالي</th><th>مغلقة</th><th>مفتوحة</th><th>متأخرة</th>
-            <th>بانتظار إفادة</th><th>ضمن المهلة</th>
+            <th>نسبة التأخر</th><th>بانتظار إفادة</th><th>ضمن المهلة</th>
           </tr></thead>
           <tbody>{rows}
           <tr class="report-table__total-row">
             <td>الإجمالي</td><td class="cell--number">{totals.Total}</td><td class="cell--number">{totals.Closed}</td><td class="cell--number">{totals.Open}</td>
-            <td class="cell--number">{totals.Overdue}</td><td class="cell--number">{totals.Waiting}</td><td>—</td>
+            <td class="cell--number">{totals.Overdue}</td><td>—</td><td class="cell--number">{totals.Waiting}</td><td>—</td>
           </tr></tbody>
         </table>
         <p class="section-footnote">{(model.DepartmentTotalsAreAdditive
@@ -833,6 +833,9 @@ public sealed class InstitutionalReportRenderer
             : $"* {Esc(model.DepartmentAggregationDescription)}")}</p>
         """;
     }
+
+    private static string FormatPercentOrDash(double? value) =>
+        value.HasValue ? $"{value.Value:N1}%" : "—";
 
     private static string RenderDepartmentRecognitions(InstitutionalReportModel model)
     {
@@ -1195,6 +1198,10 @@ public sealed class InstitutionalReportRenderer
         }
         if (filters.DepartmentIds.Count > 0)
             parts.Add($"إدارات: {filters.DepartmentIds.Count}");
+        if (filters.ExcludedDepartmentIds.Count > 0)
+            parts.Add($"إدارات مستثناة: {filters.ExcludedDepartmentIds.Count}");
+        if (filters.DepartmentTransactionScope == DepartmentTransactionScope.OpenOnly)
+            parts.Add("نطاق معاملات الإدارة: المفتوحة فقط");
         if (filters.PartyIds.Count > 0)
             parts.Add($"جهات: {filters.PartyIds.Count}");
         if (filters.CategoryIds.Count > 0)

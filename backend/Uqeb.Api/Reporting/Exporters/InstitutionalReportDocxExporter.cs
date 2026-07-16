@@ -192,7 +192,7 @@ public static class InstitutionalReportDocxExporter
     {
         AppendHeading(body, "أداء الإدارات");
         foreach (var row in model.DepartmentPerformance)
-            AppendParagraph(body, $"{row.DepartmentName} — إجمالي {row.TotalTransactions}");
+            AppendParagraph(body, $"{row.DepartmentName} — إجمالي {row.TotalTransactions} — نسبة التأخر {FormatPercentOrDash(row.OverdueRate)}");
     }
 
     private static void AppendDepartmentRecognitionsSection(Body body, InstitutionalReportModel model)
@@ -425,6 +425,9 @@ public static class InstitutionalReportDocxExporter
     }
 
     private static Run CreateRun() => new();
+
+    private static string FormatPercentOrDash(double? value) =>
+        value.HasValue ? $"{value.Value:N1}%" : "—";
 
     private static string SeverityLabel(AnalyticalSeverity severity) => severity switch
     {

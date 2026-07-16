@@ -14,6 +14,7 @@ import {
 } from './reportBuilderHelpers';
 import {
   DetailOverflowAction,
+  DepartmentTransactionScope,
   ExportFormat,
   ExportMode,
   InstitutionalReportType,
@@ -42,6 +43,8 @@ function mockLookupItems(items: Array<Pick<LookupItem, 'id' | 'name'>>): AxiosRe
 
 const emptyDeptTransactionsFilters = {
   departmentIds: [] as number[],
+  excludedDepartmentIds: [] as number[],
+  departmentTransactionScope: DepartmentTransactionScope.All,
   partyIds: [] as number[],
   categoryIds: [] as number[],
   priorities: [] as string[],
@@ -606,6 +609,8 @@ describe('ReportBuilderPage export dialog', () => {
             statuses: ['Overdue'],
             includeOverdue: true,
             search: 'TPL-1',
+            excludedDepartmentIds: [44],
+            departmentTransactionScope: DepartmentTransactionScope.OpenOnly,
           },
           defaultFormat: ExportFormat.Xlsx,
           pageNumberingMode: 2,
@@ -639,6 +644,8 @@ describe('ReportBuilderPage export dialog', () => {
     expect(request.filters.statuses).toEqual(['Overdue']);
     expect(request.filters.includeOverdue).toBe(true);
     expect(request.filters.search).toBe('TPL-1');
+    expect(request.filters.excludedDepartmentIds).toEqual([44]);
+    expect(request.filters.departmentTransactionScope).toBe(DepartmentTransactionScope.All);
   });
 
   it('applies safe fallbacks when saved template default filters are missing', async () => {
@@ -681,6 +688,8 @@ describe('ReportBuilderPage export dialog', () => {
     expect(request.filters.statuses).toEqual([]);
     expect(request.filters.includeOverdue).toBe(false);
     expect(request.filters.search).toBeNull();
+    expect(request.filters.excludedDepartmentIds).toEqual([]);
+    expect(request.filters.departmentTransactionScope).toBe(DepartmentTransactionScope.All);
   });
 
   it('saves current report builder settings as a template', async () => {
@@ -861,6 +870,45 @@ describe('ReportBuilderPage export dialog', () => {
     expect(request.groupDetailsByDepartment).toBe(true);
   });
 
+  it('sends excluded departments and open-only scope in DepartmentTransactions preview request', async () => {
+    vi.mocked(services.departmentsApi.lookup).mockResolvedValueOnce(
+      mockLookupItems([{ id: 20, name: 'الإدارة ب' }, { id: 30, name: 'الإدارة ج' }]),
+    );
+    vi.mocked(services.institutionalReportsApi.preview).mockResolvedValue(mockPreviewResponse());
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+
+    await user.selectOptions(screen.getByLabelText('نوع التقرير'), String(InstitutionalReportType.DepartmentTransactions));
+    await waitFor(() => expect(screen.getByLabelText(/الإدارات المحالة\/الصادر لها/)).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText(/الإدارات المحالة\/الصادر لها/), ['20']);
+    await user.selectOptions(screen.getByLabelText('الإدارات المستثناة'), ['30']);
+    await user.selectOptions(screen.getByLabelText('نطاق معاملات الإدارة'), String(DepartmentTransactionScope.OpenOnly));
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+
+    await waitFor(() => expect(services.institutionalReportsApi.preview).toHaveBeenCalled());
+    const request = vi.mocked(services.institutionalReportsApi.preview).mock.calls[0][0];
+    expect(request.filters.departmentIds).toEqual([20]);
+    expect(request.filters.excludedDepartmentIds).toEqual([30]);
+    expect(request.filters.departmentTransactionScope).toBe(DepartmentTransactionScope.OpenOnly);
+  });
+
+  it('blocks DepartmentTransactions preview when selected department is excluded', async () => {
+    vi.mocked(services.departmentsApi.lookup).mockResolvedValueOnce(
+      mockLookupItems([{ id: 20, name: 'الإدارة ب' }, { id: 30, name: 'الإدارة ج' }]),
+    );
+    const user = userEvent.setup();
+    render(<ReportBuilderPage />);
+
+    await user.selectOptions(screen.getByLabelText('نوع التقرير'), String(InstitutionalReportType.DepartmentTransactions));
+    await waitFor(() => expect(screen.getByLabelText(/الإدارات المحالة\/الصادر لها/)).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText(/الإدارات المحالة\/الصادر لها/), ['20']);
+    await user.selectOptions(screen.getByLabelText('الإدارات المستثناة'), ['20']);
+    await user.click(screen.getByRole('button', { name: 'معاينة التقرير' }));
+
+    expect(services.institutionalReportsApi.preview).not.toHaveBeenCalled();
+    expect(screen.getAllByText('لا يمكن استثناء الإدارة المحددة لتقرير معاملات إدارة.').length).toBeGreaterThan(0);
+  });
+
   it('resets groupDetailsByDepartment when switching away from DepartmentTransactions', async () => {
     vi.mocked(services.departmentsApi.lookup).mockResolvedValueOnce(
       mockLookupItems([{ id: 20, name: 'الإدارة ب' }, { id: 30, name: 'الإدارة ج' }]),
@@ -888,7 +936,12 @@ describe('ReportBuilderPage export dialog', () => {
       name: 'قالب معاملات إدارة',
       reportType: InstitutionalReportType.DepartmentTransactions,
       sectionIds: [ReportSectionId.Cover, ReportSectionId.TransactionDetails],
-      defaultFilters: { ...emptyDeptTransactionsFilters, departmentIds: [20, 30] },
+      defaultFilters: {
+        ...emptyDeptTransactionsFilters,
+        departmentIds: [20, 30],
+        excludedDepartmentIds: [10],
+        departmentTransactionScope: DepartmentTransactionScope.OpenOnly,
+      },
       defaultFormat: ExportFormat.Pdf,
       pageNumberingMode: 1,
       includePartialCover: false,
@@ -913,6 +966,8 @@ describe('ReportBuilderPage export dialog', () => {
     const request = vi.mocked(services.institutionalReportsApi.preview).mock.calls[0][0];
     expect(request.detailSortBy).toBe(2);
     expect(request.groupDetailsByDepartment).toBe(true);
+    expect(request.filters.excludedDepartmentIds).toEqual([10]);
+    expect(request.filters.departmentTransactionScope).toBe(DepartmentTransactionScope.OpenOnly);
   });
 
   it('includes detailSortBy and groupDetailsByDepartment in the saveTemplate payload', async () => {
@@ -940,6 +995,7 @@ describe('ReportBuilderPage export dialog', () => {
     await user.selectOptions(screen.getByLabelText('نوع التقرير'), String(InstitutionalReportType.DepartmentTransactions));
     await waitFor(() => expect(screen.getByLabelText(/الإدارات المحالة\/الصادر لها/)).toBeInTheDocument());
     await user.selectOptions(screen.getByLabelText(/الإدارات المحالة\/الصادر لها/), ['20', '30']);
+    await user.selectOptions(screen.getByLabelText('نطاق معاملات الإدارة'), String(DepartmentTransactionScope.OpenOnly));
     await user.selectOptions(screen.getByLabelText('ترتيب التفاصيل'), String(2));
     await user.click(screen.getByRole('checkbox', { name: /تجميع التفاصيل حسب الإدارة/i }));
 
@@ -950,6 +1006,9 @@ describe('ReportBuilderPage export dialog', () => {
     const payload = vi.mocked(services.institutionalReportsApi.saveTemplate).mock.calls[0][0];
     expect(payload.detailSortBy).toBe(2);
     expect(payload.groupDetailsByDepartment).toBe(true);
+    expect(payload.defaultFilters.departmentIds).toEqual([20, 30]);
+    expect(payload.defaultFilters.excludedDepartmentIds).toEqual([]);
+    expect(payload.defaultFilters.departmentTransactionScope).toBe(DepartmentTransactionScope.OpenOnly);
   });
 
   it('shows the relabeled departments filter with its clarifying hint text', async () => {

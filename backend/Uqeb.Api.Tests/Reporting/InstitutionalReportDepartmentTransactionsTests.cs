@@ -310,6 +310,59 @@ public class InstitutionalReportDepartmentTransactionsTests
     }
 
     [Fact]
+    public async Task BuildReportModelAsync_ExcludedDepartments_RemovesTransactionsFromDetailsAndTotals()
+    {
+        var options = CreateOptions($"deptx-{Guid.NewGuid():N}");
+        await SeedAsync(options);
+        var service = InstitutionalReportServiceTestHelpers.CreateService(new TestDbContextFactory(options));
+
+        var request = DepartmentTransactionsRequest([20], new DateTime(2026, 1, 1), new DateTime(2026, 1, 31));
+        request.Filters.ExcludedDepartmentIds = [30];
+
+        var model = await service.BuildReportModelAsync(request);
+
+        Assert.Equal(3, model.TotalMatchedRows);
+        Assert.Equal(3, model.Transactions.Count);
+        Assert.DoesNotContain(model.Transactions, row => row.TransactionId == 5);
+        Assert.DoesNotContain(model.Transactions.SelectMany(row => row.MatchedDepartments), dept => dept.DepartmentId == 30);
+    }
+
+    [Fact]
+    public async Task BuildReportModelAsync_DepartmentTransactionsOpenOnly_UsesOpenScopeAfterPeriodScope()
+    {
+        var options = CreateOptions($"deptx-{Guid.NewGuid():N}");
+        await SeedAsync(options);
+        await using (var db = new AppDbContext(options))
+        {
+            var closed = await db.Transactions.SingleAsync(t => t.Id == 3);
+            closed.Status = TransactionStatus.Closed;
+            closed.ClosedAt = new DateTime(2026, 1, 20, 0, 0, 0, DateTimeKind.Utc);
+            await db.SaveChangesAsync();
+        }
+        var service = InstitutionalReportServiceTestHelpers.CreateService(new TestDbContextFactory(options));
+
+        var request = DepartmentTransactionsRequest([20], new DateTime(2026, 1, 8), new DateTime(2026, 1, 31));
+        request.Filters.DepartmentTransactionScope = DepartmentTransactionScope.OpenOnly;
+
+        var model = await service.BuildReportModelAsync(request);
+
+        Assert.Equal([1, 2, 5], model.Transactions.Select(row => row.TransactionId).OrderBy(id => id).ToArray());
+        Assert.Equal(3, model.TotalMatchedRows);
+    }
+
+    [Fact]
+    public async Task BuildReportModelAsync_DepartmentTransactionsSelectedDepartmentCannotBeExcluded()
+    {
+        var service = InstitutionalReportServiceTestHelpers.CreateService();
+        var request = DepartmentTransactionsRequest([20], new DateTime(2026, 1, 1), new DateTime(2026, 1, 31));
+        request.Filters.ExcludedDepartmentIds = [20];
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.BuildReportModelAsync(request));
+
+        Assert.Contains("filters.excludedDepartmentIds", ex.FieldErrors.Keys);
+    }
+
+    [Fact]
     public async Task BuildReportModelAsync_MultipleDepartmentsWithoutGrouping_ShowsOneRowPerTransaction()
     {
         var options = CreateOptions($"deptx-{Guid.NewGuid():N}");
@@ -586,5 +639,26 @@ public class InstitutionalReportDepartmentTransactionsTests
 
         var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.SaveTemplateAsync(request));
         Assert.Contains("defaultFilters.departmentIds", ex.FieldErrors.Keys);
+    }
+
+    [Fact]
+    public async Task SaveTemplateAsync_DepartmentTransactionsSelectedDepartmentCannotBeExcluded()
+    {
+        var service = InstitutionalReportServiceTestHelpers.CreateService();
+        var request = new SaveReportTemplateRequestDto
+        {
+            Name = "قالب معاملات إدارة",
+            ReportType = InstitutionalReportType.DepartmentTransactions,
+            SectionIds = [ReportSectionId.TransactionDetails],
+            DefaultFilters = new ReportFiltersDto
+            {
+                DepartmentIds = [20],
+                ExcludedDepartmentIds = [20],
+            },
+        };
+
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() => service.SaveTemplateAsync(request));
+
+        Assert.Contains("defaultFilters.excludedDepartmentIds", ex.FieldErrors.Keys);
     }
 }

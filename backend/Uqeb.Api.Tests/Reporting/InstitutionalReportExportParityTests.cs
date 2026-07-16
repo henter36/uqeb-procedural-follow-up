@@ -123,7 +123,7 @@ public class InstitutionalReportExportParityTests
         // to prove the exporter surfaces whatever the model carries (parity, not re-computation).
         var model = InstitutionalReportVisualFixtures.CreateBaseModel();
         model.Analysis.Methodology.DeferredMetrics.Add(
-            "AverageResponseDays (تقديري): لا يوجد ResponseCompletedAt مستقل — يستخدم ClosedAt بديلاً.");
+            "AverageResponseDays (تقديري): يعتمد على مدد معاملات الرد المكتملة المتاحة في اللقطة التحليلية.");
         var manifest = InstitutionalReportVisualFixtures.RenderSections(model, ReportSectionId.MethodologyAndDefinitions);
         var bytes = InstitutionalReportXlsxExporter.Export(model, manifest, new ReportExportRequestDto());
 
@@ -215,7 +215,7 @@ public class InstitutionalReportExportParityTests
     {
         var model = InstitutionalReportVisualFixtures.CreateBaseModel();
         model.Analysis.Methodology.DeferredMetrics.Add(
-            "AverageResponseDays (تقديري): لا يوجد ResponseCompletedAt مستقل — يستخدم ClosedAt بديلاً.");
+            "AverageResponseDays (تقديري): يعتمد على مدد معاملات الرد المكتملة المتاحة في اللقطة التحليلية.");
         var manifest = InstitutionalReportVisualFixtures.RenderSections(model, ReportSectionId.MethodologyAndDefinitions);
         var bytes = InstitutionalReportDocxExporter.Export(model, manifest, new ReportExportRequestDto());
 
