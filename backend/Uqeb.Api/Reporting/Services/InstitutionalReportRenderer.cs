@@ -1196,25 +1196,37 @@ public sealed class InstitutionalReportRenderer
             var to = filters.DateTo.HasValue ? FormatDate(filters.DateTo.Value) : "—";
             parts.Add($"التاريخ: من {from} إلى {to}");
         }
-        if (filters.DepartmentIds.Count > 0)
-            parts.Add($"إدارات: {filters.DepartmentIds.Count}");
-        if (filters.ExcludedDepartmentIds.Count > 0)
-            parts.Add($"إدارات مستثناة: {filters.ExcludedDepartmentIds.Count}");
+        AddCountFilter(parts, "إدارات", filters.DepartmentIds);
+        AddCountFilter(parts, "إدارات مستثناة", filters.ExcludedDepartmentIds);
         if (filters.DepartmentTransactionScope == DepartmentTransactionScope.OpenOnly)
             parts.Add("نطاق معاملات الإدارة: المفتوحة فقط");
-        if (filters.PartyIds.Count > 0)
-            parts.Add($"جهات: {filters.PartyIds.Count}");
-        if (filters.CategoryIds.Count > 0)
-            parts.Add($"تصنيفات: {filters.CategoryIds.Count}");
-        if (filters.Priorities.Count > 0)
-            parts.Add($"الأولويات: {string.Join("، ", filters.Priorities)}");
-        if (filters.Statuses.Count > 0)
-            parts.Add($"الحالات: {string.Join("، ", filters.Statuses)}");
+        AddCountFilter(parts, "جهات", filters.PartyIds);
+        AddCountFilter(parts, "تصنيفات", filters.CategoryIds);
+        AddJoinedFilter(parts, "الأولويات", filters.Priorities);
+        AddJoinedFilter(parts, "الحالات", filters.Statuses);
         if (filters.IncludeOverdue)
             parts.Add("المتأخرة فقط");
         if (!string.IsNullOrWhiteSpace(filters.Search))
             parts.Add($"بحث: {filters.Search.Trim()}");
         return parts.Count == 0 ? "بدون فلاتر إضافية" : string.Join(" | ", parts);
+    }
+
+    private static void AddCountFilter(
+        List<string> parts,
+        string label,
+        IReadOnlyCollection<int> values)
+    {
+        if (values.Count > 0)
+            parts.Add($"{label}: {values.Count}");
+    }
+
+    private static void AddJoinedFilter(
+        List<string> parts,
+        string label,
+        IReadOnlyCollection<string> values)
+    {
+        if (values.Count > 0)
+            parts.Add($"{label}: {string.Join("، ", values)}");
     }
 
     private static string ComparisonStatusLabel(InstitutionalReportModel model)
