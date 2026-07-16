@@ -214,4 +214,24 @@ public class InstitutionalReportBacklogMetricsTests
         Assert.True(kpi.IsAvailable);
         Assert.Equal(10m, kpi.NumericValue);
     }
+
+    [Fact]
+    public void AverageResponseDays_WordingHidesTechnicalFallback_AndValueIsUnchanged()
+    {
+        var snapshots = new[]
+        {
+            OpenSnap(1, responseCompleted: true, closedDaysAgo: 15),
+            OpenSnap(2, responseCompleted: true, closedDaysAgo: 10),
+        };
+
+        var result = InstitutionalReportAnalysisService.Build(BuildInput(snapshots));
+        var kpi = result.Kpis.Single(k => k.Key == "AverageResponseDays");
+        var methodologyText = string.Join(" ", result.Methodology.DeferredMetrics);
+
+        Assert.Equal(7.5m, kpi.NumericValue);
+        Assert.Contains("تاريخ إنجاز الرد المتاح", kpi.Definition);
+        Assert.DoesNotContain("يستخدم ClosedAt", kpi.Definition);
+        Assert.DoesNotContain("يستخدم ClosedAt", methodologyText);
+        Assert.DoesNotContain("ClosedAt بديلاً", methodologyText);
+    }
 }

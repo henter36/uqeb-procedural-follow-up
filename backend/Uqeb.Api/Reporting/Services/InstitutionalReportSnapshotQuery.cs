@@ -232,7 +232,9 @@ internal static class InstitutionalReportSnapshotQuery
         if (filters.DepartmentIds.Count == 0)
             return query;
 
-        return query.Where(t => t.Assignments.Any(a => filters.DepartmentIds.Contains(a.DepartmentId))
+        return query.Where(t => t.Assignments.Any(a =>
+                (a.Status == AssignmentStatus.Active || a.Status == AssignmentStatus.Completed)
+                && filters.DepartmentIds.Contains(a.DepartmentId))
             || t.OutgoingDepartments.Any(o => filters.DepartmentIds.Contains(o.DepartmentId)));
     }
 
@@ -241,7 +243,9 @@ internal static class InstitutionalReportSnapshotQuery
         if (filters.ExcludedDepartmentIds.Count == 0)
             return query;
 
-        return query.Where(t => !t.Assignments.Any(a => filters.ExcludedDepartmentIds.Contains(a.DepartmentId))
+        return query.Where(t => !t.Assignments.Any(a =>
+                (a.Status == AssignmentStatus.Active || a.Status == AssignmentStatus.Completed)
+                && filters.ExcludedDepartmentIds.Contains(a.DepartmentId))
             && !t.OutgoingDepartments.Any(o => filters.ExcludedDepartmentIds.Contains(o.DepartmentId)));
     }
 

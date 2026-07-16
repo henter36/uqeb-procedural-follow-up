@@ -392,7 +392,6 @@ public class InstitutionalReportServiceDepartmentPerformanceTests
             offset++;
         }
     }
-
     private static void AddOverdueRateTransaction(
         AppDbContext db,
         int userId,
