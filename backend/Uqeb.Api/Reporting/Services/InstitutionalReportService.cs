@@ -939,18 +939,14 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             });
         }
         var departmentTotal = departmentPerformance.Sum(row => row.TotalTransactions);
-        if (departmentTotal != metrics.TotalTransactions)
+        if (departmentTotal < metrics.TotalTransactions)
         {
             var unattributedSnapshots = metrics.Snapshots
                 .Where(snapshot => !ReportDepartmentValidator.HasValidDepartment(snapshot))
                 .ToList();
-            var mismatchKind = departmentTotal > metrics.TotalTransactions
-                ? "duplicate-attribution"
-                : "unattributed-transactions";
 
             _logger.LogWarning(
-                "Institutional report department attribution mismatch. Kind={Kind} TotalTransactions={TotalTransactions} DepartmentTotal={DepartmentTotal} UnattributedCount={UnattributedCount}",
-                mismatchKind,
+                "Institutional report department attribution mismatch. TotalTransactions={TotalTransactions} DepartmentTotal={DepartmentTotal} UnattributedCount={UnattributedCount}",
                 metrics.TotalTransactions,
                 departmentTotal,
                 unattributedSnapshots.Count);
@@ -958,9 +954,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             warnings.Add(new IntegrityWarningDto
             {
                 Code = "DEPARTMENT_ATTRIBUTION_MISMATCH",
-                Message = departmentTotal > metrics.TotalTransactions
-                    ? $"إجمالي المعاملات المنسوبة للإدارات ({departmentTotal:N0}) يتجاوز إجمالي نطاق التقرير ({metrics.TotalTransactions:N0})."
-                    : $"إجمالي نطاق التقرير ({metrics.TotalTransactions:N0}) لا يساوي إجمالي المعاملات المنسوبة للإدارات ({departmentTotal:N0}). عدد المعاملات غير المنسوبة: {unattributedSnapshots.Count:N0}.",
+                Message = $"إجمالي نطاق التقرير ({metrics.TotalTransactions:N0}) لا يساوي إجمالي المعاملات المنسوبة للإدارات ({departmentTotal:N0}). عدد المعاملات غير المنسوبة: {unattributedSnapshots.Count:N0}.",
                 Severity = "warning"
             });
         }

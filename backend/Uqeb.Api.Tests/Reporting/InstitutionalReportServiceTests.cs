@@ -314,6 +314,7 @@ public class InstitutionalReportServiceDepartmentPerformanceTests
 
         Assert.Equal(1, model.TotalMatchedRows);
         Assert.Empty(model.DepartmentPerformance);
+        Assert.True(model.DepartmentPerformance.Sum(row => row.TotalTransactions) < model.TotalMatchedRows);
         var warning = Assert.Single(model.IntegrityWarnings, w => w.Code == "DEPARTMENT_ATTRIBUTION_MISMATCH");
         Assert.Contains("عدد المعاملات غير المنسوبة", warning.Message);
     }
