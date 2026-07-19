@@ -180,6 +180,7 @@ internal static class InstitutionalReportSnapshotQuery
         query = ApplyDateFilter(query, legacy, reportType);
         query = ApplyCategoryFilter(query, filters);
         query = ApplyDepartmentFilter(query, filters);
+        query = ApplyExcludedDepartmentFilter(query, filters);
         query = ApplyPartyFilter(query, filters);
         query = ApplyPriorityFilter(query, filters);
         query = ApplyStatusFilter(query, filters);
@@ -231,8 +232,21 @@ internal static class InstitutionalReportSnapshotQuery
         if (filters.DepartmentIds.Count == 0)
             return query;
 
-        return query.Where(t => t.Assignments.Any(a => filters.DepartmentIds.Contains(a.DepartmentId))
+        return query.Where(t => t.Assignments.Any(a =>
+                (a.Status == AssignmentStatus.Active || a.Status == AssignmentStatus.Completed)
+                && filters.DepartmentIds.Contains(a.DepartmentId))
             || t.OutgoingDepartments.Any(o => filters.DepartmentIds.Contains(o.DepartmentId)));
+    }
+
+    private static IQueryable<Transaction> ApplyExcludedDepartmentFilter(IQueryable<Transaction> query, ReportFiltersDto filters)
+    {
+        if (filters.ExcludedDepartmentIds.Count == 0)
+            return query;
+
+        return query.Where(t => !t.Assignments.Any(a =>
+                (a.Status == AssignmentStatus.Active || a.Status == AssignmentStatus.Completed)
+                && filters.ExcludedDepartmentIds.Contains(a.DepartmentId))
+            && !t.OutgoingDepartments.Any(o => filters.ExcludedDepartmentIds.Contains(o.DepartmentId)));
     }
 
     private static IQueryable<Transaction> ApplyPartyFilter(IQueryable<Transaction> query, ReportFiltersDto filters)

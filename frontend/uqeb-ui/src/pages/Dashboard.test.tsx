@@ -100,6 +100,22 @@ describe('DashboardPage', () => {
     expect(screen.queryByRole('row', { name: /لا توجد/ })).not.toBeInTheDocument();
   });
 
+  it('does not render removed operational KPI cards', async () => {
+    render(
+      <MemoryRouter>
+        <DashboardPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('لا توجد معاملات تحتاج إجراء')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText('معاملات بلا تحديث حديث')).not.toBeInTheDocument();
+    expect(screen.queryByText('مطلوب إفادة')).not.toBeInTheDocument();
+    expect(screen.queryByText(/مفتوحة تتطلب ردًا/)).not.toBeInTheDocument();
+  });
+
   it('redirects a DepartmentUser to their own department page instead of fetching institution-wide counts', async () => {
     mockUseAuth.mockReturnValue({ canClose: false, canOperateFollowUpPrint: false, isDepartmentUser: true });
 

@@ -33,7 +33,9 @@ internal static class InstitutionalReportRequestValidator
 
         NormalizeFilterLists(request.Filters);
         ValidateDepartmentTransactionsRequiresDepartments(request.ReportType, request.Filters);
+        ValidateDepartmentTransactionsExcludedDepartments(request.ReportType, request.Filters);
         ValidatePriorityAndStatusValues(request.Filters);
+        ValidateDepartmentTransactionScope(request.Filters);
         ValidateFilterDateRange(request.Filters);
         ValidateDetailSortBy(request.DetailSortBy);
         ValidateAnalyticalOptions(request, options?.Analysis);
@@ -58,6 +60,31 @@ internal static class InstitutionalReportRequestValidator
     {
         if (detailSortBy.HasValue && !Enum.IsDefined(detailSortBy.Value))
             throw InvalidEnum("detailSortBy", "ترتيب التفاصيل غير صالح.");
+    }
+
+    internal static void ValidateDepartmentTransactionsExcludedDepartments(
+        InstitutionalReportType reportType,
+        ReportFiltersDto filters,
+        string fieldKey = "filters.excludedDepartmentIds")
+    {
+        if (reportType != InstitutionalReportType.DepartmentTransactions)
+            return;
+
+        if (filters.DepartmentIds.Intersect(filters.ExcludedDepartmentIds).Any())
+        {
+            throw new FieldValidationException(new Dictionary<string, string>
+            {
+                [fieldKey] = "لا يمكن استثناء الإدارة المحددة لتقرير معاملات إدارة.",
+            });
+        }
+    }
+
+    internal static void ValidateDepartmentTransactionScope(
+        ReportFiltersDto filters,
+        string fieldKey = "filters.departmentTransactionScope")
+    {
+        if (!Enum.IsDefined(filters.DepartmentTransactionScope))
+            throw InvalidEnum(fieldKey, "نطاق معاملات الإدارة غير صالح.");
     }
 
     private static void ValidatePriorityAndStatusValues(ReportFiltersDto? filters)
@@ -94,9 +121,10 @@ internal static class InstitutionalReportRequestValidator
         return request.SectionIds.Distinct().ToList();
     }
 
-    private static void NormalizeFilterLists(ReportFiltersDto filters)
+    internal static void NormalizeFilterLists(ReportFiltersDto filters)
     {
         filters.DepartmentIds ??= [];
+        filters.ExcludedDepartmentIds ??= [];
         filters.PartyIds ??= [];
         filters.CategoryIds ??= [];
         filters.Priorities ??= [];

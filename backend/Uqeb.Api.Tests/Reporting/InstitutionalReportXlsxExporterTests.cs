@@ -150,7 +150,7 @@ public class InstitutionalReportXlsxExporterTests
 
         using var workbook = new XLWorkbook(new MemoryStream(bytes));
         var ws = workbook.Worksheet("أداء الإدارات");
-        AssertHeaders(ws, [DepartmentHeader, "إجمالي", "مغلقة", "مفتوحة", "بانتظار إفادة", "متأخرة", "إدارات مشتركة", "متوسط الإنجاز", "ضمن المهلة"]);
+        AssertHeaders(ws, [DepartmentHeader, "إجمالي", "مغلقة", "مفتوحة", "بانتظار إفادة", "متأخرة", "نسبة التأخر", "إدارات مشتركة", "متوسط الإنجاز", "ضمن المهلة"]);
         var text = ws.CellsUsed().Select(c => c.GetString()).ToList();
         Assert.DoesNotContain("التقييم", text);
         Assert.DoesNotContain("غير محدد", text);

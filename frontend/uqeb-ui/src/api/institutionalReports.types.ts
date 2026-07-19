@@ -39,6 +39,8 @@ export type InstitutionalReportType = 1 | 2 | 3 | 4 | 5 | 6;
 
 export type ReportDetailSortBy = 0 | 1 | 2 | 3 | 4 | 5;
 
+export type DepartmentTransactionScope = 0 | 1;
+
 export type ReportSectionId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22;
 
 export type ExportFormat = 1 | 2 | 3 | 4;
@@ -59,11 +61,13 @@ export type ReportFilters = {
   dateFrom?: string | null;
   dateTo?: string | null;
   departmentIds: number[];
+  excludedDepartmentIds?: number[];
   partyIds: number[];
   categoryIds: number[];
   priorities: string[];
   statuses: string[];
   includeOverdue: boolean;
+  departmentTransactionScope?: DepartmentTransactionScope;
   search?: string | null;
 };
 

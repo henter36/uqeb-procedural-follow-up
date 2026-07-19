@@ -16,6 +16,11 @@ export const ReportDetailSortBy = {
   DueDate: 5,
 } as const;
 
+export const DepartmentTransactionScope = {
+  All: 0,
+  OpenOnly: 1,
+} as const;
+
 export const ReportSectionId = {
   Cover: 1,
   ExecutiveSummary: 2,

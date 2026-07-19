@@ -367,11 +367,13 @@ internal static class InstitutionalReportAnalysisService
                 DateFrom = from,
                 DateTo = to,
                 DepartmentIds = request.Filters.DepartmentIds.ToList(),
+                ExcludedDepartmentIds = request.Filters.ExcludedDepartmentIds.ToList(),
                 PartyIds = request.Filters.PartyIds.ToList(),
                 CategoryIds = request.Filters.CategoryIds.ToList(),
                 Priorities = request.Filters.Priorities.ToList(),
                 Statuses = request.Filters.Statuses.ToList(),
                 IncludeOverdue = request.Filters.IncludeOverdue,
+                DepartmentTransactionScope = request.Filters.DepartmentTransactionScope,
                 Search = request.Filters.Search
             }
         };
@@ -387,11 +389,12 @@ internal static class InstitutionalReportAnalysisService
         var open = currentSnapshots.Where(s => s.IsOpen).ToList();
         var closedDurations = ReportingTemporalCalculator.CompletionDays(currentSnapshots).ToList();
         var responseDurations = ResponseDays(currentSnapshots).ToList();
-        var stale = open.Count(s => ReportingTemporalCalculator.IsStale(s, referenceDate, options.StaleTransactionDays));
         var oldestOpen = open.Count == 0 ? 0 : open.Max(s => s.ElapsedDays);
         var pendingAssignments = currentSnapshots.Sum(s => s.PendingReplyAssignmentCount);
         var completionMedian = InstitutionalReportStatistics.Median(closedDurations);
         var completeness = CalculateCompletenessRate(currentSnapshots);
+        var responseRequiredOpen = open.Count(s => s.RequiresResponse && !s.ResponseCompleted);
+        var staleTransactions = open.Count(s => ReportingTemporalCalculator.IsStale(s, referenceDate, options.StaleTransactionDays));
         var previousOpen = previous?.OpenCount;
         var previousPeriodIncoming = previous?.PeriodIncomingCount;
         var closureToIncomingRatio = current.PeriodIncomingCount == 0
@@ -404,10 +407,8 @@ internal static class InstitutionalReportAnalysisService
         var hasComparisonPeriod = previousOpen.HasValue;
         var backlogGrowth = hasComparisonPeriod ? (decimal)(current.OpenCount - previousOpen!.Value) : 0m;
 
-        // AverageResponseDays uses ClosedAt as a proxy for ResponseCompletedAt (the snapshot model
-        // does not carry a discrete ResponseCompletedAt timestamp). Only transactions where
-        // ResponseCompleted == true are included. When no such transactions exist in the period,
-        // the metric is genuinely unavailable — returning 0 would be misleading.
+        // AverageResponseDays keeps the existing response-duration proxy. When no completed-response
+        // transactions exist in the period, the metric is unavailable — returning 0 would be misleading.
         var hasResponseData = responseDurations.Count > 0;
         var responseAverage = hasResponseData ? Math.Round(responseDurations.Average(), 1) : 0.0;
 
@@ -419,19 +420,18 @@ internal static class InstitutionalReportAnalysisService
             Kpi(new AnalysisMetricDefinition { Key = "TotalActiveBurden", Title = "إجمالي المعاملات القائمة", Definition = "وارد الفترة المفتوح حتى نهاية الفترة + الرصيد المفتوح المرحّل.", Formula = "period incoming open + carried open balance", FieldsUsed = "IncomingDate, ClosedAt, Status", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.LowerIsBetter }, current.TotalActiveBurdenCount, current.TotalTransactions, previous?.TotalActiveBurdenCount, options),
             Kpi(new AnalysisMetricDefinition { Key = "ClosedTransactions", Title = "المعاملات المغلقة", Definition = "عدد المعاملات ذات الحالة المغلقة.", Formula = "count(IsClosed)", FieldsUsed = "Status, ClosedAt", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.HigherIsBetter }, current.ClosedCount, current.ClosedCount, previous?.ClosedCount, options),
             Kpi(new AnalysisMetricDefinition { Key = "OpenTransactions", Title = "المعاملات المفتوحة", Definition = "عدد المعاملات التشغيلية غير المغلقة.", Formula = "count(IsOpen)", FieldsUsed = "Status", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.LowerIsBetter }, current.OpenCount, current.OpenCount, previous?.OpenCount, options),
+            Kpi(new AnalysisMetricDefinition { Key = "ResponseRequiredOpenCount", Title = "مفتوحة تتطلب ردًا", Definition = "عدد المعاملات المفتوحة التي ما زالت تتطلب ردًا.", Formula = "count(IsOpen && RequiresResponse && !ResponseCompleted)", FieldsUsed = "Status, RequiresResponse, ResponseCompleted", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.LowerIsBetter }, responseRequiredOpen, open.Count, null, options),
+            Kpi(new AnalysisMetricDefinition { Key = "StaleTransactionsCount", Title = "معاملات بلا تحديث حديث", Definition = $"عدد المعاملات المفتوحة دون إجراء حديث منذ {options.StaleTransactionDays} أيام أو أكثر.", Formula = "count(IsOpen && days since last action >= threshold)", FieldsUsed = "UpdatedAt, LastFollowUpDate, ClosedAt, CreatedAt", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.LowerIsBetter }, staleTransactions, open.Count, null, options),
             Kpi(new AnalysisMetricDefinition { Key = "OnTimeCompletionRate", Title = "نسبة الإنجاز ضمن المهلة", Definition = "نسبة المعاملات المغلقة قبل أو في تاريخ المهلة.", Formula = "on-time closed / measurable closed", FieldsUsed = "ClosedAt, ResponseDueDate", Unit = "%", Format = MetricValueTypes.Percent, MinimumSampleSize = options.MinimumComparisonSampleSize, Direction = KpiDirection.HigherIsBetter }, (decimal)current.OnTimeCompletionRate, current.ClosedCount, previous is null ? null : (decimal)previous.OnTimeCompletionRate, options),
             Kpi(new AnalysisMetricDefinition { Key = "OverdueRate", Title = "نسبة التأخر", Definition = "نسبة إجمالي المعاملات المتأخرة، وتشمل المفتوحة المتأخرة والمنجزة/المغلقة بعد تاريخ الاستحقاق.", Formula = "(open overdue + completed late) / total", FieldsUsed = "ResponseDueDate, AssignmentDueDate, ResponseCompletedDate, ClosedAt, Status", Unit = "%", Format = MetricValueTypes.Percent, MinimumSampleSize = options.MinimumComparisonSampleSize, Direction = KpiDirection.LowerIsBetter }, Rate(current.OverdueCount, current.TotalTransactions), current.TotalTransactions, previous is null ? null : Rate(previous.OverdueCount, previous.TotalTransactions), options),
             Kpi(new AnalysisMetricDefinition { Key = "AverageCompletionDays", Title = "متوسط مدة الإنجاز", Definition = "متوسط الأيام بين الوارد والإغلاق للمعاملات المغلقة.", Formula = "avg(ClosedAt - IncomingDate)", FieldsUsed = "IncomingDate, ClosedAt", Unit = "يوم", Format = MetricValueTypes.Decimal, MinimumSampleSize = options.MinimumComparisonSampleSize, Direction = KpiDirection.LowerIsBetter }, (decimal)current.AverageCompletionDays, closedDurations.Count, previous is null ? null : (decimal)previous.AverageCompletionDays, options),
             Kpi(new AnalysisMetricDefinition { Key = "MedianCompletionDays", Title = "وسيط مدة الإنجاز", Definition = "وسيط أيام الإنجاز لتقليل أثر القيم الشاذة.", Formula = "median(ClosedAt - IncomingDate)", FieldsUsed = "IncomingDate, ClosedAt", Unit = "يوم", Format = MetricValueTypes.Decimal, MinimumSampleSize = options.MinimumComparisonSampleSize, Direction = KpiDirection.LowerIsBetter }, (decimal)completionMedian, closedDurations.Count, null, options),
-            // AverageResponseDays: uses ClosedAt as proxy for ResponseCompletedAt (no discrete field in snapshot).
             // Only shown when ResponseCompleted transactions exist in period; otherwise unavailable.
             hasResponseData
-                ? Kpi(new AnalysisMetricDefinition { Key = "AverageResponseDays", Title = "متوسط زمن الرد (تقديري)", Definition = "متوسط الأيام بين الوارد وإغلاق المعاملة للمعاملات المكتمل ردّها. يستخدم ClosedAt كبديل لتاريخ إكمال الرد.", Formula = "avg(ClosedAt - IncomingDate) where ResponseCompleted", FieldsUsed = "IncomingDate, ClosedAt, ResponseCompleted", Unit = "يوم", Format = MetricValueTypes.Decimal, MinimumSampleSize = options.MinimumComparisonSampleSize, Direction = KpiDirection.LowerIsBetter }, (decimal)responseAverage, responseDurations.Count, null, options)
+                ? Kpi(new AnalysisMetricDefinition { Key = "AverageResponseDays", Title = "متوسط زمن الرد (تقديري)", Definition = "متوسط المدة من تاريخ الوارد حتى تاريخ إنجاز الرد المتاح للمعاملات المكتملة الرد.", Formula = "avg(available response completion duration) where response is completed", FieldsUsed = "IncomingDate, ResponseCompleted, available completion date", Unit = "يوم", Format = MetricValueTypes.Decimal, MinimumSampleSize = options.MinimumComparisonSampleSize, Direction = KpiDirection.LowerIsBetter }, (decimal)responseAverage, responseDurations.Count, null, options)
                 : UnavailableKpi("AverageResponseDays", "متوسط زمن الرد", "لا توجد معاملات مكتملة الرد في الفترة الحالية؛ المؤشر غير متاح."),
             Kpi(new AnalysisMetricDefinition { Key = "PendingAssignmentsCount", Title = "الإفادات المعلقة", Definition = "عدد الإفادات/التكليفات المطلوبة ولم ترد.", Formula = "sum(PendingReplyAssignmentCount)", FieldsUsed = "Assignments", Unit = "إفادة", Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.LowerIsBetter }, pendingAssignments, current.TotalTransactions, null, options),
             Kpi(new AnalysisMetricDefinition { Key = "PartialRepliesCount", Title = "الردود الجزئية", Definition = "عدد المعاملات المفتوحة ذات رد جزئي.", Formula = "count(IsPartialReply)", FieldsUsed = "Assignments, Status", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.LowerIsBetter }, current.PartialResponseCount, current.TotalTransactions, previous?.PartialResponseCount, options),
-            Kpi(new AnalysisMetricDefinition { Key = "ResponseRequiredOpenCount", Title = "مفتوحة تتطلب ردًا", Definition = "عدد المعاملات المفتوحة التي تتطلب ردًا.", Formula = "count(IsOpen && RequiresResponse)", FieldsUsed = "RequiresResponse, Status", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.LowerIsBetter }, open.Count(s => s.RequiresResponse), open.Count, null, options),
-            Kpi(new AnalysisMetricDefinition { Key = "StaleTransactionsCount", Title = "معاملات بلا تحديث حديث", Definition = $"معاملات مفتوحة بلا تحديث أو متابعة منذ {options.StaleTransactionDays} أيام فأكثر.", Formula = "last action age >= threshold", FieldsUsed = "UpdatedAt, CreatedAt, LastFollowUpDate", Unit = TransactionUnit, Format = MetricValueTypes.Number, MinimumSampleSize = 1, Direction = KpiDirection.LowerIsBetter }, stale, open.Count, null, options),
             // BacklogGrowthRate is only valid when a comparison period exists.
             // Without a baseline, returning current.OpenCount would show a delta that isn't one.
             hasComparisonPeriod
@@ -1313,9 +1313,8 @@ internal static class InstitutionalReportAnalysisService
             "AverageFirstActionHours: يحتاج حدث أول إجراء موثوق.",
             "ReopenedTransactionsRate: لا توجد حالة إعادة فتح مستقلة.",
             "Outgoing external-party causality: بيانات الجهات الصادرة غير مكتملة الاستخدام.",
-            "AverageResponseDays (تقديري): لا يوجد حقل ResponseCompletedAt مستقل في النموذج الحالي. " +
-            "يُستخدم ClosedAt كبديل تقريبي للمعاملات ذات ResponseCompleted=true. " +
-            "التحسين المستقبلي يتطلب حقل ResponseCompletedAt أو مصدر رد مكتمل من التكليفات.",
+            "AverageResponseDays (تقديري): يعتمد على مدد معاملات الرد المكتملة المتاحة في اللقطة التحليلية. " +
+            "التحسين المستقبلي يتطلب مصدر رد مكتمل أكثر تفصيلًا من التكليفات.",
             "التحليل الزمني حسب الإدارة يعتمد على تاريخ الوارد وتجميع المعاملة تحت الإدارة المسؤولة الأساسية الحالية، " +
             "ولا يكرر المعاملة على كل الإدارات المشاركة.",
         };
@@ -1380,6 +1379,10 @@ internal static class InstitutionalReportAnalysisService
             parts.Add($"الفترة={filters.DateFrom:yyyy-MM-dd}..{filters.DateTo:yyyy-MM-dd}");
         if (filters.DepartmentIds.Count > 0)
             parts.Add($"departments={filters.DepartmentIds.Count}");
+        if (filters.ExcludedDepartmentIds.Count > 0)
+            parts.Add($"excludedDepartments={filters.ExcludedDepartmentIds.Count}");
+        if (filters.DepartmentTransactionScope == DepartmentTransactionScope.OpenOnly)
+            parts.Add("departmentScope=openOnly");
         if (filters.PartyIds.Count > 0)
             parts.Add($"parties={filters.PartyIds.Count}");
         if (filters.CategoryIds.Count > 0)

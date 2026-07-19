@@ -873,7 +873,7 @@ public class TransactionWorkflowAtomicityTests
     [Fact]
     public async Task UpdateAsync_status_closed_validation_failure_does_not_close_or_change_closed_at()
     {
-        var (service, db, _, _) = await CreateServiceAsync(nameof(UpdateAsync_status_closed_validation_failure_does_not_close_or_change_closed_at));
+        var (service, db, _, cache) = await CreateServiceAsync(nameof(UpdateAsync_status_closed_validation_failure_does_not_close_or_change_closed_at));
         var created = await service.CreateAsync(BuildCreateRequest(10), userId: 1);
         await PrepareTransactionForCloseAsync(db, created.Id);
         await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 1, DepartmentResponseStatus.Approved);
@@ -881,20 +881,27 @@ public class TransactionWorkflowAtomicityTests
         var invalidClosedAt = today.AddDays(-1);
         var transaction = await db.Transactions.SingleAsync(t => t.Id == created.Id);
         transaction.IncomingDate = today;
+        transaction.OutgoingDate = invalidClosedAt;
         transaction.ResponseCompletedDate = invalidClosedAt;
         transaction.ClosedAt = invalidClosedAt;
         await db.SaveChangesAsync();
+        var auditCountBefore = await db.AuditLogs.CountAsync();
+        cache.ResetInvalidations();
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var ex = await Assert.ThrowsAsync<FieldValidationException>(() =>
             service.UpdateAsync(
                 created.Id,
                 new UpdateTransactionRequest { Status = TransactionStatus.Closed.ToString() },
                 userId: 1,
                 role: UserRole.Admin));
+        Assert.NotEmpty(ex.FieldErrors);
+        Assert.Contains(nameof(CreateTransactionRequest.OutgoingDate), ex.FieldErrors.Keys);
 
         var persisted = await db.Transactions.SingleAsync(t => t.Id == created.Id);
         Assert.NotEqual(TransactionStatus.Closed, persisted.Status);
         Assert.Equal(invalidClosedAt, persisted.ClosedAt);
+        Assert.Equal(auditCountBefore, await db.AuditLogs.CountAsync());
+        Assert.Equal(0, cache.TransactionChangeInvalidations);
     }
 
     [Fact]

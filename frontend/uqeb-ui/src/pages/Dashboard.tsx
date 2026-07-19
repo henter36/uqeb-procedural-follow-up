@@ -231,14 +231,6 @@ export default function DashboardPage() {
       tone: 'gold',
       link: '/reports?tab=waiting',
     },
-    {
-      label: 'مطلوب إفادة',
-      value: data.requiresResponsePending,
-      desc: 'تحتاج اتخاذ إجراء',
-      icon: '✏',
-      tone: 'primary',
-      link: '/reports?tab=response-required',
-    },
   ];
 
   const statusTotal = (data.byStatus ?? []).reduce((sum, s) => sum + s.count, 0);

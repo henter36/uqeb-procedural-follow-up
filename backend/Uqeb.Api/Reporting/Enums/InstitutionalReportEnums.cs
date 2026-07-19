@@ -22,6 +22,12 @@ public enum ReportDetailSortBy
     DueDate = 5
 }
 
+public enum DepartmentTransactionScope
+{
+    All = 0,
+    OpenOnly = 1
+}
+
 public enum ReportSectionId
 {
     Cover = 1,

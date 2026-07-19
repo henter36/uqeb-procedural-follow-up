@@ -151,7 +151,60 @@ public class InstitutionalReportServiceDepartmentPerformanceTests
         var ws = workbook.Worksheet("أداء الإدارات");
         Assert.Equal("إدارة المتابعة", ws.Cell(2, 1).GetString());
         Assert.Equal(2, ws.Cell(2, 2).GetValue<int>());
-        Assert.Equal(5, ws.Cell(2, 8).GetDouble());
+        Assert.Equal(5, ws.Cell(2, 9).GetDouble());
+    }
+
+    [Fact]
+    public async Task BuildReportModelAsync_DepartmentPerformanceOverdueRate_UsesDueScopedTransactions()
+    {
+        var dbName = $"department-performance-overdue-rate-{Guid.NewGuid():N}";
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(dbName)
+            .Options;
+        IDbContextFactory<AppDbContext> dbFactory = new TestDbContextFactory(options);
+
+        await using (var db = dbFactory.CreateDbContext())
+        {
+            var user = new User
+            {
+                Username = "dept-overdue-rate-test",
+                PasswordHash = "hash",
+                FullName = "Department Overdue Rate Test",
+                Role = UserRole.Admin,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            };
+            db.Users.Add(user);
+            db.Departments.AddRange(
+                new Department { Id = 10, Name = "إدارة التأخر", NameNormalized = "إدارة التأخر", IsActive = true },
+                new Department { Id = 20, Name = "إدارة بلا مهل", NameNormalized = "إدارة بلا مهل", IsActive = true });
+            await db.SaveChangesAsync();
+
+            AddOverdueRateTransaction(db, user.Id, 10, 1, TransactionStatus.InProgress, new DateTime(2026, 6, 1), true, new DateTime(2026, 6, 5), null);
+            AddOverdueRateTransaction(db, user.Id, 10, 2, TransactionStatus.Closed, new DateTime(2026, 6, 2), true, new DateTime(2026, 6, 10), new DateTime(2026, 6, 10));
+            AddOverdueRateTransaction(db, user.Id, 10, 3, TransactionStatus.Closed, new DateTime(2026, 6, 3), true, new DateTime(2026, 6, 10), new DateTime(2026, 6, 12));
+            AddOverdueRateTransaction(db, user.Id, 10, 4, TransactionStatus.Closed, new DateTime(2026, 6, 4), false, null, new DateTime(2026, 6, 6));
+            AddOverdueRateTransaction(db, user.Id, 20, 5, TransactionStatus.InProgress, new DateTime(2026, 6, 5), false, null, null);
+            await db.SaveChangesAsync();
+        }
+
+        var service = InstitutionalReportServiceTestHelpers.CreateService(dbFactory);
+        var model = await service.BuildReportModelAsync(new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [ReportSectionId.DepartmentPerformance],
+            Filters = new ReportFiltersDto
+            {
+                DateFrom = new DateTime(2026, 6, 1),
+                DateTo = new DateTime(2026, 6, 30),
+            },
+        });
+
+        var overdueDepartment = model.DepartmentPerformance.Single(row => row.DepartmentId == 10);
+        Assert.Equal(66.7, overdueDepartment.OverdueRate);
+
+        var noDueDepartment = model.DepartmentPerformance.Single(row => row.DepartmentId == 20);
+        Assert.Null(noDueDepartment.OverdueRate);
     }
 
     [Fact]
@@ -261,6 +314,7 @@ public class InstitutionalReportServiceDepartmentPerformanceTests
 
         Assert.Equal(1, model.TotalMatchedRows);
         Assert.Empty(model.DepartmentPerformance);
+        Assert.True(model.DepartmentPerformance.Sum(row => row.TotalTransactions) < model.TotalMatchedRows);
         var warning = Assert.Single(model.IntegrityWarnings, w => w.Code == "DEPARTMENT_ATTRIBUTION_MISMATCH");
         Assert.Contains("عدد المعاملات غير المنسوبة", warning.Message);
     }
@@ -338,6 +392,48 @@ public class InstitutionalReportServiceDepartmentPerformanceTests
             });
             offset++;
         }
+    }
+    private static void AddOverdueRateTransaction(
+        AppDbContext db,
+        int userId,
+        int departmentId,
+        int sequence,
+        TransactionStatus status,
+        DateTime incomingDate,
+        bool requiresResponse,
+        DateTime? responseDueDate,
+        DateTime? responseCompletedDate)
+    {
+        var transaction = new Transaction
+        {
+            InternalTrackingNumber = $"RATE-{sequence:D4}",
+            IncomingNumber = $"RATE-IN-{sequence:D4}",
+            IncomingDate = incomingDate,
+            Subject = $"نسبة تأخر {sequence}",
+            IncomingFrom = "جهة اختبار",
+            Status = status,
+            Priority = Priority.Normal,
+            RequiresResponse = requiresResponse,
+            ResponseType = requiresResponse ? ResponseType.External : ResponseType.None,
+            ResponseDueDate = responseDueDate,
+            ResponseCompleted = responseCompletedDate.HasValue,
+            ResponseCompletedDate = responseCompletedDate,
+            ClosedAt = status == TransactionStatus.Closed ? responseCompletedDate : null,
+            CreatedById = userId,
+            CreatedAt = incomingDate,
+        };
+        db.Transactions.Add(transaction);
+        db.Assignments.Add(new Assignment
+        {
+            Transaction = transaction,
+            DepartmentId = departmentId,
+            Status = status == TransactionStatus.Closed ? AssignmentStatus.Completed : AssignmentStatus.Active,
+            RequiresReply = requiresResponse,
+            ReplyStatus = responseCompletedDate.HasValue ? ReplyStatus.Replied : ReplyStatus.Pending,
+            AssignedDate = incomingDate,
+            DueDate = responseDueDate,
+            CreatedById = userId,
+        });
     }
 }
 

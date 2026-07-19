@@ -12,6 +12,7 @@ import {
 import type { LookupItem } from '../api/types';
 import {
   DetailOverflowAction,
+  DepartmentTransactionScope,
   ExportFormat,
   ExportMode,
   InstitutionalReportType,
@@ -170,6 +171,7 @@ function formatDateRangeSummary(dateFrom?: string, dateTo?: string): string {
 function getActiveFilterCount(filters: {
   search: string;
   departmentIds: number[];
+  excludedDepartmentIds: number[];
   categoryIds: number[];
   partyIds: number[];
   priorities: string[];
@@ -179,6 +181,7 @@ function getActiveFilterCount(filters: {
   return (
     (filters.search.trim() ? 1 : 0) +
     filters.departmentIds.length +
+    filters.excludedDepartmentIds.length +
     filters.categoryIds.length +
     filters.partyIds.length +
     filters.priorities.length +
@@ -331,12 +334,14 @@ export default function ReportBuilderPage() {
 
   // Filters
   const [filterDepartmentIds, setFilterDepartmentIds] = useState<number[]>([]);
+  const [filterExcludedDepartmentIds, setFilterExcludedDepartmentIds] = useState<number[]>([]);
   const [filterCategoryIds, setFilterCategoryIds] = useState<number[]>([]);
   const [filterPartyIds, setFilterPartyIds] = useState<number[]>([]);
   const [filterPriorities, setFilterPriorities] = useState<string[]>([]);
   const [filterStatuses, setFilterStatuses] = useState<string[]>([]);
   const [filterOnlyOverdue, setFilterOnlyOverdue] = useState(false);
   const [filterSearch, setFilterSearch] = useState('');
+  const [departmentTransactionScope, setDepartmentTransactionScope] = useState<typeof DepartmentTransactionScope[keyof typeof DepartmentTransactionScope]>(DepartmentTransactionScope.All);
   const [departments, setDepartments] = useState<LookupItem[]>([]);
   const [categories, setCategories] = useState<LookupItem[]>([]);
   const [parties, setParties] = useState<LookupItem[]>([]);
@@ -347,6 +352,7 @@ export default function ReportBuilderPage() {
   const activeFilterCount = getActiveFilterCount({
     search: filterSearch,
     departmentIds: filterDepartmentIds,
+    excludedDepartmentIds: filterExcludedDepartmentIds,
     categoryIds: filterCategoryIds,
     partyIds: filterPartyIds,
     priorities: filterPriorities,
@@ -408,6 +414,7 @@ export default function ReportBuilderPage() {
     invalidatePreview();
     setFilterSearch('');
     setFilterDepartmentIds([]);
+    setFilterExcludedDepartmentIds([]);
     setFilterCategoryIds([]);
     setFilterPartyIds([]);
     setFilterPriorities([]);
@@ -470,6 +477,8 @@ export default function ReportBuilderPage() {
       dateTo: dateTo || null,
       includeOverdue: filterOnlyOverdue,
       departmentIds: filterDepartmentIds,
+      excludedDepartmentIds: filterExcludedDepartmentIds,
+      departmentTransactionScope: isDepartmentTransactionsReport ? departmentTransactionScope : DepartmentTransactionScope.All,
       partyIds: filterPartyIds,
       categoryIds: filterCategoryIds,
       priorities: filterPriorities,
@@ -480,7 +489,7 @@ export default function ReportBuilderPage() {
     reportType, title, sectionIds, contentLevel, comparisonMode, timeGrouping,
     includeComparison, maxCriticalCases, maxFindings, maxRecommendations,
     detailSortBy, groupDetailsByDepartment, isDepartmentTransactionsReport,
-    dateFrom, dateTo, filterDepartmentIds, filterCategoryIds, filterPartyIds,
+    dateFrom, dateTo, filterDepartmentIds, filterExcludedDepartmentIds, departmentTransactionScope, filterCategoryIds, filterPartyIds,
     filterPriorities, filterStatuses, filterOnlyOverdue, filterSearch,
   ]);
 
@@ -532,12 +541,14 @@ export default function ReportBuilderPage() {
     setReportType(template.reportType);
     setSectionIds([...templateSectionIds]);
     setFilterDepartmentIds([...(filters.departmentIds ?? [])]);
+    setFilterExcludedDepartmentIds([...(filters.excludedDepartmentIds ?? [])]);
     setFilterCategoryIds([...(filters.categoryIds ?? [])]);
     setFilterPartyIds([...(filters.partyIds ?? [])]);
     setFilterPriorities([...(filters.priorities ?? [])]);
     setFilterStatuses([...(filters.statuses ?? [])]);
     setFilterOnlyOverdue(Boolean(filters.includeOverdue));
     setFilterSearch(filters.search ?? '');
+    setDepartmentTransactionScope(filters.departmentTransactionScope ?? DepartmentTransactionScope.All);
     setDateFrom(filters.dateFrom ?? '');
     setDateTo(filters.dateTo ?? '');
     setExportFormat(template.defaultFormat);
@@ -620,6 +631,12 @@ export default function ReportBuilderPage() {
     if (isDepartmentTransactionsReport && filterDepartmentIds.length === 0) {
       setManifest(null);
       setError('يجب تحديد إدارة واحدة على الأقل لتقرير معاملات إدارة.');
+      return;
+    }
+
+    if (isDepartmentTransactionsReport && filterDepartmentIds.some((id) => filterExcludedDepartmentIds.includes(id))) {
+      setManifest(null);
+      setError('لا يمكن استثناء الإدارة المحددة لتقرير معاملات إدارة.');
       return;
     }
 
@@ -811,6 +828,7 @@ export default function ReportBuilderPage() {
               const nextType = Number(e.target.value) as typeof reportType;
               setReportType(nextType);
               if (nextType !== InstitutionalReportType.DepartmentTransactions) setGroupDetailsByDepartment(false);
+              if (nextType !== InstitutionalReportType.DepartmentTransactions) setDepartmentTransactionScope(DepartmentTransactionScope.All);
             }}
           >
             {REPORT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
@@ -936,15 +954,30 @@ export default function ReportBuilderPage() {
           </select>
 
           {isDepartmentTransactionsReport && (
-            <label htmlFor="group-details-by-department" className="rb-checkbox-label">
-              <input
-                id="group-details-by-department"
-                type="checkbox"
-                checked={groupDetailsByDepartment}
-                onChange={(e) => { invalidatePreview(); setGroupDetailsByDepartment(e.target.checked); }}
-              />
-              <span>تجميع التفاصيل حسب الإدارة (قد يكرر المعاملة المشتركة تحت أكثر من إدارة — غير تراكمي)</span>
-            </label>
+            <>
+              <label htmlFor="department-transaction-scope">نطاق معاملات الإدارة</label>
+              <select
+                id="department-transaction-scope"
+                value={departmentTransactionScope}
+                onChange={(e) => {
+                  invalidatePreview();
+                  setDepartmentTransactionScope(Number(e.target.value) as typeof departmentTransactionScope);
+                }}
+              >
+                <option value={DepartmentTransactionScope.All}>جميع المعاملات</option>
+                <option value={DepartmentTransactionScope.OpenOnly}>المعاملات المفتوحة فقط</option>
+              </select>
+
+              <label htmlFor="group-details-by-department" className="rb-checkbox-label">
+                <input
+                  id="group-details-by-department"
+                  type="checkbox"
+                  checked={groupDetailsByDepartment}
+                  onChange={(e) => { invalidatePreview(); setGroupDetailsByDepartment(e.target.checked); }}
+                />
+                <span>تجميع التفاصيل حسب الإدارة (قد يكرر المعاملة المشتركة تحت أكثر من إدارة — غير تراكمي)</span>
+              </label>
+            </>
           )}
 
           {/* 3 ── الفلاتر */}
@@ -993,6 +1026,32 @@ export default function ReportBuilderPage() {
                 onChange={(e) => {
                   invalidatePreview();
                   setFilterDepartmentIds(Array.from(e.target.selectedOptions).map((o) => Number(o.value)));
+                }}
+              >
+                {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </>
+          )}
+
+          {departments.length > 0 && (
+            <>
+              <label htmlFor="filter-excluded-departments">
+                الإدارات المستثناة
+                {filterExcludedDepartmentIds.length > 0 && (
+                  <span className="rb-filter-count">{filterExcludedDepartmentIds.length} محدد</span>
+                )}
+              </label>
+              <p className="rb-filter-hint">
+                يستبعد التقرير معاملات الإدارات المحددة هنا من الإجماليات والتفاصيل لهذا التقرير فقط.
+              </p>
+              <select
+                id="filter-excluded-departments"
+                multiple
+                size={getMultiSelectSize(departments.length)}
+                value={filterExcludedDepartmentIds.map(String)}
+                onChange={(e) => {
+                  invalidatePreview();
+                  setFilterExcludedDepartmentIds(Array.from(e.target.selectedOptions).map((o) => Number(o.value)));
                 }}
               >
                 {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}

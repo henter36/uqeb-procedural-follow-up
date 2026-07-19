@@ -160,8 +160,14 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             });
         }
 
+        request.DefaultFilters ??= new ReportFiltersDto();
+        InstitutionalReportRequestValidator.NormalizeFilterLists(request.DefaultFilters);
         InstitutionalReportRequestValidator.ValidateDepartmentTransactionsRequiresDepartments(
             request.ReportType.Value, request.DefaultFilters, "defaultFilters.departmentIds");
+        InstitutionalReportRequestValidator.ValidateDepartmentTransactionsExcludedDepartments(
+            request.ReportType.Value, request.DefaultFilters, "defaultFilters.excludedDepartmentIds");
+        InstitutionalReportRequestValidator.ValidateDepartmentTransactionScope(
+            request.DefaultFilters, "defaultFilters.departmentTransactionScope");
         InstitutionalReportRequestValidator.ValidateDetailSortBy(request.DetailSortBy);
 
         var templateOptions = InstitutionalReportExportOptionsResolver.Resolve(request);
@@ -410,7 +416,13 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         var evaluationDate = referenceDate?.Date ?? DateTime.UtcNow.Date;
         var snapshots = rows.Select(row => InstitutionalReportSnapshotQuery.MapRowToSnapshot(row, evaluationDate)).ToList();
         ApplyPeriodScope(snapshots, request.Filters.DateFrom, evaluationDate);
-        return snapshots.Where(IsInFinalReportScope).ToList();
+        var scopedSnapshots = snapshots.Where(IsInFinalReportScope);
+        if (request.ReportType == InstitutionalReportType.DepartmentTransactions
+            && request.Filters.DepartmentTransactionScope == DepartmentTransactionScope.OpenOnly)
+        {
+            scopedSnapshots = scopedSnapshots.Where(s => s.IsOpen);
+        }
+        return scopedSnapshots.ToList();
     }
 
     private static bool IsInFinalReportScope(TransactionReportSnapshot snapshot) =>
@@ -564,6 +576,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
                 var closed = items.Where(s => s.IsClosed).ToList();
                 var open = items.Where(s => s.IsOpen).ToList();
                 var completionDays = ReportingTemporalCalculator.CompletionDays(closed).ToList();
+                var overdueRate = CalculateDepartmentOverdueRate(items);
                 var measurable = closed.Where(s => s.ResponseDueDate.HasValue && s.ClosedAt.HasValue).ToList();
                 var onTime = measurable.Count(s => s.ClosedAt!.Value <= s.ResponseDueDate!.Value);
                 var onTimeRate = measurable.Count == 0 ? 0 : Math.Round(onTime * 100.0 / measurable.Count, 1);
@@ -588,6 +601,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
                     JointDepartmentCount = items.Count(s => s.IsJointDepartment),
                     AverageCompletionDays = completionDays.Count == 0 ? 0 : Math.Round(completionDays.Average(), 1),
                     OnTimeCompletionRate = onTimeRate,
+                    OverdueRate = overdueRate,
                     Rating = rating,
                     RatingLabel = InstitutionalReportMetricsCalculator.RatingLabel(rating)
                 };
@@ -883,6 +897,18 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         return "صادر لها";
     }
 
+    private static double? CalculateDepartmentOverdueRate(IReadOnlyList<TransactionReportSnapshot> snapshots)
+    {
+        var dueScoped = snapshots
+            .Where(s => s.RequiresResponse && s.ResponseDueDate.HasValue)
+            .ToList();
+        if (dueScoped.Count == 0)
+            return null;
+
+        var overdue = dueScoped.Count(s => s.IsOpenOverdue || s.IsCompletedLate);
+        return Math.Round(overdue * 100.0 / dueScoped.Count, 1);
+    }
+
     private static string ResolveResponseState(TransactionReportSnapshot snapshot)
     {
         if (snapshot.IsCompletedLate)
@@ -913,18 +939,14 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             });
         }
         var departmentTotal = departmentPerformance.Sum(row => row.TotalTransactions);
-        if (departmentTotal != metrics.TotalTransactions)
+        if (departmentTotal < metrics.TotalTransactions)
         {
             var unattributedSnapshots = metrics.Snapshots
                 .Where(snapshot => !ReportDepartmentValidator.HasValidDepartment(snapshot))
                 .ToList();
-            var mismatchKind = departmentTotal > metrics.TotalTransactions
-                ? "duplicate-attribution"
-                : "unattributed-transactions";
 
             _logger.LogWarning(
-                "Institutional report department attribution mismatch. Kind={Kind} TotalTransactions={TotalTransactions} DepartmentTotal={DepartmentTotal} UnattributedCount={UnattributedCount}",
-                mismatchKind,
+                "Institutional report department attribution mismatch. TotalTransactions={TotalTransactions} DepartmentTotal={DepartmentTotal} UnattributedCount={UnattributedCount}",
                 metrics.TotalTransactions,
                 departmentTotal,
                 unattributedSnapshots.Count);
@@ -932,9 +954,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             warnings.Add(new IntegrityWarningDto
             {
                 Code = "DEPARTMENT_ATTRIBUTION_MISMATCH",
-                Message = departmentTotal > metrics.TotalTransactions
-                    ? $"إجمالي المعاملات المنسوبة للإدارات ({departmentTotal:N0}) يتجاوز إجمالي نطاق التقرير ({metrics.TotalTransactions:N0})."
-                    : $"إجمالي نطاق التقرير ({metrics.TotalTransactions:N0}) لا يساوي إجمالي المعاملات المنسوبة للإدارات ({departmentTotal:N0}). عدد المعاملات غير المنسوبة: {unattributedSnapshots.Count:N0}.",
+                Message = $"إجمالي نطاق التقرير ({metrics.TotalTransactions:N0}) لا يساوي إجمالي المعاملات المنسوبة للإدارات ({departmentTotal:N0}). عدد المعاملات غير المنسوبة: {unattributedSnapshots.Count:N0}.",
                 Severity = "warning"
             });
         }
