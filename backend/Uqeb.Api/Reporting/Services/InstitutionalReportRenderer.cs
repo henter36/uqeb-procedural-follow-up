@@ -546,7 +546,7 @@ public sealed class InstitutionalReportRenderer
         var showChrome = options.SectionId != ReportSectionId.Cover;
         return $"""
         <section class="report-page report-page--{options.Profile.CssClass}" data-page="{options.PageNumber}" data-profile="{options.Profile.Name}" data-section="{Esc(options.ReportTitle)}" data-section-id="{options.SectionId}">
-          {(showChrome ? Header(options.Partial) : string.Empty)}
+          {(showChrome ? Header(options) : string.Empty)}
           <main class="report-content">{content}</main>
           {(showChrome ? BuildFooter(options.PageNumber, options.TotalPages, options.Partial, options.ReportTitle, options.ReportId) : string.Empty)}
         </section>
@@ -562,13 +562,21 @@ public sealed class InstitutionalReportRenderer
         string ReportTitle,
         string ReportId);
 
-    private static string Header(bool partial) =>
-        $"""
+    private static string Header(PageChromeOptions options)
+    {
+        var meta = options.Partial
+            ? "نسخة جزئية"
+            : options.SectionId == ReportSectionId.DepartmentPerformance
+                ? "أداء الإدارات"
+                : "تقرير مؤسسي";
+
+        return $"""
         <header class="report-header">
           <div class="org">المتابعة الإجرائية</div>
-          <div class="meta">{(partial ? "نسخة جزئية" : "تقرير مؤسسي")}</div>
+          <div class="meta">{meta}</div>
         </header>
         """;
+    }
 
     private static string InjectFooter(
         string html,
@@ -807,30 +815,27 @@ public sealed class InstitutionalReportRenderer
             <tr>
               <td class="cell--department">{Esc(NormalizeDepartmentName(d.DepartmentName))}</td>
               <td class="cell--number">{d.TotalTransactions}</td><td class="cell--number">{d.ClosedCount}</td><td class="cell--number">{d.OpenCount}</td>
-              <td class="cell--number">{d.OverdueCount}</td><td class="cell--number">{FormatPercentOrDash(d.OverdueRate)}</td><td class="cell--number">{d.WaitingForStatementCount}</td><td class="cell--number">{d.OnTimeCompletionRate:N1}%</td>
+              <td class="cell--number">{d.OverdueCount}</td><td class="cell--number">{FormatPercentOrDash(d.OverdueRate)}</td><td class="cell--number">{d.OnTimeCompletionRate:N1}%</td>
             </tr>
             """;
         }));
         var totals = model.DepartmentPerformance.Aggregate(
-            (Total: 0, Closed: 0, Open: 0, Waiting: 0, Overdue: 0, Joint: 0),
+            (Total: 0, Closed: 0, Open: 0, Overdue: 0),
             (acc, row) => (acc.Total + row.TotalTransactions, acc.Closed + row.ClosedCount, acc.Open + row.OpenCount,
-                acc.Waiting + row.WaitingForStatementCount, acc.Overdue + row.OverdueCount, acc.Joint + row.JointDepartmentCount));
+                acc.Overdue + row.OverdueCount));
         return $"""
         <h2 class="section-title">أداء الإدارات</h2>
         <table class="report-table report-table--departments">
           <thead><tr>
             <th>الإدارة</th><th>إجمالي</th><th>مغلقة</th><th>مفتوحة</th><th>متأخرة</th>
-            <th>نسبة التأخر</th><th>بانتظار إفادة</th><th>ضمن المهلة</th>
+            <th>نسبة التأخر</th><th>ضمن المهلة</th>
           </tr></thead>
           <tbody>{rows}
           <tr class="report-table__total-row">
             <td>الإجمالي</td><td class="cell--number">{totals.Total}</td><td class="cell--number">{totals.Closed}</td><td class="cell--number">{totals.Open}</td>
-            <td class="cell--number">{totals.Overdue}</td><td>—</td><td class="cell--number">{totals.Waiting}</td><td>—</td>
+            <td class="cell--number">{totals.Overdue}</td><td>—</td><td>—</td>
           </tr></tbody>
         </table>
-        <p class="section-footnote">{(model.DepartmentTotalsAreAdditive
-            ? "* تُحتسب كل معاملة تحت إدارتها المسؤولة فقط. تظهر تفاصيل الإدارات المشتركة في الجداول التفصيلية أو XLSX عند الحاجة."
-            : $"* {Esc(model.DepartmentAggregationDescription)}")}</p>
         """;
     }
 

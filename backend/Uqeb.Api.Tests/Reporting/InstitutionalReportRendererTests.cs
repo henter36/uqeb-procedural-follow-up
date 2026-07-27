@@ -695,6 +695,26 @@ public class InstitutionalReportRendererTests
     }
 
     [Fact]
+    public void RenderManifest_DepartmentPerformance_UsesDepartmentTitleAndHidesWaitingColumnAndFootnote()
+    {
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        model.DepartmentTotalsAreAdditive = true;
+
+        var manifest = _renderer.RenderManifest(model, [ReportSectionId.DepartmentPerformance]);
+        var page = manifest.Pages.Single();
+        var html = page.HtmlContent;
+
+        Assert.Contains("أداء الإدارات", html);
+        Assert.Contains("""<div class="meta">أداء الإدارات</div>""", html);
+        Assert.DoesNotContain("تقرير مؤسسي", html);
+        Assert.DoesNotContain("بانتظار إفادة", html);
+        Assert.DoesNotContain("بانتظار الإفادة", html);
+        Assert.DoesNotContain("section-footnote", html);
+        Assert.DoesNotContain("إدارتها المسؤولة فقط", html);
+        Assert.DoesNotContain("الجداول التفصيلية أو XLSX", html);
+    }
+
+    [Fact]
     public void RenderManifest_DoesNotCreateTitleOnlyContentPages()
     {
         var model = InstitutionalReportVisualFixtures.CreateBaseModel();

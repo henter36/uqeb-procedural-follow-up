@@ -111,16 +111,16 @@ public class InstitutionalReportDepartmentAggregationTests
         Assert.Contains("غير قابل للجمع", model.DepartmentAggregationDescription);
     }
 
-    // ── HTML renderer surfaces aggregation footnote ─────────────────────────
+    // ── HTML renderer (department performance presentation) ─────────────────
 
     [Fact]
-    public void HtmlRenderer_DepartmentSection_ContainsAggregationFootnote()
+    public void HtmlRenderer_DepartmentSection_DoesNotShowAggregationFootnote()
     {
         var model = InstitutionalReportVisualFixtures.CreateBaseModel();
         var manifest = InstitutionalReportVisualFixtures.RenderSections(model, ReportSectionId.DepartmentPerformance);
         var page = manifest.Pages.Single();
-        Assert.Contains("section-footnote", page.HtmlContent);
-        Assert.Contains("إدارتها المسؤولة", page.HtmlContent);
+        Assert.DoesNotContain("section-footnote", page.HtmlContent);
+        Assert.DoesNotContain("إدارتها المسؤولة", page.HtmlContent);
     }
 
     [Fact]
@@ -134,20 +134,21 @@ public class InstitutionalReportDepartmentAggregationTests
     }
 
     [Fact]
-    public void HtmlRenderer_DepartmentTotalRow_ContainsWarning_WhenNonAdditive()
+    public void HtmlRenderer_DepartmentTotalRow_DoesNotShowNonAdditiveWarningInFootnote()
     {
         var model = InstitutionalReportVisualFixtures.CreateBaseModel();
         model.DepartmentTotalsAreAdditive = false;
         model.DepartmentAggregationDescription = "توزيع غير قابل للجمع";
         var manifest = InstitutionalReportVisualFixtures.RenderSections(model, ReportSectionId.DepartmentPerformance);
         var html = manifest.Pages.Single().HtmlContent;
-        Assert.Contains("غير قابل للجمع", html);
+        Assert.DoesNotContain("section-footnote", html);
+        Assert.DoesNotContain("غير قابل للجمع", html);
     }
 
-    // ── XLSX exporter footnote ───────────────────────────────────────────────
+    // ── XLSX exporter (department sheet presentation) ─────────────────────────
 
     [Fact]
-    public void XlsxExporter_DepartmentSheet_ContainsAggregationNote_WhenAdditive()
+    public void XlsxExporter_DepartmentSheet_DoesNotIncludeMethodologyNote()
     {
         var model = InstitutionalReportVisualFixtures.CreateBaseModel();
         var manifest = InstitutionalReportVisualFixtures.RenderSections(model, ReportSectionId.DepartmentPerformance);
@@ -155,13 +156,14 @@ public class InstitutionalReportDepartmentAggregationTests
 
         using var workbook = new XLWorkbook(new MemoryStream(bytes));
         Assert.True(workbook.TryGetWorksheet("أداء الإدارات", out var ws));
-        var noteCell = ws!.Cells().FirstOrDefault(c => c.GetString().Contains("ملاحظة منهجية"));
-        Assert.NotNull(noteCell);
-        Assert.Contains("مجمَّع", noteCell!.GetString());
+        var sheetText = string.Join(' ', ws!.CellsUsed().Select(c => c.GetString()));
+        Assert.DoesNotContain("ملاحظة منهجية", sheetText);
+        Assert.DoesNotContain("إدارتها المسؤولة", sheetText);
+        Assert.DoesNotContain("بانتظار إفادة", sheetText);
     }
 
     [Fact]
-    public void XlsxExporter_DepartmentSheet_ContainsWarning_WhenNonAdditive()
+    public void XlsxExporter_DepartmentSheet_DoesNotIncludeNonAdditiveWarningNote()
     {
         var model = InstitutionalReportVisualFixtures.CreateBaseModel();
         model.DepartmentTotalsAreAdditive = false;
@@ -171,8 +173,9 @@ public class InstitutionalReportDepartmentAggregationTests
 
         using var workbook = new XLWorkbook(new MemoryStream(bytes));
         Assert.True(workbook.TryGetWorksheet("أداء الإدارات", out var ws));
-        var warnCell = ws!.Cells().FirstOrDefault(c => c.GetString().Contains("تحذير"));
-        Assert.NotNull(warnCell);
+        var sheetText = string.Join(' ', ws!.CellsUsed().Select(c => c.GetString()));
+        Assert.DoesNotContain("تحذير", sheetText);
+        Assert.DoesNotContain("غير قابل للجمع", sheetText);
     }
 
     // ── ClosedAt.HasValue guard ──────────────────────────────────────────────
@@ -200,28 +203,28 @@ public class InstitutionalReportDepartmentAggregationTests
         Assert.Contains("إدارة بلا تاريخ إغلاق", html);
     }
 
-    // ── Renderer footnote is mode-aware ─────────────────────────────────────
+    // ── Renderer footnote removed from department performance presentation ──
 
     [Fact]
-    public void HtmlRenderer_Footnote_ContainsAdditiveDescription_WhenAdditive()
+    public void HtmlRenderer_Footnote_IsNotRendered_WhenAdditive()
     {
         var model = InstitutionalReportVisualFixtures.CreateBaseModel();
         var manifest = InstitutionalReportVisualFixtures.RenderSections(model, ReportSectionId.DepartmentPerformance);
         var html = manifest.Pages.Single().HtmlContent;
-        Assert.Contains("إدارتها المسؤولة فقط", html);
-        Assert.DoesNotContain(model.DepartmentAggregationDescription, html.Replace("مجمَّع حسب الإدارة المسؤولة", ""));
+        Assert.DoesNotContain("إدارتها المسؤولة فقط", html);
+        Assert.DoesNotContain("section-footnote", html);
     }
 
     [Fact]
-    public void HtmlRenderer_Footnote_ContainsAggregationDescription_WhenNonAdditive()
+    public void HtmlRenderer_Footnote_IsNotRendered_WhenNonAdditive()
     {
         var model = InstitutionalReportVisualFixtures.CreateBaseModel();
         model.DepartmentTotalsAreAdditive = false;
         model.DepartmentAggregationDescription = "توزيع غير قابل للجمع — اختبار";
         var manifest = InstitutionalReportVisualFixtures.RenderSections(model, ReportSectionId.DepartmentPerformance);
         var html = manifest.Pages.Single().HtmlContent;
-        Assert.Contains("توزيع غير قابل للجمع — اختبار", html);
-        Assert.DoesNotContain("إدارتها المسؤولة فقط", html);
+        Assert.DoesNotContain("توزيع غير قابل للجمع — اختبار", html);
+        Assert.DoesNotContain("section-footnote", html);
     }
 
     // ── Helper ──────────────────────────────────────────────────────────────

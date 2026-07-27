@@ -151,7 +151,7 @@ public class InstitutionalReportServiceDepartmentPerformanceTests
         var ws = workbook.Worksheet("أداء الإدارات");
         Assert.Equal("إدارة المتابعة", ws.Cell(2, 1).GetString());
         Assert.Equal(2, ws.Cell(2, 2).GetValue<int>());
-        Assert.Equal(5, ws.Cell(2, 9).GetDouble());
+        Assert.Equal(5, ws.Cell(2, 8).GetDouble());
     }
 
     [Fact]
