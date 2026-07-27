@@ -94,7 +94,7 @@ public class InstitutionalReportExportParityTests
         Assert.Equal(FixtureDeptTotal, ws.Cell(2, 2).GetValue<int>());
         Assert.Equal(FixtureDeptClosed, ws.Cell(2, 3).GetValue<int>());
         Assert.Equal(FixtureDeptOpen, ws.Cell(2, 4).GetValue<int>());
-        Assert.Equal(FixtureDeptOverdue, ws.Cell(2, 6).GetValue<int>());
+        Assert.Equal(FixtureDeptOverdue, ws.Cell(2, 5).GetValue<int>());
     }
 
     [Fact]
