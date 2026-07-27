@@ -94,7 +94,29 @@ public class InstitutionalReportExportParityTests
         Assert.Equal(FixtureDeptTotal, ws.Cell(2, 2).GetValue<int>());
         Assert.Equal(FixtureDeptClosed, ws.Cell(2, 3).GetValue<int>());
         Assert.Equal(FixtureDeptOpen, ws.Cell(2, 4).GetValue<int>());
-        Assert.Equal(FixtureDeptOverdue, ws.Cell(2, 6).GetValue<int>());
+        Assert.Equal(FixtureDeptOverdue, ws.Cell(2, 5).GetValue<int>());
+        Assert.Equal("—", ws.Cell(2, 6).GetString());
+    }
+
+    [Fact]
+    public void Xlsx_DepartmentSheet_OverdueRate_ExportsKnownValue()
+    {
+        const double expectedOverdueRate = 37.5;
+
+        var model = InstitutionalReportVisualFixtures.CreateBaseModel();
+        model.DepartmentPerformance[0].OverdueRate = expectedOverdueRate;
+
+        var manifest = InstitutionalReportVisualFixtures.RenderSections(
+            model,
+            ReportSectionId.DepartmentPerformance);
+        var bytes = InstitutionalReportXlsxExporter.Export(
+            model,
+            manifest,
+            new ReportExportRequestDto());
+
+        using var workbook = new XLWorkbook(new MemoryStream(bytes));
+        Assert.True(workbook.TryGetWorksheet("أداء الإدارات", out var ws));
+        Assert.Equal(expectedOverdueRate, ws!.Cell(2, 6).GetValue<double>());
     }
 
     [Fact]

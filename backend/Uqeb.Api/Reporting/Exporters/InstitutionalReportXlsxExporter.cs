@@ -165,7 +165,7 @@ public static class InstitutionalReportXlsxExporter
     {
         var ws = workbook.Worksheets.Add("أداء الإدارات");
         ws.RightToLeft = true;
-        var headers = new[] { DepartmentHeader, "إجمالي", "مغلقة", "مفتوحة", "بانتظار إفادة", "متأخرة", "نسبة التأخر", "إدارات مشتركة", "متوسط الإنجاز", OnTimeHeader };
+        var headers = new[] { DepartmentHeader, "إجمالي", "مغلقة", "مفتوحة", "متأخرة", "نسبة التأخر", "إدارات مشتركة", "متوسط الإنجاز", OnTimeHeader };
         for (var i = 0; i < headers.Length; i++) ws.Cell(1, i + 1).Value = headers[i];
         ws.Range(1, 1, 1, headers.Length).Style.Fill.BackgroundColor = XLColor.FromHtml("#123F32");
         ws.Range(1, 1, 1, headers.Length).Style.Font.FontColor = XLColor.White;
@@ -176,33 +176,16 @@ public static class InstitutionalReportXlsxExporter
             ws.Cell(row, 2).Value = d.TotalTransactions;
             ws.Cell(row, 3).Value = d.ClosedCount;
             ws.Cell(row, 4).Value = d.OpenCount;
-            ws.Cell(row, 5).Value = d.WaitingForStatementCount;
-            ws.Cell(row, 6).Value = d.OverdueCount;
-            ws.Cell(row, 7).Value = d.OverdueRate.HasValue ? d.OverdueRate.Value : "—";
-            ws.Cell(row, 8).Value = d.JointDepartmentCount;
-            ws.Cell(row, 9).Value = d.AverageCompletionDays;
-            ws.Cell(row, 10).Value = d.OnTimeCompletionRate;
+            ws.Cell(row, 5).Value = d.OverdueCount;
+            ws.Cell(row, 6).Value = d.OverdueRate.HasValue ? d.OverdueRate.Value : "—";
+            ws.Cell(row, 7).Value = d.JointDepartmentCount;
+            ws.Cell(row, 8).Value = d.AverageCompletionDays;
+            ws.Cell(row, 9).Value = d.OnTimeCompletionRate;
             row++;
         }
         ws.Range(1, 1, row - 1, headers.Length).SetAutoFilter();
         ws.SheetView.FreezeRows(1);
         ws.Columns().AdjustToContents();
-        // Aggregation metadata note — written AFTER AdjustToContents so it is then re-sized below.
-        var noteRow = row + 1;
-        var noteCell = ws.Cell(noteRow, 1);
-        if (model.DepartmentTotalsAreAdditive)
-        {
-            noteCell.Value = $"ملاحظة منهجية: {model.DepartmentAggregationDescription}";
-            noteCell.Style.Font.Italic = true;
-            noteCell.Style.Font.FontColor = XLColor.Gray;
-        }
-        else
-        {
-            noteCell.Value = $"تحذير: المجاميع غير قابلة للجمع — {model.DepartmentAggregationDescription}";
-            noteCell.Style.Font.FontColor = XLColor.DarkRed;
-        }
-        noteCell.Style.Alignment.WrapText = true;
-        ws.Column(1).AdjustToContents();
     }
 
     private static void AddDepartmentRecognitionsSheet(XLWorkbook workbook, InstitutionalReportModel model)

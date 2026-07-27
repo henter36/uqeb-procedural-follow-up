@@ -664,6 +664,7 @@ public class TransactionWorkflowAtomicityTests
         await AddDepartmentResponseAsync(db, created.Id, 10, submittedByUserId: 1, DepartmentResponseStatus.Approved);
         var today = SaudiToday();
         var transaction = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        var originalStatus = transaction.Status;
         transaction.IncomingDate = today;
         transaction.ResponseCompletedDate = today.AddDays(-1);
         transaction.ClosedAt = null;
@@ -880,6 +881,7 @@ public class TransactionWorkflowAtomicityTests
         var today = SaudiToday();
         var invalidClosedAt = today.AddDays(-1);
         var transaction = await db.Transactions.SingleAsync(t => t.Id == created.Id);
+        var originalStatus = transaction.Status;
         transaction.IncomingDate = today;
         transaction.OutgoingDate = invalidClosedAt;
         transaction.ResponseCompletedDate = invalidClosedAt;
@@ -898,7 +900,7 @@ public class TransactionWorkflowAtomicityTests
         Assert.Contains(nameof(CreateTransactionRequest.OutgoingDate), ex.FieldErrors.Keys);
 
         var persisted = await db.Transactions.SingleAsync(t => t.Id == created.Id);
-        Assert.NotEqual(TransactionStatus.Closed, persisted.Status);
+        Assert.Equal(originalStatus, persisted.Status);
         Assert.Equal(invalidClosedAt, persisted.ClosedAt);
         Assert.Equal(auditCountBefore, await db.AuditLogs.CountAsync());
         Assert.Equal(0, cache.TransactionChangeInvalidations);
