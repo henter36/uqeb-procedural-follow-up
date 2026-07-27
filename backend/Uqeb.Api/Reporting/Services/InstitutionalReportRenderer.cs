@@ -564,11 +564,15 @@ public sealed class InstitutionalReportRenderer
 
     private static string Header(PageChromeOptions options)
     {
-        var meta = options.Partial
-            ? "نسخة جزئية"
-            : options.SectionId == ReportSectionId.DepartmentPerformance
-                ? "أداء الإدارات"
-                : "تقرير مؤسسي";
+        var meta = "تقرير مؤسسي";
+        if (options.Partial)
+        {
+            meta = "نسخة جزئية";
+        }
+        else if (options.SectionId == ReportSectionId.DepartmentPerformance)
+        {
+            meta = "أداء الإدارات";
+        }
 
         return $"""
         <header class="report-header">
