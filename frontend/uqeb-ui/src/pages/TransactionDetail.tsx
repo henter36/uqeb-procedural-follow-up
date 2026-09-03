@@ -663,6 +663,14 @@ function TransactionDetailContent({ transactionId }: Readonly<{ transactionId: s
         canCreateResponse: false,
         canEditResponse: editable,
         canSubmitResponse: editable,
+        departmentStatus: current?.departmentStatus ?? 'مفتوحة',
+        isOpenForDepartment: current?.isOpenForDepartment ?? true,
+        isCompletedForDepartment: current?.isCompletedForDepartment ?? false,
+        isOverdueForDepartment: current?.isOverdueForDepartment ?? false,
+        isCompletedLateForDepartment: current?.isCompletedLateForDepartment ?? false,
+        isOnTimeForDepartment: current?.isOnTimeForDepartment ?? false,
+        departmentDueDate: current?.departmentDueDate,
+        departmentCompletionDate: current?.departmentCompletionDate,
       };
     });
 

@@ -43,6 +43,14 @@ const txNoResponse: DepartmentTransactionResponseItemDto = {
   canCreateResponse: true,
   canEditResponse: false,
   canSubmitResponse: false,
+  departmentStatus: 'مفتوحة متأخرة',
+  isOpenForDepartment: true,
+  isCompletedForDepartment: false,
+  isOverdueForDepartment: true,
+  isCompletedLateForDepartment: false,
+  isOnTimeForDepartment: false,
+  departmentDueDate: '2026-05-31T00:00:00Z',
+  departmentCompletionDate: undefined,
 };
 
 const txWithDraft: DepartmentTransactionResponseItemDto = {
@@ -99,7 +107,34 @@ describe('DepartmentTransactionsPage', () => {
     await waitFor(() => {
       expect(screen.getByText('TX-001')).toBeTruthy();
       expect(screen.getByText('موضوع الاختبار')).toBeTruthy();
+      expect(screen.getByText('مفتوحة متأخرة')).toBeTruthy();
     });
+    expect(mockApi.getDepartmentTransactions).toHaveBeenCalledWith(1);
+  });
+
+  it('requests all department transactions when the scope changes to all', async () => {
+    const completed = {
+      ...txWithDraft,
+      departmentStatus: 'منجزة ضمن المهلة',
+      isOpenForDepartment: false,
+      isCompletedForDepartment: true,
+      isOverdueForDepartment: false,
+      isOnTimeForDepartment: true,
+      departmentCompletionDate: '2026-06-02T00:00:00Z',
+      canEditResponse: false,
+      canSubmitResponse: false,
+    };
+    mockApi.getDepartmentTransactions
+      .mockResolvedValueOnce({ data: [txWithDraft] } as never)
+      .mockResolvedValue({ data: [completed] } as never);
+    renderPage();
+    await waitFor(() => expect(mockApi.getDepartmentTransactions).toHaveBeenCalledWith(1));
+
+    fireEvent.change(screen.getByLabelText('نطاق معاملات الإدارة'), { target: { value: '0' } });
+
+    await waitFor(() => expect(mockApi.getDepartmentTransactions).toHaveBeenCalledWith(0));
+    await waitFor(() => expect(screen.getByText('منجزة ضمن المهلة')).toBeTruthy());
+    expect(screen.queryByText('تعديل الإفادة')).toBeNull();
   });
 
   it('shows empty state when no transactions assigned', async () => {

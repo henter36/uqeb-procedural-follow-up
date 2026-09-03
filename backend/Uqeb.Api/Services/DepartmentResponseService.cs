@@ -5,12 +5,16 @@ using Uqeb.Api.DTOs.DepartmentResponses;
 using Uqeb.Api.Helpers;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
+using Uqeb.Api.Reporting.Enums;
+using Uqeb.Api.Reporting.Services;
 
 namespace Uqeb.Api.Services;
 
 public interface IDepartmentResponseService
 {
-    Task<List<DepartmentTransactionResponseItemDto>> GetDepartmentTransactionsAsync(ICurrentUserService currentUser);
+    Task<List<DepartmentTransactionResponseItemDto>> GetDepartmentTransactionsAsync(
+        ICurrentUserService currentUser,
+        DepartmentTransactionScope scope = DepartmentTransactionScope.OpenOnly);
     Task<List<DepartmentResponseSummaryDto>> GetMyDepartmentResponsesAsync(ICurrentUserService currentUser);
     Task<List<DepartmentResponseSummaryDto>> GetPendingReviewAsync(ICurrentUserService currentUser, CancellationToken cancellationToken = default);
     Task<DepartmentResponseStatsDto> GetMyStatsAsync(ICurrentUserService currentUser);
@@ -120,7 +124,9 @@ public class DepartmentResponseService : IDepartmentResponseService
         catch (InvalidOperationException) { return null; }
     }
 
-    public async Task<List<DepartmentTransactionResponseItemDto>> GetDepartmentTransactionsAsync(ICurrentUserService currentUser)
+    public async Task<List<DepartmentTransactionResponseItemDto>> GetDepartmentTransactionsAsync(
+        ICurrentUserService currentUser,
+        DepartmentTransactionScope scope = DepartmentTransactionScope.OpenOnly)
     {
         if (!currentUser.DepartmentId.HasValue)
             return [];
@@ -138,14 +144,40 @@ public class DepartmentResponseService : IDepartmentResponseService
 
         var assigned = await _db.Assignments
             .AsNoTracking()
-            .Where(a => a.DepartmentId == deptId && a.Status == AssignmentStatus.Active)
-            .Select(a => new { a.TransactionId, a.AssignedDate })
+            .Where(a => a.DepartmentId == deptId
+                && (a.Status == AssignmentStatus.Active || a.Status == AssignmentStatus.Completed))
+            .Select(a => new InstitutionalReportSnapshotQuery.AssignmentRow
+            {
+                Id = a.Id,
+                TransactionId = a.TransactionId,
+                DepartmentId = a.DepartmentId,
+                DepartmentName = a.Department.Name,
+                AssignedDate = a.AssignedDate,
+                CreatedAt = a.CreatedAt,
+                RequiresReply = a.RequiresReply,
+                ReplyStatus = a.ReplyStatus,
+                Status = a.Status,
+                DueDate = a.DueDate,
+                ReplyDate = a.ReplyDate,
+            })
             .ToListAsync();
 
         if (assigned.Count == 0)
             return [];
 
-        var txIds = assigned.Select(a => a.TransactionId).ToList();
+        var evaluationDate = ReportingTemporalCalculator.RiyadhBusinessDate();
+        var performanceStates = assigned
+            .GroupBy(a => a.TransactionId)
+            .Select(group => DepartmentTransactionPerformanceObservationResolver.ResolveState(
+                group.Key,
+                group,
+                evaluationDate))
+            .Where(state => scope == DepartmentTransactionScope.All || state.IsOpenForDepartment)
+            .ToList();
+
+        var txIds = performanceStates.Select(state => state.TransactionId).ToList();
+        if (txIds.Count == 0)
+            return [];
 
         var transactions = await _db.Transactions
             .AsNoTracking()
@@ -165,8 +197,13 @@ public class DepartmentResponseService : IDepartmentResponseService
             .Select(r => new { r.TransactionId, r.Id, Status = r.Status.ToString() })
             .ToListAsync();
 
-        var responseByTx = responses.ToDictionary(r => r.TransactionId);
-        var assignedDateByTx = assigned.ToDictionary(a => a.TransactionId, a => a.AssignedDate);
+        var responseByTx = responses
+            .GroupBy(r => r.TransactionId)
+            .ToDictionary(group => group.Key, group => group.OrderByDescending(r => r.Id).First());
+        var assignedDateByTx = assigned
+            .GroupBy(a => a.TransactionId)
+            .ToDictionary(group => group.Key, group => group.Max(a => a.AssignedDate));
+        var stateByTx = performanceStates.ToDictionary(state => state.TransactionId);
 
         var editableStatuses = new[] { "Draft", "ReturnedForCorrection" };
 
@@ -175,9 +212,10 @@ public class DepartmentResponseService : IDepartmentResponseService
             {
                 responseByTx.TryGetValue(t.Id, out var resp);
                 assignedDateByTx.TryGetValue(t.Id, out var assignedDate);
+                var state = stateByTx[t.Id];
 
-                bool canCreate = resp == null;
-                bool canEdit = resp != null && editableStatuses.Contains(resp.Status);
+                bool canCreate = state.IsOpenForDepartment && resp == null;
+                bool canEdit = state.IsOpenForDepartment && resp != null && editableStatuses.Contains(resp.Status);
                 bool canSubmit = canEdit;
 
                 return new DepartmentTransactionResponseItemDto(
@@ -193,7 +231,15 @@ public class DepartmentResponseService : IDepartmentResponseService
                     resp?.Status,
                     canCreate,
                     canEdit,
-                    canSubmit);
+                    canSubmit,
+                    DepartmentTransactionPerformanceObservationResolver.StatusLabel(state),
+                    state.IsOpenForDepartment,
+                    state.IsCompletedForDepartment,
+                    state.IsOverdueForDepartment,
+                    state.IsCompletedLateForDepartment,
+                    state.IsOnTimeForDepartment,
+                    state.DepartmentDueDate,
+                    state.DepartmentCompletionDate);
             })
             .OrderByDescending(x => x.AssignedDate)
             .ToList();
@@ -434,8 +480,7 @@ public class DepartmentResponseService : IDepartmentResponseService
         RequireReviewer(currentUser);
 
         var response = await _db.DepartmentResponses
-            .Include(r => r.Transaction)
-                .ThenInclude(t => t.Assignments)
+            .Include(r => r.Transaction.Assignments)
             .FirstOrDefaultAsync(r => r.Id == id)
             ?? throw new InvalidOperationException(ResponseNotFoundMessage);
 

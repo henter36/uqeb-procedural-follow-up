@@ -195,6 +195,10 @@ public class InstitutionalReportXlsxExporterTests
                     IncomingDate = DateTime.UtcNow.Date,
                     Subject = "معاملة الإدارة",
                     Status = "قيد المعالجة",
+                    DepartmentStatus = "منجزة ضمن المهلة",
+                    DepartmentDueDate = "2026-01-20",
+                    DepartmentCompletionDate = "2026-01-15",
+                    DepartmentResponseState = "مكتمل",
                     Priority = "عاجل",
                     MatchedDepartments =
                     [
@@ -218,12 +222,17 @@ public class InstitutionalReportXlsxExporterTests
         AssertHeaders(ws, [
             "م", "رقم الوارد", "تاريخ الوارد", "الموضوع", "الجهة",
             "الإدارة/الإدارات المطابقة", "نوع العلاقة", "رقم الصادر", "تاريخ الصادر",
-            "إدارات الإحالة (الكل)", "إدارات الصادر (الكل)", "الحالة", PriorityHeader, "المهلة", "آخر إجراء",
+            "إدارات الإحالة (الكل)", "إدارات الصادر (الكل)", "حالة الإدارة", "حالة المعاملة",
+            PriorityHeader, "مهلة الإدارة", "إنجاز الإدارة", "حالة إفادة الإدارة", "آخر إجراء",
         ]);
         Assert.Equal("الإدارة ب", ws.Cell(2, 6).GetString());
         Assert.Equal("إحالة وصادر لها", ws.Cell(2, 7).GetString());
         Assert.Equal("الإدارة ب؛ الإدارة ج", ws.Cell(2, 10).GetString());
         Assert.Equal("الإدارة ب", ws.Cell(2, 11).GetString());
+        Assert.Equal("منجزة ضمن المهلة", ws.Cell(2, 12).GetString());
+        Assert.Equal("قيد المعالجة", ws.Cell(2, 13).GetString());
+        Assert.Equal("2026-01-20", ws.Cell(2, 15).GetString());
+        Assert.Equal("2026-01-15", ws.Cell(2, 16).GetString());
     }
 
     [Fact]

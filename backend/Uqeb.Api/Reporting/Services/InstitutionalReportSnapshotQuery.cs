@@ -44,6 +44,7 @@ internal static class InstitutionalReportSnapshotQuery
     internal sealed class AssignmentRow
     {
         public int Id { get; init; }
+        public int TransactionId { get; init; }
         public int DepartmentId { get; init; }
         public string DepartmentName { get; init; } = string.Empty;
         public DateTime AssignedDate { get; init; }
@@ -88,6 +89,7 @@ internal static class InstitutionalReportSnapshotQuery
         Assignments = t.Assignments.Select(a => new AssignmentRow
         {
             Id = a.Id,
+            TransactionId = a.TransactionId,
             DepartmentId = a.DepartmentId,
             DepartmentName = a.Department != null ? a.Department.Name : string.Empty,
             AssignedDate = a.AssignedDate,
@@ -320,6 +322,7 @@ internal static class InstitutionalReportSnapshotQuery
         var uniqueDepartments = BuildDepartmentPairs(sortedAttributionAssignments);
         var assignmentDeptIds = uniqueDepartments.Select(x => x.DepartmentId).ToList();
         var assignmentDeptNames = uniqueDepartments.Select(x => x.DepartmentName).ToList();
+        var departmentPerformanceStates = BuildDepartmentPerformanceStates(row.Id, sortedAttributionAssignments, today);
         var responsibleAssignment = sortedAttributionAssignments.FirstOrDefault();
         var responsible = responsibleAssignment?.DepartmentName ?? "—";
 
@@ -375,6 +378,7 @@ internal static class InstitutionalReportSnapshotQuery
             ResponsibleDepartmentId = responsibleAssignment?.DepartmentId,
             AssignmentDepartmentIds = assignmentDeptIds,
             AssignmentDepartmentNames = assignmentDeptNames,
+            DepartmentPerformanceStates = departmentPerformanceStates,
             OutgoingDepartmentIds = uniqueOutgoingDepartments.Select(o => o.DepartmentId).ToList(),
             OutgoingDepartmentNames = uniqueOutgoingDepartments.Select(o => o.DepartmentName).ToList(),
             ActiveAssignmentCount = activeAssignments.Count,
@@ -401,6 +405,18 @@ internal static class InstitutionalReportSnapshotQuery
 
     private static bool IsReportAttributionAssignment(AssignmentRow assignment) =>
         assignment.Status is AssignmentStatus.Active or AssignmentStatus.Completed;
+
+    private static List<DepartmentTransactionPerformanceState> BuildDepartmentPerformanceStates(
+        int transactionId,
+        IEnumerable<AssignmentRow> assignments,
+        DateTime evaluationDate) =>
+        assignments
+            .GroupBy(assignment => assignment.DepartmentId)
+            .Select(group => DepartmentTransactionPerformanceObservationResolver.ResolveState(
+                transactionId,
+                group,
+                evaluationDate))
+            .ToList();
 
     internal static List<DepartmentRow> BuildDepartmentPairs(IEnumerable<AssignmentRow> assignments) =>
         assignments

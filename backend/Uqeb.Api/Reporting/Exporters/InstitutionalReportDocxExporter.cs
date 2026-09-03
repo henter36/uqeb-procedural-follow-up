@@ -302,7 +302,7 @@ public static class InstitutionalReportDocxExporter
         table.AppendChild(tableProperties);
 
         table.AppendChild(CreateTableRow(
-            ["#", "رقم الوارد", "تاريخ الوارد", "الموضوع", "الجهة الوارد منها", "الإدارة/الإدارات المطابقة", "الحالة", "الأولوية", "المهلة", "آخر إجراء"],
+            ["#", "رقم الوارد", "تاريخ الوارد", "الموضوع", "الجهة الوارد منها", "الإدارة/الإدارات المطابقة", "حالة الإدارة", "حالة المعاملة", "الأولوية", "مهلة الإدارة", "إنجاز الإدارة", "آخر إجراء"],
             bold: true));
 
         foreach (var r in model.Transactions)
@@ -316,9 +316,11 @@ public static class InstitutionalReportDocxExporter
                 r.Subject,
                 r.IncomingParty,
                 matched,
+                r.DepartmentStatus,
                 r.Status,
                 r.Priority,
-                r.DueDate ?? "—",
+                r.DepartmentDueDate ?? "—",
+                r.DepartmentCompletionDate ?? "—",
                 r.LastActionDate ?? "—",
             ]));
         }

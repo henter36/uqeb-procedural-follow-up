@@ -18,6 +18,7 @@ export const ReportDetailSortBy = {
 
 export const DepartmentTransactionScope = {
   All: 0,
+  // DepartmentTransactions: open for at least one selected assignment department, not globally open.
   OpenOnly: 1,
 } as const;
 

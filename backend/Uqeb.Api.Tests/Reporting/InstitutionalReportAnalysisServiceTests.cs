@@ -333,6 +333,159 @@ public class InstitutionalReportAnalysisServiceTests
             row.DepartmentName.Contains("غير محدد", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void Build_DepartmentAnalysis_CompletenessUsesDepartmentOwnDueDateNotTransactionResponseDueDate()
+    {
+        const int departmentA = 401;
+        const int departmentB = 402;
+        var incomingDate = ReferenceDate.AddDays(-20);
+        var snapshot = new TransactionReportSnapshot
+        {
+            TransactionId = 601,
+            TrackingNumber = "INT-0601",
+            IncomingNumber = "IN-0601",
+            IncomingDate = incomingDate,
+            Subject = "معاملة مشتركة بين إدارتين",
+            IncomingParty = "جهة اختبار",
+            CategoryName = "تصنيف اختبار",
+            Priority = Priority.Normal,
+            Status = TransactionStatus.InProgress,
+            // The transaction as a whole has no measurable due date of its own — it is tracked
+            // entirely via each department's own assignment deadline instead — and the transaction's
+            // ResponsibleDepartment is A, not B. Crediting department B's completeness from these
+            // transaction-wide fields (as the old code did) would be wrong.
+            RequiresResponse = true,
+            ResponseDueDate = null,
+            ResponsibleDepartment = "إدارة أ",
+            ResponsibleDepartmentId = departmentA,
+            AssignmentDepartmentIds = [departmentA, departmentB],
+            AssignmentDepartmentNames = ["إدارة أ", "إدارة ب"],
+            DepartmentPerformanceStates =
+            [
+                new DepartmentTransactionPerformanceState
+                {
+                    DepartmentId = departmentB,
+                    DepartmentName = "إدارة ب",
+                    TransactionId = 601,
+                    IsOpenForDepartment = true,
+                    IsCompletedForDepartment = false,
+                    DepartmentDueDate = incomingDate.AddDays(15),
+                    IsOpenOverdueForDepartment = false,
+                    IsOverdueForDepartment = false,
+                    IsCompletedLateForDepartment = false,
+                    IsOnTimeForDepartment = false,
+                    IsTimelinessEligible = false,
+                    RepliedAssignmentCount = 0,
+                    PendingReplyAssignmentCount = 1,
+                    IsPartialReplyForDepartment = false,
+                }
+            ],
+            IsClosed = false,
+            IsOpen = true,
+            IsPeriodIncoming = true,
+            ElapsedDays = 20,
+        };
+
+        var result = BuildAnalysis([snapshot], [], minimumRankingSampleSize: 1);
+
+        var departmentBRow = Assert.Single(result.DepartmentPerformance);
+        Assert.Equal(departmentB, departmentBRow.DepartmentId);
+        // Every field is present from department B's own perspective — its own DepartmentDueDate
+        // exists — even though the transaction-wide RequiresResponse/ResponseDueDate fields (which
+        // belong to department A, the transaction's ResponsibleDepartment) are empty. The old code
+        // checked those transaction-wide fields instead and would have scored this 6/7 ≈ 85.7%.
+        Assert.Equal(100, departmentBRow.DataCompletenessRate);
+    }
+
+    [Fact]
+    public void Build_DepartmentRecognition_BenchmarkUsesAssignmentBasedCompletionNotTransactionClosure()
+    {
+        var incomingDate = ReferenceDate.AddDays(-60);
+        // Department 501 replies in 10 days; its own transaction happens to close on the same day, so
+        // its own AverageCompletionDays (assignment-based either way) is unambiguously 10.
+        var slowDepartment = RecognitionBenchmarkSnapshot(
+            transactionId: 501, departmentId: 501, departmentName: "إدارة بطيئة نسبيًا",
+            incomingDate: incomingDate, departmentCompletionDaysFromIncoming: 10, transactionClosedDaysFromIncoming: 10);
+        // Department 502 replies fast (2 days), but its transaction's administrative closure comes
+        // much later (50 days) — a real-world "reply was on time, paperwork closed late" gap.
+        var fastDepartmentSlowClosure = RecognitionBenchmarkSnapshot(
+            transactionId: 502, departmentId: 502, departmentName: "إدارة سريعة لكن إغلاقها متأخر",
+            incomingDate: incomingDate, departmentCompletionDaysFromIncoming: 2, transactionClosedDaysFromIncoming: 50);
+
+        var result = BuildAnalysis(
+            [slowDepartment, fastDepartmentSlowClosure], previousSnapshots: [], minimumRankingSampleSize: 1);
+
+        var slowDepartmentRecognition = result.DepartmentRecognitions.SingleOrDefault(r => r.DepartmentId == 501);
+        Assert.NotNull(slowDepartmentRecognition);
+        // Correct (assignment-based) system benchmark = avg(10, 2) = 6 days. Department 501's own
+        // average (10) is worse than that, so "تحسن مدة المعالجة" must NOT be granted. Under the old
+        // transaction-ClosedAt-based benchmark it would have been avg(10, 50) = 30, and 10 <= 30 would
+        // have incorrectly granted it — comparing an assignment-based average against a closure-based
+        // one for a population where the two definitions diverge.
+        Assert.DoesNotContain("تحسن مدة المعالجة", slowDepartmentRecognition!.Reason);
+    }
+
+    private static TransactionReportSnapshot RecognitionBenchmarkSnapshot(
+        int transactionId,
+        int departmentId,
+        string departmentName,
+        DateTime incomingDate,
+        int departmentCompletionDaysFromIncoming,
+        int transactionClosedDaysFromIncoming)
+    {
+        var departmentCompletionDate = incomingDate.AddDays(departmentCompletionDaysFromIncoming);
+        var departmentDueDate = departmentCompletionDate.AddDays(1);
+        var closedAt = incomingDate.AddDays(transactionClosedDaysFromIncoming);
+        return new TransactionReportSnapshot
+        {
+            TransactionId = transactionId,
+            TrackingNumber = $"INT-{transactionId:D4}",
+            IncomingNumber = $"IN-{transactionId:D4}",
+            IncomingDate = incomingDate,
+            Subject = $"معاملة اختبار المعيار {transactionId}",
+            IncomingParty = "جهة اختبار",
+            CategoryName = "تصنيف اختبار",
+            Priority = Priority.Normal,
+            Status = TransactionStatus.Closed,
+            RequiresResponse = true,
+            ResponseCompleted = true,
+            ResponseCompletedDate = closedAt,
+            ResponseDueDate = departmentDueDate,
+            ClosedAt = closedAt,
+            CreatedAt = incomingDate,
+            UpdatedAt = closedAt,
+            ResponsibleDepartment = departmentName,
+            ResponsibleDepartmentId = departmentId,
+            AssignmentDepartmentIds = [departmentId],
+            AssignmentDepartmentNames = [departmentName],
+            DepartmentPerformanceStates =
+            [
+                new DepartmentTransactionPerformanceState
+                {
+                    DepartmentId = departmentId,
+                    DepartmentName = departmentName,
+                    TransactionId = transactionId,
+                    IsOpenForDepartment = false,
+                    IsCompletedForDepartment = true,
+                    DepartmentCompletionDate = departmentCompletionDate,
+                    DepartmentDueDate = departmentDueDate,
+                    IsOpenOverdueForDepartment = false,
+                    IsOverdueForDepartment = false,
+                    IsCompletedLateForDepartment = false,
+                    IsOnTimeForDepartment = true,
+                    IsTimelinessEligible = true,
+                    RepliedAssignmentCount = 1,
+                    PendingReplyAssignmentCount = 0,
+                    IsPartialReplyForDepartment = false,
+                }
+            ],
+            IsClosed = true,
+            IsOpen = false,
+            IsPeriodIncoming = true,
+            ElapsedDays = transactionClosedDaysFromIncoming,
+        };
+    }
+
     private static List<TransactionReportSnapshot> CreateCurrentSnapshots() =>
     [
         Snapshot(1, TransactionStatus.New, Priority.Urgent, isOpen: true, isClosed: false, isOverdue: true, elapsedDays: 30, department: "الشؤون الإدارية", pendingReplies: 1, dueDate: ReferenceDate.AddDays(-10)),

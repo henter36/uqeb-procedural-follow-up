@@ -5,6 +5,7 @@ using Uqeb.Api.Data;
 using Uqeb.Api.DTOs.DepartmentResponses;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
+using Uqeb.Api.Reporting.Enums;
 using Uqeb.Api.Services;
 using Xunit;
 
@@ -458,6 +459,76 @@ public class DepartmentResponseServiceTests
         var result = await service.GetDepartmentTransactionsAsync(noDeptUser);
 
         Assert.Empty(result);
+    }
+
+    [Fact]
+    public async Task GetDepartmentTransactions_SharedTransactionUsesCurrentDepartmentAssignmentState()
+    {
+        var (db, txId, departmentAId, userAId) = await SeedAsync(
+            nameof(GetDepartmentTransactions_SharedTransactionUsesCurrentDepartmentAssignmentState));
+        var departmentB = new Department
+        {
+            Name = "الإدارة ب",
+            NameNormalized = "الإدارة ب",
+            Code = "DEPT-B",
+        };
+        var userB = new User
+        {
+            Username = "dept-b",
+            PasswordHash = "x",
+            FullName = "مستخدم الإدارة ب",
+            Role = UserRole.DepartmentUser,
+            Department = departmentB,
+        };
+        db.Departments.Add(departmentB);
+        db.Users.Add(userB);
+        await db.SaveChangesAsync();
+
+        var departmentAAssignment = await db.Assignments.SingleAsync(a =>
+            a.TransactionId == txId && a.DepartmentId == departmentAId);
+        departmentAAssignment.Status = AssignmentStatus.Completed;
+        departmentAAssignment.ReplyStatus = ReplyStatus.Replied;
+        departmentAAssignment.DueDate = DateTime.UtcNow.Date.AddDays(1);
+        departmentAAssignment.ReplyDate = DateTime.UtcNow.Date;
+
+        db.Assignments.Add(new Assignment
+        {
+            TransactionId = txId,
+            DepartmentId = departmentB.Id,
+            AssignedDate = DateTime.UtcNow.AddDays(-5),
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Pending,
+            DueDate = DateTime.UtcNow.Date.AddDays(-1),
+            Status = AssignmentStatus.Active,
+            CreatedById = userAId,
+        });
+        await db.SaveChangesAsync();
+
+        var service = BuildService(db);
+        var userA = new FakeUser { UserId = userAId, DepartmentId = departmentAId };
+        var currentUserB = new FakeUser { UserId = userB.Id, DepartmentId = departmentB.Id };
+
+        var departmentAOpen = await service.GetDepartmentTransactionsAsync(userA, DepartmentTransactionScope.OpenOnly);
+        var departmentAAll = await service.GetDepartmentTransactionsAsync(userA, DepartmentTransactionScope.All);
+        var departmentBOpen = await service.GetDepartmentTransactionsAsync(currentUserB, DepartmentTransactionScope.OpenOnly);
+
+        Assert.Empty(departmentAOpen);
+        var completed = Assert.Single(departmentAAll);
+        Assert.True(completed.IsCompletedForDepartment);
+        Assert.True(completed.IsOnTimeForDepartment);
+        Assert.False(completed.IsOpenForDepartment);
+        Assert.Equal("منجزة ضمن المهلة", completed.DepartmentStatus);
+        Assert.False(completed.CanCreateResponse);
+
+        var open = Assert.Single(departmentBOpen);
+        Assert.True(open.IsOpenForDepartment);
+        Assert.True(open.IsOverdueForDepartment);
+        Assert.False(open.IsCompletedForDepartment);
+        Assert.Equal("مفتوحة متأخرة", open.DepartmentStatus);
+
+        var transaction = await db.Transactions.SingleAsync(t => t.Id == txId);
+        Assert.NotEqual(TransactionStatus.Closed, transaction.Status);
+        Assert.Null(transaction.ClosedAt);
     }
 
     // ─── Authorization tests ───────────────────────────────────────────────────

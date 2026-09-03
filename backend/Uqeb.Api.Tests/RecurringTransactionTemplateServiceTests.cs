@@ -848,12 +848,13 @@ public class RecurringTransactionTemplateServiceTests
     {
         var (service, _) = await CreateServiceAsync(nameof(GenerateAsync_accepts_future_DueDate));
         var created = await service.CreateAsync(ValidMonthlyRequest(), userId: 1);
+        var today = DateTime.UtcNow.Date;
 
         var result = await service.GenerateAsync(created.Id, new GenerateRecurringTransactionRequest
         {
-            PeriodKey = "2026-07",
-            IncomingDate = new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc),
-            ReferralDate = new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc)
+            PeriodKey = FormattableString.Invariant($"{today:yyyy-MM}"),
+            IncomingDate = today,
+            ReferralDate = today
         }, userId: 1);
 
         Assert.NotNull(result);

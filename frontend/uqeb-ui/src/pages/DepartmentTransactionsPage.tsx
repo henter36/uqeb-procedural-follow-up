@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { departmentResponsesApi } from '../api/services';
 import type { DepartmentResponseDto, DepartmentTransactionResponseItemDto, DepartmentResponseStatsDto } from '../api/types';
+import type { DepartmentTransactionScope as DepartmentTransactionScopeValue } from '../api/institutionalReports.types';
+import { DepartmentTransactionScope } from '../api/institutionalReports.constants';
 import { EmptyState, ErrorState, PageHeader } from '../components/ui';
 import { formatHijri } from '../utils/dateUtils';
 
@@ -168,15 +170,29 @@ function TransactionActionCell({ tx, onOpenCreate, onOpenDetail }: TransactionAc
 type TransactionsListViewProps = Readonly<{
   transactions: DepartmentTransactionResponseItemDto[];
   statsState: StatsBannerState;
+  scope: DepartmentTransactionScopeValue;
+  onScopeChange: (scope: DepartmentTransactionScopeValue) => void;
   onOpenCreate: (tx: DepartmentTransactionResponseItemDto) => void;
   onOpenDetail: (id: number) => void;
 }>;
 
-function TransactionsListView({ transactions, statsState, onOpenCreate, onOpenDetail }: TransactionsListViewProps) {
+function TransactionsListView({ transactions, statsState, scope, onScopeChange, onOpenCreate, onOpenDetail }: TransactionsListViewProps) {
   return (
     <div className="page-container" dir="rtl">
       <PageHeader title="معاملات إدارتي" />
       <EmployeeStatsBanner state={statsState} />
+      <div className="mb-4 max-w-xs">
+        <label htmlFor="department-transaction-scope" className="form-label">نطاق معاملات الإدارة</label>
+        <select
+          id="department-transaction-scope"
+          className="form-select"
+          value={scope}
+          onChange={(event) => onScopeChange(Number(event.target.value) as DepartmentTransactionScopeValue)}
+        >
+          <option value={DepartmentTransactionScope.OpenOnly}>المفتوحة بالنسبة لإدارتي</option>
+          <option value={DepartmentTransactionScope.All}>جميع معاملات إدارتي</option>
+        </select>
+      </div>
       {transactions.length === 0 ? (
         <EmptyState title="لا توجد معاملات مسندة لإدارتك حالياً" />
       ) : (
@@ -186,6 +202,7 @@ function TransactionsListView({ transactions, statsState, onOpenCreate, onOpenDe
               <tr>
                 <th>رقم المعاملة</th>
                 <th>الموضوع</th>
+                <th>حالة الإدارة</th>
                 <th>حالة الإفادة</th>
                 <th>تاريخ الإسناد</th>
                 <th></th>
@@ -196,6 +213,7 @@ function TransactionsListView({ transactions, statsState, onOpenCreate, onOpenDe
                 <tr key={tx.transactionId}>
                   <td>{tx.internalTrackingNumber}</td>
                   <td className="max-w-xs truncate">{tx.subject}</td>
+                  <td>{tx.departmentStatus}</td>
                   <td>
                     {tx.departmentResponseStatus
                       ? statusBadge(tx.departmentResponseStatus)
@@ -432,6 +450,7 @@ export default function DepartmentTransactionsPage() {
   const [searchParams] = useSearchParams();
   const requestedTransactionId = Number(searchParams.get('transactionId'));
   const [transactions, setTransactions] = useState<DepartmentTransactionResponseItemDto[]>([]);
+  const [scope, setScope] = useState<DepartmentTransactionScopeValue>(DepartmentTransactionScope.OpenOnly);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<ViewState>({ kind: 'list' });
@@ -474,7 +493,7 @@ export default function DepartmentTransactionsPage() {
     if (!background) setLoading(true);
     setError(null);
     try {
-      const res = await departmentResponsesApi.getDepartmentTransactions();
+      const res = await departmentResponsesApi.getDepartmentTransactions(scope);
       setTransactions(res.data);
       openRequestedTransaction(res.data);
       return res.data;
@@ -484,7 +503,7 @@ export default function DepartmentTransactionsPage() {
     } finally {
       if (!background) setLoading(false);
     }
-  }, [openRequestedTransaction]);
+  }, [openRequestedTransaction, scope]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -640,6 +659,8 @@ export default function DepartmentTransactionsPage() {
     <TransactionsListView
       transactions={transactions}
       statsState={statsState}
+      scope={scope}
+      onScopeChange={setScope}
       onOpenCreate={openCreate}
       onOpenDetail={openDetail}
     />

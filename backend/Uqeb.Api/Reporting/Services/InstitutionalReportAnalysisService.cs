@@ -84,73 +84,41 @@ internal static class InstitutionalReportAnalysisService
             reportType,
             snapshotCount,
             () => BuildKpis(currentMetrics, currentSnapshots, previousMetrics, options, referenceDate));
-        var criticalCases = request.IncludeCriticalCases == false
-            ? []
-            : MeasureStage(
-                instrumentation,
-                "critical_cases",
-                reportType,
-                snapshotCount,
-                () => BuildCriticalCases(currentSnapshots, options, referenceDate).Take(maxCriticalCases).ToList());
-        var departments = request.IncludeDepartmentPerformance == false
-            ? []
-            : MeasureStage(
-                instrumentation,
-                "departments",
-                reportType,
-                snapshotCount,
-                () => BuildDepartments(currentSnapshots, previousSnapshots, options));
-        var externalParties = request.IncludeExternalPartyAnalysis == false
-            ? []
-            : MeasureStage(
-                instrumentation,
-                "external_parties",
-                reportType,
-                snapshotCount,
-                () => BuildExternalParties(currentSnapshots));
-        var categories = request.IncludeCategoryAnalysis == false
-            ? []
-            : MeasureStage(
-                instrumentation,
-                "categories",
-                reportType,
-                snapshotCount,
-                () => BuildCategories(currentSnapshots));
-        var priorities = request.IncludeCategoryAnalysis == false
-            ? []
-            : MeasureStage(
-                instrumentation,
-                "priorities",
-                reportType,
-                snapshotCount,
-                () => BuildPriorities(currentSnapshots));
-        var bottlenecks = request.IncludeBottleneckAnalysis == false
-            ? []
-            : MeasureStage(
-                instrumentation,
-                "bottlenecks",
-                reportType,
-                snapshotCount,
-                () => BuildBottlenecks(currentSnapshots, referenceDate, options.StaleTransactionDays));
-        var dataQuality = request.IncludeDataQuality == false
-            ? []
-            : MeasureStage(
-                instrumentation,
-                "data_quality",
-                reportType,
-                snapshotCount,
-                () => BuildDataQualityIssues(currentSnapshots));
+        var criticalCases = BuildOptionalSection(
+            request.IncludeCriticalCases != false,
+            instrumentation, "critical_cases", reportType, snapshotCount,
+            () => BuildCriticalCases(currentSnapshots, options, referenceDate).Take(maxCriticalCases).ToList());
+        var departments = BuildOptionalSection(
+            request.IncludeDepartmentPerformance != false,
+            instrumentation, "departments", reportType, snapshotCount,
+            () => BuildDepartments(currentSnapshots, previousSnapshots, options));
+        var externalParties = BuildOptionalSection(
+            request.IncludeExternalPartyAnalysis != false,
+            instrumentation, "external_parties", reportType, snapshotCount,
+            () => BuildExternalParties(currentSnapshots));
+        var categories = BuildOptionalSection(
+            request.IncludeCategoryAnalysis != false,
+            instrumentation, "categories", reportType, snapshotCount,
+            () => BuildCategories(currentSnapshots));
+        var priorities = BuildOptionalSection(
+            request.IncludeCategoryAnalysis != false,
+            instrumentation, "priorities", reportType, snapshotCount,
+            () => BuildPriorities(currentSnapshots));
+        var bottlenecks = BuildOptionalSection(
+            request.IncludeBottleneckAnalysis != false,
+            instrumentation, "bottlenecks", reportType, snapshotCount,
+            () => BuildBottlenecks(currentSnapshots, referenceDate, options.StaleTransactionDays));
+        var dataQuality = BuildOptionalSection(
+            request.IncludeDataQuality != false,
+            instrumentation, "data_quality", reportType, snapshotCount,
+            () => BuildDataQualityIssues(currentSnapshots));
         var includeDepartmentRecognitions =
             request.SectionIds.Contains(ReportSectionId.OutstandingAndImprovedDepartments)
             || request.IncludeDepartmentPerformance != false;
-        var departmentRecognitions = !includeDepartmentRecognitions
-            ? []
-            : MeasureStage(
-                instrumentation,
-                "department_recognitions",
-                reportType,
-                snapshotCount,
-                () => BuildDepartmentRecognitions(currentSnapshots, previousSnapshots, options));
+        var departmentRecognitions = BuildOptionalSection(
+            includeDepartmentRecognitions,
+            instrumentation, "department_recognitions", reportType, snapshotCount,
+            () => BuildDepartmentRecognitions(currentSnapshots, previousSnapshots, options));
         var completenessRate = MeasureStage(
             instrumentation,
             "completeness_rate",
@@ -165,40 +133,27 @@ internal static class InstitutionalReportAnalysisService
             () => BuildFindings(currentMetrics, previousMetrics, departments, externalParties, dataQuality, options)
                 .Take(maxFindings)
                 .ToList());
-        var recommendations = request.IncludeRecommendations == false
-            ? []
-            : MeasureStage(
-                instrumentation,
-                "recommendations",
-                reportType,
-                snapshotCount,
-                () => BuildRecommendations(findings, criticalCases, dataQuality).Take(maxRecommendations).ToList());
-        var timeSeries = request.IncludeTimeTrends == false
-            ? []
-            : MeasureStage(
-                instrumentation,
-                "time_series",
-                reportType,
-                snapshotCount,
-                () => BuildTimeSeries(currentSnapshots, timeGrouping));
-        var departmentTimeSeries = request.IncludeTimeTrends == false || request.IncludeDepartmentPerformance == false
-            ? []
-            : MeasureStage(
-                instrumentation,
-                "department_time_series",
-                reportType,
-                snapshotCount,
-                () => BuildDepartmentTimeSeries(currentSnapshots, timeGrouping));
-        var insights = request.IncludeExecutiveSummary == false
-            ? []
-            : MeasureStage(
-                instrumentation,
-                "executive_insights",
-                reportType,
-                snapshotCount,
-                () => BuildExecutiveInsights(currentMetrics, findings, criticalCases, departments, externalParties, options)
-                    .Take(options.MaxExecutiveFindings)
-                    .ToList());
+        var recommendations = BuildOptionalSection(
+            request.IncludeRecommendations != false,
+            instrumentation, "recommendations", reportType, snapshotCount,
+            () => BuildRecommendations(findings, criticalCases, dataQuality).Take(maxRecommendations).ToList());
+        var timeSeries = BuildOptionalSection(
+            request.IncludeTimeTrends != false,
+            instrumentation, "time_series", reportType, snapshotCount,
+            () => BuildTimeSeries(currentSnapshots, timeGrouping));
+        var includeDepartmentTimeSeries = request.IncludeTimeTrends != false && request.IncludeDepartmentPerformance != false;
+        var departmentTimeSeries = BuildOptionalSection(
+            includeDepartmentTimeSeries,
+            instrumentation, "department_time_series", reportType, snapshotCount,
+            () => BuildDepartmentTimeSeries(currentSnapshots, timeGrouping));
+        var insights = BuildOptionalSection(
+            request.IncludeExecutiveSummary != false,
+            instrumentation, "executive_insights", reportType, snapshotCount,
+            () => BuildExecutiveInsights(
+                    ResolveInsightsMetrics(request, currentMetrics, currentSnapshots, filters),
+                    findings, criticalCases, departments, externalParties, options)
+                .Take(options.MaxExecutiveFindings)
+                .ToList());
 
         var result = new InstitutionalReportAnalysisResult
         {
@@ -280,6 +235,43 @@ internal static class InstitutionalReportAnalysisService
                 succeeded);
         }
     }
+
+    /// <summary>
+    /// Every optional analysis section in <see cref="Build"/> follows the same shape: build the
+    /// section (measured) when the caller's include flag allows it, otherwise skip it with an empty
+    /// list. Centralizing that here — instead of a per-section <c>? [] : MeasureStage(...)</c> ternary
+    /// — is a purely structural extraction to keep <see cref="Build"/>'s cognitive complexity in
+    /// check; it changes no section's inclusion rule or ordering.
+    /// </summary>
+    private static List<TItem> BuildOptionalSection<TItem>(
+        bool shouldInclude,
+        IReportingAnalysisInstrumentation? instrumentation,
+        string stage,
+        string reportType,
+        int snapshotCount,
+        Func<List<TItem>> work) =>
+        shouldInclude
+            ? MeasureStage(instrumentation, stage, reportType, snapshotCount, work)
+            : [];
+
+    /// <summary>
+    /// EXEC_TOTAL/EXEC_COMPLETION/EXEC_OVERDUE (built from the returned metrics) restate the same
+    /// open/closed/overdue/on-time figures as the executive summary cards, so for DepartmentTransactions
+    /// they must read the same department-scoped population (Transaction+selected-Department
+    /// relationships) instead of <paramref name="currentMetrics"/>' unique-transaction totals —
+    /// otherwise this narrative and the summary cards would report two different "open" counts for the
+    /// same report. Every other analysis section fed by <paramref name="currentMetrics"/> (BuildKpis,
+    /// etc.) is unaffected by this; it keeps describing the whole matched transaction population, which
+    /// is correct for those broader institutional-health KPIs.
+    /// </summary>
+    private static InstitutionalMetricsResult ResolveInsightsMetrics(
+        ReportBuildRequestDto request,
+        InstitutionalMetricsResult currentMetrics,
+        IReadOnlyList<TransactionReportSnapshot> currentSnapshots,
+        ReportFiltersDto filters) =>
+        request.ReportType == InstitutionalReportType.DepartmentTransactions
+            ? InstitutionalReportMetricsCalculator.CalculateForDepartmentTransactions(currentSnapshots, filters.DepartmentIds)
+            : currentMetrics;
 
     internal static ReportBuildRequestDto? CreateComparisonRequest(ReportBuildRequestDto request) =>
         CreateComparisonRequest(request, out _);
@@ -688,39 +680,48 @@ internal static class InstitutionalReportAnalysisService
         IReadOnlyList<TransactionReportSnapshot> previous,
         ReportingAnalysisOptions options)
     {
-        var previousOpen = previous
-            .Where(ReportDepartmentValidator.HasValidDepartment)
-            .GroupBy(s => s.ResponsibleDepartmentId!.Value)
-            .ToDictionary(g => g.Key, g => g.Count(s => s.IsOpen));
-        var systemAverageCompletion = ReportingTemporalCalculator.CompletionDays(current).DefaultIfEmpty(0).Average();
+        var currentObservations = DepartmentTransactionPerformanceObservationResolver.Expand(current);
+        var previousObservations = DepartmentTransactionPerformanceObservationResolver.Expand(previous);
+        var previousOpen = previousObservations
+            .GroupBy(observation => observation.State.DepartmentId)
+            .ToDictionary(group => group.Key, group => group.Count(observation => observation.State.IsOpenForDepartment));
+        var systemAverageCompletion = DepartmentTransactionPerformanceObservationResolver
+            .CompletionDays(currentObservations)
+            .DefaultIfEmpty(0)
+            .Average();
 
-        return current
-            .Where(ReportDepartmentValidator.HasValidDepartment)
-            .GroupBy(ReportDepartmentValidator.GetKey)
+        return currentObservations
+            .Where(observation => !ReportDepartmentNameNormalizer.IsUndefined(observation.State.DepartmentName))
+            .GroupBy(observation => observation.State.DepartmentId)
             .Select(g =>
             {
-                var closedDays = ReportingTemporalCalculator.CompletionDays(g).ToList();
+                var observations = g.ToList();
+                var closedDays = DepartmentTransactionPerformanceObservationResolver.CompletionDays(observations);
                 previousOpen.TryGetValue(g.Key, out var previousOpenCount);
                 var average = closedDays.Count == 0 ? 0 : Math.Round(closedDays.Average(), 1);
                 var systemComparison = ResolveSystemComparison(average, systemAverageCompletion);
                 return new DepartmentAnalysisRowDto
                 {
                     DepartmentId = g.Key,
-                    DepartmentName = ReportDepartmentValidator.GetName(g),
-                    IncomingCount = g.Count(IsPeriodIncomingForAnalysis),
-                    ClosedCount = g.Count(s => s.IsClosed),
-                    OpenCount = g.Count(s => s.IsOpen),
-                    OverdueCount = g.Count(s => s.IsOverdue),
-                    OnTimeCompletionRate = CalculateOnTimeRate(g),
+                    DepartmentName = ReportDepartmentNameNormalizer.Normalize(observations[0].State.DepartmentName),
+                    IncomingCount = observations.Count(observation => IsPeriodIncomingForAnalysis(observation.Snapshot)),
+                    ClosedCount = observations.Count(observation => observation.State.IsCompletedForDepartment),
+                    OpenCount = observations.Count(observation => observation.State.IsOpenForDepartment),
+                    OverdueCount = observations.Count(observation => observation.State.IsOverdueForDepartment),
+                    OnTimeCompletionRate = DepartmentTransactionPerformanceObservationResolver.OnTimeRate(observations),
                     AverageCompletionDays = average,
                     MedianCompletionDays = InstitutionalReportStatistics.Median(closedDays),
-                    PendingAssignments = g.Sum(s => s.PendingReplyAssignmentCount),
-                    PartialReplies = g.Count(s => s.IsPartialReply),
-                    BacklogChange = g.Count(s => s.IsOpen) - previousOpenCount,
-                    OldestOpenAgeDays = g.Where(s => s.IsOpen).Select(s => s.ElapsedDays).DefaultIfEmpty(0).Max(),
-                    DataCompletenessRate = CalculateCompletenessRate(g.ToList()),
-                    SampleSize = g.Count(),
-                    HasSmallSample = g.Count() < options.MinimumRankingSampleSize,
+                    PendingAssignments = observations.Sum(observation => observation.State.PendingReplyAssignmentCount),
+                    PartialReplies = observations.Count(observation => observation.State.IsPartialReplyForDepartment),
+                    BacklogChange = observations.Count(observation => observation.State.IsOpenForDepartment) - previousOpenCount,
+                    OldestOpenAgeDays = observations
+                        .Where(observation => observation.State.IsOpenForDepartment)
+                        .Select(observation => observation.Snapshot.ElapsedDays)
+                        .DefaultIfEmpty(0)
+                        .Max(),
+                    DataCompletenessRate = CalculateDepartmentCompletenessRate(observations),
+                    SampleSize = observations.Count,
+                    HasSmallSample = observations.Count < options.MinimumRankingSampleSize,
                     SystemComparison = systemComparison
                 };
             })
@@ -752,11 +753,21 @@ internal static class InstitutionalReportAnalysisService
         IReadOnlyList<TransactionReportSnapshot> previous,
         ReportingAnalysisOptions options)
     {
-        var currentMetrics = BuildDepartmentRecognitionMetrics(current).ToList();
-        var previousMetrics = BuildDepartmentRecognitionMetrics(previous)
+        var currentObservations = DepartmentTransactionPerformanceObservationResolver.Expand(current);
+        var currentMetrics = BuildDepartmentRecognitionMetrics(currentObservations).ToList();
+        var previousMetrics = BuildDepartmentRecognitionMetrics(DepartmentTransactionPerformanceObservationResolver.Expand(previous))
             .ToDictionary(metric => metric.Key);
         var minimumSampleSize = options.MinimumRankingSampleSize;
-        var systemAverageCompletion = Average(ReportingTemporalCalculator.CompletionDays(current));
+        // Each department's own AverageCompletionDays (in currentMetrics) is measured from assignment
+        // reply dates via DepartmentTransactionPerformanceObservationResolver.CompletionDays. The
+        // system-wide benchmark it's compared against must use that same population and completion
+        // definition — the expanded department observations, not a transaction-level ClosedAt average
+        // (ReportingTemporalCalculator.CompletionDays) — otherwise a shared transaction's own closure
+        // date, which can differ from any one department's reply date, would set an incompatible bar.
+        var systemAverageCompletion = DepartmentTransactionPerformanceObservationResolver
+            .CompletionDays(currentObservations)
+            .DefaultIfEmpty(0)
+            .Average();
 
         var outstanding = currentMetrics
             .Where(metric => IsEligibleForOutstandingRecognition(metric, minimumSampleSize))
@@ -785,30 +796,30 @@ internal static class InstitutionalReportAnalysisService
     }
 
     private static IEnumerable<DepartmentRecognitionMetrics> BuildDepartmentRecognitionMetrics(
-        IReadOnlyList<TransactionReportSnapshot> snapshots)
+        IEnumerable<DepartmentTransactionPerformanceObservation> observations)
     {
-        return snapshots
-            .Where(ReportDepartmentValidator.HasValidDepartment)
-            .GroupBy(ReportDepartmentValidator.GetKey)
+        return observations
+            .Where(observation => !ReportDepartmentNameNormalizer.IsUndefined(observation.State.DepartmentName))
+            .GroupBy(observation => observation.State.DepartmentId)
             .Select(group =>
             {
-                var rows = group.ToList();
-                var totalCount = rows.Count;
-                var closedCount = rows.Count(snapshot => snapshot.IsClosed);
-                var overdueCount = rows.Count(snapshot => snapshot.IsOverdue);
-                var pendingAssignmentsCount = rows.Sum(snapshot => snapshot.PendingReplyAssignmentCount);
-                var completionDays = ReportingTemporalCalculator.CompletionDays(rows).ToList();
+                var groupObservations = group.ToList();
+                var totalCount = groupObservations.Count;
+                var closedCount = groupObservations.Count(observation => observation.State.IsCompletedForDepartment);
+                var overdueCount = groupObservations.Count(observation => observation.State.IsOverdueForDepartment);
+                var pendingAssignmentsCount = groupObservations.Sum(observation => observation.State.PendingReplyAssignmentCount);
+                var completionDays = DepartmentTransactionPerformanceObservationResolver.CompletionDays(groupObservations);
                 return new DepartmentRecognitionMetrics(
                     Key: group.Key,
                     DepartmentId: group.Key,
-                    DepartmentName: ReportDepartmentValidator.GetName(group),
+                    DepartmentName: ReportDepartmentNameNormalizer.Normalize(groupObservations[0].State.DepartmentName),
                     TransactionCount: totalCount,
                     ClosedCount: closedCount,
                     OverdueCount: overdueCount,
-                    OverdueRate: Math.Round(overdueCount * 100.0 / Math.Max(1, totalCount), 1),
-                    OnTimeCompletionRate: CalculateOnTimeRate(rows),
+                    OverdueRate: DepartmentTransactionPerformanceObservationResolver.OverdueRate(groupObservations),
+                    OnTimeCompletionRate: DepartmentTransactionPerformanceObservationResolver.OnTimeRate(groupObservations),
                     AverageCompletionDays: completionDays.Count == 0 ? 0 : Math.Round(completionDays.Average(), 1),
-                    DataCompletenessRate: CalculateCompletenessRate(rows),
+                    DataCompletenessRate: CalculateDepartmentCompletenessRate(groupObservations),
                     PendingAssignmentsRate: Math.Round(pendingAssignmentsCount * 100.0 / Math.Max(1, totalCount), 1));
             });
     }
@@ -1257,37 +1268,38 @@ internal static class InstitutionalReportAnalysisService
 
     /// <summary>
     /// Departmental breakdown of BuildTimeSeries: same IncomingDate/grouping basis, further
-    /// split by ResponsibleDepartment so each transaction is counted under its single
-    /// responsible department per period — never duplicated across joint departments.
+    /// split by every participating assignment department. A shared transaction therefore
+    /// contributes one relationship row to each department and departmental totals are non-additive.
     /// </summary>
     private static List<DepartmentTimeSeriesPointDto> BuildDepartmentTimeSeries(
         IReadOnlyList<TransactionReportSnapshot> snapshots,
         ReportTimeGrouping grouping)
     {
-        return snapshots
-            .Where(IsPeriodIncomingForAnalysis)
-            .GroupBy(s => PeriodStart(s.IncomingDate, grouping))
+        return DepartmentTransactionPerformanceObservationResolver.Expand(snapshots)
+            .Where(observation => IsPeriodIncomingForAnalysis(observation.Snapshot))
+            .GroupBy(observation => PeriodStart(observation.Snapshot.IncomingDate, grouping))
             .SelectMany(periodGroup => periodGroup
-                .Where(ReportDepartmentValidator.HasValidDepartment)
-                .GroupBy(ReportDepartmentValidator.GetKey)
+                .Where(observation => !ReportDepartmentNameNormalizer.IsUndefined(observation.State.DepartmentName))
+                .GroupBy(observation => observation.State.DepartmentId)
                 .Select(deptGroup =>
                 {
-                    var incoming = deptGroup.Count();
-                    var closed = deptGroup.Count(s => s.IsClosed);
+                    var observations = deptGroup.ToList();
+                    var incoming = observations.Count;
+                    var closed = observations.Count(observation => observation.State.IsCompletedForDepartment);
                     return new DepartmentTimeSeriesPointDto
                     {
                         DepartmentId = deptGroup.Key,
-                        DepartmentName = ReportDepartmentValidator.GetName(deptGroup),
+                        DepartmentName = ReportDepartmentNameNormalizer.Normalize(observations[0].State.DepartmentName),
                         PeriodStart = periodGroup.Key,
                         PeriodLabel = PeriodLabel(periodGroup.Key, grouping),
                         IncomingCount = incoming,
                         ClosedCount = closed,
-                        OpenCount = deptGroup.Count(s => s.IsOpen),
-                        OverdueCount = deptGroup.Count(s => s.IsOverdue),
-                        OnTimeCompletionRate = CalculateOnTimeRate(deptGroup),
-                        AverageCompletionDays = Average(ReportingTemporalCalculator.CompletionDays(deptGroup)),
-                        PendingAssignments = deptGroup.Sum(s => s.PendingReplyAssignmentCount),
-                        PartialReplies = deptGroup.Count(s => s.IsPartialReply),
+                        OpenCount = observations.Count(observation => observation.State.IsOpenForDepartment),
+                        OverdueCount = observations.Count(observation => observation.State.IsOverdueForDepartment),
+                        OnTimeCompletionRate = DepartmentTransactionPerformanceObservationResolver.OnTimeRate(observations),
+                        AverageCompletionDays = Average(DepartmentTransactionPerformanceObservationResolver.CompletionDays(observations)),
+                        PendingAssignments = observations.Sum(observation => observation.State.PendingReplyAssignmentCount),
+                        PartialReplies = observations.Count(observation => observation.State.IsPartialReplyForDepartment),
                         BacklogGrowth = incoming - closed
                     };
                 }))
@@ -1315,8 +1327,8 @@ internal static class InstitutionalReportAnalysisService
             "Outgoing external-party causality: بيانات الجهات الصادرة غير مكتملة الاستخدام.",
             "AverageResponseDays (تقديري): يعتمد على مدد معاملات الرد المكتملة المتاحة في اللقطة التحليلية. " +
             "التحسين المستقبلي يتطلب مصدر رد مكتمل أكثر تفصيلًا من التكليفات.",
-            "التحليل الزمني حسب الإدارة يعتمد على تاريخ الوارد وتجميع المعاملة تحت الإدارة المسؤولة الأساسية الحالية، " +
-            "ولا يكرر المعاملة على كل الإدارات المشاركة.",
+            "التحليل الزمني حسب الإدارة يعتمد على تاريخ الوارد ويكرر المعاملة المشتركة مرة لكل إدارة لها إحالة فعلية غير ملغاة؛ " +
+            "لذلك مجاميع الإدارات ليست عدد معاملات فريدًا.",
         };
         if (detailRowsTruncated)
             deferred.Add("Detail rows truncated: بعض الجداول التفصيلية محدودة حسب إعدادات التصدير.");
@@ -1348,8 +1360,10 @@ internal static class InstitutionalReportAnalysisService
         var basis = "الفترة الزمنية مبنية على تاريخ الوارد.";
         if (includeOverdue)
         {
-            basis += " فلتر «تضمين المتأخرات» يعرض المعاملات المتأخرة ضمن نطاق تاريخ الوارد المحدد فقط، " +
-                     "وليس كل المعاملات المتأخرة في النظام (استخدم تقرير المعاملات المتأخرة لذلك).";
+            basis += reportType == InstitutionalReportType.DepartmentTransactions
+                ? " فلتر «تضمين المتأخرات» يعتمد على تأخر إحالات الإدارات المحددة فقط ضمن نطاق تاريخ الوارد."
+                : " فلتر «تضمين المتأخرات» يعرض المعاملات المتأخرة ضمن نطاق تاريخ الوارد المحدد فقط، " +
+                  "وليس كل المعاملات المتأخرة في النظام (استخدم تقرير المعاملات المتأخرة لذلك).";
         }
 
         return basis;
@@ -1441,6 +1455,56 @@ internal static class InstitutionalReportAnalysisService
             CountField(Enum.IsDefined(snapshot.Priority));
             if (snapshot.RequiresResponse)
                 CountField(snapshot.ResponseDueDate.HasValue || snapshot.EarliestPendingReplyDueDate.HasValue);
+        }
+
+        return Math.Round(present * 100.0 / expected, 1);
+
+        void CountField(bool isPresent)
+        {
+            expected++;
+            if (isPresent)
+                present++;
+        }
+    }
+
+    /// <summary>
+    /// Department-observation counterpart to <see cref="CalculateCompletenessRate"/>. A department
+    /// analysis/recognition row is grouped by <see cref="DepartmentTransactionPerformanceObservation.State"/>
+    /// (one row per participating department), not by the snapshot's <c>ResponsibleDepartment</c> —
+    /// so completeness here must read the department's own identity and its own reply/deadline
+    /// obligation (via <see cref="DepartmentTransactionPerformanceState"/>), not the parent
+    /// transaction's <c>ResponsibleDepartment</c>/<c>RequiresResponse</c>/<c>ResponseDueDate</c>,
+    /// which describe a possibly different department (the transaction's first assignment) or the
+    /// transaction as a whole. Fields that are genuinely shared, transaction-wide attributes
+    /// (tracking number, subject, category, external party, priority) are read from the snapshot
+    /// unchanged — they do not vary per participating department.
+    /// </summary>
+    private static double CalculateDepartmentCompletenessRate(
+        IReadOnlyList<DepartmentTransactionPerformanceObservation> observations)
+    {
+        if (observations.Count == 0)
+            return 100;
+
+        var expected = 0;
+        var present = 0;
+        foreach (var observation in observations)
+        {
+            var snapshot = observation.Snapshot;
+            var state = observation.State;
+            CountField(!string.IsNullOrWhiteSpace(snapshot.IncomingNumber));
+            CountField(!string.IsNullOrWhiteSpace(snapshot.Subject));
+            CountField(!string.IsNullOrWhiteSpace(snapshot.CategoryName));
+            CountField(!string.IsNullOrWhiteSpace(snapshot.IncomingParty));
+            CountField(!string.IsNullOrWhiteSpace(state.DepartmentName));
+            CountField(Enum.IsDefined(snapshot.Priority));
+            // This department has a reply obligation only if at least one of its own required-reply
+            // assignments was replied to or is still pending (RepliedAssignmentCount/PendingReplyAssignmentCount
+            // are both derived from that department's RequiresReply assignments — see
+            // DepartmentTransactionPerformanceObservationResolver.ResolveState). When it does, the
+            // department-level due date (not the transaction's own ResponseDueDate) must be present.
+            var requiresDepartmentReply = state.RepliedAssignmentCount + state.PendingReplyAssignmentCount > 0;
+            if (requiresDepartmentReply)
+                CountField(state.DepartmentDueDate.HasValue);
         }
 
         return Math.Round(present * 100.0 / expected, 1);

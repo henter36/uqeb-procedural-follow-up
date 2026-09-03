@@ -27,6 +27,7 @@ public sealed class TransactionReportSnapshot
     public int? ResponsibleDepartmentId { get; set; }
     public List<int> AssignmentDepartmentIds { get; set; } = [];
     public List<string> AssignmentDepartmentNames { get; set; } = [];
+    internal List<DepartmentTransactionPerformanceState> DepartmentPerformanceStates { get; set; } = [];
     public List<int> OutgoingDepartmentIds { get; set; } = [];
     public List<string> OutgoingDepartmentNames { get; set; } = [];
     public int ActiveAssignmentCount { get; set; }

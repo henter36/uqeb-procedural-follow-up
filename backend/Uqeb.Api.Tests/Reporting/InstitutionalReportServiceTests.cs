@@ -100,6 +100,104 @@ public class InstitutionalReportServiceExportValidationTests
 public class InstitutionalReportServiceDepartmentPerformanceTests
 {
     [Fact]
+    public async Task BuildReportModelAsync_SharedTransaction_ReportsEachDepartmentUsingItsOwnAssignmentState()
+    {
+        var dbName = $"department-performance-shared-state-{Guid.NewGuid():N}";
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(dbName)
+            .Options;
+        IDbContextFactory<AppDbContext> dbFactory = new TestDbContextFactory(options);
+
+        await using (var db = dbFactory.CreateDbContext())
+        {
+            var user = new User
+            {
+                Username = "dept-shared-state-test",
+                PasswordHash = "hash",
+                FullName = "Department Shared State Test",
+                Role = UserRole.Admin,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            };
+            db.Users.Add(user);
+            db.Departments.AddRange(
+                new Department { Id = 10, Name = "الإدارة أ", NameNormalized = "الإدارة أ", IsActive = true },
+                new Department { Id = 20, Name = "الإدارة ب", NameNormalized = "الإدارة ب", IsActive = true });
+            await db.SaveChangesAsync();
+
+            var transaction = new Transaction
+            {
+                InternalTrackingNumber = "SHARED-0001",
+                IncomingNumber = "SHARED-IN-0001",
+                IncomingDate = new DateTime(2026, 8, 1),
+                Subject = "معاملة مشتركة",
+                IncomingFrom = "جهة اختبار",
+                Status = TransactionStatus.PartiallyReplied,
+                Priority = Priority.Normal,
+                RequiresResponse = true,
+                ResponseType = ResponseType.External,
+                ResponseCompleted = false,
+                CreatedById = user.Id,
+                CreatedAt = new DateTime(2026, 8, 1),
+            };
+            db.Transactions.Add(transaction);
+            db.Assignments.AddRange(
+                new Assignment
+                {
+                    Transaction = transaction,
+                    DepartmentId = 10,
+                    Status = AssignmentStatus.Completed,
+                    RequiresReply = true,
+                    ReplyStatus = ReplyStatus.Replied,
+                    ReplyDate = new DateTime(2026, 8, 5),
+                    DueDate = new DateTime(2026, 8, 6),
+                    AssignedDate = new DateTime(2026, 8, 1),
+                    CreatedById = user.Id,
+                },
+                new Assignment
+                {
+                    Transaction = transaction,
+                    DepartmentId = 20,
+                    Status = AssignmentStatus.Active,
+                    RequiresReply = true,
+                    ReplyStatus = ReplyStatus.Pending,
+                    DueDate = new DateTime(2026, 8, 10),
+                    AssignedDate = new DateTime(2026, 8, 1),
+                    CreatedById = user.Id,
+                });
+            await db.SaveChangesAsync();
+        }
+
+        var service = InstitutionalReportServiceTestHelpers.CreateService(dbFactory);
+        var model = await service.BuildReportModelAsync(new ReportBuildRequestDto
+        {
+            ReportType = InstitutionalReportType.ExecutiveComprehensive,
+            SectionIds = [ReportSectionId.DepartmentPerformance],
+            Filters = new ReportFiltersDto
+            {
+                DateFrom = new DateTime(2026, 8, 1),
+                DateTo = new DateTime(2026, 8, 31),
+            },
+        });
+
+        var completedDepartment = Assert.Single(model.DepartmentPerformance, row => row.DepartmentId == 10);
+        Assert.Equal(1, completedDepartment.TotalTransactions);
+        Assert.Equal(1, completedDepartment.ClosedCount);
+        Assert.Equal(0, completedDepartment.OpenCount);
+
+        var pendingDepartment = Assert.Single(model.DepartmentPerformance, row => row.DepartmentId == 20);
+        Assert.Equal(1, pendingDepartment.TotalTransactions);
+        Assert.Equal(0, pendingDepartment.ClosedCount);
+        Assert.Equal(1, pendingDepartment.OpenCount);
+
+        Assert.Equal("1", model.Summary.KpiCards.Single(card => card.Key == "open").Value);
+        Assert.Equal(1, model.TotalMatchedRows);
+        Assert.Equal(2, model.DepartmentPerformance.Sum(row => row.TotalTransactions));
+        Assert.False(model.DepartmentTotalsAreAdditive);
+        Assert.Equal("ParticipatingAssignmentDepartments", model.DepartmentAggregationMode);
+    }
+
+    [Fact]
     public async Task ExportAsync_DepartmentPerformanceAverageCompletionDays_ExcludesNegativeDurations()
     {
         var dbName = $"department-performance-negative-duration-{Guid.NewGuid():N}";
@@ -202,6 +300,8 @@ public class InstitutionalReportServiceDepartmentPerformanceTests
 
         var overdueDepartment = model.DepartmentPerformance.Single(row => row.DepartmentId == 10);
         Assert.Equal(66.7, overdueDepartment.OverdueRate);
+        Assert.Equal(33.3, overdueDepartment.OnTimeCompletionRate);
+        Assert.Equal(100.0, overdueDepartment.OverdueRate!.Value + overdueDepartment.OnTimeCompletionRate, 1);
 
         var noDueDepartment = model.DepartmentPerformance.Single(row => row.DepartmentId == 20);
         Assert.Null(noDueDepartment.OverdueRate);
@@ -345,9 +445,10 @@ public class InstitutionalReportServiceDepartmentPerformanceTests
         {
             Transaction = transaction,
             DepartmentId = departmentId,
-            Status = AssignmentStatus.Active,
-            RequiresReply = false,
-            ReplyStatus = ReplyStatus.Pending,
+            Status = AssignmentStatus.Completed,
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Replied,
+            ReplyDate = closedAt,
             AssignedDate = incomingDate,
             CreatedById = userId,
         });
@@ -430,6 +531,7 @@ public class InstitutionalReportServiceDepartmentPerformanceTests
             Status = status == TransactionStatus.Closed ? AssignmentStatus.Completed : AssignmentStatus.Active,
             RequiresReply = requiresResponse,
             ReplyStatus = responseCompletedDate.HasValue ? ReplyStatus.Replied : ReplyStatus.Pending,
+            ReplyDate = responseCompletedDate,
             AssignedDate = incomingDate,
             DueDate = responseDueDate,
             CreatedById = userId,

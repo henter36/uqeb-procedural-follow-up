@@ -22,7 +22,9 @@ import type {
   ReportBuildRequest,
   ReportTemplate,
   SaveReportTemplateRequest,
+  DepartmentTransactionScope as DepartmentTransactionScopeValue,
 } from './institutionalReports.types';
+import { DepartmentTransactionScope } from './institutionalReports.constants';
 
 export const authApi = {
   login: (username: string, password: string) =>
@@ -343,7 +345,8 @@ export const institutionalReportsApi = {
 };
 
 export const departmentResponsesApi = {
-  getDepartmentTransactions: () => api.get<DepartmentTransactionResponseItemDto[]>('/department-responses/department-transactions'),
+  getDepartmentTransactions: (scope: DepartmentTransactionScopeValue = DepartmentTransactionScope.OpenOnly) =>
+    api.get<DepartmentTransactionResponseItemDto[]>('/department-responses/department-transactions', { params: { scope } }),
   getMyResponses: () => api.get<DepartmentResponseSummaryDto[]>('/department-responses/my'),
   getMyStats: () => api.get<DepartmentResponseStatsDto>('/department-responses/my-stats'),
   getPendingReview: () => api.get<DepartmentResponseSummaryDto[]>('/department-responses/pending-review'),
