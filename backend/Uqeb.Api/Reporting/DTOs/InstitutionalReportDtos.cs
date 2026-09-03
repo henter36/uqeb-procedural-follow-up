@@ -259,8 +259,8 @@ public sealed class TimeSeriesPointDto
 
 /// <summary>
 /// One department's metrics within a single time-grouped period. Grouped by IncomingDate
-/// (same basis as TimeSeriesPointDto) and ResponsibleDepartment — a transaction is counted
-/// under its single responsible department, never duplicated across joint departments.
+/// (same basis as TimeSeriesPointDto) and participating assignment department. A shared
+/// transaction is counted once for each department with a non-cancelled assignment.
 /// </summary>
 public sealed class DepartmentTimeSeriesPointDto
 {
@@ -331,7 +331,15 @@ public sealed class DepartmentPerformanceRowDto
     public int OverdueCount { get; set; }
     public int JointDepartmentCount { get; set; }
     public double AverageCompletionDays { get; set; }
+    /// <summary>
+    /// Department relationships completed on time divided by the same eligible population used
+    /// by OverdueRate: completed relationships with a due date plus currently open-overdue ones.
+    /// </summary>
     public double OnTimeCompletionRate { get; set; }
+    /// <summary>
+    /// Open-overdue or completed-late department relationships divided by the eligible population.
+    /// Null when the department has no relationship whose timeliness can yet be assessed.
+    /// </summary>
     public double? OverdueRate { get; set; }
     public DepartmentRatingLevel Rating { get; set; }
     public string RatingLabel { get; set; } = string.Empty;
@@ -437,11 +445,11 @@ public sealed class InstitutionalReportModel
     public List<ChartDto> Charts { get; set; } = [];
     public List<DepartmentPerformanceRowDto> DepartmentPerformance { get; set; } = [];
 
-    /// <summary>Each transaction is counted exactly once under its ResponsibleDepartment — sums are additive.</summary>
-    public string DepartmentAggregationMode { get; set; } = "ResponsibleDepartment";
-    public bool DepartmentTotalsAreAdditive { get; set; } = true;
+    /// <summary>Transactions fan out to every department with a non-cancelled assignment.</summary>
+    public string DepartmentAggregationMode { get; set; } = "ParticipatingAssignmentDepartments";
+    public bool DepartmentTotalsAreAdditive { get; set; } = false;
     public string DepartmentAggregationDescription { get; set; } =
-        "مجمَّع حسب الإدارة المسؤولة — كل معاملة تُحتسب مرة واحدة — المجاميع قابلة للجمع.";
+        "مجمَّع حسب إحالات الإدارات المشاركة — قد تظهر المعاملة المشتركة لدى أكثر من إدارة، لذلك المجاميع غير قابلة للجمع كعدد معاملات فريد.";
 
     public List<RiskAlertRowDto> Risks { get; set; } = [];
     public List<RecommendationRowDto> Recommendations { get; set; } = [];

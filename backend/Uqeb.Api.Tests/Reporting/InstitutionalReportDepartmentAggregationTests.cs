@@ -8,7 +8,7 @@ using Xunit;
 namespace Uqeb.Api.Tests.Reporting;
 
 /// <summary>
-/// Validates that DepartmentPerformance aggregation uses ResponsibleDepartment (additive)
+/// Validates that DepartmentPerformance aggregation uses every participating assignment department
 /// and that all export paths surface the same model data without re-computation.
 /// </summary>
 public class InstitutionalReportDepartmentAggregationTests
@@ -16,17 +16,17 @@ public class InstitutionalReportDepartmentAggregationTests
     // ── Default model field values ──────────────────────────────────────────
 
     [Fact]
-    public void Model_DefaultAggregationMode_IsResponsibleDepartment()
+    public void Model_DefaultAggregationMode_IsParticipatingAssignmentDepartments()
     {
         var model = new InstitutionalReportModel();
-        Assert.Equal("ResponsibleDepartment", model.DepartmentAggregationMode);
+        Assert.Equal("ParticipatingAssignmentDepartments", model.DepartmentAggregationMode);
     }
 
     [Fact]
-    public void Model_DefaultTotalsAreAdditive_IsTrue()
+    public void Model_DefaultTotalsAreAdditive_IsFalse()
     {
         var model = new InstitutionalReportModel();
-        Assert.True(model.DepartmentTotalsAreAdditive);
+        Assert.False(model.DepartmentTotalsAreAdditive);
     }
 
     [Fact]
@@ -39,23 +39,18 @@ public class InstitutionalReportDepartmentAggregationTests
     // ── Additive invariant on fixture model ─────────────────────────────────
 
     [Fact]
-    public void FixtureModel_DepartmentPerformanceSum_DoesNotExceedTotalTransactions()
+    public void FixtureModel_DepartmentPerformance_IsExplicitlyNonAdditive()
     {
         var model = InstitutionalReportVisualFixtures.CreateBaseModel();
-        var sumByDept = model.DepartmentPerformance.Sum(r => r.TotalTransactions);
-        // Under ResponsibleDepartment grouping each transaction appears once.
-        Assert.True(sumByDept <= model.TotalMatchedRows,
-            $"Sum across departments ({sumByDept}) exceeded TotalMatchedRows ({model.TotalMatchedRows}). " +
-            "This indicates non-additive (fan-out) aggregation.");
+        Assert.False(model.DepartmentTotalsAreAdditive);
+        Assert.Contains("قد تظهر المعاملة", model.DepartmentAggregationDescription);
     }
 
     [Fact]
-    public void FixtureModel_ClosedCountSum_DoesNotExceedTotalTransactions()
+    public void FixtureModel_DepartmentAggregationDescription_DistinguishesUniqueTransactions()
     {
         var model = InstitutionalReportVisualFixtures.CreateBaseModel();
-        var sumClosed = model.DepartmentPerformance.Sum(r => r.ClosedCount);
-        Assert.True(sumClosed <= model.TotalMatchedRows,
-            $"ClosedCount sum ({sumClosed}) exceeded TotalMatchedRows ({model.TotalMatchedRows}).");
+        Assert.Contains("غير قابلة للجمع", model.DepartmentAggregationDescription);
     }
 
     // ── Manual model with joint transactions ────────────────────────────────
@@ -74,26 +69,24 @@ public class InstitutionalReportDepartmentAggregationTests
                 JointDepartmentCount = 2,
             });
 
-        // Each row represents one responsible department.
+        // Each row represents one participating assignment department.
         Assert.Single(model.DepartmentPerformance, r => r.DepartmentId == 1);
-        Assert.True(model.DepartmentTotalsAreAdditive);
+        Assert.False(model.DepartmentTotalsAreAdditive);
     }
 
     [Fact]
-    public void ManualModel_JointTransaction_CountedUnderResponsibleDeptOnly()
+    public void ManualModel_JointTransaction_CanMakeDepartmentSumExceedUniqueTotal()
     {
-        // Simulates: transaction 1 has ResponsibleDept=A, also assigned to B and C.
-        // Under the additive policy it should appear in A's row only.
-        // We prove the invariant: sum(TotalTransactions) == total unique transactions.
+        // One shared transaction is counted once for each participating department.
         const int totalUniqueTransactions = 10;
         var model = BuildModelWithRows(
             new DepartmentPerformanceRowDto { DepartmentId = 1, DepartmentName = "A", TotalTransactions = 6 },
-            new DepartmentPerformanceRowDto { DepartmentId = 2, DepartmentName = "B", TotalTransactions = 4 });
+            new DepartmentPerformanceRowDto { DepartmentId = 2, DepartmentName = "B", TotalTransactions = 5 });
 
         model.TotalMatchedRows = totalUniqueTransactions;
         var sum = model.DepartmentPerformance.Sum(r => r.TotalTransactions);
-        Assert.Equal(totalUniqueTransactions, sum);
-        Assert.True(model.DepartmentTotalsAreAdditive);
+        Assert.True(sum > totalUniqueTransactions);
+        Assert.False(model.DepartmentTotalsAreAdditive);
     }
 
     [Fact]

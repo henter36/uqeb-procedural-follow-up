@@ -688,39 +688,48 @@ internal static class InstitutionalReportAnalysisService
         IReadOnlyList<TransactionReportSnapshot> previous,
         ReportingAnalysisOptions options)
     {
-        var previousOpen = previous
-            .Where(ReportDepartmentValidator.HasValidDepartment)
-            .GroupBy(s => s.ResponsibleDepartmentId!.Value)
-            .ToDictionary(g => g.Key, g => g.Count(s => s.IsOpen));
-        var systemAverageCompletion = ReportingTemporalCalculator.CompletionDays(current).DefaultIfEmpty(0).Average();
+        var currentObservations = DepartmentTransactionPerformanceObservationResolver.Expand(current);
+        var previousObservations = DepartmentTransactionPerformanceObservationResolver.Expand(previous);
+        var previousOpen = previousObservations
+            .GroupBy(observation => observation.State.DepartmentId)
+            .ToDictionary(group => group.Key, group => group.Count(observation => observation.State.IsOpenForDepartment));
+        var systemAverageCompletion = DepartmentTransactionPerformanceObservationResolver
+            .CompletionDays(currentObservations)
+            .DefaultIfEmpty(0)
+            .Average();
 
-        return current
-            .Where(ReportDepartmentValidator.HasValidDepartment)
-            .GroupBy(ReportDepartmentValidator.GetKey)
+        return currentObservations
+            .Where(observation => !ReportDepartmentNameNormalizer.IsUndefined(observation.State.DepartmentName))
+            .GroupBy(observation => observation.State.DepartmentId)
             .Select(g =>
             {
-                var closedDays = ReportingTemporalCalculator.CompletionDays(g).ToList();
+                var observations = g.ToList();
+                var closedDays = DepartmentTransactionPerformanceObservationResolver.CompletionDays(observations);
                 previousOpen.TryGetValue(g.Key, out var previousOpenCount);
                 var average = closedDays.Count == 0 ? 0 : Math.Round(closedDays.Average(), 1);
                 var systemComparison = ResolveSystemComparison(average, systemAverageCompletion);
                 return new DepartmentAnalysisRowDto
                 {
                     DepartmentId = g.Key,
-                    DepartmentName = ReportDepartmentValidator.GetName(g),
-                    IncomingCount = g.Count(IsPeriodIncomingForAnalysis),
-                    ClosedCount = g.Count(s => s.IsClosed),
-                    OpenCount = g.Count(s => s.IsOpen),
-                    OverdueCount = g.Count(s => s.IsOverdue),
-                    OnTimeCompletionRate = CalculateOnTimeRate(g),
+                    DepartmentName = ReportDepartmentNameNormalizer.Normalize(observations[0].State.DepartmentName),
+                    IncomingCount = observations.Count(observation => IsPeriodIncomingForAnalysis(observation.Snapshot)),
+                    ClosedCount = observations.Count(observation => observation.State.IsCompletedForDepartment),
+                    OpenCount = observations.Count(observation => observation.State.IsOpenForDepartment),
+                    OverdueCount = observations.Count(observation => observation.State.IsOverdueForDepartment),
+                    OnTimeCompletionRate = DepartmentTransactionPerformanceObservationResolver.OnTimeRate(observations),
                     AverageCompletionDays = average,
                     MedianCompletionDays = InstitutionalReportStatistics.Median(closedDays),
-                    PendingAssignments = g.Sum(s => s.PendingReplyAssignmentCount),
-                    PartialReplies = g.Count(s => s.IsPartialReply),
-                    BacklogChange = g.Count(s => s.IsOpen) - previousOpenCount,
-                    OldestOpenAgeDays = g.Where(s => s.IsOpen).Select(s => s.ElapsedDays).DefaultIfEmpty(0).Max(),
-                    DataCompletenessRate = CalculateCompletenessRate(g.ToList()),
-                    SampleSize = g.Count(),
-                    HasSmallSample = g.Count() < options.MinimumRankingSampleSize,
+                    PendingAssignments = observations.Sum(observation => observation.State.PendingReplyAssignmentCount),
+                    PartialReplies = observations.Count(observation => observation.State.IsPartialReplyForDepartment),
+                    BacklogChange = observations.Count(observation => observation.State.IsOpenForDepartment) - previousOpenCount,
+                    OldestOpenAgeDays = observations
+                        .Where(observation => observation.State.IsOpenForDepartment)
+                        .Select(observation => observation.Snapshot.ElapsedDays)
+                        .DefaultIfEmpty(0)
+                        .Max(),
+                    DataCompletenessRate = CalculateCompletenessRate(observations.Select(observation => observation.Snapshot).ToList()),
+                    SampleSize = observations.Count,
+                    HasSmallSample = observations.Count < options.MinimumRankingSampleSize,
                     SystemComparison = systemComparison
                 };
             })
@@ -787,28 +796,28 @@ internal static class InstitutionalReportAnalysisService
     private static IEnumerable<DepartmentRecognitionMetrics> BuildDepartmentRecognitionMetrics(
         IReadOnlyList<TransactionReportSnapshot> snapshots)
     {
-        return snapshots
-            .Where(ReportDepartmentValidator.HasValidDepartment)
-            .GroupBy(ReportDepartmentValidator.GetKey)
+        return DepartmentTransactionPerformanceObservationResolver.Expand(snapshots)
+            .Where(observation => !ReportDepartmentNameNormalizer.IsUndefined(observation.State.DepartmentName))
+            .GroupBy(observation => observation.State.DepartmentId)
             .Select(group =>
             {
-                var rows = group.ToList();
-                var totalCount = rows.Count;
-                var closedCount = rows.Count(snapshot => snapshot.IsClosed);
-                var overdueCount = rows.Count(snapshot => snapshot.IsOverdue);
-                var pendingAssignmentsCount = rows.Sum(snapshot => snapshot.PendingReplyAssignmentCount);
-                var completionDays = ReportingTemporalCalculator.CompletionDays(rows).ToList();
+                var observations = group.ToList();
+                var totalCount = observations.Count;
+                var closedCount = observations.Count(observation => observation.State.IsCompletedForDepartment);
+                var overdueCount = observations.Count(observation => observation.State.IsOverdueForDepartment);
+                var pendingAssignmentsCount = observations.Sum(observation => observation.State.PendingReplyAssignmentCount);
+                var completionDays = DepartmentTransactionPerformanceObservationResolver.CompletionDays(observations);
                 return new DepartmentRecognitionMetrics(
                     Key: group.Key,
                     DepartmentId: group.Key,
-                    DepartmentName: ReportDepartmentValidator.GetName(group),
+                    DepartmentName: ReportDepartmentNameNormalizer.Normalize(observations[0].State.DepartmentName),
                     TransactionCount: totalCount,
                     ClosedCount: closedCount,
                     OverdueCount: overdueCount,
-                    OverdueRate: Math.Round(overdueCount * 100.0 / Math.Max(1, totalCount), 1),
-                    OnTimeCompletionRate: CalculateOnTimeRate(rows),
+                    OverdueRate: DepartmentTransactionPerformanceObservationResolver.OverdueRate(observations),
+                    OnTimeCompletionRate: DepartmentTransactionPerformanceObservationResolver.OnTimeRate(observations),
                     AverageCompletionDays: completionDays.Count == 0 ? 0 : Math.Round(completionDays.Average(), 1),
-                    DataCompletenessRate: CalculateCompletenessRate(rows),
+                    DataCompletenessRate: CalculateCompletenessRate(observations.Select(observation => observation.Snapshot).ToList()),
                     PendingAssignmentsRate: Math.Round(pendingAssignmentsCount * 100.0 / Math.Max(1, totalCount), 1));
             });
     }
@@ -1257,37 +1266,38 @@ internal static class InstitutionalReportAnalysisService
 
     /// <summary>
     /// Departmental breakdown of BuildTimeSeries: same IncomingDate/grouping basis, further
-    /// split by ResponsibleDepartment so each transaction is counted under its single
-    /// responsible department per period — never duplicated across joint departments.
+    /// split by every participating assignment department. A shared transaction therefore
+    /// contributes one relationship row to each department and departmental totals are non-additive.
     /// </summary>
     private static List<DepartmentTimeSeriesPointDto> BuildDepartmentTimeSeries(
         IReadOnlyList<TransactionReportSnapshot> snapshots,
         ReportTimeGrouping grouping)
     {
-        return snapshots
-            .Where(IsPeriodIncomingForAnalysis)
-            .GroupBy(s => PeriodStart(s.IncomingDate, grouping))
+        return DepartmentTransactionPerformanceObservationResolver.Expand(snapshots)
+            .Where(observation => IsPeriodIncomingForAnalysis(observation.Snapshot))
+            .GroupBy(observation => PeriodStart(observation.Snapshot.IncomingDate, grouping))
             .SelectMany(periodGroup => periodGroup
-                .Where(ReportDepartmentValidator.HasValidDepartment)
-                .GroupBy(ReportDepartmentValidator.GetKey)
+                .Where(observation => !ReportDepartmentNameNormalizer.IsUndefined(observation.State.DepartmentName))
+                .GroupBy(observation => observation.State.DepartmentId)
                 .Select(deptGroup =>
                 {
-                    var incoming = deptGroup.Count();
-                    var closed = deptGroup.Count(s => s.IsClosed);
+                    var observations = deptGroup.ToList();
+                    var incoming = observations.Count;
+                    var closed = observations.Count(observation => observation.State.IsCompletedForDepartment);
                     return new DepartmentTimeSeriesPointDto
                     {
                         DepartmentId = deptGroup.Key,
-                        DepartmentName = ReportDepartmentValidator.GetName(deptGroup),
+                        DepartmentName = ReportDepartmentNameNormalizer.Normalize(observations[0].State.DepartmentName),
                         PeriodStart = periodGroup.Key,
                         PeriodLabel = PeriodLabel(periodGroup.Key, grouping),
                         IncomingCount = incoming,
                         ClosedCount = closed,
-                        OpenCount = deptGroup.Count(s => s.IsOpen),
-                        OverdueCount = deptGroup.Count(s => s.IsOverdue),
-                        OnTimeCompletionRate = CalculateOnTimeRate(deptGroup),
-                        AverageCompletionDays = Average(ReportingTemporalCalculator.CompletionDays(deptGroup)),
-                        PendingAssignments = deptGroup.Sum(s => s.PendingReplyAssignmentCount),
-                        PartialReplies = deptGroup.Count(s => s.IsPartialReply),
+                        OpenCount = observations.Count(observation => observation.State.IsOpenForDepartment),
+                        OverdueCount = observations.Count(observation => observation.State.IsOverdueForDepartment),
+                        OnTimeCompletionRate = DepartmentTransactionPerformanceObservationResolver.OnTimeRate(observations),
+                        AverageCompletionDays = Average(DepartmentTransactionPerformanceObservationResolver.CompletionDays(observations)),
+                        PendingAssignments = observations.Sum(observation => observation.State.PendingReplyAssignmentCount),
+                        PartialReplies = observations.Count(observation => observation.State.IsPartialReplyForDepartment),
                         BacklogGrowth = incoming - closed
                     };
                 }))
@@ -1315,8 +1325,8 @@ internal static class InstitutionalReportAnalysisService
             "Outgoing external-party causality: بيانات الجهات الصادرة غير مكتملة الاستخدام.",
             "AverageResponseDays (تقديري): يعتمد على مدد معاملات الرد المكتملة المتاحة في اللقطة التحليلية. " +
             "التحسين المستقبلي يتطلب مصدر رد مكتمل أكثر تفصيلًا من التكليفات.",
-            "التحليل الزمني حسب الإدارة يعتمد على تاريخ الوارد وتجميع المعاملة تحت الإدارة المسؤولة الأساسية الحالية، " +
-            "ولا يكرر المعاملة على كل الإدارات المشاركة.",
+            "التحليل الزمني حسب الإدارة يعتمد على تاريخ الوارد ويكرر المعاملة المشتركة مرة لكل إدارة لها إحالة فعلية غير ملغاة؛ " +
+            "لذلك مجاميع الإدارات ليست عدد معاملات فريدًا.",
         };
         if (detailRowsTruncated)
             deferred.Add("Detail rows truncated: بعض الجداول التفصيلية محدودة حسب إعدادات التصدير.");
