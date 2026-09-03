@@ -196,9 +196,24 @@ internal static class InstitutionalReportAnalysisService
                 "executive_insights",
                 reportType,
                 snapshotCount,
-                () => BuildExecutiveInsights(currentMetrics, findings, criticalCases, departments, externalParties, options)
-                    .Take(options.MaxExecutiveFindings)
-                    .ToList());
+                () =>
+                {
+                    // EXEC_TOTAL/EXEC_COMPLETION/EXEC_OVERDUE restate the same open/closed/overdue/
+                    // on-time figures as the executive summary cards, so for DepartmentTransactions
+                    // they must read the same department-scoped population (Transaction+selected-
+                    // Department relationships) instead of currentMetrics' unique-transaction totals
+                    // — otherwise this narrative and the summary cards would report two different
+                    // "open" counts for the same report. Every other section fed by currentMetrics
+                    // (BuildKpis, etc.) is unaffected; it keeps describing the whole matched
+                    // transaction population, which is correct for those broader institutional-health
+                    // KPIs.
+                    var insightsMetrics = request.ReportType == InstitutionalReportType.DepartmentTransactions
+                        ? InstitutionalReportMetricsCalculator.CalculateForDepartmentTransactions(currentSnapshots, filters.DepartmentIds)
+                        : currentMetrics;
+                    return BuildExecutiveInsights(insightsMetrics, findings, criticalCases, departments, externalParties, options)
+                        .Take(options.MaxExecutiveFindings)
+                        .ToList();
+                });
 
         var result = new InstitutionalReportAnalysisResult
         {

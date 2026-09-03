@@ -232,6 +232,17 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         metricSnapshots = ApplyOverdueScope(metricSnapshots, request);
         var totalMatched = metricSnapshots.Count;
         var metrics = InstitutionalReportMetricsCalculator.Calculate(metricSnapshots, overdueEvaluationDate);
+        // The executive summary cards/narrative and the open/closed chart must reflect the selected
+        // departments' own DepartmentTransactionPerformanceState, not the overall transaction status —
+        // a transaction can be Completed for department A while it (and department B) remain Open
+        // overall. `metrics` above stays transaction-level and keeps driving DepartmentPerformance,
+        // Risks/Recommendations/RiskCounters and ValidateIntegrity unchanged, since those already
+        // read per-department state internally where it matters or intentionally describe the whole
+        // matched population.
+        var isDepartmentTransactions = request.ReportType == InstitutionalReportType.DepartmentTransactions;
+        var summaryMetrics = isDepartmentTransactions
+            ? InstitutionalReportMetricsCalculator.CalculateForDepartmentTransactions(metricSnapshots, request.Filters.DepartmentIds)
+            : metrics;
         var comparisonRequest = InstitutionalReportAnalysisService.CreateComparisonRequest(request, out var comparisonUnavailableReason);
         // CreateComparisonRequest can shift Filters.DateTo to a prior period (previous-period /
         // year-over-year comparisons), so the comparison snapshots must be evaluated for
@@ -302,8 +313,10 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
                 DetailRowLimit = detailLimit,
             },
             Filters = request.Filters,
-            Summary = BuildExecutiveSummary(metrics, metricSnapshots),
-            Charts = BuildCharts(metrics, metricSnapshots),
+            Summary = BuildExecutiveSummary(
+                summaryMetrics, metricSnapshots, isDepartmentTransactions ? request.Filters.DepartmentIds : []),
+            Charts = BuildCharts(
+                summaryMetrics, metricSnapshots, isDepartmentTransactions ? request.Filters.DepartmentIds : []),
             DepartmentPerformance = departmentPerformance,
             Risks = BuildRisks(metrics.Snapshots),
             Recommendations = BuildRecommendations(metrics.Snapshots, referenceDate, _reportingOptions.Analysis),
@@ -468,9 +481,19 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         }
     }
 
+    /// <summary>
+    /// For DepartmentTransactions, <paramref name="metrics"/> must already be the department-scoped
+    /// result of <see cref="InstitutionalReportMetricsCalculator.CalculateForDepartmentTransactions"/>
+    /// (one observation per matched Transaction+selected-Department relationship), and
+    /// <paramref name="selectedDepartmentIds"/> non-empty so the "top overdue department" narrative
+    /// line only considers the selected departments too. For every other report type, callers pass
+    /// the unchanged transaction-level <see cref="InstitutionalReportMetricsCalculator.Calculate"/>
+    /// result and an empty department list, leaving this function's behavior exactly as before.
+    /// </summary>
     private static ExecutiveSummaryDto BuildExecutiveSummary(
         InstitutionalMetricsResult metrics,
-        IReadOnlyList<TransactionReportSnapshot> snapshots)
+        IReadOnlyList<TransactionReportSnapshot> snapshots,
+        IReadOnlyList<int> selectedDepartmentIds)
     {
         var cards = new List<KpiCardDto>
         {
@@ -489,18 +512,35 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             new() { Key = "onTime", Title = "نسبة الإنجاز ضمن المهلة", Value = $"{metrics.OnTimeCompletionRate:N1}%" }
         };
 
-        var topOverdueDept = DepartmentTransactionPerformanceObservationResolver.Expand(snapshots)
+        var departmentObservationsForNarrative = DepartmentTransactionPerformanceObservationResolver.Expand(snapshots);
+        if (selectedDepartmentIds.Count > 0)
+        {
+            var selected = selectedDepartmentIds.ToHashSet();
+            departmentObservationsForNarrative = departmentObservationsForNarrative
+                .Where(observation => selected.Contains(observation.State.DepartmentId))
+                .ToList();
+        }
+
+        var topOverdueDept = departmentObservationsForNarrative
             .Where(observation => observation.State.IsOpenOverdueForDepartment)
             .GroupBy(observation => observation.State.DepartmentId)
             .OrderByDescending(g => g.Count())
             .Select(group => ReportDepartmentNameNormalizer.Normalize(group.First().State.DepartmentName))
             .FirstOrDefault();
 
+        // For DepartmentTransactions, `metrics` counts Transaction+selected-Department relationships,
+        // not unique transactions — a transaction shared by two selected departments is counted twice.
+        // "فريدة" (unique) would misstate that, so the wording is scoped accordingly.
+        var scopeNoun = selectedDepartmentIds.Count > 0 ? "علاقة معاملة/إدارة" : "معاملة فريدة";
+        var openClosedVerbs = selectedDepartmentIds.Count > 0
+            ? $"منها {metrics.ClosedCount:N0} منجزة لدى الإدارة و{metrics.OpenCount:N0} مفتوحة لدى الإدارة. "
+            : $"منها {metrics.ClosedCount:N0} مغلقة و{metrics.OpenCount:N0} مفتوحة. ";
+
         var narrative = $"بلغ وارد الفترة {metrics.PeriodIncomingCount:N0} معاملة وردت داخل الفترة فقط، " +
                         $"والمعاملات المرحلة من فترة سابقة {metrics.CarriedOpenBalanceCount:N0} معاملة أقدم من الفترة وما زالت مفتوحة حتى نهايتها. " +
                         $"إجمالي المعاملات القائمة بلغ {metrics.TotalActiveBurdenCount:N0} معاملة، " +
-                        $"ونطاق التقرير التشغيلي يضم {metrics.TotalTransactions:N0} معاملة فريدة، " +
-                        $"منها {metrics.ClosedCount:N0} مغلقة و{metrics.OpenCount:N0} مفتوحة. " +
+                        $"ونطاق التقرير التشغيلي يضم {metrics.TotalTransactions:N0} {scopeNoun}، " +
+                        openClosedVerbs +
                         $"تضم المعاملات المفتوحة {metrics.OpenOverdueCount:N0} معاملة متأخرة، " +
                         $"وتوجد {metrics.CompletedLateCount:N0} معاملة منجزة/مغلقة بعد الاستحقاق، " +
                         $"و{metrics.PartialResponseCount:N0} ردًا جزئيًا " +
@@ -512,9 +552,28 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         return new ExecutiveSummaryDto { KpiCards = cards, ExecutiveNarrative = narrative };
     }
 
-    private static List<ChartDto> BuildCharts(InstitutionalMetricsResult metrics, IReadOnlyList<TransactionReportSnapshot> snapshots)
+    /// <summary>
+    /// For DepartmentTransactions, <paramref name="metrics"/> must already be the department-scoped
+    /// result of <see cref="InstitutionalReportMetricsCalculator.CalculateForDepartmentTransactions"/>
+    /// (drives the "open vs closed" bar), and non-empty <paramref name="selectedDepartmentIds"/> scopes
+    /// the "top overdue departments" and "average completion by department" bars to the departments the
+    /// report was actually built for — otherwise a co-assigned but non-selected department could show up
+    /// in a report scoped to someone else. Every other report type passes the unchanged transaction-level
+    /// metrics and an empty department list, so its chart output is exactly as before.
+    /// </summary>
+    private static List<ChartDto> BuildCharts(
+        InstitutionalMetricsResult metrics,
+        IReadOnlyList<TransactionReportSnapshot> snapshots,
+        IReadOnlyList<int> selectedDepartmentIds)
     {
         var departmentObservations = DepartmentTransactionPerformanceObservationResolver.Expand(snapshots);
+        if (selectedDepartmentIds.Count > 0)
+        {
+            var selected = selectedDepartmentIds.ToHashSet();
+            departmentObservations = departmentObservations
+                .Where(observation => selected.Contains(observation.State.DepartmentId))
+                .ToList();
+        }
         var monthly = snapshots.Where(s => s.IsPeriodIncoming)
             .GroupBy(s => new DateTime(s.IncomingDate.Year, s.IncomingDate.Month, 1, 0, 0, 0, DateTimeKind.Utc))
             .OrderBy(g => g.Key)

@@ -631,7 +631,260 @@ public class InstitutionalReportDepartmentTransactionsTests
         Assert.True(pendingMatch.IsOverdueForDepartment);
         Assert.False(pendingMatch.IsCompletedForDepartment);
 
-        Assert.Contains(completedModel.Summary.KpiCards, card => card.Key == "open" && card.Value == "4");
+        // Department 20 (B) is matched via assignment on T1, T3 and T5 (T2 is OutgoingDepartment-only
+        // and carries no performance state, so it is excluded from the summary entirely). Only T5 is
+        // completed (on time); T1/T3 have future due dates so they are open but not overdue. Before
+        // this fix these summary cards were built from InstitutionalReportMetricsCalculator.Calculate's
+        // unique-transaction population (which reads snapshot.IsOpen/IsClosed) and would have shown
+        // "open"=4 here purely because T1/T2/T3 and the overall T5 transaction remain open overall —
+        // even though department B itself is fully done with T5.
+        Assert.Contains(completedModel.Summary.KpiCards, card => card.Key == "total" && card.Value == "3");
+        Assert.Contains(completedModel.Summary.KpiCards, card => card.Key == "closed" && card.Value == "1");
+        Assert.Contains(completedModel.Summary.KpiCards, card => card.Key == "open" && card.Value == "2");
+        Assert.Contains(completedModel.Summary.KpiCards, card => card.Key == "overdue" && card.Value == "0");
+        Assert.Contains(completedModel.Summary.KpiCards, card => card.Key == "onTime" && card.Value == $"{100.0:N1}%");
+
+        // Department 30 (C) is matched via T4 (open, not overdue) and T5 (open, overdue as of the
+        // 2026-01-31 evaluation date) — a completely independent population from department 20's.
+        Assert.Contains(pendingModel.Summary.KpiCards, card => card.Key == "total" && card.Value == "2");
+        Assert.Contains(pendingModel.Summary.KpiCards, card => card.Key == "closed" && card.Value == "0");
+        Assert.Contains(pendingModel.Summary.KpiCards, card => card.Key == "open" && card.Value == "2");
+        Assert.Contains(pendingModel.Summary.KpiCards, card => card.Key == "overdue" && card.Value == "1");
+        Assert.Contains(pendingModel.Summary.KpiCards, card => card.Key == "onTime" && card.Value == $"{0.0:N1}%");
+    }
+
+    /// <summary>
+    /// Adds an isolated single shared transaction between two brand-new departments (never referenced
+    /// by <see cref="SeedAsync"/>'s T1-T5), plus an optional third department with only a Cancelled
+    /// assignment on it. Isolated on purpose: this lets the literal "Total=1 for a single-transaction
+    /// department report" scenario be verified exactly, without T1-T5's unrelated matches diluting it.
+    /// </summary>
+    private static async Task<(int DepartmentA, int DepartmentB, int DepartmentCancelledOnly, int TransactionId)>
+        ConfigureIsolatedSharedTransactionAsync(DbContextOptions<AppDbContext> options)
+    {
+        const int departmentA = 40;
+        const int departmentB = 50;
+        const int departmentCancelledOnly = 60;
+        const int transactionId = 6;
+
+        await using var db = new AppDbContext(options);
+        db.Departments.Add(new Department { Id = departmentA, Name = "قسم د", NameNormalized = "قسم د", IsActive = true });
+        db.Departments.Add(new Department { Id = departmentB, Name = "قسم هـ", NameNormalized = "قسم هـ", IsActive = true });
+        db.Departments.Add(new Department { Id = departmentCancelledOnly, Name = "قسم و", NameNormalized = "قسم و", IsActive = true });
+        db.Transactions.Add(new Transaction
+        {
+            Id = transactionId,
+            InternalTrackingNumber = $"UQEB-2026-{transactionId:00000}",
+            IncomingNumber = $"IN-{transactionId:0000}",
+            IncomingDate = new DateTime(2026, 1, 10, 0, 0, 0, DateTimeKind.Utc),
+            Subject = "معاملة مشتركة معزولة",
+            IncomingSourceType = IncomingSourceType.External,
+            IncomingFrom = "جهة خارجية",
+            CategoryId = 1,
+            Priority = Priority.Normal,
+            ResponseType = ResponseType.None,
+            Status = TransactionStatus.InProgress,
+            RequiresResponse = true,
+            ResponseDueDate = new DateTime(2026, 1, 31),
+            CreatedById = 1,
+            CreatedAt = new DateTime(2026, 1, 10),
+        });
+        await db.SaveChangesAsync();
+
+        // Department A: completed its assignment on time. Overall transaction stays InProgress/open
+        // because department B (below) has not finished, and Transaction.Status/ClosedAt are never
+        // touched by this reporting-only fix.
+        db.Assignments.Add(new Assignment
+        {
+            TransactionId = transactionId,
+            DepartmentId = departmentA,
+            Status = AssignmentStatus.Completed,
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Replied,
+            AssignedDate = new DateTime(2026, 1, 10),
+            DueDate = new DateTime(2026, 1, 20),
+            ReplyDate = new DateTime(2026, 1, 15),
+            CreatedById = 1,
+        });
+        // Department B: still open, due date in the future relative to the report's evaluation date
+        // (2026-01-31) so it is open but not overdue.
+        db.Assignments.Add(new Assignment
+        {
+            TransactionId = transactionId,
+            DepartmentId = departmentB,
+            Status = AssignmentStatus.Active,
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Pending,
+            AssignedDate = new DateTime(2026, 1, 10),
+            DueDate = new DateTime(2026, 2, 15),
+            CreatedById = 1,
+        });
+        // A cancelled assignment must never produce a performance state or match the report query at
+        // all — this department has no other relation to the transaction.
+        db.Assignments.Add(new Assignment
+        {
+            TransactionId = transactionId,
+            DepartmentId = departmentCancelledOnly,
+            Status = AssignmentStatus.Cancelled,
+            RequiresReply = true,
+            ReplyStatus = ReplyStatus.Pending,
+            AssignedDate = new DateTime(2026, 1, 10),
+            DueDate = new DateTime(2026, 1, 12),
+            CreatedById = 1,
+        });
+        await db.SaveChangesAsync();
+
+        return (departmentA, departmentB, departmentCancelledOnly, transactionId);
+    }
+
+    [Fact]
+    public async Task BuildReportModelAsync_SummaryKpis_SharedTransaction_CompletedDepartmentVsOpenDepartment()
+    {
+        var options = CreateOptions($"deptx-{Guid.NewGuid():N}");
+        await SeedAsync(options);
+        var (departmentA, departmentB, _, transactionId) = await ConfigureIsolatedSharedTransactionAsync(options);
+        var service = InstitutionalReportServiceTestHelpers.CreateService(new TestDbContextFactory(options));
+
+        var modelA = await service.BuildReportModelAsync(
+            DepartmentTransactionsRequest([departmentA], new DateTime(2026, 1, 1), new DateTime(2026, 1, 31)));
+        var modelB = await service.BuildReportModelAsync(
+            DepartmentTransactionsRequest([departmentB], new DateTime(2026, 1, 1), new DateTime(2026, 1, 31)));
+
+        // DepartmentTransactions(A, All): department A completed its own assignment, so it must read
+        // as fully closed for A regardless of the overall transaction (and department B) staying open.
+        Assert.Contains(modelA.Summary.KpiCards, card => card.Key == "total" && card.Value == "1");
+        Assert.Contains(modelA.Summary.KpiCards, card => card.Key == "closed" && card.Value == "1");
+        Assert.Contains(modelA.Summary.KpiCards, card => card.Key == "open" && card.Value == "0");
+        Assert.Contains(modelA.Summary.KpiCards, card => card.Key == "overdue" && card.Value == "0");
+        Assert.Contains(modelA.Summary.KpiCards, card => card.Key == "onTime" && card.Value == $"{100.0:N1}%");
+        var rowA = modelA.Transactions.Single(row => row.TransactionId == transactionId);
+        Assert.Equal("منجزة ضمن المهلة", rowA.DepartmentStatus);
+        Assert.Equal("مفتوحة", rowA.Status); // overall transaction status stays separate and unchanged
+
+        // DepartmentTransactions(B, All): department B's own assignment is still open.
+        Assert.Contains(modelB.Summary.KpiCards, card => card.Key == "total" && card.Value == "1");
+        Assert.Contains(modelB.Summary.KpiCards, card => card.Key == "closed" && card.Value == "0");
+        Assert.Contains(modelB.Summary.KpiCards, card => card.Key == "open" && card.Value == "1");
+        var rowB = modelB.Transactions.Single(row => row.TransactionId == transactionId);
+        Assert.Equal("مفتوحة", rowB.DepartmentStatus);
+        Assert.Equal("مفتوحة", rowB.Status);
+
+        // OpenOnly must follow the exact same department-scoped read.
+        var openOnlyA = DepartmentTransactionsRequest([departmentA], new DateTime(2026, 1, 1), new DateTime(2026, 1, 31));
+        openOnlyA.Filters.DepartmentTransactionScope = DepartmentTransactionScope.OpenOnly;
+        var openOnlyAModel = await service.BuildReportModelAsync(openOnlyA);
+        Assert.Empty(openOnlyAModel.Transactions);
+
+        var openOnlyB = DepartmentTransactionsRequest([departmentB], new DateTime(2026, 1, 1), new DateTime(2026, 1, 31));
+        openOnlyB.Filters.DepartmentTransactionScope = DepartmentTransactionScope.OpenOnly;
+        var openOnlyBModel = await service.BuildReportModelAsync(openOnlyB);
+        Assert.Single(openOnlyBModel.Transactions);
+
+        // The overall transaction workflow is never touched by this reporting-only distinction.
+        await using var db = new AppDbContext(options);
+        var transaction = await db.Transactions.SingleAsync(t => t.Id == transactionId);
+        Assert.Equal(TransactionStatus.InProgress, transaction.Status);
+        Assert.Null(transaction.ClosedAt);
+    }
+
+    [Fact]
+    public async Task BuildReportModelAsync_SummaryKpis_MultiDepartmentSelectionIsNonAdditiveAcrossSharedTransaction()
+    {
+        var options = CreateOptions($"deptx-{Guid.NewGuid():N}");
+        await SeedAsync(options);
+        var (departmentA, departmentB, _, transactionId) = await ConfigureIsolatedSharedTransactionAsync(options);
+        var service = InstitutionalReportServiceTestHelpers.CreateService(new TestDbContextFactory(options));
+
+        var combined = await service.BuildReportModelAsync(
+            DepartmentTransactionsRequest([departmentA, departmentB], new DateTime(2026, 1, 1), new DateTime(2026, 1, 31)));
+
+        // The single shared transaction contributes one relationship per selected department: total=2
+        // even though there is only 1 unique transaction. This is intentionally non-additive against
+        // the unique-transaction population InstitutionalReportMetricsCalculator.Calculate would report.
+        Assert.Contains(combined.Summary.KpiCards, card => card.Key == "total" && card.Value == "2");
+        Assert.Contains(combined.Summary.KpiCards, card => card.Key == "closed" && card.Value == "1");
+        Assert.Contains(combined.Summary.KpiCards, card => card.Key == "open" && card.Value == "1");
+        Assert.Contains(combined.Summary.KpiCards, card => card.Key == "joint" && card.Value == "1");
+        // Without GroupDetailsByDepartment the shared transaction is still one detail row (existing
+        // ungrouped behavior, unrelated to this fix) — but that row's own MatchedDepartments list
+        // carries both selected departments, matching the KPI cards' total=2 relationship count above.
+        var combinedRow = combined.Transactions.Single(row => row.TransactionId == transactionId);
+        Assert.Equal(2, combinedRow.MatchedDepartments.Count);
+    }
+
+    [Fact]
+    public async Task BuildReportModelAsync_SummaryKpisAreConsistentAcrossHtmlXlsxAndDocxExports()
+    {
+        var options = CreateOptions($"deptx-{Guid.NewGuid():N}");
+        await SeedAsync(options);
+        var (departmentA, _, _, _) = await ConfigureIsolatedSharedTransactionAsync(options);
+        var service = InstitutionalReportServiceTestHelpers.CreateService(new TestDbContextFactory(options));
+        var request = DepartmentTransactionsRequest([departmentA], new DateTime(2026, 1, 1), new DateTime(2026, 1, 31));
+        request.SectionIds = [ReportSectionId.ExecutiveSummary];
+        var model = await service.BuildReportModelAsync(request);
+
+        // No exporter recomputes KPIs — they all read the same already-computed model.Summary, so
+        // department-scoped correctness here is a single fix, not one per output format.
+        var renderer = new InstitutionalReportRenderer();
+        var manifest = renderer.RenderManifest(model, [ReportSectionId.ExecutiveSummary]);
+        var html = InstitutionalReportRenderer.RenderHtmlDocument(manifest);
+        Assert.Contains(
+            """<div class="label">إجمالي نطاق التقرير</div><div class="value">1</div>""",
+            html);
+
+        var xlsx = InstitutionalReportXlsxExporter.Export(model, manifest, new ReportExportRequestDto());
+        using (var workbook = new XLWorkbook(new MemoryStream(xlsx)))
+        {
+            var summarySheet = workbook.Worksheet("الملخص التنفيذي");
+            var totalCell = summarySheet.Cells().Single(c => c.GetString() == "إجمالي نطاق التقرير");
+            Assert.Equal("1", summarySheet.Cell(totalCell.Address.RowNumber, totalCell.Address.ColumnNumber + 1).GetString());
+        }
+
+        var docx = InstitutionalReportDocxExporter.Export(model, manifest, new ReportExportRequestDto());
+        using var stream = new MemoryStream(docx);
+        using var document = WordprocessingDocument.Open(stream, false);
+        var paragraphs = document.MainDocumentPart!.Document.Body!
+            .Descendants<DocumentFormat.OpenXml.Wordprocessing.Paragraph>()
+            .Select(p => string.Concat(p.Descendants<OpenXmlText>().Select(node => node.Text)))
+            .ToList();
+        Assert.Contains("إجمالي نطاق التقرير: 1", paragraphs);
+    }
+
+    [Fact]
+    public async Task BuildReportModelAsync_AnalysisExecutiveInsightsUseSameDepartmentScopedStateAsSummary()
+    {
+        var options = CreateOptions($"deptx-{Guid.NewGuid():N}");
+        await SeedAsync(options);
+        var (departmentA, _, _, _) = await ConfigureIsolatedSharedTransactionAsync(options);
+        var service = InstitutionalReportServiceTestHelpers.CreateService(new TestDbContextFactory(options));
+
+        var model = await service.BuildReportModelAsync(
+            DepartmentTransactionsRequest([departmentA], new DateTime(2026, 1, 1), new DateTime(2026, 1, 31)));
+
+        // The Analysis section's EXEC_TOTAL narrative must restate the same department-scoped
+        // total=1/closed=1/open=0 as the Summary cards above — not the unique-transaction reading
+        // (which would show this transaction as open, since department B has not finished it).
+        var execTotal = Assert.Single(model.Analysis.ExecutiveInsights, i => i.Code == "EXEC_TOTAL");
+        Assert.Equal("total=1;closed=1;open=0", execTotal.Evidence);
+    }
+
+    [Fact]
+    public async Task BuildReportModelAsync_SummaryKpis_CancelledAssignmentOnlyDepartmentContributesNothing()
+    {
+        var options = CreateOptions($"deptx-{Guid.NewGuid():N}");
+        await SeedAsync(options);
+        var (_, _, departmentCancelledOnly, _) = await ConfigureIsolatedSharedTransactionAsync(options);
+        var service = InstitutionalReportServiceTestHelpers.CreateService(new TestDbContextFactory(options));
+
+        var model = await service.BuildReportModelAsync(
+            DepartmentTransactionsRequest([departmentCancelledOnly], new DateTime(2026, 1, 1), new DateTime(2026, 1, 31)));
+
+        // A Cancelled assignment matches no report query filter and produces no performance state, so
+        // a department related to a transaction only through one stays entirely out of the summary.
+        Assert.Empty(model.Transactions);
+        Assert.Contains(model.Summary.KpiCards, card => card.Key == "total" && card.Value == "0");
+        Assert.Contains(model.Summary.KpiCards, card => card.Key == "open" && card.Value == "0");
+        Assert.Contains(model.Summary.KpiCards, card => card.Key == "closed" && card.Value == "0");
     }
 
     [Fact]

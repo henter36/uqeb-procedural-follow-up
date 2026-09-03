@@ -84,6 +84,71 @@ public static class InstitutionalReportMetricsCalculator
         };
     }
 
+    /// <summary>
+    /// DepartmentTransactions-only counterpart to <see cref="Calculate"/>: instead of deduping to
+    /// one row per unique transaction and reading its overall <c>IsOpen</c>/<c>IsClosed</c>/<c>Status</c>,
+    /// this expands to one observation per matched Transaction+selected-Department relationship (via
+    /// <see cref="DepartmentTransactionPerformanceObservationResolver"/>, the single source of truth
+    /// for that state) and aggregates over that population instead.
+    ///
+    /// A shared transaction contributes once per selected department it participates in — so with more
+    /// than one selected department the result is intentionally NOT additive against the unique-transaction
+    /// counts <see cref="Calculate"/> would produce for the same snapshots. That mirrors the department
+    /// itself being able to be "completed" while the overall transaction (and a co-assigned department)
+    /// stays open.
+    ///
+    /// A department relationship that only exists via OutgoingDepartment (no assignment, so no
+    /// <see cref="DepartmentTransactionPerformanceState"/>) has no completion/timeliness evidence and is
+    /// excluded here — it never fabricates an open/closed reading from the transaction's own status.
+    ///
+    /// <see cref="InstitutionalMetricsResult.CancelledCount"/> and <see cref="InstitutionalMetricsResult.ArchivedCount"/>
+    /// are always 0: cancelled assignments never produce a performance state, and "archived" has no
+    /// per-department equivalent. <see cref="InstitutionalMetricsResult.PendingAdministrativeReviewCount"/>
+    /// is always 0 — that concept (all department replies in, awaiting final administrative sign-off) is
+    /// inherently transaction-wide, not attributable to one department, and isn't surfaced by any
+    /// DepartmentTransactions KPI card today.
+    /// </summary>
+    public static InstitutionalMetricsResult CalculateForDepartmentTransactions(
+        IReadOnlyList<TransactionReportSnapshot> snapshots,
+        IReadOnlyList<int> selectedDepartmentIds)
+    {
+        var selected = selectedDepartmentIds.ToHashSet();
+        var observations = DepartmentTransactionPerformanceObservationResolver.Expand(snapshots)
+            .Where(observation => selected.Contains(observation.State.DepartmentId))
+            .ToList();
+
+        var periodIncomingOpen = observations.Count(o => o.Snapshot.IsPeriodIncoming && o.State.IsOpenForDepartment);
+        var carriedOpenBalance = observations.Count(o => o.Snapshot.IsCarriedOpenBalance);
+        var completionDays = DepartmentTransactionPerformanceObservationResolver.CompletionDays(observations);
+        // A transaction shared by more than one SELECTED department contributes more than one
+        // observation here; that is the department-scoped definition of "joint" for this report.
+        var joint = observations
+            .GroupBy(o => o.Snapshot.TransactionId)
+            .Count(g => g.Count() > 1);
+
+        return new InstitutionalMetricsResult
+        {
+            TotalTransactions = observations.Count,
+            PeriodIncomingCount = observations.Count(o => o.Snapshot.IsPeriodIncoming),
+            PeriodIncomingOpenCount = periodIncomingOpen,
+            CarriedOpenBalanceCount = carriedOpenBalance,
+            TotalActiveBurdenCount = periodIncomingOpen + carriedOpenBalance,
+            ClosedCount = observations.Count(o => o.State.IsCompletedForDepartment),
+            OpenCount = observations.Count(o => o.State.IsOpenForDepartment),
+            CancelledCount = 0,
+            ArchivedCount = 0,
+            OverdueCount = observations.Count(o => o.State.IsOverdueForDepartment),
+            OpenOverdueCount = observations.Count(o => o.State.IsOpenOverdueForDepartment),
+            CompletedLateCount = observations.Count(o => o.State.IsCompletedLateForDepartment),
+            JointDepartmentCount = joint,
+            PartialResponseCount = observations.Count(o => o.State.IsPartialReplyForDepartment),
+            PendingAdministrativeReviewCount = 0,
+            AverageCompletionDays = completionDays.Count == 0 ? 0 : Math.Round(completionDays.Average(), 1),
+            OnTimeCompletionRate = DepartmentTransactionPerformanceObservationResolver.OnTimeRate(observations),
+            Snapshots = observations.Select(o => o.Snapshot).DistinctBy(s => s.TransactionId).ToList(),
+        };
+    }
+
     public static DepartmentRatingLevel RateDepartment(
         DepartmentPerformanceMetrics metrics,
         DepartmentRatingCriteria criteria)
