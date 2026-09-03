@@ -725,21 +725,23 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
                     ElapsedDays = s.ElapsedDays,
                     SuggestedAction = "متابعة فورية وتحديد مسؤول الإنجاز"
                 });
-            if (s.IsPartialReply)
+            // Gate on each department's own IsPartialReplyForDepartment, not the transaction-level
+            // s.IsPartialReply — a department can have one completed and one pending required
+            // assignment (a real partial reply for that department) while the transaction-level flag
+            // stays false, since that flag only looks at active-assignment counts/Status and misses
+            // this case entirely.
+            foreach (var state in departmentStates.Where(state => state.IsPartialReplyForDepartment))
             {
-                foreach (var state in departmentStates.Where(state => state.IsOpenForDepartment && state.PendingReplyAssignmentCount > 0))
+                risks.Add(new RiskAlertRowDto
                 {
-                    risks.Add(new RiskAlertRowDto
-                    {
-                        Sequence = seq++,
-                        Alert = $"رد جزئي متوقف: {s.Subject}",
-                        DepartmentName = state.DepartmentName,
-                        Severity = RiskSeverity.Elevated,
-                        SeverityLabel = "يحتاج متابعة",
-                        ElapsedDays = s.ElapsedDays,
-                        SuggestedAction = "استكمال ردود الإدارات المتبقية"
-                    });
-                }
+                    Sequence = seq++,
+                    Alert = $"رد جزئي متوقف: {s.Subject}",
+                    DepartmentName = state.DepartmentName,
+                    Severity = RiskSeverity.Elevated,
+                    SeverityLabel = "يحتاج متابعة",
+                    ElapsedDays = s.ElapsedDays,
+                    SuggestedAction = "استكمال ردود الإدارات المتبقية"
+                });
             }
         }
         return risks.Take(20).Select((r, i) => { r.Sequence = i + 1; return r; }).ToList();
@@ -1011,30 +1013,11 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             ? matchedDepartments.Where(match => match.DepartmentId == focusDepartmentId.Value).ToList()
             : matchedDepartments;
         var measurableMatches = performanceMatches.Where(match => match.HasPerformanceState).ToList();
-        var departmentStatus = performanceMatches.Count == 0
-            ? string.Empty
-            : string.Join("؛ ", performanceMatches.Select(match =>
-                focusDepartmentId.HasValue || performanceMatches.Count == 1
-                    ? match.DepartmentStatus
-                    : $"{match.DepartmentName}: {match.DepartmentStatus}"));
-        var departmentResponseState = performanceMatches.Count == 0
-            ? string.Empty
-            : string.Join("؛ ", performanceMatches.Select(match =>
-                focusDepartmentId.HasValue || performanceMatches.Count == 1
-                    ? DepartmentResponseStateLabel(match)
-                    : $"{match.DepartmentName}: {DepartmentResponseStateLabel(match)}"));
-        var departmentDueDate = measurableMatches
-            .Select(match => ParseIsoDate(match.DepartmentDueDate))
-            .Where(date => date.HasValue)
-            .Select(date => date!.Value)
-            .DefaultIfEmpty()
-            .Min();
-        var departmentCompletionDate = measurableMatches
-            .Select(match => ParseIsoDate(match.DepartmentCompletionDate))
-            .Where(date => date.HasValue)
-            .Select(date => date!.Value)
-            .DefaultIfEmpty()
-            .Max();
+        var showOnlyOneDepartmentPerValue = focusDepartmentId.HasValue || performanceMatches.Count == 1;
+        var departmentStatus = JoinDepartmentField(performanceMatches, showOnlyOneDepartmentPerValue, match => match.DepartmentStatus);
+        var departmentResponseState = JoinDepartmentField(performanceMatches, showOnlyOneDepartmentPerValue, DepartmentResponseStateLabel);
+        var departmentDueDate = ResolveDepartmentDateField(measurableMatches, match => match.DepartmentDueDate, useLatest: false);
+        var departmentCompletionDate = ResolveDepartmentDateField(measurableMatches, match => match.DepartmentCompletionDate, useLatest: true);
 
         return new TransactionDetailRowDto
         {
@@ -1053,12 +1036,8 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             FollowUpStage = string.Join("، ", s.FollowUpStages.Select(InstitutionalReportMetricsCalculator.FollowUpStageLabel)),
             ElapsedDays = s.ElapsedDays,
             DueDate = s.ResponseDueDate?.ToString(IsoDateFormat, CultureInfo.InvariantCulture),
-            DepartmentDueDate = departmentDueDate == default
-                ? null
-                : departmentDueDate.ToString(IsoDateFormat, CultureInfo.InvariantCulture),
-            DepartmentCompletionDate = departmentCompletionDate == default
-                ? null
-                : departmentCompletionDate.ToString(IsoDateFormat, CultureInfo.InvariantCulture),
+            DepartmentDueDate = departmentDueDate,
+            DepartmentCompletionDate = departmentCompletionDate,
             LastActionDate = (s.UpdatedAt ?? s.LastFollowUpDate)?.ToString(IsoDateFormat, CultureInfo.InvariantCulture),
             ResponseState = ResolveResponseState(s),
             DepartmentResponseState = departmentResponseState,
@@ -1068,6 +1047,50 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             AllAssignmentDepartments = includeAuditDepartmentLists ? (s.AssignmentDepartmentNames ?? []).ToList() : [],
             AllOutgoingDepartments = includeAuditDepartmentLists ? (s.OutgoingDepartmentNames ?? []).ToList() : [],
         };
+    }
+
+    /// <summary>
+    /// Joins one value per matched department relation, using the department's name as a prefix only
+    /// when more than one department relation's value is being shown on the same row (a grouped or
+    /// focus-department row already shows exactly one, so the prefix would be redundant there).
+    /// Shared by <see cref="BuildDetailRow"/>'s DepartmentStatus and DepartmentResponseState fields,
+    /// which differ only in which value they read off each match.
+    /// </summary>
+    private static string JoinDepartmentField(
+        List<TransactionDetailDepartmentRelationDto> performanceMatches,
+        bool showOnlyOneDepartmentPerValue,
+        Func<TransactionDetailDepartmentRelationDto, string> selectValue)
+    {
+        if (performanceMatches.Count == 0)
+            return string.Empty;
+
+        return string.Join("؛ ", performanceMatches.Select(match =>
+            showOnlyOneDepartmentPerValue
+                ? selectValue(match)
+                : $"{match.DepartmentName}: {selectValue(match)}"));
+    }
+
+    /// <summary>
+    /// Resolves the earliest (<paramref name="useLatest"/> = false) or latest (= true) parseable date
+    /// among the measurable department matches, or null when none is measurable. Shared by
+    /// <see cref="BuildDetailRow"/>'s DepartmentDueDate (earliest) and DepartmentCompletionDate
+    /// (latest) fields.
+    /// </summary>
+    private static string? ResolveDepartmentDateField(
+        List<TransactionDetailDepartmentRelationDto> measurableMatches,
+        Func<TransactionDetailDepartmentRelationDto, string?> selectDate,
+        bool useLatest)
+    {
+        var dates = measurableMatches
+            .Select(match => ParseIsoDate(selectDate(match)))
+            .Where(date => date.HasValue)
+            .Select(date => date!.Value)
+            .ToList();
+        if (dates.Count == 0)
+            return null;
+
+        var resolved = useLatest ? dates.Max() : dates.Min();
+        return resolved.ToString(IsoDateFormat, CultureInfo.InvariantCulture);
     }
 
     private static DateTime? ParseIsoDate(string? value) =>

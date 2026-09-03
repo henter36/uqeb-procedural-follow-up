@@ -480,8 +480,7 @@ public class DepartmentResponseService : IDepartmentResponseService
         RequireReviewer(currentUser);
 
         var response = await _db.DepartmentResponses
-            .Include(r => r.Transaction)
-                .ThenInclude(t => t.Assignments)
+            .Include(r => r.Transaction.Assignments)
             .FirstOrDefaultAsync(r => r.Id == id)
             ?? throw new InvalidOperationException(ResponseNotFoundMessage);
 

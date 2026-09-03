@@ -1304,4 +1304,74 @@ public class InstitutionalReportDepartmentTransactionsTests
 
         Assert.Contains("defaultFilters.excludedDepartmentIds", ex.FieldErrors.Keys);
     }
+
+    [Fact]
+    public async Task BuildReportModelAsync_PartialReplyRiskAlertUsesDepartmentStateNotTransactionLevelFlag()
+    {
+        var options = CreateOptions($"deptx-{Guid.NewGuid():N}");
+        await SeedAsync(options);
+        const int departmentX = 70;
+        const int transactionId = 7;
+        await using (var db = new AppDbContext(options))
+        {
+            db.Departments.Add(new Department { Id = departmentX, Name = "قسم ز", NameNormalized = "قسم ز", IsActive = true });
+            db.Transactions.Add(new Transaction
+            {
+                Id = transactionId,
+                InternalTrackingNumber = "UQEB-2026-00007",
+                IncomingNumber = "IN-0007",
+                IncomingDate = new DateTime(2026, 1, 12, 0, 0, 0, DateTimeKind.Utc),
+                Subject = "معاملة رد جزئي على مستوى الإدارة",
+                IncomingSourceType = IncomingSourceType.External,
+                IncomingFrom = "جهة خارجية",
+                CategoryId = 1,
+                Priority = Priority.Normal,
+                ResponseType = ResponseType.None,
+                Status = TransactionStatus.InProgress,
+                RequiresResponse = true,
+                ResponseDueDate = new DateTime(2026, 2, 1),
+                CreatedById = 1,
+                CreatedAt = new DateTime(2026, 1, 12),
+            });
+            await db.SaveChangesAsync();
+
+            // First required-reply assignment for department X is already Completed+Replied. Its
+            // Status is no longer Active, so it does NOT count toward the transaction-level
+            // ActiveAssignmentCount that s.IsPartialReply depends on.
+            db.Assignments.Add(new Assignment
+            {
+                TransactionId = transactionId,
+                DepartmentId = departmentX,
+                Status = AssignmentStatus.Completed,
+                RequiresReply = true,
+                ReplyStatus = ReplyStatus.Replied,
+                AssignedDate = new DateTime(2026, 1, 12),
+                DueDate = new DateTime(2026, 1, 20),
+                ReplyDate = new DateTime(2026, 1, 15),
+                CreatedById = 1,
+            });
+            // Second required-reply assignment for the SAME department is still pending — the only
+            // Active assignment on this transaction, so ActiveAssignmentCount == 1 and s.IsPartialReply
+            // stays false (it requires ActiveAssignmentCount > 1). Department X itself, though, has one
+            // completed and one pending required reply: a genuine partial reply for that department.
+            db.Assignments.Add(new Assignment
+            {
+                TransactionId = transactionId,
+                DepartmentId = departmentX,
+                Status = AssignmentStatus.Active,
+                RequiresReply = true,
+                ReplyStatus = ReplyStatus.Pending,
+                AssignedDate = new DateTime(2026, 1, 12),
+                DueDate = new DateTime(2026, 3, 1),
+                CreatedById = 1,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var service = InstitutionalReportServiceTestHelpers.CreateService(new TestDbContextFactory(options));
+        var request = DepartmentTransactionsRequest([departmentX], new DateTime(2026, 1, 1), new DateTime(2026, 1, 31));
+        var model = await service.BuildReportModelAsync(request);
+
+        Assert.Contains(model.Risks, r => r.Alert.Contains("رد جزئي متوقف") && r.DepartmentName == "قسم ز");
+    }
 }
