@@ -847,6 +847,14 @@ export interface DepartmentTransactionResponseItemDto {
   canCreateResponse: boolean;
   canEditResponse: boolean;
   canSubmitResponse: boolean;
+  departmentStatus: string;
+  isOpenForDepartment: boolean;
+  isCompletedForDepartment: boolean;
+  isOverdueForDepartment: boolean;
+  isCompletedLateForDepartment: boolean;
+  isOnTimeForDepartment: boolean;
+  departmentDueDate?: string;
+  departmentCompletionDate?: string;
 }
 
 // @deprecated use DepartmentTransactionResponseItemDto

@@ -125,6 +125,12 @@ describe('DepartmentResponseInlinePanel', () => {
       canCreateResponse: false,
       canEditResponse: true,
       canSubmitResponse: true,
+      departmentStatus: 'مفتوحة',
+      isOpenForDepartment: true,
+      isCompletedForDepartment: false,
+      isOverdueForDepartment: false,
+      isCompletedLateForDepartment: false,
+      isOnTimeForDepartment: false,
     });
 
     const dateField = await screen.findByLabelText('تاريخ إنجاز الإدارة *');

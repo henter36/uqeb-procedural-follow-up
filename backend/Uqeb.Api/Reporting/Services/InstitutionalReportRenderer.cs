@@ -1139,7 +1139,7 @@ public sealed class InstitutionalReportRenderer
         {
             var matched = string.Join("<br/>", r.MatchedDepartments.Select(m =>
                 $"{Esc(NormalizeDepartmentName(m.DepartmentName))} ({Esc(m.Relation)})"));
-            return $"<tr><td class=\"cell--number\">{r.Sequence}</td><td class=\"cell--id\">{Esc(r.IncomingNumber)}</td><td class=\"cell--date\">{FormatDate(r.IncomingDate)}</td><td class=\"cell--subject\">{Esc(r.Subject)}</td><td>{Esc(DisplayValue(r.IncomingParty))}</td><td class=\"cell--relation\">{matched}</td><td>{Esc(DisplayValue(r.Status))}</td><td>{Esc(DisplayValue(r.Priority))}</td><td class=\"cell--date\">{Esc(r.DueDate ?? "—")}</td><td class=\"cell--date\">{Esc(r.LastActionDate ?? "—")}</td></tr>";
+            return $"<tr><td class=\"cell--number\">{r.Sequence}</td><td class=\"cell--id\">{Esc(r.IncomingNumber)}</td><td class=\"cell--date\">{FormatDate(r.IncomingDate)}</td><td class=\"cell--subject\">{Esc(r.Subject)}</td><td>{Esc(DisplayValue(r.IncomingParty))}</td><td class=\"cell--relation\">{matched}</td><td>{Esc(DisplayValue(r.DepartmentStatus))}</td><td>{Esc(DisplayValue(r.Status))}</td><td>{Esc(DisplayValue(r.Priority))}</td><td class=\"cell--date\">{Esc(r.DepartmentDueDate ?? "—")}</td><td class=\"cell--date\">{Esc(r.DepartmentCompletionDate ?? "—")}</td><td class=\"cell--date\">{Esc(r.LastActionDate ?? "—")}</td></tr>";
         }));
         var totalResults = model.TotalMatchedRows > 0 ? model.TotalMatchedRows : model.Transactions.Count;
         var pageNote = rows.Count < totalResults
@@ -1160,7 +1160,7 @@ public sealed class InstitutionalReportRenderer
         <p class="dept-transactions-page-subtitle">إجمالي النتائج: {totalResults:N0} معاملة{pageNote} — الفترة من {FormatDate(model.Metadata.PeriodFrom)} إلى {FormatDate(model.Metadata.PeriodTo)}</p>
         <table class="report-table report-table--department-transactions"><thead><tr>
           <th>#</th><th>رقم الوارد</th><th>تاريخ الوارد</th><th>الموضوع</th><th>الجهة الوارد منها</th>
-          <th>الإدارة/الإدارات المطابقة</th><th>الحالة</th><th>الأولوية</th><th>المهلة</th><th>آخر إجراء</th>
+          <th>الإدارة/الإدارات المطابقة</th><th>حالة الإدارة</th><th>حالة المعاملة</th><th>الأولوية</th><th>مهلة الإدارة</th><th>إنجاز الإدارة</th><th>آخر إجراء</th>
         </tr></thead><tbody>{body}</tbody></table>
         """;
     }
@@ -1208,7 +1208,7 @@ public sealed class InstitutionalReportRenderer
         AddCountFilter(parts, "إدارات", filters.DepartmentIds);
         AddCountFilter(parts, "إدارات مستثناة", filters.ExcludedDepartmentIds);
         if (filters.DepartmentTransactionScope == DepartmentTransactionScope.OpenOnly)
-            parts.Add("نطاق معاملات الإدارة: المفتوحة فقط");
+            parts.Add("نطاق معاملات الإدارة: المفتوحة لدى الإدارات المحددة فقط");
         AddCountFilter(parts, "جهات", filters.PartyIds);
         AddCountFilter(parts, "تصنيفات", filters.CategoryIds);
         AddJoinedFilter(parts, "الأولويات", filters.Priorities);

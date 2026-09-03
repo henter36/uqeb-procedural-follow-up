@@ -195,6 +195,9 @@ public class InstitutionalReportDocxExporterTests
                     IncomingDate = DateTime.UtcNow.Date,
                     Subject = "معاملة الإدارة",
                     Status = "قيد المعالجة",
+                    DepartmentStatus = "منجزة ضمن المهلة",
+                    DepartmentDueDate = "2026-01-20",
+                    DepartmentCompletionDate = "2026-01-15",
                     Priority = "عاجل",
                     MatchedDepartments =
                     [
@@ -232,6 +235,10 @@ public class InstitutionalReportDocxExporterTests
         Assert.Contains("معاملة الإدارة", dataRowText);
         Assert.Contains("الإدارة ب", dataRowText);
         Assert.Contains("إحالة وصادر لها", dataRowText);
+        Assert.Contains("منجزة ضمن المهلة", dataRowText);
+        Assert.Contains("قيد المعالجة", dataRowText);
+        Assert.Contains("2026-01-20", dataRowText);
+        Assert.Contains("2026-01-15", dataRowText);
         Assert.Contains("عاجل", dataRowText);
     }
 }

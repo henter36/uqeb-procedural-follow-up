@@ -388,10 +388,24 @@ public sealed class TransactionDetailRowDto
     public string ResponsibleDepartment { get; set; } = string.Empty;
     public string JointDepartments { get; set; } = string.Empty;
     public string Priority { get; set; } = string.Empty;
+    /// <summary>The unchanged workflow status of the transaction as a whole.</summary>
     public string Status { get; set; } = string.Empty;
+    /// <summary>
+    /// DepartmentTransactions only: display state derived from the selected department assignment
+    /// state(s). For multiple ungrouped departments, each department is named explicitly.
+    /// </summary>
+    public string DepartmentStatus { get; set; } = string.Empty;
     public string FollowUpStage { get; set; } = string.Empty;
     public int ElapsedDays { get; set; }
+    /// <summary>The transaction-level response due date; unchanged for non-department reports.</summary>
     public string? DueDate { get; set; }
+    /// <summary>
+    /// DepartmentTransactions only: exact grouped-department due date, or the earliest measurable
+    /// due date among matching selected departments for an ungrouped multi-department row.
+    /// </summary>
+    public string? DepartmentDueDate { get; set; }
+    public string? DepartmentCompletionDate { get; set; }
+    public string DepartmentResponseState { get; set; } = string.Empty;
     public string? LastActionDate { get; set; }
     public string ResponseState { get; set; } = string.Empty;
     public string? OutgoingNumber { get; set; }
@@ -427,6 +441,20 @@ public sealed class TransactionDetailDepartmentRelationDto
 
     /// <summary>"إحالة" | "صادر لها" | "إحالة وصادر لها"</summary>
     public string Relation { get; set; } = string.Empty;
+
+    /// <summary>
+    /// False for an OutgoingDepartment-only relation, because that relation has no assignment
+    /// ReplyDate/DueDate evidence and therefore cannot be classified as open or completed.
+    /// </summary>
+    public bool HasPerformanceState { get; set; }
+    public string DepartmentStatus { get; set; } = string.Empty;
+    public string? DepartmentDueDate { get; set; }
+    public string? DepartmentCompletionDate { get; set; }
+    public bool? IsOpenForDepartment { get; set; }
+    public bool? IsCompletedForDepartment { get; set; }
+    public bool? IsOverdueForDepartment { get; set; }
+    public bool? IsCompletedLateForDepartment { get; set; }
+    public bool? IsOnTimeForDepartment { get; set; }
 }
 
 public sealed class IntegrityWarningDto

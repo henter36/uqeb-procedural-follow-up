@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Uqeb.Api.Authorization;
 using Uqeb.Api.DTOs.DepartmentResponses;
+using Uqeb.Api.Reporting.Enums;
 using Uqeb.Api.Services;
 
 namespace Uqeb.Api.Controllers;
@@ -27,8 +28,9 @@ public class DepartmentResponsesController : ControllerBase
 
     [HttpGet("department-transactions")]
     [Authorize(Policy = Policies.SubmitDepartmentResponse)]
-    public async Task<IActionResult> GetDepartmentTransactions()
-        => Ok(await _service.GetDepartmentTransactionsAsync(_currentUser));
+    public async Task<IActionResult> GetDepartmentTransactions(
+        [FromQuery] DepartmentTransactionScope scope = DepartmentTransactionScope.OpenOnly)
+        => Ok(await _service.GetDepartmentTransactionsAsync(_currentUser, scope));
 
     [HttpGet("my")]
     [Authorize(Policy = Policies.SubmitDepartmentResponse)]

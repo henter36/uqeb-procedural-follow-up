@@ -44,6 +44,7 @@ internal static class InstitutionalReportSnapshotQuery
     internal sealed class AssignmentRow
     {
         public int Id { get; init; }
+        public int TransactionId { get; init; }
         public int DepartmentId { get; init; }
         public string DepartmentName { get; init; } = string.Empty;
         public DateTime AssignedDate { get; init; }
@@ -88,6 +89,7 @@ internal static class InstitutionalReportSnapshotQuery
         Assignments = t.Assignments.Select(a => new AssignmentRow
         {
             Id = a.Id,
+            TransactionId = a.TransactionId,
             DepartmentId = a.DepartmentId,
             DepartmentName = a.Department != null ? a.Department.Name : string.Empty,
             AssignedDate = a.AssignedDate,
@@ -410,68 +412,11 @@ internal static class InstitutionalReportSnapshotQuery
         DateTime evaluationDate) =>
         assignments
             .GroupBy(assignment => assignment.DepartmentId)
-            .Select(group => BuildDepartmentPerformanceState(transactionId, group, evaluationDate))
+            .Select(group => DepartmentTransactionPerformanceObservationResolver.ResolveState(
+                transactionId,
+                group,
+                evaluationDate))
             .ToList();
-
-    private static DepartmentTransactionPerformanceState BuildDepartmentPerformanceState(
-        int transactionId,
-        IEnumerable<AssignmentRow> departmentAssignments,
-        DateTime evaluationDate)
-    {
-        var assignments = departmentAssignments
-            .OrderByDescending(assignment => assignment.Status == AssignmentStatus.Active)
-            .ThenByDescending(assignment => assignment.AssignedDate)
-            .ThenByDescending(assignment => assignment.CreatedAt)
-            .ThenByDescending(assignment => assignment.Id)
-            .ToList();
-        var requiredReplies = assignments.Where(assignment => assignment.RequiresReply).ToList();
-
-        static bool IsCompletedRequiredReply(AssignmentRow assignment) =>
-            assignment.ReplyStatus == ReplyStatus.Replied && assignment.ReplyDate.HasValue;
-
-        var completedRequiredReplies = requiredReplies.Where(IsCompletedRequiredReply).ToList();
-        var pendingRequiredReplies = requiredReplies.Where(assignment => !IsCompletedRequiredReply(assignment)).ToList();
-        // A referral that explicitly requires no reply carries no outstanding response obligation.
-        // It is therefore complete for departmental response-performance counting, but has no
-        // measurable completion date and is excluded from timeliness rates.
-        var isCompleted = pendingRequiredReplies.Count == 0;
-        var completionDate = isCompleted && completedRequiredReplies.Count > 0
-            ? completedRequiredReplies.Max(assignment => assignment.ReplyDate!.Value.Date)
-            : (DateTime?)null;
-        var dueAssignments = requiredReplies.Where(assignment => assignment.DueDate.HasValue).ToList();
-        var departmentDueDate = dueAssignments.Count > 0
-            ? dueAssignments.Min(assignment => assignment.DueDate!.Value.Date)
-            : (DateTime?)null;
-        var isOpenOverdue = !isCompleted && pendingRequiredReplies.Any(assignment =>
-            assignment.DueDate.HasValue && assignment.DueDate.Value.Date < evaluationDate.Date);
-        var hasLateCompletedAssignment = completedRequiredReplies.Any(assignment =>
-            assignment.DueDate.HasValue
-            && assignment.ReplyDate!.Value.Date > assignment.DueDate.Value.Date);
-        var isCompletedLate = isCompleted && hasLateCompletedAssignment;
-        var isOnTime = isCompleted
-            && dueAssignments.Count > 0
-            && dueAssignments.All(assignment => assignment.ReplyDate!.Value.Date <= assignment.DueDate!.Value.Date);
-        var isOverdue = isOpenOverdue || hasLateCompletedAssignment;
-
-        return new DepartmentTransactionPerformanceState
-        {
-            DepartmentId = assignments[0].DepartmentId,
-            DepartmentName = assignments[0].DepartmentName,
-            TransactionId = transactionId,
-            IsOpenForDepartment = !isCompleted,
-            IsCompletedForDepartment = isCompleted,
-            DepartmentCompletionDate = completionDate,
-            DepartmentDueDate = departmentDueDate,
-            IsOpenOverdueForDepartment = isOpenOverdue,
-            IsOverdueForDepartment = isOverdue,
-            IsCompletedLateForDepartment = isCompletedLate,
-            IsOnTimeForDepartment = isOnTime,
-            IsTimelinessEligible = isOverdue || (isCompleted && dueAssignments.Count > 0),
-            RepliedAssignmentCount = completedRequiredReplies.Count,
-            PendingReplyAssignmentCount = pendingRequiredReplies.Count,
-            IsPartialReplyForDepartment = completedRequiredReplies.Count > 0 && pendingRequiredReplies.Count > 0,
-        };
-    }
 
     internal static List<DepartmentRow> BuildDepartmentPairs(IEnumerable<AssignmentRow> assignments) =>
         assignments

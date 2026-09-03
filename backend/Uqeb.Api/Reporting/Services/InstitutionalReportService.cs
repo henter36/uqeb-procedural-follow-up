@@ -229,8 +229,7 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             request.ReportType, request.Filters.DateTo);
 
         var metricSnapshots = await LoadSnapshotsAsync(request, ct, takeLimit: null, overdueEvaluationDate);
-        if (request.Filters.IncludeOverdue)
-            metricSnapshots = metricSnapshots.Where(s => s.IsOverdue).ToList();
+        metricSnapshots = ApplyOverdueScope(metricSnapshots, request);
         var totalMatched = metricSnapshots.Count;
         var metrics = InstitutionalReportMetricsCalculator.Calculate(metricSnapshots, overdueEvaluationDate);
         var comparisonRequest = InstitutionalReportAnalysisService.CreateComparisonRequest(request, out var comparisonUnavailableReason);
@@ -244,8 +243,8 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         var comparisonSnapshots = comparisonRequest is null
             ? []
             : await LoadSnapshotsAsync(comparisonRequest, ct, takeLimit: null, comparisonOverdueEvaluationDate);
-        if (request.Filters.IncludeOverdue && comparisonSnapshots.Count > 0)
-            comparisonSnapshots = comparisonSnapshots.Where(s => s.IsOverdue).ToList();
+        if (comparisonRequest is not null)
+            comparisonSnapshots = ApplyOverdueScope(comparisonSnapshots, comparisonRequest);
         var comparisonMetrics = comparisonRequest is null
             ? null
             : InstitutionalReportMetricsCalculator.Calculate(comparisonSnapshots, comparisonOverdueEvaluationDate);
@@ -383,9 +382,24 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             request.ReportType,
             request.Filters.DateTo);
         var snapshots = await LoadSnapshotsAsync(request, ct, takeLimit: null, referenceDate);
-        if (request.Filters.IncludeOverdue)
-            snapshots = snapshots.Where(s => s.IsOverdue).ToList();
+        snapshots = ApplyOverdueScope(snapshots, request);
         return snapshots.Count;
+    }
+
+    private static List<TransactionReportSnapshot> ApplyOverdueScope(
+        List<TransactionReportSnapshot> snapshots,
+        ReportBuildRequestDto request)
+    {
+        if (!request.Filters.IncludeOverdue)
+            return snapshots;
+
+        if (request.ReportType != InstitutionalReportType.DepartmentTransactions)
+            return snapshots.Where(snapshot => snapshot.IsOverdue).ToList();
+
+        var selectedDepartmentIds = request.Filters.DepartmentIds.ToHashSet();
+        return snapshots.Where(snapshot => snapshot.DepartmentPerformanceStates.Any(state =>
+            selectedDepartmentIds.Contains(state.DepartmentId)
+            && state.IsOverdueForDepartment)).ToList();
     }
 
     private async Task<List<TransactionReportSnapshot>> LoadSnapshotsAsync(
@@ -406,7 +420,13 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             .OrderByDescending(t => t.IncomingDate)
             .ThenByDescending(t => t.Id);
 
-        if (takeLimit.HasValue)
+        var requiresDepartmentOpenScope = request.ReportType == InstitutionalReportType.DepartmentTransactions
+            && request.Filters.DepartmentTransactionScope == DepartmentTransactionScope.OpenOnly;
+
+        // Department open/complete state is derived after projection from assignment observations.
+        // Apply the preview/export row cap after that state filter so completed rows cannot consume
+        // the cap and hide later rows that are genuinely open for a selected department.
+        if (takeLimit.HasValue && !requiresDepartmentOpenScope)
             query = query.Take(takeLimit.Value);
 
         var rows = await query
@@ -417,11 +437,15 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         var snapshots = rows.Select(row => InstitutionalReportSnapshotQuery.MapRowToSnapshot(row, evaluationDate)).ToList();
         ApplyPeriodScope(snapshots, request.Filters.DateFrom, evaluationDate);
         var scopedSnapshots = snapshots.Where(IsInFinalReportScope);
-        if (request.ReportType == InstitutionalReportType.DepartmentTransactions
-            && request.Filters.DepartmentTransactionScope == DepartmentTransactionScope.OpenOnly)
+        if (requiresDepartmentOpenScope)
         {
-            scopedSnapshots = scopedSnapshots.Where(s => s.IsOpen);
+            var selectedDepartmentIds = request.Filters.DepartmentIds.ToHashSet();
+            scopedSnapshots = scopedSnapshots.Where(snapshot => snapshot.DepartmentPerformanceStates.Any(state =>
+                selectedDepartmentIds.Contains(state.DepartmentId)
+                && state.IsOpenForDepartment));
         }
+        if (takeLimit.HasValue && requiresDepartmentOpenScope)
+            scopedSnapshots = scopedSnapshots.Take(takeLimit.Value);
         return scopedSnapshots.ToList();
     }
 
@@ -745,10 +769,20 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
                 .OrderByDescending(s => s.IncomingDate).ThenByDescending(s => s.TransactionId).ToList(),
             ReportDetailSortBy.Department => snapshots
                 .OrderBy(s => ResolveDepartmentSortKey(s, request), StringComparer.Ordinal).ThenByDescending(s => s.IncomingDate).ToList(),
+            ReportDetailSortBy.Status when request.ReportType == InstitutionalReportType.DepartmentTransactions => snapshots
+                .OrderBy(s => ResolveDepartmentStatusSortKey(s, request))
+                .ThenByDescending(s => s.IncomingDate)
+                .ThenByDescending(s => s.TransactionId)
+                .ToList(),
             ReportDetailSortBy.Status => snapshots
                 .OrderBy(s => s.Status).ThenByDescending(s => s.IncomingDate).ToList(),
             ReportDetailSortBy.Priority => snapshots
                 .OrderByDescending(s => s.Priority).ThenByDescending(s => s.IncomingDate).ToList(),
+            ReportDetailSortBy.DueDate when request.ReportType == InstitutionalReportType.DepartmentTransactions => snapshots
+                .OrderBy(s => ResolveDepartmentDueDateSortKey(s, request))
+                .ThenByDescending(s => s.IncomingDate)
+                .ThenByDescending(s => s.TransactionId)
+                .ToList(),
             ReportDetailSortBy.DueDate => snapshots
                 .OrderBy(s => s.ResponseDueDate ?? DateTime.MaxValue).ThenByDescending(s => s.IncomingDate).ToList(),
             _ => snapshots
@@ -784,6 +818,57 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
     }
 
     /// <summary>
+    /// DepartmentTransactions status order is urgency-first and considers only selected departments:
+    /// open-overdue, open, completed-late, completed-on-time, completed without measurable timing,
+    /// then OutgoingDepartment-only relations with no assignment performance evidence.
+    /// For a multi-department row the most urgent matching state determines its position.
+    /// </summary>
+    private static int ResolveDepartmentStatusSortKey(TransactionReportSnapshot snapshot, ReportBuildRequestDto request)
+    {
+        var states = ResolveSelectedDepartmentStates(snapshot, request.Filters?.DepartmentIds ?? []);
+        return states.Count == 0 ? 5 : states.Min(DepartmentStatusSortKey);
+    }
+
+    private static int DepartmentStatusSortKey(DepartmentTransactionPerformanceState state)
+    {
+        if (state.IsOpenOverdueForDepartment)
+            return 0;
+        if (state.IsOpenForDepartment)
+            return 1;
+        if (state.IsCompletedLateForDepartment)
+            return 2;
+        if (state.IsOnTimeForDepartment)
+            return 3;
+        return 4;
+    }
+
+    /// <summary>
+    /// A multi-department row sorts by the earliest measurable due date among matching selected
+    /// assignment states. OutgoingDepartment-only matches have no invented deadline and sort last.
+    /// </summary>
+    private static DateTime ResolveDepartmentDueDateSortKey(
+        TransactionReportSnapshot snapshot,
+        ReportBuildRequestDto request) =>
+        ResolveSelectedDepartmentStates(snapshot, request.Filters?.DepartmentIds ?? [])
+            .Where(state => state.DepartmentDueDate.HasValue)
+            .Select(state => state.DepartmentDueDate!.Value.Date)
+            .DefaultIfEmpty(DateTime.MaxValue)
+            .Min();
+
+    private static List<DepartmentTransactionPerformanceState> ResolveSelectedDepartmentStates(
+        TransactionReportSnapshot snapshot,
+        IReadOnlyList<int> selectedDepartmentIds)
+    {
+        var selected = selectedDepartmentIds.ToHashSet();
+        var selectedOrder = selectedDepartmentIds.ToList();
+        return snapshot.DepartmentPerformanceStates
+            .Where(state => selected.Contains(state.DepartmentId))
+            .OrderBy(state => selectedOrder.IndexOf(state.DepartmentId))
+            .ThenBy(state => state.DepartmentId)
+            .ToList();
+    }
+
+    /// <summary>
     /// Looks up the name at the same index as <paramref name="departmentId"/> in <paramref name="ids"/>,
     /// without assuming <paramref name="ids"/> and <paramref name="names"/> are the same length —
     /// returns <paramref name="fallback"/> instead of throwing if the id is missing or the lists are
@@ -816,7 +901,11 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         if (!groupByDepartment)
         {
             var rows = snapshots.Select((s, index) =>
-                BuildDetailRow(s, index + 1, ComputeMatchedDepartments(s, selectedDepartmentIds), includeAuditDepartmentLists: true)).ToList();
+                BuildDetailRow(
+                    s,
+                    index + 1,
+                    ComputeMatchedDepartments(s, selectedDepartmentIds),
+                    includeAuditDepartmentLists: true)).ToList();
             return (rows, false);
         }
 
@@ -838,7 +927,12 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
 
         var groupedRows = orderedExpanded.Select((e, index) =>
         {
-            var row = BuildDetailRow(e.Snapshot, index + 1, ComputeMatchedDepartments(e.Snapshot, selectedDepartmentIds), includeAuditDepartmentLists: true);
+            var row = BuildDetailRow(
+                e.Snapshot,
+                index + 1,
+                [e.Match],
+                includeAuditDepartmentLists: true,
+                focusDepartmentId: e.Match.DepartmentId);
             row.DepartmentGroupDepartmentId = e.Match.DepartmentId;
             row.DepartmentGroupDepartmentName = e.Match.DepartmentName;
             return row;
@@ -851,30 +945,76 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         TransactionReportSnapshot s,
         int sequence,
         List<TransactionDetailDepartmentRelationDto> matchedDepartments,
-        bool includeAuditDepartmentLists = false) => new()
+        bool includeAuditDepartmentLists = false,
+        int? focusDepartmentId = null)
     {
-        Sequence = sequence,
-        TransactionId = s.TransactionId,
-        TrackingNumber = s.TrackingNumber,
-        IncomingNumber = s.IncomingNumber,
-        IncomingDate = s.IncomingDate,
-        Subject = s.Subject,
-        IncomingParty = s.IncomingParty,
-        ResponsibleDepartment = s.ResponsibleDepartment,
-        JointDepartments = string.Join("، ", (s.AssignmentDepartmentNames ?? []).Concat(s.OutgoingDepartmentNames ?? []).Distinct()),
-        Priority = PriorityLabel(s.Priority),
-        Status = StatusLabel(s.Status),
-        FollowUpStage = string.Join("، ", s.FollowUpStages.Select(InstitutionalReportMetricsCalculator.FollowUpStageLabel)),
-        ElapsedDays = s.ElapsedDays,
-        DueDate = s.ResponseDueDate?.ToString(IsoDateFormat, CultureInfo.InvariantCulture),
-        LastActionDate = (s.UpdatedAt ?? s.LastFollowUpDate)?.ToString(IsoDateFormat, CultureInfo.InvariantCulture),
-        ResponseState = ResolveResponseState(s),
-        OutgoingNumber = s.OutgoingNumber,
-        OutgoingDate = s.OutgoingDate?.ToString(IsoDateFormat, CultureInfo.InvariantCulture),
-        MatchedDepartments = matchedDepartments,
-        AllAssignmentDepartments = includeAuditDepartmentLists ? (s.AssignmentDepartmentNames ?? []).ToList() : [],
-        AllOutgoingDepartments = includeAuditDepartmentLists ? (s.OutgoingDepartmentNames ?? []).ToList() : [],
-    };
+        var performanceMatches = focusDepartmentId.HasValue
+            ? matchedDepartments.Where(match => match.DepartmentId == focusDepartmentId.Value).ToList()
+            : matchedDepartments;
+        var measurableMatches = performanceMatches.Where(match => match.HasPerformanceState).ToList();
+        var departmentStatus = performanceMatches.Count == 0
+            ? string.Empty
+            : string.Join("؛ ", performanceMatches.Select(match =>
+                focusDepartmentId.HasValue || performanceMatches.Count == 1
+                    ? match.DepartmentStatus
+                    : $"{match.DepartmentName}: {match.DepartmentStatus}"));
+        var departmentResponseState = performanceMatches.Count == 0
+            ? string.Empty
+            : string.Join("؛ ", performanceMatches.Select(match =>
+                focusDepartmentId.HasValue || performanceMatches.Count == 1
+                    ? DepartmentResponseStateLabel(match)
+                    : $"{match.DepartmentName}: {DepartmentResponseStateLabel(match)}"));
+        var departmentDueDate = measurableMatches
+            .Select(match => ParseIsoDate(match.DepartmentDueDate))
+            .Where(date => date.HasValue)
+            .Select(date => date!.Value)
+            .DefaultIfEmpty()
+            .Min();
+        var departmentCompletionDate = measurableMatches
+            .Select(match => ParseIsoDate(match.DepartmentCompletionDate))
+            .Where(date => date.HasValue)
+            .Select(date => date!.Value)
+            .DefaultIfEmpty()
+            .Max();
+
+        return new TransactionDetailRowDto
+        {
+            Sequence = sequence,
+            TransactionId = s.TransactionId,
+            TrackingNumber = s.TrackingNumber,
+            IncomingNumber = s.IncomingNumber,
+            IncomingDate = s.IncomingDate,
+            Subject = s.Subject,
+            IncomingParty = s.IncomingParty,
+            ResponsibleDepartment = s.ResponsibleDepartment,
+            JointDepartments = string.Join("، ", (s.AssignmentDepartmentNames ?? []).Concat(s.OutgoingDepartmentNames ?? []).Distinct()),
+            Priority = PriorityLabel(s.Priority),
+            Status = matchedDepartments.Count > 0 ? TransactionReportingStateLabel(s) : StatusLabel(s.Status),
+            DepartmentStatus = departmentStatus,
+            FollowUpStage = string.Join("، ", s.FollowUpStages.Select(InstitutionalReportMetricsCalculator.FollowUpStageLabel)),
+            ElapsedDays = s.ElapsedDays,
+            DueDate = s.ResponseDueDate?.ToString(IsoDateFormat, CultureInfo.InvariantCulture),
+            DepartmentDueDate = departmentDueDate == default
+                ? null
+                : departmentDueDate.ToString(IsoDateFormat, CultureInfo.InvariantCulture),
+            DepartmentCompletionDate = departmentCompletionDate == default
+                ? null
+                : departmentCompletionDate.ToString(IsoDateFormat, CultureInfo.InvariantCulture),
+            LastActionDate = (s.UpdatedAt ?? s.LastFollowUpDate)?.ToString(IsoDateFormat, CultureInfo.InvariantCulture),
+            ResponseState = ResolveResponseState(s),
+            DepartmentResponseState = departmentResponseState,
+            OutgoingNumber = s.OutgoingNumber,
+            OutgoingDate = s.OutgoingDate?.ToString(IsoDateFormat, CultureInfo.InvariantCulture),
+            MatchedDepartments = matchedDepartments,
+            AllAssignmentDepartments = includeAuditDepartmentLists ? (s.AssignmentDepartmentNames ?? []).ToList() : [],
+            AllOutgoingDepartments = includeAuditDepartmentLists ? (s.OutgoingDepartmentNames ?? []).ToList() : [],
+        };
+    }
+
+    private static DateTime? ParseIsoDate(string? value) =>
+        DateTime.TryParseExact(value, IsoDateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)
+            ? parsed
+            : null;
 
     /// <summary>
     /// DepartmentTransactions only: for each selected department id, checks whether this transaction
@@ -902,11 +1042,23 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
                 ? ResolveDepartmentNameById(deptId, assignmentIds, assignmentNames, fallback: "—")
                 : ResolveDepartmentNameById(deptId, outgoingIds, outgoingNames, fallback: "—");
 
+            var performanceState = s.DepartmentPerformanceStates.SingleOrDefault(state => state.DepartmentId == deptId);
             result.Add(new TransactionDetailDepartmentRelationDto
             {
                 DepartmentId = deptId,
                 DepartmentName = name,
-                Relation = DepartmentRelationLabel(viaAssignment, viaOutgoing)
+                Relation = DepartmentRelationLabel(viaAssignment, viaOutgoing),
+                HasPerformanceState = performanceState != null,
+                DepartmentStatus = performanceState == null
+                    ? "غير قابلة للقياس — صادر لها دون إحالة"
+                    : DepartmentTransactionPerformanceObservationResolver.StatusLabel(performanceState),
+                DepartmentDueDate = performanceState?.DepartmentDueDate?.ToString(IsoDateFormat, CultureInfo.InvariantCulture),
+                DepartmentCompletionDate = performanceState?.DepartmentCompletionDate?.ToString(IsoDateFormat, CultureInfo.InvariantCulture),
+                IsOpenForDepartment = performanceState?.IsOpenForDepartment,
+                IsCompletedForDepartment = performanceState?.IsCompletedForDepartment,
+                IsOverdueForDepartment = performanceState?.IsOverdueForDepartment,
+                IsCompletedLateForDepartment = performanceState?.IsCompletedLateForDepartment,
+                IsOnTimeForDepartment = performanceState?.IsOnTimeForDepartment,
             });
         }
         return result;
@@ -923,6 +1075,13 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
         return "صادر لها";
     }
 
+    private static string DepartmentResponseStateLabel(TransactionDetailDepartmentRelationDto match)
+    {
+        if (!match.HasPerformanceState)
+            return "غير متاح";
+        return match.IsCompletedForDepartment == true ? "مكتمل" : "بانتظار";
+    }
+
     private static string ResolveResponseState(TransactionReportSnapshot snapshot)
     {
         if (snapshot.IsCompletedLate)
@@ -935,6 +1094,15 @@ public sealed class InstitutionalReportService : IInstitutionalReportService, II
             return "بانتظار";
 
         return "—";
+    }
+
+    private static string TransactionReportingStateLabel(TransactionReportSnapshot snapshot)
+    {
+        if (snapshot.IsOpen)
+            return "مفتوحة";
+        if (snapshot.IsClosed)
+            return "مغلقة";
+        return StatusLabel(snapshot.Status);
     }
 
     private List<IntegrityWarningDto> ValidateIntegrity(

@@ -1,9 +1,97 @@
 using Uqeb.Api.Reporting.Models;
+using Uqeb.Api.Models.Enums;
 
 namespace Uqeb.Api.Reporting.Services;
 
 internal static class DepartmentTransactionPerformanceObservationResolver
 {
+    /// <summary>
+    /// Resolves the single reporting state for one transaction/department assignment relationship.
+    /// Both institutional reports and the department transaction workspace call this method so the
+    /// assignment completion/timeliness rules have one implementation.
+    /// </summary>
+    internal static DepartmentTransactionPerformanceState ResolveState(
+        int transactionId,
+        IEnumerable<InstitutionalReportSnapshotQuery.AssignmentRow> departmentAssignments,
+        DateTime evaluationDate)
+    {
+        var assignments = departmentAssignments
+            .OrderByDescending(assignment => assignment.Status == AssignmentStatus.Active)
+            .ThenByDescending(assignment => assignment.AssignedDate)
+            .ThenByDescending(assignment => assignment.CreatedAt)
+            .ThenByDescending(assignment => assignment.Id)
+            .ToList();
+
+        if (assignments.Count == 0)
+            throw new ArgumentException("At least one assignment is required.", nameof(departmentAssignments));
+
+        var requiredReplies = assignments.Where(assignment => assignment.RequiresReply).ToList();
+
+        static bool IsCompletedRequiredReply(InstitutionalReportSnapshotQuery.AssignmentRow assignment) =>
+            assignment.ReplyStatus == ReplyStatus.Replied && assignment.ReplyDate.HasValue;
+
+        var completedRequiredReplies = requiredReplies.Where(IsCompletedRequiredReply).ToList();
+        var pendingRequiredReplies = requiredReplies.Where(assignment => !IsCompletedRequiredReply(assignment)).ToList();
+        // A referral that explicitly requires no reply carries no outstanding response obligation.
+        // It is therefore complete for departmental response-performance counting, but has no
+        // measurable completion date and is excluded from timeliness rates.
+        var isCompleted = pendingRequiredReplies.Count == 0;
+        var completionDate = isCompleted && completedRequiredReplies.Count > 0
+            ? completedRequiredReplies.Max(assignment => assignment.ReplyDate!.Value.Date)
+            : (DateTime?)null;
+        var dueAssignments = requiredReplies.Where(assignment => assignment.DueDate.HasValue).ToList();
+        var departmentDueDate = dueAssignments.Count > 0
+            ? dueAssignments.Min(assignment => assignment.DueDate!.Value.Date)
+            : (DateTime?)null;
+        var isOpenOverdue = !isCompleted && pendingRequiredReplies.Any(assignment =>
+            assignment.DueDate.HasValue && assignment.DueDate.Value.Date < evaluationDate.Date);
+        var hasLateCompletedAssignment = completedRequiredReplies.Any(assignment =>
+            assignment.DueDate.HasValue
+            && assignment.ReplyDate!.Value.Date > assignment.DueDate.Value.Date);
+        var isCompletedLate = isCompleted && hasLateCompletedAssignment;
+        var isOnTime = isCompleted
+            && dueAssignments.Count > 0
+            && dueAssignments.All(assignment => assignment.ReplyDate!.Value.Date <= assignment.DueDate!.Value.Date);
+        var isOverdue = isOpenOverdue || hasLateCompletedAssignment;
+
+        return new DepartmentTransactionPerformanceState
+        {
+            DepartmentId = assignments[0].DepartmentId,
+            DepartmentName = assignments[0].DepartmentName,
+            TransactionId = transactionId,
+            IsOpenForDepartment = !isCompleted,
+            IsCompletedForDepartment = isCompleted,
+            DepartmentCompletionDate = completionDate,
+            DepartmentDueDate = departmentDueDate,
+            IsOpenOverdueForDepartment = isOpenOverdue,
+            IsOverdueForDepartment = isOverdue,
+            IsCompletedLateForDepartment = isCompletedLate,
+            IsOnTimeForDepartment = isOnTime,
+            IsTimelinessEligible = isOverdue || (isCompleted && dueAssignments.Count > 0),
+            RepliedAssignmentCount = completedRequiredReplies.Count,
+            PendingReplyAssignmentCount = pendingRequiredReplies.Count,
+            IsPartialReplyForDepartment = completedRequiredReplies.Count > 0 && pendingRequiredReplies.Count > 0,
+        };
+    }
+
+    internal static string StatusLabel(DepartmentTransactionPerformanceState state)
+    {
+        if (state.IsOpenOverdueForDepartment)
+            return "مفتوحة متأخرة";
+        if (state.IsOpenForDepartment)
+            return "مفتوحة";
+        if (state.IsCompletedLateForDepartment)
+            return "منجزة متأخرة";
+        if (state.IsOnTimeForDepartment)
+            return "منجزة ضمن المهلة";
+        if (state.IsCompletedForDepartment)
+            return "منجزة — دون مهلة قابلة للقياس";
+        return "—";
+    }
+
+    internal static string ResponseStateLabel(DepartmentTransactionPerformanceState state) =>
+        state.IsCompletedForDepartment ? "مكتمل" : "بانتظار";
+
     /// <summary>
     /// Expands each snapshot into its participating departments. The fallback only supports
     /// legacy/manually-built snapshots that predate assignment-level state; query-built snapshots

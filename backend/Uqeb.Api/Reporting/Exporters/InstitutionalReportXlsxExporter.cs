@@ -460,7 +460,8 @@ public static class InstitutionalReportXlsxExporter
         {
             "م", "رقم الوارد", "تاريخ الوارد", "الموضوع", PartyHeader,
             "الإدارة/الإدارات المطابقة", "نوع العلاقة", "رقم الصادر", "تاريخ الصادر",
-            "إدارات الإحالة (الكل)", "إدارات الصادر (الكل)", "الحالة", PriorityHeader, "المهلة", "آخر إجراء",
+            "إدارات الإحالة (الكل)", "إدارات الصادر (الكل)", "حالة الإدارة", "حالة المعاملة",
+            PriorityHeader, "مهلة الإدارة", "إنجاز الإدارة", "حالة إفادة الإدارة", "آخر إجراء",
         };
         for (var i = 0; i < headers.Length; i++) ws.Cell(1, i + 1).Value = headers[i];
         var row = 2;
@@ -477,10 +478,13 @@ public static class InstitutionalReportXlsxExporter
             ws.Cell(row, 9).Value = t.OutgoingDate ?? string.Empty;
             ws.Cell(row, 10).Value = string.Join("؛ ", t.AllAssignmentDepartments);
             ws.Cell(row, 11).Value = string.Join("؛ ", t.AllOutgoingDepartments);
-            ws.Cell(row, 12).Value = t.Status;
-            ws.Cell(row, 13).Value = t.Priority;
-            ws.Cell(row, 14).Value = t.DueDate ?? string.Empty;
-            ws.Cell(row, 15).Value = t.LastActionDate ?? string.Empty;
+            ws.Cell(row, 12).Value = t.DepartmentStatus;
+            ws.Cell(row, 13).Value = t.Status;
+            ws.Cell(row, 14).Value = t.Priority;
+            ws.Cell(row, 15).Value = t.DepartmentDueDate ?? string.Empty;
+            ws.Cell(row, 16).Value = t.DepartmentCompletionDate ?? string.Empty;
+            ws.Cell(row, 17).Value = t.DepartmentResponseState;
+            ws.Cell(row, 18).Value = t.LastActionDate ?? string.Empty;
             row++;
         }
         ws.Range(1, 1, row - 1, headers.Length).SetAutoFilter();

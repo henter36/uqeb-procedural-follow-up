@@ -965,7 +965,7 @@ export default function ReportBuilderPage() {
                 }}
               >
                 <option value={DepartmentTransactionScope.All}>جميع المعاملات</option>
-                <option value={DepartmentTransactionScope.OpenOnly}>المعاملات المفتوحة فقط</option>
+                <option value={DepartmentTransactionScope.OpenOnly}>المعاملات المفتوحة بالنسبة للإدارة فقط</option>
               </select>
 
               <label htmlFor="group-details-by-department" className="rb-checkbox-label">

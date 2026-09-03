@@ -91,5 +91,13 @@ public record DepartmentTransactionResponseItemDto(
     string? DepartmentResponseStatus,
     bool CanCreateResponse,
     bool CanEditResponse,
-    bool CanSubmitResponse
+    bool CanSubmitResponse,
+    string DepartmentStatus,
+    bool IsOpenForDepartment,
+    bool IsCompletedForDepartment,
+    bool IsOverdueForDepartment,
+    bool IsCompletedLateForDepartment,
+    bool IsOnTimeForDepartment,
+    DateTime? DepartmentDueDate,
+    DateTime? DepartmentCompletionDate
 );
