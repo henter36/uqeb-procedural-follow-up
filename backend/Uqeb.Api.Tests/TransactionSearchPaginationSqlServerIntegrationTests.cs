@@ -141,34 +141,40 @@ public class TransactionSearchPaginationSqlServerIntegrationTests
         return (db, testConnectionString, databaseName);
     }
 
-    private static Transaction BuildTransaction(int id, DateTime incomingDate) => new()
+    // Transaction.Id is a SQL Server IDENTITY column (no ValueGeneratedNever override), so unlike the
+    // EF Core InMemory/SQLite fixtures elsewhere in this suite, these rows must never set Id explicitly
+    // - SQL Server rejects an explicit insert into an identity column unless IDENTITY_INSERT is turned
+    // on, which the project's existing SQL Server test fixtures never do. `label` only makes
+    // IncomingNumber/InternalTrackingNumber/Subject unique per row; the real Id is read back from the
+    // entity after SaveChangesAsync and used for every ordering assertion below.
+    private static Transaction BuildTransaction(int label, DateTime incomingDate, int createdById) => new()
     {
-        Id = id,
-        InternalTrackingNumber = $"UQEB-2026-{id:00000}",
-        IncomingNumber = $"IN-{id:000}",
+        InternalTrackingNumber = $"UQEB-2026-{label:00000}",
+        IncomingNumber = $"IN-{label:000}",
         IncomingDate = incomingDate,
-        Subject = $"Subject {id:000}",
+        Subject = $"Subject {label:000}",
         IncomingSourceType = IncomingSourceType.External,
         RequiresResponse = false,
         ResponseType = ResponseType.None,
         Priority = Priority.Normal,
         Status = TransactionStatus.New,
-        CreatedById = 1,
+        CreatedById = createdById,
         CreatedAt = incomingDate
     };
 
-    private static async Task SeedAdminUserAsync(AppDbContext db)
+    private static async Task<int> SeedAdminUserAsync(AppDbContext db)
     {
-        db.Users.Add(new User
+        var user = new User
         {
-            Id = 1,
             Username = "admin",
             PasswordHash = "hash",
             FullName = "Admin",
             Role = UserRole.Admin,
             IsActive = true
-        });
+        };
+        db.Users.Add(user);
         await db.SaveChangesAsync();
+        return user.Id;
     }
 
     private static async Task<List<int>> WalkCursorAsync(
@@ -211,7 +217,7 @@ public class TransactionSearchPaginationSqlServerIntegrationTests
         var (db, testConnectionString, databaseName) = await CreateSqlDbAsync("Uqeb_Pagination_IncomingFrom");
         try
         {
-            await SeedAdminUserAsync(db);
+            var createdById = await SeedAdminUserAsync(db);
 
             var party = new ExternalParty { Name = "Z-Party", NameNormalized = ReferenceNameNormalizer.NormalizeKey("Z-Party"), IsActive = true };
             var department = new Department { Name = "M-Dept", NameNormalized = ReferenceNameNormalizer.NormalizeKey("M-Dept"), IsActive = true };
@@ -220,20 +226,20 @@ public class TransactionSearchPaginationSqlServerIntegrationTests
             await db.SaveChangesAsync();
 
             // Two rows share the same party name so a page boundary can land on a tied primary value.
-            var t1 = BuildTransaction(1, new DateTime(2026, 1, 1));
+            var t1 = BuildTransaction(1, new DateTime(2026, 1, 1), createdById);
             t1.IncomingFromPartyId = party.Id;
 
-            var t2 = BuildTransaction(2, new DateTime(2026, 1, 2));
+            var t2 = BuildTransaction(2, new DateTime(2026, 1, 2), createdById);
             t2.IncomingFromPartyId = party.Id;
 
-            var t3 = BuildTransaction(3, new DateTime(2026, 1, 3));
+            var t3 = BuildTransaction(3, new DateTime(2026, 1, 3), createdById);
             t3.IncomingSourceType = IncomingSourceType.Internal;
             t3.IncomingFromDepartmentId = department.Id;
 
-            var t4 = BuildTransaction(4, new DateTime(2026, 1, 4));
+            var t4 = BuildTransaction(4, new DateTime(2026, 1, 4), createdById);
             t4.IncomingFrom = "A-Raw";
 
-            var t5 = BuildTransaction(5, new DateTime(2026, 1, 5));
+            var t5 = BuildTransaction(5, new DateTime(2026, 1, 5), createdById);
             t5.IncomingFrom = null;
 
             db.Transactions.AddRange(t1, t2, t3, t4, t5);
@@ -251,7 +257,9 @@ public class TransactionSearchPaginationSqlServerIntegrationTests
                 Cursor = cursor
             });
 
-            var expected = sortDesc ? new[] { 2, 1, 3, 4, 5 } : new[] { 5, 4, 3, 1, 2 };
+            var expected = sortDesc
+                ? new[] { t2.Id, t1.Id, t3.Id, t4.Id, t5.Id }
+                : new[] { t5.Id, t4.Id, t3.Id, t1.Id, t2.Id };
             Assert.Equal(expected, cursorIds);
             Assert.Equal(cursorIds.Count, cursorIds.Distinct().Count());
         }
@@ -276,23 +284,23 @@ public class TransactionSearchPaginationSqlServerIntegrationTests
         var (db, testConnectionString, databaseName) = await CreateSqlDbAsync("Uqeb_Pagination_Category");
         try
         {
-            await SeedAdminUserAsync(db);
+            var createdById = await SeedAdminUserAsync(db);
 
             var category = new Category { Name = "Z-Category", NameNormalized = ReferenceNameNormalizer.NormalizeKey("Z-Category"), IsActive = true };
             db.Categories.Add(category);
             await db.SaveChangesAsync();
 
             // Two rows share the same linked category so a page boundary can land on a tied primary value.
-            var t1 = BuildTransaction(1, new DateTime(2026, 1, 1));
+            var t1 = BuildTransaction(1, new DateTime(2026, 1, 1), createdById);
             t1.CategoryId = category.Id;
 
-            var t2 = BuildTransaction(2, new DateTime(2026, 1, 2));
+            var t2 = BuildTransaction(2, new DateTime(2026, 1, 2), createdById);
             t2.CategoryId = category.Id;
 
-            var t3 = BuildTransaction(3, new DateTime(2026, 1, 3));
+            var t3 = BuildTransaction(3, new DateTime(2026, 1, 3), createdById);
             t3.Category = "A-FreeText";
 
-            var t4 = BuildTransaction(4, new DateTime(2026, 1, 4));
+            var t4 = BuildTransaction(4, new DateTime(2026, 1, 4), createdById);
             t4.Category = null;
 
             db.Transactions.AddRange(t1, t2, t3, t4);
@@ -310,7 +318,9 @@ public class TransactionSearchPaginationSqlServerIntegrationTests
                 Cursor = cursor
             });
 
-            var expected = sortDesc ? new[] { 2, 1, 3, 4 } : new[] { 4, 3, 1, 2 };
+            var expected = sortDesc
+                ? new[] { t2.Id, t1.Id, t3.Id, t4.Id }
+                : new[] { t4.Id, t3.Id, t1.Id, t2.Id };
             Assert.Equal(expected, cursorIds);
             Assert.Equal(cursorIds.Count, cursorIds.Distinct().Count());
         }
@@ -335,22 +345,22 @@ public class TransactionSearchPaginationSqlServerIntegrationTests
         var (db, testConnectionString, databaseName) = await CreateSqlDbAsync("Uqeb_Pagination_ResponseDueDate");
         try
         {
-            await SeedAdminUserAsync(db);
+            var createdById = await SeedAdminUserAsync(db);
 
-            var t1 = BuildTransaction(1, new DateTime(2026, 1, 1));
+            var t1 = BuildTransaction(1, new DateTime(2026, 1, 1), createdById);
             t1.ResponseDueDate = null;
 
-            var t2 = BuildTransaction(2, new DateTime(2026, 1, 2));
+            var t2 = BuildTransaction(2, new DateTime(2026, 1, 2), createdById);
             t2.ResponseDueDate = null;
 
             var sharedDueDate = new DateTime(2026, 2, 1);
-            var t3 = BuildTransaction(3, new DateTime(2026, 1, 3));
+            var t3 = BuildTransaction(3, new DateTime(2026, 1, 3), createdById);
             t3.ResponseDueDate = sharedDueDate;
 
-            var t4 = BuildTransaction(4, new DateTime(2026, 1, 4));
+            var t4 = BuildTransaction(4, new DateTime(2026, 1, 4), createdById);
             t4.ResponseDueDate = sharedDueDate;
 
-            var t5 = BuildTransaction(5, new DateTime(2026, 1, 5));
+            var t5 = BuildTransaction(5, new DateTime(2026, 1, 5), createdById);
             t5.ResponseDueDate = new DateTime(2026, 2, 5);
 
             db.Transactions.AddRange(t1, t2, t3, t4, t5);
@@ -370,7 +380,9 @@ public class TransactionSearchPaginationSqlServerIntegrationTests
 
             // Nulls sort first ascending / last descending, matching SQL Server's default NULL ordering
             // and ApplyNullableDateTimeKeyset's null-bucket-then-value walk in both directions.
-            var expected = sortDesc ? new[] { 5, 4, 3, 2, 1 } : new[] { 1, 2, 3, 4, 5 };
+            var expected = sortDesc
+                ? new[] { t5.Id, t4.Id, t3.Id, t2.Id, t1.Id }
+                : new[] { t1.Id, t2.Id, t3.Id, t4.Id, t5.Id };
             Assert.Equal(expected, cursorIds);
             Assert.Equal(cursorIds.Count, cursorIds.Distinct().Count());
         }
