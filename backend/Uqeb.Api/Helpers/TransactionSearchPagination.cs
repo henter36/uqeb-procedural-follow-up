@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Linq.Expressions;
 using Uqeb.Api.Models.Entities;
 using Uqeb.Api.Models.Enums;
 
@@ -39,11 +41,33 @@ public static class TransactionSearchPagination
     public const string OffsetMode = "offset";
     public const string CursorMode = "cursor";
 
+    // Sort field keys accepted by SortBy/cursor payloads. Shared across ApplySort, ApplyKeysetFilter
+    // and ExtractPrimaryValue so the three stay in sync by construction instead of by copy-pasted literals.
+    private const string IncomingNumberSortKey = "incomingnumber";
+    private const string IncomingDateSortKey = "incomingdate";
+    private const string SubjectSortKey = "subject";
+    private const string IncomingFromSortKey = "incomingfrom";
+    private const string CategorySortKey = "category";
+    private const string PrioritySortKey = "priority";
+    private const string StatusSortKey = "status";
+    private const string ResponseDueDateSortKey = "responseduedate";
+    private const string CreatedAtSortKey = "createdat";
+
+    // Same "prefer the linked record's name, fall back to the free-text field" rule the row projection
+    // uses (see ResolveIncomingFrom below), expressed once so ApplySort's ORDER BY can reuse it directly.
+    // EF translates an optional navigation's property access to NULL when unmatched, so this is
+    // equivalent to the old `x != null ? x.Name : ...` ternary, just without the redundant null check.
+    private static readonly Expression<Func<Transaction, string>> IncomingFromDisplaySelector = t =>
+        t.IncomingFromParty!.Name ?? t.IncomingFromDepartment!.Name ?? t.IncomingFrom ?? string.Empty;
+
+    private static readonly Expression<Func<Transaction, string>> CategoryDisplaySelector = t =>
+        t.CategoryEntity!.Name ?? t.Category ?? string.Empty;
+
     public static bool IsCursorMode(string? paginationMode) =>
         string.Equals(paginationMode, CursorMode, StringComparison.OrdinalIgnoreCase);
 
     public static string NormalizeSortBy(string? sortBy) =>
-        (sortBy ?? "incomingdate").Trim().ToLowerInvariant();
+        (sortBy ?? IncomingDateSortKey).Trim().ToLowerInvariant();
 
     public static void EnsureCursorMatchesRequest(TransactionSearchCursorPayload cursor, string sortBy, bool sortDesc)
     {
@@ -57,45 +81,27 @@ public static class TransactionSearchPagination
     public static IOrderedQueryable<Transaction> ApplySort(IQueryable<Transaction> query, string sortBy, bool sortDesc) =>
         sortBy switch
         {
-            "incomingnumber" => sortDesc
-                ? query.OrderByDescending(t => t.IncomingNumber).ThenByDescending(t => t.Id)
-                : query.OrderBy(t => t.IncomingNumber).ThenBy(t => t.Id),
-            "incomingdate" => sortDesc
-                ? query.OrderByDescending(t => t.IncomingDate).ThenByDescending(t => t.Id)
-                : query.OrderBy(t => t.IncomingDate).ThenBy(t => t.Id),
-            "subject" => sortDesc
-                ? query.OrderByDescending(t => t.Subject).ThenByDescending(t => t.Id)
-                : query.OrderBy(t => t.Subject).ThenBy(t => t.Id),
-            "incomingfrom" => sortDesc
-                ? query.OrderByDescending(t => t.IncomingFromParty != null ? t.IncomingFromParty.Name
-                        : t.IncomingFromDepartment != null ? t.IncomingFromDepartment.Name
-                        : t.IncomingFrom ?? "")
-                    .ThenByDescending(t => t.Id)
-                : query.OrderBy(t => t.IncomingFromParty != null ? t.IncomingFromParty.Name
-                        : t.IncomingFromDepartment != null ? t.IncomingFromDepartment.Name
-                        : t.IncomingFrom ?? "")
-                    .ThenBy(t => t.Id),
-            "category" => sortDesc
-                ? query.OrderByDescending(t => t.CategoryEntity != null ? t.CategoryEntity.Name : t.Category ?? "")
-                    .ThenByDescending(t => t.Id)
-                : query.OrderBy(t => t.CategoryEntity != null ? t.CategoryEntity.Name : t.Category ?? "")
-                    .ThenBy(t => t.Id),
-            "priority" => sortDesc
-                ? query.OrderByDescending(t => t.Priority).ThenByDescending(t => t.Id)
-                : query.OrderBy(t => t.Priority).ThenBy(t => t.Id),
-            "status" => sortDesc
-                ? query.OrderByDescending(t => t.Status).ThenByDescending(t => t.Id)
-                : query.OrderBy(t => t.Status).ThenBy(t => t.Id),
-            "responseduedate" => sortDesc
-                ? query.OrderByDescending(t => t.ResponseDueDate).ThenByDescending(t => t.Id)
-                : query.OrderBy(t => t.ResponseDueDate).ThenBy(t => t.Id),
-            "createdat" => sortDesc
-                ? query.OrderByDescending(t => t.CreatedAt).ThenByDescending(t => t.Id)
-                : query.OrderBy(t => t.CreatedAt).ThenBy(t => t.Id),
-            _ => sortDesc
-                ? query.OrderByDescending(t => t.IncomingDate).ThenByDescending(t => t.Id)
-                : query.OrderBy(t => t.IncomingDate).ThenBy(t => t.Id)
+            IncomingNumberSortKey => OrderBySelector(query, t => t.IncomingNumber, sortDesc),
+            IncomingDateSortKey => OrderBySelector(query, t => t.IncomingDate, sortDesc),
+            SubjectSortKey => OrderBySelector(query, t => t.Subject, sortDesc),
+            IncomingFromSortKey => OrderBySelector(query, IncomingFromDisplaySelector, sortDesc),
+            CategorySortKey => OrderBySelector(query, CategoryDisplaySelector, sortDesc),
+            PrioritySortKey => OrderBySelector(query, t => t.Priority, sortDesc),
+            StatusSortKey => OrderBySelector(query, t => t.Status, sortDesc),
+            ResponseDueDateSortKey => OrderBySelector(query, t => t.ResponseDueDate, sortDesc),
+            CreatedAtSortKey => OrderBySelector(query, t => t.CreatedAt, sortDesc),
+            _ => OrderBySelector(query, t => t.IncomingDate, sortDesc)
         };
+
+    // Every sortable field uses the same "Id DESC/ASC" tie-breaker so pagination stays deterministic
+    // when many rows share the same primary sort value.
+    private static IOrderedQueryable<Transaction> OrderBySelector<TKey>(
+        IQueryable<Transaction> query,
+        Expression<Func<Transaction, TKey>> keySelector,
+        bool sortDesc) =>
+        sortDesc
+            ? query.OrderByDescending(keySelector).ThenByDescending(t => t.Id)
+            : query.OrderBy(keySelector).ThenBy(t => t.Id);
 
     public static IQueryable<Transaction> ApplyKeysetFilter(
         IQueryable<Transaction> query,
@@ -108,15 +114,15 @@ public static class TransactionSearchPagination
 
         return sortBy switch
         {
-            "incomingnumber" => ApplyStringKeyset(query, primary ?? string.Empty, id, sortDesc, isIncomingNumber: true),
-            "incomingdate" => ApplyIncomingDateKeyset(query, ParseDateTime(primary, sortBy), id, sortDesc),
-            "subject" => ApplyStringKeyset(query, primary ?? string.Empty, id, sortDesc, isIncomingNumber: false),
-            "incomingfrom" => ApplyIncomingFromKeyset(query, primary ?? string.Empty, id, sortDesc),
-            "category" => ApplyCategoryKeyset(query, primary ?? string.Empty, id, sortDesc),
-            "priority" => ApplyPriorityKeyset(query, ParseEnum<Priority>(primary, sortBy), id, sortDesc),
-            "status" => ApplyStatusKeyset(query, ParseEnum<TransactionStatus>(primary, sortBy), id, sortDesc),
-            "responseduedate" => ApplyNullableDateTimeKeyset(query, ParseNullableDateTime(primary), id, sortDesc),
-            "createdat" => ApplyCreatedAtKeyset(query, ParseDateTime(primary, sortBy), id, sortDesc),
+            IncomingNumberSortKey => ApplyStringKeyset(query, primary ?? string.Empty, id, sortDesc, isIncomingNumber: true),
+            IncomingDateSortKey => ApplyIncomingDateKeyset(query, ParseDateTime(primary, sortBy), id, sortDesc),
+            SubjectSortKey => ApplyStringKeyset(query, primary ?? string.Empty, id, sortDesc, isIncomingNumber: false),
+            IncomingFromSortKey => ApplyIncomingFromKeyset(query, primary ?? string.Empty, id, sortDesc),
+            CategorySortKey => ApplyCategoryKeyset(query, primary ?? string.Empty, id, sortDesc),
+            PrioritySortKey => ApplyPriorityKeyset(query, ParseEnum<Priority>(primary, sortBy), id, sortDesc),
+            StatusSortKey => ApplyStatusKeyset(query, ParseEnum<TransactionStatus>(primary, sortBy), id, sortDesc),
+            ResponseDueDateSortKey => ApplyNullableDateTimeKeyset(query, ParseNullableDateTime(primary), id, sortDesc),
+            CreatedAtSortKey => ApplyCreatedAtKeyset(query, ParseDateTime(primary, sortBy), id, sortDesc),
             _ => ApplyIncomingDateKeyset(query, ParseDateTime(primary, sortBy), id, sortDesc)
         };
     }
@@ -134,16 +140,16 @@ public static class TransactionSearchPagination
     private static string? ExtractPrimaryValue(string sortBy, TransactionSearchRow row) =>
         sortBy switch
         {
-            "incomingnumber" => row.IncomingNumber,
-            "incomingdate" => row.IncomingDate.ToString("O"),
-            "subject" => row.Subject,
-            "incomingfrom" => ResolveIncomingFrom(row),
-            "category" => row.CategoryName ?? string.Empty,
-            "priority" => ((int)row.Priority).ToString(),
-            "status" => ((int)row.Status).ToString(),
-            "responseduedate" => row.ResponseDueDate?.ToString("O"),
-            "createdat" => row.CreatedAt.ToString("O"),
-            _ => row.IncomingDate.ToString("O")
+            IncomingNumberSortKey => row.IncomingNumber,
+            IncomingDateSortKey => row.IncomingDate.ToString("O", CultureInfo.InvariantCulture),
+            SubjectSortKey => row.Subject,
+            IncomingFromSortKey => ResolveIncomingFrom(row),
+            CategorySortKey => row.CategoryName ?? string.Empty,
+            PrioritySortKey => ((int)row.Priority).ToString(),
+            StatusSortKey => ((int)row.Status).ToString(),
+            ResponseDueDateSortKey => row.ResponseDueDate?.ToString("O", CultureInfo.InvariantCulture),
+            CreatedAtSortKey => row.CreatedAt.ToString("O", CultureInfo.InvariantCulture),
+            _ => row.IncomingDate.ToString("O", CultureInfo.InvariantCulture)
         };
 
     private static string ResolveIncomingFrom(TransactionSearchRow row) =>
@@ -181,47 +187,23 @@ public static class TransactionSearchPagination
         IQueryable<Transaction> query,
         string primary,
         int id,
-        bool sortDesc)
-    {
-        if (sortDesc)
-        {
-            return query.Where(t =>
-                (t.IncomingFromParty != null ? t.IncomingFromParty.Name
-                    : t.IncomingFromDepartment != null ? t.IncomingFromDepartment.Name
-                    : t.IncomingFrom ?? "").CompareTo(primary) < 0
-                || ((t.IncomingFromParty != null ? t.IncomingFromParty.Name
-                        : t.IncomingFromDepartment != null ? t.IncomingFromDepartment.Name
-                        : t.IncomingFrom ?? "") == primary
-                    && t.Id < id));
-        }
-
-        return query.Where(t =>
-            (t.IncomingFromParty != null ? t.IncomingFromParty.Name
-                : t.IncomingFromDepartment != null ? t.IncomingFromDepartment.Name
-                : t.IncomingFrom ?? "").CompareTo(primary) > 0
-            || ((t.IncomingFromParty != null ? t.IncomingFromParty.Name
-                    : t.IncomingFromDepartment != null ? t.IncomingFromDepartment.Name
-                    : t.IncomingFrom ?? "") == primary
-                && t.Id > id));
-    }
+        bool sortDesc) =>
+        sortDesc
+            ? query.Where(t => (t.IncomingFromParty!.Name ?? t.IncomingFromDepartment!.Name ?? t.IncomingFrom ?? "").CompareTo(primary) < 0
+                || ((t.IncomingFromParty!.Name ?? t.IncomingFromDepartment!.Name ?? t.IncomingFrom ?? "") == primary && t.Id < id))
+            : query.Where(t => (t.IncomingFromParty!.Name ?? t.IncomingFromDepartment!.Name ?? t.IncomingFrom ?? "").CompareTo(primary) > 0
+                || ((t.IncomingFromParty!.Name ?? t.IncomingFromDepartment!.Name ?? t.IncomingFrom ?? "") == primary && t.Id > id));
 
     private static IQueryable<Transaction> ApplyCategoryKeyset(
         IQueryable<Transaction> query,
         string primary,
         int id,
-        bool sortDesc)
-    {
-        if (sortDesc)
-        {
-            return query.Where(t =>
-                (t.CategoryEntity != null ? t.CategoryEntity.Name : t.Category ?? "").CompareTo(primary) < 0
-                || ((t.CategoryEntity != null ? t.CategoryEntity.Name : t.Category ?? "") == primary && t.Id < id));
-        }
-
-        return query.Where(t =>
-            (t.CategoryEntity != null ? t.CategoryEntity.Name : t.Category ?? "").CompareTo(primary) > 0
-            || ((t.CategoryEntity != null ? t.CategoryEntity.Name : t.Category ?? "") == primary && t.Id > id));
-    }
+        bool sortDesc) =>
+        sortDesc
+            ? query.Where(t => (t.CategoryEntity!.Name ?? t.Category ?? "").CompareTo(primary) < 0
+                || ((t.CategoryEntity!.Name ?? t.Category ?? "") == primary && t.Id < id))
+            : query.Where(t => (t.CategoryEntity!.Name ?? t.Category ?? "").CompareTo(primary) > 0
+                || ((t.CategoryEntity!.Name ?? t.Category ?? "") == primary && t.Id > id));
 
     private static IQueryable<Transaction> ApplyIncomingDateKeyset(
         IQueryable<Transaction> query,
@@ -265,16 +247,14 @@ public static class TransactionSearchPagination
         int id,
         bool sortDesc)
     {
-        if (sortDesc)
-        {
-            if (primary == null)
-                return query.Where(t => t.ResponseDueDate == null && t.Id < id);
+        if (sortDesc && primary == null)
+            return query.Where(t => t.ResponseDueDate == null && t.Id < id);
 
+        if (sortDesc)
             return query.Where(t =>
                 t.ResponseDueDate == null
                 || t.ResponseDueDate < primary
                 || (t.ResponseDueDate == primary && t.Id < id));
-        }
 
         if (primary == null)
             return query.Where(t => t.ResponseDueDate != null || (t.ResponseDueDate == null && t.Id > id));
@@ -287,7 +267,7 @@ public static class TransactionSearchPagination
     private static DateTime ParseDateTime(string? value, string sortBy)
     {
         if (string.IsNullOrWhiteSpace(value)
-            || !DateTime.TryParse(value, null, System.Globalization.DateTimeStyles.RoundtripKind, out var parsed))
+            || !DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed))
         {
             throw new InvalidTransactionSearchCursorException($"Cursor غير صالح لحقل {sortBy}.");
         }
@@ -296,7 +276,7 @@ public static class TransactionSearchPagination
     }
 
     private static DateTime? ParseNullableDateTime(string? value) =>
-        value == null ? null : ParseDateTime(value, "responseduedate");
+        value == null ? null : ParseDateTime(value, ResponseDueDateSortKey);
 
     private static TEnum ParseEnum<TEnum>(string? value, string sortBy)
         where TEnum : struct, Enum
