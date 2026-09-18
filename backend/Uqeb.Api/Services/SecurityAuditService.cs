@@ -13,10 +13,10 @@ public interface ISecurityAuditService
     Task EvaluateLoginRiskAsync(string? username, string? ipAddress, string? userAgent);
     Task CreateSecurityAlertAsync(string type, string title, string message, string severity, string? username, string? ipAddress, string? userAgent);
     Task RecordUnauthorizedAccessAsync(HttpContext httpContext, int statusCode, string? reason);
-    Task<LoginAttemptsPageDto> GetRecentLoginAttemptsAsync(LoginAttemptFilterRequest filter);
-    Task<SecurityAlertsSummaryDto> GetSecurityAlertsAsync(SecurityAlertFilterRequest filter);
-    Task<bool> MarkAlertAsReadAsync(int id);
-    Task<int> MarkAllAlertsAsReadAsync();
+    Task<LoginAttemptsPageDto> GetRecentLoginAttemptsAsync(LoginAttemptFilterRequest filter, CancellationToken cancellationToken = default);
+    Task<SecurityAlertsSummaryDto> GetSecurityAlertsAsync(SecurityAlertFilterRequest filter, CancellationToken cancellationToken = default);
+    Task<bool> MarkAlertAsReadAsync(int id, CancellationToken cancellationToken = default);
+    Task<int> MarkAllAlertsAsReadAsync(CancellationToken cancellationToken = default);
 }
 
 public class SecurityAuditService : ISecurityAuditService
@@ -31,6 +31,15 @@ public class SecurityAuditService : ISecurityAuditService
 
     public SecurityAuditService(AppDbContext db) => _db = db;
 
+    /// <summary>
+    /// Token used for the security audit trail itself (login attempts, alerts, unauthorized-access
+    /// records and the risk detection that feeds them). These writes — and the reads that decide
+    /// whether to escalate them — must survive HTTP request cancellation: a client (including an
+    /// attacker probing the system) aborting the request is exactly the moment the audit trail and
+    /// brute-force/spray detection must not silently stop.
+    /// </summary>
+    private static CancellationToken AuditToken => CancellationToken.None;
+
     public async Task RecordLoginAttemptAsync(
         string? username,
         int? userId,
@@ -43,7 +52,7 @@ public class SecurityAuditService : ISecurityAuditService
             userId = await _db.Users.AsNoTracking()
                 .Where(u => u.Username == username)
                 .Select(u => (int?)u.Id)
-                .FirstOrDefaultAsync();
+                .FirstOrDefaultAsync(AuditToken);
         }
 
         var ip = HttpContextSecurityHelper.GetClientIp(httpContext);
@@ -63,7 +72,7 @@ public class SecurityAuditService : ISecurityAuditService
         };
 
         _db.LoginAttemptLogs.Add(log);
-        await _db.SaveChangesAsync();
+        await _db.SaveChangesAsync(AuditToken);
 
         if (!succeeded)
             await EvaluateLoginRiskAsync(log.Username, ip, userAgent);
@@ -82,7 +91,7 @@ public class SecurityAuditService : ISecurityAuditService
                 .CountAsync(l => !l.Succeeded
                     && l.Username == username
                     && l.FailureReason == "invalid_credentials"
-                    && l.OccurredAt >= since);
+                    && l.OccurredAt >= since, AuditToken);
 
             if (userFails >= UsernameFailThreshold)
             {
@@ -101,7 +110,7 @@ public class SecurityAuditService : ISecurityAuditService
             .CountAsync(l => !l.Succeeded
                 && l.IpAddress == ipAddress
                 && l.FailureReason == "invalid_credentials"
-                && l.OccurredAt >= since);
+                && l.OccurredAt >= since, AuditToken);
 
         if (ipFails >= IpFailThreshold)
         {
@@ -123,7 +132,7 @@ public class SecurityAuditService : ISecurityAuditService
                 && l.Username != null)
             .Select(l => l.Username!)
             .Distinct()
-            .CountAsync();
+            .CountAsync(AuditToken);
 
         if (distinctUsernames >= SprayUsernameThreshold)
         {
@@ -152,17 +161,17 @@ public class SecurityAuditService : ISecurityAuditService
         var dedupeUsername = UsesUsernameDedupe(type) ? username : null;
         var dedupeIpAddress = ipAddress;
 
-        await using var transaction = await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+        await using var transaction = await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable, AuditToken);
 
         var duplicateExists = await _db.SecurityAlerts.AnyAsync(a =>
             a.Type == type
             && a.CreatedAt >= since
             && (dedupeUsername == null || a.Username == dedupeUsername)
-            && (dedupeIpAddress == null || a.IpAddress == dedupeIpAddress));
+            && (dedupeIpAddress == null || a.IpAddress == dedupeIpAddress), AuditToken);
 
         if (duplicateExists)
         {
-            await transaction.CommitAsync();
+            await transaction.CommitAsync(AuditToken);
             return;
         }
 
@@ -178,8 +187,8 @@ public class SecurityAuditService : ISecurityAuditService
             IsRead = false,
             CreatedAt = now
         });
-        await _db.SaveChangesAsync();
-        await transaction.CommitAsync();
+        await _db.SaveChangesAsync(AuditToken);
+        await transaction.CommitAsync(AuditToken);
     }
 
     public async Task RecordUnauthorizedAccessAsync(HttpContext httpContext, int statusCode, string? reason)
@@ -205,7 +214,7 @@ public class SecurityAuditService : ISecurityAuditService
             RiskLevel = statusCode == 403 ? "high" : "medium",
             OccurredAt = DateTime.UtcNow
         });
-        await _db.SaveChangesAsync();
+        await _db.SaveChangesAsync(AuditToken);
 
         if (statusCode == 403 && HttpContextSecurityHelper.IsAdminProbePath(httpContext.Request.Path))
         {
@@ -224,7 +233,7 @@ public class SecurityAuditService : ISecurityAuditService
         var unauthorizedCount = await _db.LoginAttemptLogs.AsNoTracking()
             .CountAsync(l => l.IpAddress == ip
                 && l.OccurredAt >= since
-                && (l.FailureReason == "unauthorized_access" || l.FailureReason == "forbidden_access"));
+                && (l.FailureReason == "unauthorized_access" || l.FailureReason == "forbidden_access"), AuditToken);
 
         if (unauthorizedCount >= UnauthorizedThreshold)
         {
@@ -240,7 +249,9 @@ public class SecurityAuditService : ISecurityAuditService
         }
     }
 
-    public async Task<LoginAttemptsPageDto> GetRecentLoginAttemptsAsync(LoginAttemptFilterRequest filter)
+    public async Task<LoginAttemptsPageDto> GetRecentLoginAttemptsAsync(
+        LoginAttemptFilterRequest filter,
+        CancellationToken cancellationToken = default)
     {
         var page = Math.Max(1, filter.Page);
         var pageSize = Math.Clamp(filter.PageSize, 1, 200);
@@ -257,7 +268,7 @@ public class SecurityAuditService : ISecurityAuditService
         if (filter.To.HasValue)
             query = query.Where(l => l.OccurredAt <= filter.To.Value);
 
-        var total = await query.CountAsync();
+        var total = await query.CountAsync(cancellationToken);
         var items = await query
             .OrderByDescending(l => l.OccurredAt)
             .Skip((page - 1) * pageSize)
@@ -274,7 +285,7 @@ public class SecurityAuditService : ISecurityAuditService
                 RiskLevel = l.RiskLevel,
                 OccurredAt = l.OccurredAt
             })
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         return new LoginAttemptsPageDto
         {
@@ -285,7 +296,9 @@ public class SecurityAuditService : ISecurityAuditService
         };
     }
 
-    public async Task<SecurityAlertsSummaryDto> GetSecurityAlertsAsync(SecurityAlertFilterRequest filter)
+    public async Task<SecurityAlertsSummaryDto> GetSecurityAlertsAsync(
+        SecurityAlertFilterRequest filter,
+        CancellationToken cancellationToken = default)
     {
         var page = Math.Max(1, filter.Page);
         var pageSize = Math.Clamp(filter.PageSize, 1, 200);
@@ -298,8 +311,8 @@ public class SecurityAuditService : ISecurityAuditService
         if (!string.IsNullOrWhiteSpace(filter.Type))
             query = query.Where(a => a.Type == filter.Type);
 
-        var unreadCount = await _db.SecurityAlerts.AsNoTracking().CountAsync(a => !a.IsRead);
-        var total = await query.CountAsync();
+        var unreadCount = await _db.SecurityAlerts.AsNoTracking().CountAsync(a => !a.IsRead, cancellationToken);
+        var total = await query.CountAsync(cancellationToken);
         var items = await query
             .OrderByDescending(a => a.CreatedAt)
             .Skip((page - 1) * pageSize)
@@ -318,7 +331,7 @@ public class SecurityAuditService : ISecurityAuditService
                 CreatedAt = a.CreatedAt,
                 ReadAt = a.ReadAt
             })
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         return new SecurityAlertsSummaryDto
         {
@@ -330,20 +343,20 @@ public class SecurityAuditService : ISecurityAuditService
         };
     }
 
-    public async Task<bool> MarkAlertAsReadAsync(int id)
+    public async Task<bool> MarkAlertAsReadAsync(int id, CancellationToken cancellationToken = default)
     {
-        var alert = await _db.SecurityAlerts.FirstOrDefaultAsync(a => a.Id == id);
+        var alert = await _db.SecurityAlerts.FirstOrDefaultAsync(a => a.Id == id, cancellationToken);
         if (alert == null) return false;
         if (!alert.IsRead)
         {
             alert.IsRead = true;
             alert.ReadAt = DateTime.UtcNow;
-            await _db.SaveChangesAsync();
+            await _db.SaveChangesAsync(cancellationToken);
         }
         return true;
     }
 
-    public async Task<int> MarkAllAlertsAsReadAsync()
+    public async Task<int> MarkAllAlertsAsReadAsync(CancellationToken cancellationToken = default)
     {
         var now = DateTime.UtcNow;
 
@@ -351,7 +364,7 @@ public class SecurityAuditService : ISecurityAuditService
             .Where(a => !a.IsRead)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(a => a.IsRead, true)
-                .SetProperty(a => a.ReadAt, now));
+                .SetProperty(a => a.ReadAt, now), cancellationToken);
     }
 
     private static bool UsesUsernameDedupe(string type) =>
