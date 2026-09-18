@@ -190,9 +190,9 @@ public static class TransactionSearchPagination
         bool sortDesc) =>
         sortDesc
             ? query.Where(t => (t.IncomingFromParty!.Name ?? t.IncomingFromDepartment!.Name ?? t.IncomingFrom ?? "").CompareTo(primary) < 0
-                || ((t.IncomingFromParty!.Name ?? t.IncomingFromDepartment!.Name ?? t.IncomingFrom ?? "") == primary && t.Id < id))
+                || ((t.IncomingFromParty.Name ?? t.IncomingFromDepartment!.Name ?? t.IncomingFrom ?? "") == primary && t.Id < id))
             : query.Where(t => (t.IncomingFromParty!.Name ?? t.IncomingFromDepartment!.Name ?? t.IncomingFrom ?? "").CompareTo(primary) > 0
-                || ((t.IncomingFromParty!.Name ?? t.IncomingFromDepartment!.Name ?? t.IncomingFrom ?? "") == primary && t.Id > id));
+                || ((t.IncomingFromParty.Name ?? t.IncomingFromDepartment!.Name ?? t.IncomingFrom ?? "") == primary && t.Id > id));
 
     private static IQueryable<Transaction> ApplyCategoryKeyset(
         IQueryable<Transaction> query,
@@ -201,9 +201,9 @@ public static class TransactionSearchPagination
         bool sortDesc) =>
         sortDesc
             ? query.Where(t => (t.CategoryEntity!.Name ?? t.Category ?? "").CompareTo(primary) < 0
-                || ((t.CategoryEntity!.Name ?? t.Category ?? "") == primary && t.Id < id))
+                || ((t.CategoryEntity.Name ?? t.Category ?? "") == primary && t.Id < id))
             : query.Where(t => (t.CategoryEntity!.Name ?? t.Category ?? "").CompareTo(primary) > 0
-                || ((t.CategoryEntity!.Name ?? t.Category ?? "") == primary && t.Id > id));
+                || ((t.CategoryEntity.Name ?? t.Category ?? "") == primary && t.Id > id));
 
     private static IQueryable<Transaction> ApplyIncomingDateKeyset(
         IQueryable<Transaction> query,
