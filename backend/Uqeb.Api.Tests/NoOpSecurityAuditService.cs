@@ -28,13 +28,19 @@ internal sealed class NoOpSecurityAuditService : ISecurityAuditService
     public Task RecordUnauthorizedAccessAsync(HttpContext httpContext, int statusCode, string? reason) =>
         Task.CompletedTask;
 
-    public Task<LoginAttemptsPageDto> GetRecentLoginAttemptsAsync(LoginAttemptFilterRequest filter) =>
+    public Task<LoginAttemptsPageDto> GetRecentLoginAttemptsAsync(
+        LoginAttemptFilterRequest filter,
+        CancellationToken cancellationToken = default) =>
         Task.FromResult(new LoginAttemptsPageDto());
 
-    public Task<SecurityAlertsSummaryDto> GetSecurityAlertsAsync(SecurityAlertFilterRequest filter) =>
+    public Task<SecurityAlertsSummaryDto> GetSecurityAlertsAsync(
+        SecurityAlertFilterRequest filter,
+        CancellationToken cancellationToken = default) =>
         Task.FromResult(new SecurityAlertsSummaryDto());
 
-    public Task<bool> MarkAlertAsReadAsync(int id) => Task.FromResult(false);
+    public Task<bool> MarkAlertAsReadAsync(int id, CancellationToken cancellationToken = default) =>
+        Task.FromResult(false);
 
-    public Task<int> MarkAllAlertsAsReadAsync() => Task.FromResult(0);
+    public Task<int> MarkAllAlertsAsReadAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(0);
 }
