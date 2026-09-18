@@ -208,7 +208,7 @@ public class TransactionSearchPaginationSqlServerIntegrationTests
             return;
         }
 
-        var (db, testConnectionString, databaseName) = await CreateSqlDbAsync("Uqeb_PaginationIncomingFrom");
+        var (db, testConnectionString, databaseName) = await CreateSqlDbAsync("Uqeb_Pagination_IncomingFrom");
         try
         {
             await SeedAdminUserAsync(db);
@@ -273,7 +273,7 @@ public class TransactionSearchPaginationSqlServerIntegrationTests
             return;
         }
 
-        var (db, testConnectionString, databaseName) = await CreateSqlDbAsync("Uqeb_PaginationCategory");
+        var (db, testConnectionString, databaseName) = await CreateSqlDbAsync("Uqeb_Pagination_Category");
         try
         {
             await SeedAdminUserAsync(db);
@@ -332,7 +332,7 @@ public class TransactionSearchPaginationSqlServerIntegrationTests
             return;
         }
 
-        var (db, testConnectionString, databaseName) = await CreateSqlDbAsync("Uqeb_PaginationResponseDueDate");
+        var (db, testConnectionString, databaseName) = await CreateSqlDbAsync("Uqeb_Pagination_ResponseDueDate");
         try
         {
             await SeedAdminUserAsync(db);
